@@ -14,9 +14,11 @@ describe('provider runtime presets', () => {
         authStyle,
       })),
     ).toEqual([
-      { id: 'openai', protocol: 'openai-compatible', authStyle: 'bearer' },
+      { id: 'chatgpt-oauth', protocol: 'openai-responses', authStyle: 'none' },
+      { id: 'openai', protocol: 'openai-responses', authStyle: 'bearer' },
       { id: 'claude', protocol: 'anthropic', authStyle: 'x-api-key' },
       { id: 'gemini', protocol: 'gemini', authStyle: 'x-goog-api-key' },
+      { id: 'gemini-oauth', protocol: 'gemini', authStyle: 'none' },
       { id: 'deepseek', protocol: 'openai-compatible', authStyle: 'bearer' },
       { id: 'grok', protocol: 'openai-compatible', authStyle: 'bearer' },
       { id: 'qwen', protocol: 'openai-compatible', authStyle: 'bearer' },
@@ -40,7 +42,9 @@ describe('provider runtime presets', () => {
     const claude = buildRuntimeLLMAdapter(getBuiltinLLMProviderPreset('claude')!);
     const gemini = buildRuntimeLLMAdapter(getBuiltinLLMProviderPreset('gemini')!);
     const cohere = buildRuntimeLLMAdapter(getBuiltinLLMProviderPreset('cohere')!);
+    const openai = buildRuntimeLLMAdapter(getBuiltinLLMProviderPreset('openai')!);
 
+    expect(openai.constructor.name).toBe('OpenAIResponsesLLM');
     expect(claude.constructor.name).toBe('ClaudeLLMAdapter');
     expect(gemini.constructor.name).toBe('GeminiLLMAdapter');
     expect(cohere.constructor.name).toBe('CohereLLMAdapter');

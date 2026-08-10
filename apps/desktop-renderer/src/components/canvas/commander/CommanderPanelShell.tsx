@@ -589,6 +589,7 @@ export function CommanderPanelShell() {
               <QuestionCard
                 question={pendingQuestion.question}
                 options={pendingQuestion.options}
+                allowFreeText={pendingQuestion.allowFreeText}
                 onAnswer={(answer) => {
                   const api = getAPI();
                   const canvasId = activeCanvasIdRef.current;

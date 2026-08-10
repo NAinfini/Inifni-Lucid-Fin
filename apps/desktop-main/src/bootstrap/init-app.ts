@@ -13,17 +13,36 @@ import {
   GoogleImagen3Adapter,
   RecraftAdapter,
   LeonardoAdapter,
+  FalAdapter,
+  TogetherMediaAdapter,
+  SiliconFlowImageAdapter,
+  XAIImagineAdapter,
+  ZhipuImageAdapter,
+  BFLFluxAdapter,
+  StabilityImageAdapter,
+  BriaAdapter,
+  KreaAdapter,
+  SegmindAdapter,
+  FreepikAdapter,
+  BaiduQianfanAdapter,
+  StepFunImageAdapter,
+  VolcengineImageAdapter,
+  AlibabaWanImageAdapter,
   // Video adapters
   RunwayAdapter,
   VeoAdapter,
   LumaAdapter,
   MiniMaxAdapter,
-  PikaAdapter,
   KlingAdapter,
-  WanAdapter,
   SeedanceAdapter,
-  HunyuanVideoAdapter,
   HiggsfieldAdapter,
+  PixVerseAdapter,
+  AlibabaWanVideoAdapter,
+  LtxAdapter,
+  SiliconFlowVideoAdapter,
+  ZhipuVideoAdapter,
+  ViduAdapter,
+  VolcengineVideoAdapter,
   // Audio adapters
   ElevenLabsAdapter,
   ElevenLabsSFXAdapter,
@@ -47,13 +66,22 @@ import {
   providerHealth,
 } from '@lucid-fin/adapters-ai';
 import { AgentToolRegistry } from '@lucid-fin/application';
-import type { LLMAdapter } from '@lucid-fin/contracts';
+import {
+  listBuiltinMediaProviders,
+  listBuiltinVisionProviderPresets,
+  type LLMAdapter,
+} from '@lucid-fin/contracts';
+import type { CodexRuntime } from '../codex/codex-runtime.js';
+import { CodexImageGenAdapter } from '../codex/codex-imagegen.adapter.js';
+import { CodexLLMAdapter } from '../codex/codex-llm.adapter.js';
+import type { ProviderOAuthManager } from '../oauth/provider-oauth-manager.js';
+import { GeminiLLMAdapter } from '@lucid-fin/adapters-ai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const APP_DIR = path.join(os.homedir(), '.lucid-fin');
 
-export function createAdapterRegistry(): AdapterRegistry {
+export function createAdapterRegistry(codexRuntime?: CodexRuntime): AdapterRegistry {
   const adapterRegistry = new AdapterRegistry();
   // Image
   adapterRegistry.register(new OpenAIDalleAdapter());
@@ -62,17 +90,39 @@ export function createAdapterRegistry(): AdapterRegistry {
   adapterRegistry.register(new GoogleImagen3Adapter());
   adapterRegistry.register(new RecraftAdapter());
   adapterRegistry.register(new LeonardoAdapter());
+  adapterRegistry.register(new FalAdapter());
+  adapterRegistry.register(new TogetherMediaAdapter());
+  adapterRegistry.register(new SiliconFlowImageAdapter());
+  adapterRegistry.register(new XAIImagineAdapter());
+  adapterRegistry.register(new ZhipuImageAdapter());
+  adapterRegistry.register(new BFLFluxAdapter());
+  adapterRegistry.register(new StabilityImageAdapter());
+  adapterRegistry.register(new StepFunImageAdapter());
+  adapterRegistry.register(new VolcengineImageAdapter());
+  adapterRegistry.register(new AlibabaWanImageAdapter());
+  adapterRegistry.register(new BriaAdapter());
+  adapterRegistry.register(new KreaAdapter());
+  adapterRegistry.register(new HiggsfieldAdapter());
+  adapterRegistry.register(new SegmindAdapter());
+  adapterRegistry.register(new FreepikAdapter());
+  adapterRegistry.register(new BaiduQianfanAdapter());
+  if (codexRuntime) {
+    adapterRegistry.register(new CodexImageGenAdapter(codexRuntime));
+  }
   // Video
   adapterRegistry.register(new RunwayAdapter());
   adapterRegistry.register(new VeoAdapter());
   adapterRegistry.register(new LumaAdapter());
   adapterRegistry.register(new MiniMaxAdapter());
-  adapterRegistry.register(new PikaAdapter());
   adapterRegistry.register(new KlingAdapter());
-  adapterRegistry.register(new WanAdapter());
   adapterRegistry.register(new SeedanceAdapter());
-  adapterRegistry.register(new HunyuanVideoAdapter());
-  adapterRegistry.register(new HiggsfieldAdapter());
+  adapterRegistry.register(new PixVerseAdapter());
+  adapterRegistry.register(new AlibabaWanVideoAdapter());
+  adapterRegistry.register(new LtxAdapter());
+  adapterRegistry.register(new SiliconFlowVideoAdapter());
+  adapterRegistry.register(new ZhipuVideoAdapter());
+  adapterRegistry.register(new ViduAdapter());
+  adapterRegistry.register(new VolcengineVideoAdapter());
   // Audio
   adapterRegistry.register(new ElevenLabsAdapter());
   adapterRegistry.register(new ElevenLabsSFXAdapter());
@@ -97,10 +147,13 @@ export function createLLMRegistry(): LLMRegistry {
   for (const preset of listBuiltinLLMProviderPresets()) {
     llmRegistry.register(buildRuntimeLLMAdapter(preset));
   }
+  for (const preset of listBuiltinVisionProviderPresets()) {
+    llmRegistry.register(buildRuntimeLLMAdapter(preset));
+  }
   return llmRegistry;
 }
 
-export function initApp() {
+export function initApp(codexRuntime?: CodexRuntime) {
   // Wire provider health tracker warn logger
   providerHealth.setWarnLogger((message, meta) => log.warn(message, meta));
 
@@ -118,7 +171,7 @@ export function initApp() {
   const cas = new CAS(assetsRoot, workerPath);
   const keychain = new Keychain();
 
-  const adapterRegistry = createAdapterRegistry();
+  const adapterRegistry = createAdapterRegistry(codexRuntime);
   const llmRegistry = createLLMRegistry();
 
   // Prompt template store
@@ -138,6 +191,61 @@ export function initApp() {
     processPromptStore,
     toolRegistry,
   };
+}
+
+export function registerOAuthAdapters(
+  manager: ProviderOAuthManager,
+  adapterRegistry: AdapterRegistry,
+  llmRegistry: LLMRegistry,
+): void {
+  adapterRegistry.register(new CodexImageGenAdapter(manager.getCodexRuntime('image')));
+  adapterRegistry.register(
+    new GoogleImagen3Adapter({
+      id: 'google-imagen3-oauth',
+      name: 'Google Gemini Image (OAuth)',
+      credentialMode: 'oauth',
+      oauthTarget: { provider: 'gemini', capability: 'image' },
+      authorizationHeaders: () => manager.getGoogleAuthorizationHeaders('image'),
+    }),
+  );
+  adapterRegistry.register(
+    new VeoAdapter({
+      id: 'google-veo-2-oauth',
+      name: 'Google Gemini Video (OAuth)',
+      credentialMode: 'oauth',
+      oauthTarget: { provider: 'gemini', capability: 'video' },
+      authorizationHeaders: () => manager.getGoogleAuthorizationHeaders('video'),
+    }),
+  );
+  llmRegistry.register(
+    new CodexLLMAdapter('chatgpt-oauth', 'ChatGPT (OAuth)', 'llm', manager.getCodexRuntime('llm')),
+  );
+  llmRegistry.register(
+    new CodexLLMAdapter(
+      'chatgpt-vision-oauth',
+      'ChatGPT Vision (OAuth)',
+      'vision',
+      manager.getCodexRuntime('vision'),
+    ),
+  );
+  llmRegistry.register(
+    new GeminiLLMAdapter({
+      id: 'gemini-oauth',
+      name: 'Google Gemini (OAuth)',
+      credentialMode: 'oauth',
+      oauthTarget: { provider: 'gemini', capability: 'llm' },
+      authorizationHeaders: () => manager.getGoogleAuthorizationHeaders('llm'),
+    }),
+  );
+  llmRegistry.register(
+    new GeminiLLMAdapter({
+      id: 'gemini-vision-oauth',
+      name: 'Google Gemini Vision (OAuth)',
+      credentialMode: 'oauth',
+      oauthTarget: { provider: 'gemini', capability: 'vision' },
+      authorizationHeaders: () => manager.getGoogleAuthorizationHeaders('vision'),
+    }),
+  );
 }
 
 export async function selectConfiguredLLMAdapter(
@@ -186,21 +294,47 @@ export async function restoreAdapterKeys(
   const mediaAdapters = registry.list();
   const llmAdapters = llmRegistry.list();
 
-  const mediaResults = await Promise.all(
-    mediaAdapters.map(async (adapter) => {
-      const key = await keychain.getKey(adapter.id);
-      return { adapter, key };
-    }),
+  const configuredMediaAdapters = new Set<string>();
+  const catalogBindings = listBuiltinMediaProviders()
+    .filter((entry) => entry.access !== 'managed')
+    .map((entry) => ({
+      entry,
+      adapter: registry.resolve(entry.providerId, entry.group),
+    }))
+    .filter((binding) => binding.adapter !== undefined);
+  const catalogResults = await Promise.all(
+    catalogBindings.map(async ({ entry, adapter }) => ({
+      entry,
+      adapter,
+      key: await keychain.getKey(entry.credentialId),
+    })),
   );
-  for (const { adapter, key } of mediaResults) {
+  for (const { entry, adapter, key } of catalogResults) {
+    if (!adapter || !key) continue;
+    adapter.configure(key, { generationType: entry.group });
+    configuredMediaAdapters.add(adapter.id);
+  }
+
+  // Preserve existing installations whose secrets were stored under legacy
+  // adapter IDs, and restore non-image/video adapters that are not catalogued.
+  const legacyMediaResults = await Promise.all(
+    mediaAdapters
+      .filter(
+        (adapter) => adapter.credentialMode !== 'oauth' && !configuredMediaAdapters.has(adapter.id),
+      )
+      .map(async (adapter) => ({ adapter, key: await keychain.getKey(adapter.id) })),
+  );
+  for (const { adapter, key } of legacyMediaResults) {
     if (key) adapter.configure(key);
   }
 
   const llmResults = await Promise.all(
-    llmAdapters.map(async (adapter) => {
-      const key = await keychain.getKey(adapter.id);
-      return { adapter, key };
-    }),
+    llmAdapters
+      .filter((adapter) => adapter.credentialMode !== 'oauth')
+      .map(async (adapter) => {
+        const key = await keychain.getKey(adapter.id);
+        return { adapter, key };
+      }),
   );
   for (const { adapter, key } of llmResults) {
     if (key) adapter.configure(key);

@@ -33,6 +33,7 @@ function registerHandlers() {
       },
     },
   };
+  const visualAnalyzer = {};
 
   registerEmbeddingHandlers(
     {
@@ -41,13 +42,12 @@ function registerHandlers() {
       },
     } as never,
     {
-      cas: {} as never,
-      keychain: {} as never,
+      visualAnalyzer: visualAnalyzer as never,
       db: db as never,
     },
   );
 
-  return { handlers, db };
+  return { handlers, db, visualAnalyzer };
 }
 
 describe('registerEmbeddingHandlers', () => {
@@ -70,14 +70,14 @@ describe('registerEmbeddingHandlers', () => {
   });
 
   it('generates an embedding for a valid asset hash', async () => {
-    const { handlers, db } = registerHandlers();
+    const { handlers, db, visualAnalyzer } = registerHandlers();
     const validHash = 'e'.repeat(64);
 
     await expect(
       handlers.get('asset:generateEmbedding')?.({}, { assetHash: validHash }),
     ).resolves.toEqual({ ok: true });
 
-    expect(describeImageAsset).toHaveBeenCalledWith({}, {}, validHash, 'description');
+    expect(describeImageAsset).toHaveBeenCalledWith(visualAnalyzer, validHash, 'description');
     expect(db.repos.assets.insertEmbedding).toHaveBeenCalledWith(
       validHash,
       'bright hero frame',

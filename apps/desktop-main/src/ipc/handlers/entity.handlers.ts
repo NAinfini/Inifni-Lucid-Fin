@@ -31,7 +31,8 @@ export function registerEntityHandlers(ipcMain: IpcMain, deps: EntityGenerationD
 
     if (!entityId || !entityType) throw new Error('entityId and entityType are required');
 
-    const adapter = deps.adapterRegistry.get(provider);
+    const adapter =
+      deps.adapterRegistry.resolve?.(provider, 'image') ?? deps.adapterRegistry.get(provider);
     if (!adapter) throw new Error(`Provider not found: ${provider}`);
 
     const hashes: string[] = [];

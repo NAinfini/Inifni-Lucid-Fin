@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { configureStore } from '@reduxjs/toolkit';
-import { cleanup, render, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CanvasPage } from './CanvasPage.js';
@@ -13,6 +13,8 @@ import { settingsSlice, setBootstrapped } from '../store/slices/settings.js';
 import { presetsSlice } from '../store/slices/presets.js';
 import { loggerSlice } from '../store/slices/logger.js';
 import { commanderSlice } from '../store/slices/commander.js';
+import { workflowsSlice } from '../store/slices/workflows.js';
+import { t } from '../i18n.js';
 
 let commanderPanelModuleLoads = 0;
 
@@ -84,6 +86,11 @@ vi.mock('../components/layout/LeftToolbar.js', () => ({
 vi.mock('../components/layout/RightToolbar.js', () => ({
   RightToolbar: () => <div>RightToolbar</div>,
 }));
+vi.mock('../components/execution/ExecutionPanel.js', () => ({
+  ExecutionPanel: ({ entityId }: { entityId?: string }) => (
+    <div>{`ExecutionPanel ${entityId ?? ''}`}</div>
+  ),
+}));
 
 function createStore() {
   const store = configureStore({
@@ -94,6 +101,7 @@ function createStore() {
       presets: presetsSlice.reducer,
       logger: loggerSlice.reducer,
       commander: commanderSlice.reducer,
+      workflows: workflowsSlice.reducer,
     },
   });
 
@@ -297,5 +305,67 @@ describe('CanvasPage logger startup', () => {
         message: 'Provider crashed',
       }),
     );
+  });
+
+  it('loads active-canvas workflows and exposes the production panel without covering the canvas', async () => {
+    const listWorkflows = vi.fn().mockResolvedValue([
+      {
+        id: 'workflow-canvas-1',
+        workflowType: 'movie.production.v2',
+        entityType: 'canvas',
+        entityId: 'canvas-1',
+        triggerSource: 'commander',
+        status: 'awaiting_approval',
+        summary: 'Production Plan awaiting approval',
+        progress: 0,
+        completedStages: 0,
+        totalStages: 4,
+        completedTasks: 0,
+        totalTasks: 12,
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    ]);
+
+    vi.mocked(getAPI).mockReturnValue({
+      canvas: {
+        loadAll: vi.fn().mockResolvedValue([
+          {
+            id: 'canvas-1',
+            name: 'Production canvas',
+            nodes: [],
+            edges: [],
+            notes: [],
+            viewport: { x: 0, y: 0, zoom: 1 },
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ]),
+      },
+      preset: { list: vi.fn().mockResolvedValue([]) },
+      workflow: { list: listWorkflows },
+      logger: {
+        getRecent: vi.fn().mockResolvedValue([]),
+        onEntry: vi.fn(() => () => {}),
+      },
+      onReady: vi.fn(() => () => {}),
+    } as unknown as ReturnType<typeof getAPI>);
+
+    render(
+      <Provider store={createStore()}>
+        <CanvasPage />
+      </Provider>,
+    );
+
+    await waitFor(() => {
+      expect(listWorkflows).toHaveBeenCalledWith({ entityType: 'canvas' });
+      expect(screen.getByText('ExecutionPanel canvas-1')).toBeTruthy();
+    });
+
+    const executionToggle = screen.getByRole('button', { name: t('layout.executionPanel') });
+    expect(executionToggle.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(executionToggle);
+    expect(screen.queryByText('ExecutionPanel canvas-1')).toBeNull();
+    expect(screen.getByText('CanvasWorkspace')).toBeTruthy();
   });
 });

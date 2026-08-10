@@ -100,14 +100,42 @@ describe('main logger foundation', () => {
   it('keeps only the latest buffered entries', async () => {
     const logger = await loadLoggerModule();
     logger.initLogger('debug');
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 
-    for (let index = 0; index < 1001; index += 1) {
-      logger.debug(`entry-${index}`, { category: 'trim' });
+    try {
+      for (let index = 0; index < 1001; index += 1) {
+        logger.debug(`entry-${index}`, { category: 'trim' });
+      }
+    } finally {
+      consoleSpy.mockRestore();
     }
 
     const entries = logger.getBufferedLogs();
     expect(entries).toHaveLength(1000);
     expect(entries[0]?.message).toBe('entry-1');
     expect(entries.at(-1)?.message).toBe('entry-1000');
+  });
+
+  it('normalizes flexible logger arguments and circular context safely', async () => {
+    const logger = await loadLoggerModule();
+    logger.initLogger('debug');
+    logger.setLogLevel('debug');
+    const context: Record<string, unknown> = { category: 'flexible' };
+    context.self = context;
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    try {
+      logger.default.info(42, context, 'tail');
+    } finally {
+      consoleSpy.mockRestore();
+    }
+
+    expect(logger.getBufferedLogs().at(-1)).toMatchObject({
+      level: 'info',
+      category: 'flexible',
+      message: '42',
+      detail: expect.stringContaining('[Circular]'),
+    });
+    expect(logger.getBufferedLogs().at(-1)?.detail).toContain('tail');
   });
 });

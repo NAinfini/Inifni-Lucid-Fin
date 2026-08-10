@@ -57,6 +57,7 @@ const TOOL_CATEGORIES: Record<string, ToolCompactionCategory> = {
   'workflow.manage': 'mutation',
   'workflow.visual': 'mutation',
   'workflow.media': 'mutation',
+  'workflow.mediaFeedback': 'mutation',
   'workflow.finalExport': 'mutation',
   'shotTemplate.manage': 'mutation',
   'canvas.presetTracks': 'mutation',

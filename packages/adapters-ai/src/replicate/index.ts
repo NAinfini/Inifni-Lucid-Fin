@@ -27,7 +27,7 @@ export class ReplicateAdapter implements AIProviderAdapter {
   private apiKey = '';
   private baseUrl = 'https://api.replicate.com/v1';
   private model = 'black-forest-labs/flux-1.1-pro';
-  private videoModel = 'minimax/video-01';
+  private videoModel = 'minimax/hailuo-2.3';
 
   configure(apiKey: string, options?: AdapterConfigureOptions): void {
     this.apiKey = apiKey;

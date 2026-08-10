@@ -119,7 +119,7 @@ export async function createPrediction(
   // Official models use /models/{owner}/{name}/predictions
   // Version-pinned models use /predictions with version field
   const parts = model.split(':');
-  const slug = parts[0]; // e.g. "wan-ai/wan-2.1"
+  const slug = parts[0]; // e.g. "black-forest-labs/flux-2-pro"
   const version = parts[1]; // e.g. "latest" or a sha256 hash
 
   const isOfficialModel = !version || version === 'latest';

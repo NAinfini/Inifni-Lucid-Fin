@@ -282,6 +282,7 @@ describe('commander slice', () => {
           { label: 'A', description: 'first' },
           { label: 'B', description: 'second' },
         ],
+        allowFreeText: true,
       }),
     );
     state = commanderSlice.reducer(state, resolveQuestion({ answer: 'A' }));

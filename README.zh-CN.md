@@ -15,6 +15,7 @@ _从剧本到镜头，从镜头到场景，从场景到影片 — 全程 AI 驱�
   <a href="#-功能特性">功能特性</a> &nbsp;&bull;&nbsp;
   <a href="#-截图">截图</a> &nbsp;&bull;&nbsp;
   <a href="#-架构">架构</a> &nbsp;&bull;&nbsp;
+  <a href="docs/TECH_STACK.md">技术栈</a> &nbsp;&bull;&nbsp;
   <a href="#-快速开始">快速开始</a> &nbsp;&bull;&nbsp;
   <a href="README.md">English</a>
 </p>
@@ -28,13 +29,13 @@ _从剧本到镜头，从镜头到场景，从场景到影片 — 全程 AI 驱�
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/Electron-41-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron">
+  <img src="https://img.shields.io/badge/Electron-43.2.0-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron">
   <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React">
   <img src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white" alt="Vite">
   <img src="https://img.shields.io/badge/SQLite-3-003B57?style=flat-square&logo=sqlite&logoColor=white" alt="SQLite">
-  <img src="https://img.shields.io/badge/FFmpeg-7-007808?style=flat-square&logo=ffmpeg&logoColor=white" alt="FFmpeg">
-  <img src="https://img.shields.io/badge/Node-%E2%89%A522-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node">
+  <img src="https://img.shields.io/badge/FFmpeg-8.1.2-007808?style=flat-square&logo=ffmpeg&logoColor=white" alt="FFmpeg">
+  <img src="https://img.shields.io/badge/Node-%E2%89%A526.5.1-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node">
 </p>
 
 </div>
@@ -172,11 +173,11 @@ _从剧本到镜头，从镜头到场景，从场景到影片 — 全程 AI 驱�
   </tr>
   <tr>
     <td><strong>图像</strong></td>
-    <td>OpenAI GPT Image、Google Imagen 4、Recraft、Ideogram、Replicate、fal、Stability、Together AI、硅基流动、智谱 CogView、通义万象、快手可图、阶跃星辰、火山引擎 Seedream</td>
+    <td>ChatGPT 图像生成（OAuth）、OpenAI GPT Image 2、Google Gemini 3.1 Image、Recraft、Ideogram、Leonardo、智谱 GLM Image、阶跃星辰、火山引擎 Seedream、通义万象、xAI Imagine、BFL FLUX、Stability、Bria、百度千帆、Replicate、fal、Together AI、硅基流动、Krea、Higgsfield、Segmind、Freepik</td>
   </tr>
   <tr>
     <td><strong>视频</strong></td>
-    <td>Google Veo 2、Runway Gen-4、Luma Dream Machine、Pika、可灵、MiniMax 海螺、生数 Vidu、Replicate、fal、硅基流动、智谱 CogVideoX、通义视频、火山引擎豆包视频</td>
+    <td>Google Gemini Omni Flash、Runway Gen-4.5、LTX 2.3、Luma Dream Machine、MiniMax H3、可灵、智谱 CogVideoX-3、生数 Vidu、火山引擎 Seedance、阿里 Wan 2.7、百度千帆、xAI Imagine、PixVerse V6、Replicate、fal、Together AI、硅基流动、Krea、Higgsfield、Segmind、Freepik、Seedance、混元视频</td>
   </tr>
   <tr>
     <td><strong>音频</strong></td>
@@ -184,9 +185,12 @@ _从剧本到镜头，从镜头到场景，从场景到影片 — 全程 AI 驱�
   </tr>
   <tr>
     <td><strong>视觉</strong></td>
-    <td>15+ 家提供方 — 与 LLM 列表相同（OpenAI、Gemini、Claude、通义千问、Grok、Mistral、DeepSeek 等）</td>
+    <td>14 家已验证图像输入的提供方，包括 OpenAI、Gemini、Claude、通义千问、Grok、Mistral、智谱、Kimi、阶跃星辰以及可配置模型中心/本地模型</td>
   </tr>
 </table>
+
+默认模型、传输映射、官方资料和明确排除项见[媒体提供方与 API 矩阵](docs/MEDIA_PROVIDER_MATRIX.md)。
+当前 LLM/视觉默认模型、上下文窗口、协议要求和迁移行为见[LLM 与视觉提供方矩阵](docs/LLM_PROVIDER_MATRIX.md)。
 
 ---
 
@@ -194,7 +198,7 @@ _从剧本到镜头，从镜头到场景，从场景到影片 — 全程 AI 驱�
 
 ```mermaid
 graph TB
-    subgraph Desktop["桌面应用 (Electron 41)"]
+    subgraph Desktop["桌面应用 (Electron 43)"]
         subgraph Renderer["渲染进程 — React 19 + Vite 8"]
             UI["画布工作区<br/>检查器 &middot; 梦鱼 AI"]
             Store["Redux 状态管理<br/>18 个切片"]
@@ -229,10 +233,10 @@ graph TB
 
     subgraph Providers["AI 提供方"]
         LLM["LLM<br/>19 家"]
-        IMG["图像<br/>14 家"]
-        VID["视频<br/>13 家"]
+        IMG["图像<br/>已验证目录"]
+        VID["视频<br/>已验证目录"]
         AUD["音频<br/>6 家"]
-        VIS["视觉<br/>15 家"]
+        VIS["视觉<br/>14 家"]
     end
 
     Adapters --> LLM
@@ -277,16 +281,16 @@ git clone https://github.com/NAinfini/Inifni-Lucid-Fin.git
 cd Inifni-Lucid-Fin
 
 # 安装依赖
-npm install
+pnpm install --frozen-lockfile
 
 # 开发环境
-npm run dev
+pnpm run dev
 
 # 运行测试
-npm test
+pnpm test
 
 # 构建
-npm run build
+pnpm run build
 ```
 
 <details>
@@ -294,21 +298,29 @@ npm run build
 
 | 要求     | 版本                    |
 | -------- | ----------------------- |
-| Node.js  | >= 22.12.0              |
-| npm      | >= 10                   |
-| FFmpeg   | >= 7（视频处理需要）    |
+| Node.js  | >= 26.5.1               |
+| pnpm     | 11.21.0                 |
+| FFmpeg   | 固定 8.1.2 LGPL 运行时  |
 | 操作系统 | Windows / macOS / Linux |
 
 </details>
+
+完整版本矩阵、唯一事实源及 TypeScript 6.0.2 冻结策略见[技术栈文档](docs/TECH_STACK.md)。
 
 <details>
 <summary><strong>AI 提供方配置</strong></summary>
 
 1. 打开 **设置**（齿轮图标）
 2. 选择提供方标签：**LLM**、**图像**、**视频**、**音频** 或 **视觉**
-3. 输入 API 密钥并点击 **保存**
+3. API 提供方需输入 API 密钥并点击 **保存**；OAuth 提供方展开卡片后点击 **登录**，不会要求 API 密钥或密码
 4. 将提供方设为当前使用
 5. 添加自定义提供方：点击 **+ 添加自定义提供方**，输入名称、基础 URL 和模型
+
+ChatGPT OAuth 可分别用于 Commander LLM、图像生成和备用视觉理解；Gemini OAuth 可分别用于
+LLM、图像、视频和备用视觉理解，因此每项能力可以登录不同账号。提供方能返回额度时，OAuth
+卡片会显示剩余用量；Gemini 无法可靠返回剩余额度时会链接到 Cloud 配额面板。当前 LLM 支持
+图像理解时，Lucid Fin 会直接复用该 LLM，不再调用备用视觉提供方。详见
+[OAuth 安全与路由契约](docs/PROVIDER_OAUTH.md)。
 
 </details>
 
@@ -316,7 +328,7 @@ npm run build
 
 ## CI / CD
 
-每次 push 和 pull request 都会通过 GitHub Actions 运行完整 CI 管线：
+每次 push 和 pull request 都会在 Node 26.5.1 与 pnpm 11.21.0 上通过 GitHub Actions 运行完整 CI 管线：
 
 | 任务         | 内容                                                            |
 | ------------ | --------------------------------------------------------------- |

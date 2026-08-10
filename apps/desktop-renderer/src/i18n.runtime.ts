@@ -22,6 +22,13 @@ function localizeWithFallback(key: string, fallback: string): string {
   return result !== key ? result : fallback;
 }
 
+function localizeFlatMapEntry(section: string, key: string, fallback: string): string {
+  const sectionValue = (messages[currentLocale] as NestedMessages)[section];
+  if (typeof sectionValue === 'string' || sectionValue === undefined) return fallback;
+  const value = sectionValue[key];
+  return typeof value === 'string' ? value : fallback;
+}
+
 export function setLocale(locale: Locale): void {
   currentLocale = locale;
 
@@ -149,7 +156,7 @@ export function localizeSkillName(id: string, fallback: string): string {
 }
 
 export function localizeToolName(toolName: string): string {
-  return localizeWithFallback('toolNames.' + toolName, toolName);
+  return localizeFlatMapEntry('toolNames', toolName, toolName);
 }
 
 export function localizeSettingsCategory(category: string): string {

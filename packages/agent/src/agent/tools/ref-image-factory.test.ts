@@ -108,7 +108,10 @@ describe('createRefImageTools', () => {
       expect(result.data).toMatchObject({ assetHash: 'hash-123', slot: 'primary' });
       expect(config.generateImage).toHaveBeenCalledWith(
         expect.stringContaining('test prompt for primary'),
-        {},
+        {
+          resolution: { mode: 'provider-default' },
+          resolutionSource: 'provider',
+        },
       );
       expect(config.saveEntity).toHaveBeenCalledOnce();
       const savedEntity = (config.saveEntity as ReturnType<typeof vi.fn>).mock
@@ -224,12 +227,19 @@ describe('createRefImageTools', () => {
       expect(primary?.variants).toContain('old-hash');
     });
 
-    it('threads canvas-scoped stylePlate into the prompt builder', async () => {
+    it('compiles the canonical Canvas visual-style draft into the prompt builder', async () => {
       const config = createConfig({
         getCanvas: vi.fn(
           async () =>
             ({
-              settings: { stylePlate: 'style-xyz' },
+              settings: {
+                visualStylePolicy: {
+                  version: 1,
+                  summary: 'style-xyz',
+                  locked: { lighting: 'soft moonlight' },
+                  negativeConstraints: ['watermark'],
+                },
+              },
             }) as never,
         ),
       });
@@ -240,7 +250,11 @@ describe('createRefImageTools', () => {
       expect(config.buildPrompt).toHaveBeenCalledWith(
         expect.anything(),
         { kind: 'primary' },
-        'style-xyz',
+        expect.stringMatching(/Direction: style-xyz.*Lighting: soft moonlight/),
+      );
+      expect(config.generateImage).toHaveBeenCalledWith(
+        expect.stringContaining('Avoid: watermark'),
+        expect.anything(),
       );
     });
 
@@ -263,7 +277,7 @@ describe('createRefImageTools', () => {
       );
     });
 
-    it('uses canvas refResolution when args.width/height are omitted', async () => {
+    it('converts legacy Canvas refResolution into a canonical exact intent', async () => {
       const config = createConfig({
         getCanvas: vi.fn(
           async () =>
@@ -278,7 +292,36 @@ describe('createRefImageTools', () => {
 
       expect(config.generateImage).toHaveBeenCalledWith(
         expect.any(String),
-        expect.objectContaining({ width: 1536, height: 1024 }),
+        expect.objectContaining({
+          resolution: { mode: 'exact', width: 1536, height: 1024 },
+          resolutionSource: 'canvas',
+        }),
+      );
+    });
+
+    it('passes the canonical Canvas reference-image tier through unchanged', async () => {
+      const config = createConfig({
+        getCanvas: vi.fn(
+          async () =>
+            ({
+              settings: {
+                resolutionPolicy: {
+                  referenceImage: { mode: 'tier', tier: '2K', aspectRatio: '16:9' },
+                },
+              },
+            }) as never,
+        ),
+      });
+      const tool = createRefImageTools(config).find((t) => t.name === 'test.generateRefImage')!;
+
+      await tool.execute({ id: 'e1', view: { kind: 'primary' }, canvasId: 'canvas-1' });
+
+      expect(config.generateImage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          resolution: { mode: 'tier', tier: '2K', aspectRatio: '16:9' },
+          resolutionSource: 'canvas',
+        }),
       );
     });
 

@@ -4,8 +4,7 @@
  * These are the five typed primitives that every later phase of the
  * exit-contract architecture builds on. Phase A is additive only: nothing
  * in `agent-orchestrator.ts`, the IPC layer, or the study harness imports
- * these yet. See `.trellis/tasks/04-20-exit-contract-architecture/prd.md`
- * for the full design.
+ * these yet.
  *
  * The guiding invariant: "task satisfied" is a first-class decision driven
  * by typed evidence against a typed contract, not a side effect of the

@@ -10,9 +10,20 @@ import os from 'node:os';
 import path from 'node:path';
 import log from '../../logger.js';
 import { sanitizePng } from '../../sanitize-png.js';
-import { providerHealth, type AdapterRegistry } from '@lucid-fin/adapters-ai';
+import {
+  preflightGenerationPrompt,
+  preflightGenerationResolution,
+  providerHealth,
+  type AdapterRegistry,
+} from '@lucid-fin/adapters-ai';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
-import { getBuiltinProviderCapabilityProfile } from '@lucid-fin/contracts';
+import type {
+  GenerationRequest,
+  ResolutionAudit,
+  ResolutionIntent,
+  ResolutionSource,
+} from '@lucid-fin/contracts';
+import { probeMedia } from '@lucid-fin/media-engine';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -28,6 +39,9 @@ export interface CommanderImageGenerationOptions {
   providerId?: string;
   width?: number;
   height?: number;
+  /** Canonical intent. Cannot be combined with legacy width/height. */
+  resolution?: ResolutionIntent;
+  resolutionSource?: ResolutionSource;
   seed?: number;
   negativePrompt?: string;
   /** Fail before provider submission when its USD estimate exceeds this bound. */
@@ -44,6 +58,7 @@ export interface CommanderImageGenerationResult {
   height: number;
   estimatedCostUsd: number;
   reportedActualCostUsd?: number;
+  resolution: ResolutionAudit;
 }
 
 export class CommanderImageGenerationError extends Error {
@@ -53,8 +68,8 @@ export class CommanderImageGenerationError extends Error {
     message: string,
     readonly details: {
       providerId: string;
-      width: number;
-      height: number;
+      width?: number;
+      height?: number;
       estimatedCostUsd: number;
       requestedSeed?: number;
     },
@@ -65,43 +80,6 @@ export class CommanderImageGenerationError extends Error {
   }
 }
 
-/** Clamp width/height to the provider's maxDimension while preserving aspect ratio. */
-function clampDimensions(
-  width: number,
-  height: number,
-  providerId: string,
-): { width: number; height: number } {
-  const profile = getBuiltinProviderCapabilityProfile(providerId);
-  const max = profile?.maxDimension ?? 1024;
-  if (width <= max && height <= max) return { width, height };
-
-  const scale = max / Math.max(width, height);
-  // Round down to nearest 8 (universal safe alignment)
-  const clampedW = Math.floor((width * scale) / 8) * 8;
-  const clampedH = Math.floor((height * scale) / 8) * 8;
-  log.info('Clamped image dimensions to provider max', {
-    category: 'commander',
-    providerId,
-    maxDimension: max,
-    requested: `${width}x${height}`,
-    clamped: `${clampedW}x${clampedH}`,
-  });
-  return { width: clampedW, height: clampedH };
-}
-
-/**
- * Resolve dimensions to the provider's maximum square when no explicit
- * width/height is given. Used for reference images where we want the
- * highest resolution the provider supports.
- */
-function resolveProviderMaxDimensions(providerId: string): { width: number; height: number } {
-  const profile = getBuiltinProviderCapabilityProfile(providerId);
-  const max = profile?.maxDimension ?? 1024;
-  // Round down to nearest 8 for alignment safety
-  const dim = Math.floor(max / 8) * 8;
-  return { width: dim, height: dim };
-}
-
 // ---------------------------------------------------------------------------
 // Public factory
 // ---------------------------------------------------------------------------
@@ -110,7 +88,7 @@ export function makeGenerateImage(deps: {
   adapterRegistry: AdapterRegistry;
   cas: CAS;
   db?: SqliteIndex;
-  onStart?: (jobId: string, provider: string, width: number, height: number) => void;
+  onStart?: (jobId: string, provider: string, width?: number, height?: number) => void;
   onComplete?: (jobId: string, assetHash: string) => void;
   onFailed?: (jobId: string, error: string) => void;
 }): (
@@ -121,63 +99,89 @@ export function makeGenerateImage(deps: {
     const providerId = options?.providerId;
     const explicitWidth = options?.width;
     const explicitHeight = options?.height;
+    if (options?.resolution && (explicitWidth !== undefined || explicitHeight !== undefined)) {
+      throw new Error('resolution cannot be combined with legacy width or height');
+    }
+    if ((explicitWidth === undefined) !== (explicitHeight === undefined)) {
+      throw new Error('width and height must be provided together');
+    }
+    const intent: ResolutionIntent =
+      options?.resolution ??
+      (explicitWidth !== undefined && explicitHeight !== undefined
+        ? { mode: 'exact', width: explicitWidth, height: explicitHeight }
+        : { mode: 'provider-default' });
+    const resolutionSource: ResolutionSource =
+      options?.resolutionSource ??
+      (options?.resolution || explicitWidth !== undefined ? 'node' : 'provider');
     const jobId = crypto.randomUUID();
+    const requestedAdapter = providerId
+      ? (deps.adapterRegistry.resolve?.(providerId, 'image') ??
+        deps.adapterRegistry.get(providerId))
+      : undefined;
     const candidates = providerId
-      ? deps.adapterRegistry.list('image').filter((adapter) => adapter.id === providerId)
+      ? requestedAdapter
+        ? [requestedAdapter]
+        : []
       : deps.adapterRegistry.list('image');
+    let lastResolutionError: string | undefined;
 
     for (const adapter of candidates) {
-      if (!(await adapter.validate())) {
-        continue;
-      }
-
       const actualProviderId = providerId ?? adapter.id;
-
-      // When no explicit dimensions are given, resolve to the provider's
-      // maximum supported resolution instead of falling back to a fixed default.
-      let clamped: { width: number; height: number };
-      if (explicitWidth != null && explicitHeight != null) {
-        clamped = clampDimensions(explicitWidth, explicitHeight, actualProviderId);
-      } else if (explicitWidth != null || explicitHeight != null) {
-        clamped = clampDimensions(explicitWidth ?? 1024, explicitHeight ?? 1024, actualProviderId);
-      } else {
-        clamped = resolveProviderMaxDimensions(actualProviderId);
-      }
-
-      const generationRequest = {
+      const baseRequest: GenerationRequest = {
         type: 'image' as const,
         providerId: actualProviderId,
         prompt,
         ...(options?.negativePrompt ? { negativePrompt: options.negativePrompt } : {}),
-        width: clamped.width,
-        height: clamped.height,
         ...(options?.seed !== undefined ? { seed: options.seed } : {}),
       };
-      const estimate = adapter.estimateCost(generationRequest);
-      if (estimate.currency.toUpperCase() !== 'USD') {
-        throw new Error(
-          `Image provider ${actualProviderId} returned a non-USD cost estimate; the approved audition budget cannot be enforced safely`,
-        );
+      preflightGenerationPrompt(adapter, baseRequest);
+      const preflight = preflightGenerationResolution({
+        adapter,
+        request: baseRequest,
+        intent,
+        source: resolutionSource,
+      });
+      if (!preflight.supported || !preflight.request) {
+        const alternatives = preflight.supported
+          ? ''
+          : preflight.alternatives.map((option) => option.label).join(', ');
+        lastResolutionError = preflight.supported
+          ? `Provider ${actualProviderId} could not apply the resolution request`
+          : `${preflight.reason}${alternatives ? `. Supported alternatives: ${alternatives}` : ''}`;
+        if (providerId) throw new Error(lastResolutionError);
+        continue;
       }
-      if (!Number.isFinite(estimate.estimatedCost) || estimate.estimatedCost < 0) {
-        throw new Error(`Image provider ${actualProviderId} returned an invalid cost estimate`);
-      }
+      const generationRequest = preflight.request;
+      const estimatedCostUsd = preflight.estimatedCostUsd ?? 0;
       if (
         options?.maxEstimatedCostUsd !== undefined &&
-        estimate.estimatedCost > options.maxEstimatedCostUsd + 1e-9
+        estimatedCostUsd > options.maxEstimatedCostUsd + 1e-9
       ) {
         throw new Error(
-          `Image generation estimate $${estimate.estimatedCost.toFixed(4)} exceeds the remaining approved audition budget $${options.maxEstimatedCostUsd.toFixed(4)}`,
+          `Image generation estimate $${estimatedCostUsd.toFixed(4)} exceeds the remaining approved audition budget $${options.maxEstimatedCostUsd.toFixed(4)}`,
         );
       }
+      // Local resolution/cost checks run before any provider validation call.
+      if (!(await adapter.validate())) continue;
 
-      deps.onStart?.(jobId, actualProviderId, clamped.width, clamped.height);
+      deps.onStart?.(jobId, actualProviderId, preflight.plan.width, preflight.plan.height);
       try {
         const generated = await adapter.generate(generationRequest);
         providerHealth.recordSuccess(adapter.id);
         const reportedActualCostUsd = normalizeFiniteNumber(generated.cost);
         const materialized = await materializeAsset(generated);
         try {
+          const actualMedia = await probeMedia(materialized.filePath);
+          if (!actualMedia.width || !actualMedia.height) {
+            throw new Error('Generated image dimensions could not be verified');
+          }
+          const resolution: ResolutionAudit = {
+            requested: intent,
+            resolved: preflight.plan,
+            actual: { width: actualMedia.width, height: actualMedia.height },
+            estimatedCostUsd,
+            ...(reportedActualCostUsd !== undefined ? { reportedActualCostUsd } : {}),
+          };
           const { ref } = await deps.cas.importAsset(materialized.filePath, 'image');
 
           // Register in asset library so the image appears in the asset browser
@@ -193,8 +197,8 @@ export function makeGenerateImage(deps: {
                 format: ref.format,
                 prompt,
                 provider: actualProviderId,
-                width: clamped.width,
-                height: clamped.height,
+                width: actualMedia.width,
+                height: actualMedia.height,
                 generationMetadata: {
                   prompt,
                   ...(options?.negativePrompt ? { negativePrompt: options.negativePrompt } : {}),
@@ -204,8 +208,9 @@ export function makeGenerateImage(deps: {
                     : options?.seed !== undefined
                       ? { seed: options.seed }
                       : {}),
-                  width: clamped.width,
-                  height: clamped.height,
+                  width: actualMedia.width,
+                  height: actualMedia.height,
+                  resolution,
                   ...(model ? { model } : {}),
                   ...(reportedActualCostUsd !== undefined ? { cost: reportedActualCostUsd } : {}),
                 },
@@ -237,10 +242,11 @@ export function makeGenerateImage(deps: {
             ...(model ? { model } : {}),
             ...(options?.seed !== undefined ? { requestedSeed: options.seed } : {}),
             ...(reportedSeed !== undefined ? { reportedSeed } : {}),
-            width: clamped.width,
-            height: clamped.height,
-            estimatedCostUsd: estimate.estimatedCost,
+            width: actualMedia.width,
+            height: actualMedia.height,
+            estimatedCostUsd,
             ...(reportedActualCostUsd !== undefined ? { reportedActualCostUsd } : {}),
+            resolution,
           };
         } finally {
           if (materialized.cleanupPath) {
@@ -254,9 +260,9 @@ export function makeGenerateImage(deps: {
           genErr instanceof Error ? genErr.message : String(genErr),
           {
             providerId: actualProviderId,
-            width: clamped.width,
-            height: clamped.height,
-            estimatedCostUsd: estimate.estimatedCost,
+            width: preflight.plan.width,
+            height: preflight.plan.height,
+            estimatedCostUsd,
             ...(options?.seed !== undefined ? { requestedSeed: options.seed } : {}),
           },
           genErr instanceof Error ? { cause: genErr } : undefined,
@@ -265,9 +271,10 @@ export function makeGenerateImage(deps: {
     }
 
     throw new Error(
-      providerId
-        ? `Image adapter not available: ${providerId}`
-        : 'No configured image adapter available',
+      lastResolutionError ??
+        (providerId
+          ? `Image adapter not available: ${providerId}`
+          : 'No configured image adapter available'),
     );
   };
 }

@@ -23,6 +23,7 @@
  *    by the handler's map step.
  */
 import { z } from 'zod';
+import { COMMANDER_GUIDE_LIMITS } from '@lucid-fin/contracts';
 import { defineInvokeChannel, definePushChannel } from '../../channels.js';
 
 // ── Shared primitives ────────────────────────────────────────
@@ -36,12 +37,14 @@ const HistoryEntryShape = z.union([
     .object({
       role: z.union([z.literal('user'), z.literal('assistant')]),
       content: z.string(),
+      reasoning: z.string().optional(),
       toolCalls: z
         .array(
           z.object({
             id: z.string(),
             name: z.string(),
             arguments: z.record(z.string(), z.unknown()),
+            thoughtSignature: z.string().optional(),
           }),
         )
         .optional(),
@@ -72,11 +75,47 @@ const LLMProviderRuntimeConfigShape = z
   })
   .passthrough();
 
+const WorkflowGuidePhaseShape = z.enum([
+  'unbound',
+  'production_plan_pending',
+  'production_plan_revision',
+  'style_exploration',
+  'visual_constitution_pending',
+  'preproduction',
+  'media_generation',
+  'assembly',
+  'final_export_preparation',
+  'final_export_pending',
+  'final_export_approved',
+  'blocked',
+]);
+
 const PromptGuideShape = z.object({
   id: z.string(),
   name: z.string(),
-  content: z.string(),
+  content: z.string().max(COMMANDER_GUIDE_LIMITS.maxContentChars),
+  autoInject: z.boolean().optional(),
+  autoInjectContent: z.string().max(COMMANDER_GUIDE_LIMITS.maxAutoInjectCharsPerGuide).optional(),
+  priority: z.number().int().min(-1000).max(1000).optional(),
+  retention: z.enum(['turn', 'workflow', 'discovery']).optional(),
+  phases: z.array(WorkflowGuidePhaseShape).max(8).optional(),
 });
+
+const PromptGuideCatalogShape = z
+  .array(PromptGuideShape)
+  .max(COMMANDER_GUIDE_LIMITS.maxCatalogItems)
+  .superRefine((guides, ctx) => {
+    const totalChars = guides.reduce(
+      (total, guide) => total + guide.content.length + (guide.autoInjectContent?.length ?? 0),
+      0,
+    );
+    if (totalChars > COMMANDER_GUIDE_LIMITS.maxCatalogChars) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Guide catalog must be at most ${COMMANDER_GUIDE_LIMITS.maxCatalogChars} characters`,
+      });
+    }
+  });
 
 const CommanderProcessBehaviorSettingsShape = z.object({
   qualityGateBehavior: z.enum(['warn-only', 'auto-expand', 'block-generation']).optional(),
@@ -91,7 +130,7 @@ const CommanderChatRequest = z
     message: z.string(),
     history: z.array(HistoryEntryShape),
     selectedNodeIds: z.array(z.string()),
-    promptGuides: z.array(PromptGuideShape).optional(),
+    promptGuides: PromptGuideCatalogShape.optional(),
     customLLMProvider: LLMProviderRuntimeConfigShape.optional(),
     permissionMode: z.enum(['danger', 'auto', 'normal', 'strict']).optional(),
     locale: z.string().optional(),
@@ -447,7 +486,9 @@ const TimelineEvent = z.discriminatedUnion('kind', [
     kind: z.literal('question_prompt'),
     questionId: z.string(),
     prompt: z.string(),
-    options: z.array(z.object({ id: z.string(), label: z.string() })).optional(),
+    options: z
+      .array(z.object({ id: z.string(), label: z.string(), description: z.string().optional() }))
+      .optional(),
     allowFreeText: z.boolean(),
     ...TimelineEventCommon,
   }),

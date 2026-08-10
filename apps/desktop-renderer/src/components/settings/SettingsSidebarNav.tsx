@@ -69,7 +69,7 @@ export const SETTINGS_TAB_META: Record<
   },
   processGuides: {
     labelKey: 'settings.nav.processGuides',
-    fallbackLabel: 'Process Injection',
+    fallbackLabel: 'Run Guides',
     icon: ListTree,
   },
   appearance: { labelKey: 'settings.nav.appearance', fallbackLabel: 'Appearance', icon: Sun },

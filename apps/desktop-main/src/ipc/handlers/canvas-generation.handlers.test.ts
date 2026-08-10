@@ -48,9 +48,11 @@ function withEntityRepos<T extends Record<string, unknown>>(
     entities: Record<string, unknown>;
     assets: Record<string, unknown>;
     projectSettings: Record<string, unknown>;
+    workflows: Record<string, unknown>;
   };
 } {
   const insertAsset = flat.insertAsset as ReturnType<typeof vi.fn> | undefined;
+  const listWorkflowRuns = flat.listWorkflowRuns as ReturnType<typeof vi.fn> | undefined;
   return {
     ...flat,
     repos: {
@@ -75,6 +77,9 @@ function withEntityRepos<T extends Record<string, unknown>>(
       },
       projectSettings: {
         getJson: vi.fn(() => undefined),
+      },
+      workflows: {
+        listRuns: listWorkflowRuns ?? vi.fn(() => ({ rows: [], degradedCount: 0 })),
       },
     },
   };
@@ -250,6 +255,7 @@ function makeDeps(
                       : 'text-to-image',
                 ],
                 maxConcurrent: 1,
+                resolutionController: mockResolutionController,
                 configure: vi.fn(),
                 validate: vi.fn(async () => true),
                 generate: adapter.generate,
@@ -285,6 +291,7 @@ function makeDeps(
                         : 'text-to-image',
                   ],
                   maxConcurrent: 1,
+                  resolutionController: mockResolutionController,
                   configure: vi.fn(),
                   validate: vi.fn(async () => true),
                   generate: adapter.generate,
@@ -330,10 +337,48 @@ function makeDeps(
       keychain: {
         getKey: vi.fn(async () => 'secret-key'),
       },
+      probeMedia: vi.fn(async () => {
+        const data = canvas.nodes[0]?.data as {
+          width?: number;
+          height?: number;
+          duration?: number;
+        };
+        return {
+          durationSeconds: canvas.nodes[0]?.type === 'video' ? (data.duration ?? 5) : 0,
+          width: data.width ?? 1,
+          height: data.height ?? 1,
+          hasAudio: false,
+        };
+      }),
     },
     save,
   };
 }
+
+const mockResolutionController = {
+  capabilities: {
+    semantics: 'exact' as const,
+    nativeDefault: { id: 'default', label: 'Provider default', mode: 'provider-default' as const },
+    options: [],
+  },
+  resolve(
+    intent: import('@lucid-fin/contracts').ResolutionIntent,
+    context: import('@lucid-fin/contracts').ResolutionResolveContext,
+  ) {
+    return {
+      supported: true as const,
+      plan: {
+        ...context,
+        requested: intent,
+        ...(intent.mode === 'exact' ? { width: intent.width, height: intent.height } : {}),
+        ...(intent.mode === 'tier' ? { tier: intent.tier } : {}),
+        outputKnown: intent.mode === 'exact',
+      },
+      currency: 'USD' as const,
+      warnings: [],
+    };
+  },
+};
 
 function createGateway() {
   const events: Array<{ channel: string; payload: unknown }> = [];
@@ -365,6 +410,38 @@ afterEach(() => {
 });
 
 describe('startCanvasGeneration progress events', () => {
+  it('blocks manual generation while a persistent workflow owns the Canvas', async () => {
+    const canvas = makeCanvas('image');
+    const adapter = { generate: vi.fn() };
+    const { deps } = makeDeps(canvas, adapter);
+    const listRuns = deps.db.repos.workflows.listRuns as ReturnType<typeof vi.fn>;
+    listRuns.mockReturnValue({
+      rows: [
+        {
+          id: 'workflow-1',
+          workflowType: 'movie.production.v2',
+          entityType: 'canvas',
+          entityId: 'canvas-1',
+          status: 'awaiting_approval',
+        },
+      ],
+      degradedCount: 0,
+    });
+
+    await expect(
+      startCanvasGeneration(
+        createGateway().gateway,
+        {
+          canvasId: 'canvas-1',
+          nodeId: 'node-1',
+          providerId: 'mock-provider',
+        },
+        deps as never,
+      ),
+    ).rejects.toThrow(/approved Visual Constitution remains authoritative/);
+    expect(adapter.generate).not.toHaveBeenCalled();
+  });
+
   it('prefers adapter subscribe callbacks when the adapter supports realtime updates', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-canvas-subscribe-'));
     const assetPath = path.join(tmpDir, 'subscribed.png');
@@ -550,6 +627,19 @@ describe('startCanvasGeneration progress events', () => {
         }),
       }),
     );
+    expect(deps.db.repos.assets.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        width: 1920,
+        height: 1080,
+        duration: 8,
+        generationMetadata: expect.objectContaining({
+          resolution: expect.objectContaining({
+            requested: { mode: 'exact', width: 1920, height: 1080 },
+            actual: { width: 1920, height: 1080 },
+          }),
+        }),
+      }),
+    );
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -621,7 +711,10 @@ describe('startCanvasGeneration progress events', () => {
             id: 'mock-provider',
             name: 'Mock Provider',
             type: 'image',
-            capabilities: ['text-to-image'],
+            capabilities: ['text-to-image', 'image-to-image'],
+            conditioningCapabilities: {
+              referenceImages: { maxImages: 2, preservesOrder: true },
+            },
             maxConcurrent: 1,
             configure: vi.fn(),
             validate: vi.fn(async () => true),
@@ -810,6 +903,10 @@ describe('startCanvasGeneration progress events', () => {
             name: 'Mock Provider',
             type: 'video',
             capabilities: ['text-to-video', 'image-to-video'],
+            conditioningCapabilities: {
+              firstFrame: true,
+              lastFrame: true,
+            },
             maxConcurrent: 1,
             configure: vi.fn(),
             validate: vi.fn(async () => true),

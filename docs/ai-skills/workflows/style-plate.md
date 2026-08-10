@@ -1,73 +1,53 @@
-# Style Plate Workflow (Commander)
+# Visual Style Draft Workflow (Commander)
 
 ## Purpose
 
-Locks the visual style of a canvas BEFORE any reference-image generation runs. A canvas-scoped style plate is a free-form style-description string that every downstream ref image re-references. Without it, two characters in the same story render in different art styles.
+Create a coherent Canvas-level style draft for manual generation and preview work. The canonical value is `canvas.settings.visualStylePolicy`; `stylePlate` and `negativePrompt` remain compatibility mirrors for older clients.
 
-## When Commander must run this
+This draft is not an approval and is never a fallback for a bound persistent workflow. After the user approves a Visual Constitution, that exact immutable revision and content hash are the workflow's only style authority.
 
-- First ref-image request for a canvas, if `canvas.getInfo` (scope `settings`) returns no `stylePlate`.
-- User says "switch the whole project to <style>" — rewrite the stylePlate, warn existing ref images now mismatch.
-- User explicitly asks to lock or change the visual style.
+## When to use it
 
-## Preconditions
+- The user is manually generating images, videos, or entity reference images outside a persistent workflow.
+- The persistent workflow has not reached Visual Constitution approval and the user wants exploratory previews.
+- The user explicitly asks to change the Canvas draft.
 
-1. `canvas.getInfo({ canvasId, scope: 'settings' })` returned settings.
-2. Either:
-   - `stylePlate` already set (non-empty string) → skip; report that the style is locked and proceed.
-   - OR unset / empty → proceed with lock.
-3. A style seed is available from the user ("Japanese anime, flat cel shading, saturated palette", "1990s Studio Ghibli watercolor, soft edges, muted tones", "Pixar 3D, rim-lit, subsurface scatter on skin", etc.).
+Do not use this workflow to restyle an approved persistent run. Revise and re-approve the Visual Constitution through the existing gate instead; do not create another approval gate.
 
 ## Steps
 
-1. **Gather style vocabulary.** Ask ONE targeted question if the user has not specified: "Which art style anchors this project — e.g. Japanese anime, Ghibli watercolor, Pixar 3D, gritty live-action?"
-2. **Compose the stylePlate string.** 20–60 words. Include:
-   - Medium / art style label ("flat 2D cel anime", "stop-motion clay", "photoreal cinema").
-   - Line work if relevant ("clean black outline", "no outlines").
-   - Palette cue ("saturated warm palette", "muted earth tones").
-   - Texture / material cue ("soft watercolor paper", "subsurface-scattered skin").
-   - Lighting vocabulary ("flat even studio light, no harsh rim").
-   - Era/cultural cue if named ("1990s Studio Ghibli", "Cartoon Saloon Irish indie", "Makoto Shinkai").
-     Do NOT include: character names, scene description, action, prop list. The plate is style only.
-3. **Present for confirmation.** Show the user the proposed string. Let them tweak.
-4. **Lock:** `canvas.setSettings({ canvasId, settings: { stylePlate: '<final string>' } })`.
-5. **Verify:** re-call `canvas.getInfo` (scope `settings`) and confirm `stylePlate` is the composed string.
-6. **Report:** "Style plate locked: '<string>'. All future ref images for this canvas will lead with this."
+1. Read `canvas.getInfo({ canvasId, scope: 'settings' })`.
+2. If the user already supplied a concrete direction, structure it directly. Otherwise ask one short question or offer visible project-specific style auditions; do not require the user to know filmmaking vocabulary.
+3. Compose `visualStylePolicy` version 1:
+   - `summary`: concise medium, era, rendering, linework, palette, lighting, texture, and mood direction.
+   - `locked`: only fields that truly must remain stable.
+   - `allowedVariations`: intentional shot-to-shot freedom such as shot scale or weather intensity.
+   - `negativeConstraints`: recurring failure modes such as watermark, identity drift, or unwanted photorealism.
+4. Persist with `canvas.setSettings({ canvasId, visualStylePolicy })`.
+5. Re-read Canvas settings and verify the structured policy.
+6. Generate the requested preview or media. The host compiler injects the policy into manual image/video and reference-image prompts; Commander must not duplicate it in the scene prompt.
+
+## Change and refinement behavior
+
+- Changing the Canvas draft makes older manual assets stale. Regenerate once under the new policy before applying incremental quality feedback.
+- A small quality comment loads the exact selected asset Prompt, appends the delta, preserves the recorded policy hash, then generates and grades the next attempt. It must not rebuild from an empty Prompt.
+- Image-to-video preserves the source image's appearance and injects only camera, lens, composition, motion, allowed-variation, and negative constraints. It must not restyle the source frame.
+- Approved persistent workflow assets use `workflow.mediaFeedback`, never `canvas.generation refine`.
 
 ## Failure handling
 
-- **User refuses to lock a style** → explain that without a plate, character/equipment/location ref images will drift. Ask if they want to proceed unstyled anyway; if yes, continue but warn once.
-- **User wants to change plate mid-project** → warn that existing ref images are anchored to the old plate and will look inconsistent against new ones. Offer to regenerate ref images for affected entities after re-lock.
-- **`canvas.setSettings` fails** → surface the error. Do NOT silently continue to ref-image generation.
+- If settings persistence fails, surface the error and do not claim the draft is active.
+- If an asset's recorded policy hash differs from the current Canvas draft, refuse incremental refinement and request one regeneration under the current draft.
+- If workflow approval state or the approved Visual Constitution cannot be verified, fail closed; never fall back to Canvas style text.
 
 ## Verification
 
-- After `canvas.setSettings`, re-call `canvas.getInfo` (scope `settings`) and confirm the string landed exactly.
-- Next `entity.generateRefImage` call automatically prepends the plate via `buildPrompt(entity, view, stylePlate)` — no extra wiring needed.
-
-## Word budget
-
-Keep user-facing explanation under 60 words per turn. Lock is 2–3 turns, not a lecture.
+- `canvas.getInfo` returns the structured policy written in step 4.
+- Generated asset metadata records `visualStyle.source` and `visualStyle.policyHash`.
+- Persistent Generation Specs remain bound to the approved Visual Constitution revision/hash.
 
 ## Related
 
-- Process prompt: `style-plate-lock` (auto-injected as a session-start process prompt when canvas ref images exist with no plate).
-- Canvas settings surface: `canvas.getInfo` (scope `settings`) / `canvas.setSettings`.
-- See also: `workflow-story-to-video` (full pipeline), `style-transfer` (cross-shot style template), `style-aesthetics` (prompt vocabulary guide).
-
-## Terminal commitment
-
-This workflow is an **execution** workflow. If the user's intent is to lock a
-style plate on the canvas (not just learn about it), it is NOT complete until
-the following has executed successfully:
-
-- `canvas.setSettings` — writing `stylePlate` onto the canvas settings is the whole point of the lock step. Nothing else persists the plate.
-
-Before ending the turn on an execution intent, confirm `canvas.setSettings`
-returned `success: true` and then re-read via `canvas.getInfo` (scope `settings`) per the
-standing verification step above. Do not finish with a drafted plate string in
-chat text — an unpersisted plate is not a lock.
-
-**Information-intent exception**: if the user's message was purely a question
-("what is a style plate?", "explain", "how does this work?"), respond in plain
-text. The guide is also a teaching resource, not a forced action.
+- `workflow-story-to-video` — three-gate persistent production.
+- `workflow.visual` — visible project-specific previews and Visual Constitution selection.
+- `style-aesthetics` — vocabulary suggestions, not an authority source.

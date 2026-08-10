@@ -5,6 +5,9 @@ import type {
   Canvas,
   Character,
   CharacterGender,
+  OAuthProviderStatus,
+  OAuthProviderTarget,
+  CommanderPromptGuide,
   CommanderProcessBehaviorSettings,
   ColorStyle,
   TimelineEvent,
@@ -134,6 +137,7 @@ interface RenderRequest {
 
 /** Render result */
 interface RenderResult {
+  jobId?: string;
   outputPath: string;
   duration: number;
   format: string;
@@ -406,6 +410,13 @@ declare global {
           group?: 'llm' | 'image' | 'video' | 'audio' | 'vision',
         ) => Promise<{ ok: boolean; error?: string }>;
       };
+      providerOAuth: {
+        status: (request: { target: OAuthProviderTarget }) => Promise<OAuthProviderStatus>;
+        login: (request: { target: OAuthProviderTarget }) => Promise<OAuthProviderStatus>;
+        cancelLogin: (request: { target: OAuthProviderTarget }) => Promise<OAuthProviderStatus>;
+        logout: (request: { target: OAuthProviderTarget }) => Promise<OAuthProviderStatus>;
+        onChanged: (cb: (status: OAuthProviderStatus) => void) => () => void;
+      };
       ai: {
         chat: (message: string, context?: Record<string, unknown>) => Promise<unknown>;
         onStream: (cb: (...args: unknown[]) => void) => () => void;
@@ -433,7 +444,7 @@ declare global {
           message: string,
           history: Array<Record<string, unknown>>,
           selectedNodeIds: string[],
-          promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>,
+          promptGuides?: CommanderPromptGuide[],
           customLLMProvider?: LLMProviderRuntimeConfig,
           permissionMode?: 'danger' | 'auto' | 'normal' | 'strict',
           locale?: string,
@@ -535,7 +546,12 @@ declare global {
       };
       render: {
         start: (request: RenderRequest) => Promise<RenderResult>;
-        status: (jobId: string) => Promise<{ progress: number; stage: string }>;
+        status: (jobId: string) => Promise<{
+          progress: number;
+          stage: string;
+          outputPath?: string;
+          error?: string;
+        }>;
         cancel: (jobId: string) => Promise<void>;
       };
       export: {

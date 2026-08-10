@@ -3,7 +3,7 @@
  * settings.json and read their API keys from the OS keychain in a Node CLI
  * context (no Electron). Run before each study to confirm the environment.
  *
- *   npx tsx evals/commander-study/harness/probe-keychain.ts
+ *   pnpm exec tsx evals/commander-study/harness/probe-keychain.ts
  */
 import keytar from 'keytar';
 import { getCodexProviders, getHiCode } from './provider-config.js';

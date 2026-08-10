@@ -205,7 +205,132 @@ describe('WorkflowEngine visual constitution gate', () => {
     ).toThrow(/different visual audition already exists/);
   });
 
-  it('persists graded previews, atomically opens the user-selected gate, and restores it', () => {
+  it('requires changed auditions before reopening a rejected Visual Constitution gate', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-visual-revision-'));
+    roots.push(root);
+    const db = open(path.join(root, 'project.db'));
+    const target = engine(db);
+    const created = approvedPlan(target);
+
+    const completeCandidateSet = (
+      proposals: VisualDirectionCandidateProposal[],
+      assetPrefix: string,
+    ) => {
+      const started = target.beginVisualAudition({
+        canvasId: 'canvas-1',
+        workflowRunId: created.workflowRunId,
+        providerId: 'image-test',
+        width: 1024,
+        height: 576,
+        candidates: proposals,
+      });
+      const assetHashes = proposals.map((_, index) => `${assetPrefix}-${index + 1}`);
+      for (const assetHash of assetHashes) {
+        db.repos.assets.insert({ hash: assetHash, type: 'image', format: 'png' });
+      }
+      const content = structuredClone(started.document.content) as VisualAuditionDocumentContent;
+      content.status = 'complete';
+      content.recommendedCandidateId = proposals[0]?.id;
+      content.candidates = content.candidates.map((candidate, index) => ({
+        ...candidate,
+        status: 'completed' as const,
+        selectedAttempt: 1,
+        attempts: [
+          {
+            attempt: 1,
+            status: 'completed' as const,
+            prompt: candidate.prompt,
+            promptHash: hash(candidate.prompt),
+            providerId: 'image-test',
+            model: 'image-model-test',
+            requestedSeed: candidate.seed,
+            reportedSeed: candidate.seed,
+            width: 1024,
+            height: 576,
+            estimatedCostUsd: 0.5,
+            reportedActualCostUsd: 0.5,
+            assetHash: assetHashes[index]!,
+            grade: grade(88),
+            startedAt: 11_000 + index,
+            completedAt: 12_000 + index,
+          },
+        ],
+      }));
+      content.budget.estimatedCommittedUsd = 1;
+      content.budget.reportedActualUsd = 1;
+      content.budget.hasUnreportedActualCosts = false;
+      const completed = target.saveVisualAuditionSnapshot({
+        workflowRunId: created.workflowRunId,
+        expectedRevision: started.document.revision,
+        content,
+      });
+      return target.selectVisualConstitutionCandidateFromUser({
+        workflowRunId: created.workflowRunId,
+        candidateId: proposals[0]!.id,
+        expectedRowVersion: target.get(created.workflowRunId)?.rowVersion ?? -1,
+        expectedAuditionRevision: completed.revision,
+        expectedAuditionHash: completed.contentHash,
+      });
+    };
+
+    const originalCandidates = candidates();
+    const first = completeCandidateSet(originalCandidates, 'visual-revision-1');
+    const requested = target.requestChangesPendingGateFromUser({
+      workflowRunId: created.workflowRunId,
+      gateKey: 'visual_constitution',
+      expectedRowVersion: first.context.run.rowVersion ?? -1,
+      expectedSubjectRevision: first.context.approval.subjectRevision,
+      expectedSubjectHash: first.context.approval.subjectHash,
+      reason: 'Use warmer practical lighting and less teal.',
+    });
+    expect(requested).toMatchObject({
+      ok: true,
+      code: 'revision_requested',
+      previousApproval: { status: 'rejected', subjectRevision: 1 },
+      producerTask: { taskId: 'style-audition', status: 'ready' },
+    });
+
+    expect(() =>
+      target.beginVisualAudition({
+        canvasId: 'canvas-1',
+        workflowRunId: created.workflowRunId,
+        providerId: 'image-test',
+        width: 1024,
+        height: 576,
+        candidates: originalCandidates,
+      }),
+    ).toThrow(/must differ from the rejected candidate set/i);
+
+    const revisedCandidates = originalCandidates.map((candidate) => ({
+      ...candidate,
+      prompt: `${candidate.prompt} Warm tungsten practicals dominate; teal is restrained.`,
+      constitution: {
+        ...candidate.constitution,
+        palette: 'warm amber, charcoal, restrained deep teal',
+      },
+    }));
+    const revised = completeCandidateSet(revisedCandidates, 'visual-revision-2');
+    expect(revised).toMatchObject({
+      created: true,
+      context: {
+        run: { currentGate: 'visual_constitution', status: 'awaiting_approval' },
+        document: { revision: 2 },
+        approval: { gateKey: 'visual_constitution', subjectRevision: 2, status: 'pending' },
+      },
+    });
+    expect(
+      target.approvePendingGateFromUser({
+        workflowRunId: created.workflowRunId,
+        gateKey: 'visual_constitution',
+        expectedRowVersion: revised.context.run.rowVersion ?? -1,
+        expectedSubjectRevision: revised.context.approval.subjectRevision,
+        expectedSubjectHash: revised.context.approval.subjectHash,
+      }),
+    ).toMatchObject({ ok: true, code: 'approved', approval: { status: 'approved' } });
+    expect(target.getPendingApprovalContext(created.workflowRunId)).toBeUndefined();
+  });
+
+  it('persists previews, opens the selected gate, and advances durable pre-production tasks', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-visual-gate-'));
     roots.push(root);
     const dbPath = path.join(root, 'project.db');
@@ -302,6 +427,15 @@ describe('WorkflowEngine visual constitution gate', () => {
       document: { content: { selectedCandidateId: 'quiet-realism' } },
     });
     if (!pending) throw new Error('Expected restored visual approval');
+    const preproductionStage = restored
+      .getStages(created.workflowRunId)
+      .find((stage) => stage.stageId === 'preproduction');
+    const mediaStage = restored
+      .getStages(created.workflowRunId)
+      .find((stage) => stage.stageId === 'media-generation');
+    const scriptTask = restored
+      .getTasks(created.workflowRunId)
+      .find((task) => task.taskId === 'script');
     expect(
       restored.approvePendingGateFromUser({
         workflowRunId: created.workflowRunId,
@@ -312,7 +446,43 @@ describe('WorkflowEngine visual constitution gate', () => {
       }),
     ).toMatchObject({
       ok: true,
-      run: { status: 'ready', currentStageId: 'media-generation', currentGate: undefined },
+      run: {
+        status: 'ready',
+        currentStageId: preproductionStage?.id,
+        currentTaskId: scriptTask?.id,
+        currentGate: undefined,
+      },
+    });
+    expect(restored.get(created.workflowRunId)?.currentStageId).not.toBe(mediaStage?.id);
+
+    await restored.waitForAutoPump();
+    for (const taskId of ['script', 'entities', 'references', 'shot-spec-001']) {
+      const run = restored.get(created.workflowRunId);
+      const task = restored
+        .getTasks(created.workflowRunId)
+        .find((candidate) => candidate.id === run?.currentTaskId);
+      expect(task).toMatchObject({ taskId, status: 'ready' });
+      if (!run || !task) throw new Error(`Expected current task ${taskId}`);
+      const completedTask = await restored.completeCreativeTask({
+        canvasId: 'canvas-1',
+        workflowRunId: created.workflowRunId,
+        taskRunId: task.id,
+        expectedRowVersion: run.rowVersion ?? -1,
+        summary: `Persisted ${taskId} output.`,
+        evidence: [`evidence:${taskId}`],
+        ...(taskId === 'shot-spec-001' ? { data: { shotId: '001' } } : {}),
+      });
+      expect(completedTask.task).toMatchObject({ taskId, status: 'completed', progress: 100 });
+    }
+    const mediaRun = restored.get(created.workflowRunId);
+    const currentMediaTask = restored
+      .getTasks(created.workflowRunId)
+      .find((task) => task.id === mediaRun?.currentTaskId);
+    expect(mediaRun?.currentStageId).toBe(mediaStage?.id);
+    expect(currentMediaTask).toMatchObject({
+      taskId: 'media-shot-001',
+      status: 'ready',
+      input: { workflowTaskRole: 'production_media' },
     });
   });
 });

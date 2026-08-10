@@ -44,7 +44,8 @@ export interface SparseSettingsState {
 
 function isProviderConfigured(group: APIGroup, provider: ProviderConfig): boolean {
   if (provider.isCustom) return true;
-  if (provider.hasKey) return true;
+  // OAuth readiness is live provider state, not a durable API-key fact.
+  if (provider.credentialMode !== 'oauth' && provider.hasKey) return true;
 
   const defaults = getProviderDefaults(group, provider.id);
   if (!defaults) return true; // unknown provider -- preserve it
@@ -64,7 +65,7 @@ function toSparseProvider(provider: ProviderConfig): SparseProviderConfig {
     baseUrl: provider.baseUrl,
     model: provider.model,
     isCustom: provider.isCustom,
-    hasKey: provider.hasKey,
+    hasKey: provider.credentialMode === 'oauth' ? false : provider.hasKey,
     protocol: provider.protocol,
     authStyle: provider.authStyle,
     ...(provider.contextWindow ? { contextWindow: provider.contextWindow } : {}),

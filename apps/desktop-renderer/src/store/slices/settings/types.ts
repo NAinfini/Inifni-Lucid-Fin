@@ -2,6 +2,7 @@ import type {
   Capability,
   LLMProviderAuthStyle,
   LLMProviderProtocol,
+  OAuthProviderTarget,
   StyleGuide,
 } from '@lucid-fin/contracts';
 
@@ -17,6 +18,9 @@ export interface ProviderConfig {
   isCustom: boolean;
   protocol?: LLMProviderProtocol;
   authStyle?: LLMProviderAuthStyle;
+  credentialMode?: 'api-key' | 'oauth' | 'none';
+  oauthTarget?: OAuthProviderTarget;
+  supportsVision?: boolean;
   contextWindow?: number;
 }
 
@@ -24,6 +28,10 @@ export interface ProviderMetadata {
   kind: ProviderKind;
   docsUrl: string;
   keyUrl: string;
+  /** How this built-in provider is authorized in the settings UI. */
+  credentialMode?: 'api-key' | 'oauth' | 'none';
+  oauthTarget?: OAuthProviderTarget;
+  supportsVision?: boolean;
   modelExample?: string;
   capabilities: Capability[];
   supportsReferenceImage?: boolean;

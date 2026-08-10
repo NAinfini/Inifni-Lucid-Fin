@@ -31,6 +31,7 @@ export interface ActivationContext {
   /** Partial snapshot of canvas.settings that spec predicates consult. */
   canvasSettings:
     | {
+        hasVisualStylePolicy?: boolean;
         stylePlate?: string | null;
         [k: string]: unknown;
       }

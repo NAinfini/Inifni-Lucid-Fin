@@ -120,6 +120,68 @@ describe('canvas.setNodeRefs', () => {
     });
   });
 
+  it('preserves exact selector and character continuity fields', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+    const characterRef = {
+      characterId: 'char-1',
+      loadoutId: 'look-1',
+      costume: 'red flight suit',
+      emotion: 'determined',
+      angleSlot: 'extra-angle:left',
+      referenceImageHash: 'char-left-hash',
+    };
+    const equipmentRef = {
+      equipmentId: 'eq-1',
+      angleSlot: 'ortho-grid',
+      referenceImageHash: 'equipment-hash',
+    };
+    const locationRef = {
+      locationId: 'loc-1',
+      angleSlot: 'fake-360',
+      referenceImageHash: 'location-hash',
+    };
+
+    const result = await getTool('canvas.setNodeRefs', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      characterRefs: [characterRef],
+      equipmentRefs: [equipmentRef],
+      locationRefs: [locationRef],
+    });
+
+    expect(result).toEqual({
+      success: true,
+      data: {
+        nodeId: 'image-1',
+        characterRefs: [characterRef],
+        equipmentRefs: [equipmentRef],
+        locationRefs: [locationRef],
+      },
+    });
+    expect(deps.updateNodeData).toHaveBeenCalledWith('canvas-1', 'image-1', {
+      characterRefs: [characterRef],
+      equipmentRefs: [equipmentRef],
+      locationRefs: [locationRef],
+    });
+  });
+
+  it('rejects an empty entity ID before mutating any node', async () => {
+    const deps = createDeps();
+
+    await expect(
+      getTool('canvas.setNodeRefs', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        locationRefs: [{ locationId: '', angleSlot: 'bible' }],
+      }),
+    ).resolves.toMatchObject({
+      success: false,
+      error: expect.stringContaining('locationRefs[0].locationId must be a non-empty string'),
+    });
+    expect(deps.updateNodeData).not.toHaveBeenCalled();
+  });
+
   it('clears refs by passing empty arrays', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);

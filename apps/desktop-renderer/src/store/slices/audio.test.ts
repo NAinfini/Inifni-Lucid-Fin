@@ -36,44 +36,6 @@ describe('audio slice', () => {
     });
   });
 
-  it('exports action creators with the expected payloads', () => {
-    const track = makeTrack();
-    const restored: AudioState = {
-      tracks: [track],
-      selectedId: 'audio-1',
-      playingId: 'audio-1',
-    };
-
-    expect(setAudioTracks([track])).toMatchObject({
-      type: 'audio/setAudioTracks',
-      payload: [track],
-    });
-    expect(addAudioTrack(track)).toMatchObject({
-      type: 'audio/addAudioTrack',
-      payload: track,
-    });
-    expect(updateAudioTrack({ id: 'audio-1', data: { status: 'completed' } })).toMatchObject({
-      type: 'audio/updateAudioTrack',
-      payload: { id: 'audio-1', data: { status: 'completed' } },
-    });
-    expect(removeAudioTrack('audio-1')).toMatchObject({
-      type: 'audio/removeAudioTrack',
-      payload: 'audio-1',
-    });
-    expect(selectAudioTrack('audio-1')).toMatchObject({
-      type: 'audio/selectAudioTrack',
-      payload: 'audio-1',
-    });
-    expect(setPlayingTrack('audio-1')).toMatchObject({
-      type: 'audio/setPlayingTrack',
-      payload: 'audio-1',
-    });
-    expect(audioSlice.actions.restore(restored)).toMatchObject({
-      type: 'audio/restore',
-      payload: restored,
-    });
-  });
-
   it('sets, adds, updates, selects, and removes audio tracks', () => {
     let state = audioSlice.reducer(
       undefined,

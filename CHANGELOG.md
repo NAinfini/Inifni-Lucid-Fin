@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Upgraded all direct stable dependencies except the intentionally frozen TypeScript 6.0.2 toolchain.
+- Standardized development and CI on Node 26.5.1 and npm 12.0.2, with Electron 43.2.0 and FFmpeg 8.1.2.
+- Updated GitHub Actions runtimes and artifact actions to their current stable majors.
+- Declared `package-lock.json` as the canonical dependency source and marked the retained pnpm lock as legacy and non-authoritative.
+- Hardened Electron 43 installation recovery and pinned npm 12 install-script approvals for native and packaging dependencies.
+
+---
+
 ## 0.0.8 — 2026-05-06
 
 ### Highlights

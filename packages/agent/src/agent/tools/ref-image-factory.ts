@@ -4,9 +4,12 @@ import type {
   CanvasSettings,
   ImageNodeData,
   ReferenceImage,
+  ResolutionIntent,
+  ResolutionSource,
   VideoNodeData,
 } from '@lucid-fin/contracts';
 import { tryProviderId } from '@lucid-fin/contracts-parse';
+import { compileVisualStylePolicy, resolveCanvasVisualStylePolicy } from '@lucid-fin/shared-utils';
 import type { AgentTool } from '../tool-registry.js';
 import { requireString } from './tool-result-helpers.js';
 
@@ -23,9 +26,8 @@ export interface RefImageEntity {
  * into their typed view, plus a `viewToSlot` stringifier so the storage
  * shape stays a flat `slot: string` column.
  *
- * stylePlate (free-form canvas-scoped style prompt) is pulled from
- * `canvas.settings` and threaded into `buildPrompt` so the style prompt
- * leads every generation.
+ * The canonical Canvas visual-style draft (or its legacy text wrapper) is
+ * compiled deterministically and threaded into `buildPrompt`.
  */
 export interface RefImageFactoryConfig<T extends RefImageEntity, V> {
   toolNamePrefix: string;
@@ -36,12 +38,18 @@ export interface RefImageFactoryConfig<T extends RefImageEntity, V> {
   saveEntity: (entity: T) => Promise<void>;
   generateImage?: (
     prompt: string,
-    options?: { providerId?: string; width?: number; height?: number },
+    options?: {
+      providerId?: string;
+      width?: number;
+      height?: number;
+      resolution?: ResolutionIntent;
+      resolutionSource?: ResolutionSource;
+    },
   ) => Promise<{ assetHash: string }>;
   getCanvas?: (canvasId: string) => Promise<Canvas>;
   /** Parse the agent's `view` argument into a domain-specific view kind. */
   parseView: (rawView: unknown) => V;
-  /** Compile a prompt from the entity, view, and optional canvas stylePlate. */
+  /** Compile a prompt from the entity, view, and optional compiled style authority. */
   buildPrompt: (entity: T, view: V, stylePlate?: string) => string;
   /** Stringify a view into the storage-layer slot column. */
   viewToSlot: (view: V) => string;
@@ -55,10 +63,6 @@ export interface RefImageFactoryConfig<T extends RefImageEntity, V> {
    * and let `parseView` validate the combination.
    */
   kindEnum: string[];
-}
-
-function readStylePlateFromCanvas(canvas: Canvas | undefined): string | undefined {
-  return canvas?.settings?.stylePlate;
 }
 
 /**
@@ -132,15 +136,17 @@ export function createRefImageTools<T extends RefImageEntity, V>(
           canvasId: {
             type: 'string',
             description:
-              'Canvas ID whose settings (stylePlate, provider overrides) drive prompt composition.',
+              'Canvas ID whose canonical visual-style draft and provider overrides drive prompt composition.',
           },
           width: {
             type: 'number',
-            description: `Image width in pixels. When omitted, the provider's maximum supported resolution is used automatically.`,
+            description:
+              'Exact image width. Provide together with height; omit both to inherit the Canvas reference-image policy.',
           },
           height: {
             type: 'number',
-            description: `Image height in pixels. When omitted, the provider's maximum supported resolution is used automatically.`,
+            description:
+              'Exact image height. Provide together with width; omit both to inherit the Canvas reference-image policy.',
           },
           prompt: { type: 'string', description: customPromptDescription },
           providerId: {
@@ -186,14 +192,13 @@ export function createRefImageTools<T extends RefImageEntity, V>(
               canvasSettings = undefined;
             }
           }
-          const stylePlate = readStylePlateFromCanvas(
-            canvasSettings ? ({ settings: canvasSettings } as Canvas) : undefined,
-          );
+          const resolvedStyle = resolveCanvasVisualStylePolicy(canvasSettings);
+          const compiledStyle = compileVisualStylePolicy(resolvedStyle?.policy, 'character-sheet');
 
           const customPrompt = typeof args.prompt === 'string' ? args.prompt.trim() : '';
-          const negativePrompt = canvasSettings?.negativePrompt?.trim() ?? '';
+          const negativePrompt = compiledStyle.negativePrompt ?? '';
           let finalPrompt: string;
-          const compositePrompt = buildPrompt(entity, view, stylePlate);
+          const compositePrompt = buildPrompt(entity, view, compiledStyle.prompt);
           if (customPrompt.length > 0) {
             finalPrompt = `${compositePrompt}\n\nAdditional instructions: ${customPrompt}`;
           } else {
@@ -203,15 +208,20 @@ export function createRefImageTools<T extends RefImageEntity, V>(
             finalPrompt = `${finalPrompt}\n\nAvoid: ${negativePrompt}`;
           }
 
-          // Explicit width/height args take priority; canvas refResolution
-          // is second; when neither is set, omit dimensions entirely so the
-          // downstream generator resolves to the provider's maximum.
-          const canvasRefW = canvasSettings?.refResolution?.width;
-          const canvasRefH = canvasSettings?.refResolution?.height;
           const reqWidth =
-            typeof args.width === 'number' && args.width > 0 ? args.width : canvasRefW;
+            typeof args.width === 'number' && args.width > 0 ? args.width : undefined;
           const reqHeight =
-            typeof args.height === 'number' && args.height > 0 ? args.height : canvasRefH;
+            typeof args.height === 'number' && args.height > 0 ? args.height : undefined;
+          const legacyCanvasResolution = canvasSettings?.refResolution;
+          const canvasResolutionIntent: ResolutionIntent =
+            canvasSettings?.resolutionPolicy?.referenceImage ??
+            (legacyCanvasResolution
+              ? {
+                  mode: 'exact',
+                  width: legacyCanvasResolution.width,
+                  height: legacyCanvasResolution.height,
+                }
+              : { mode: 'provider-default' });
 
           // Provider resolution order: explicit arg > canvas setting > (fallback handled upstream).
           const explicitProvider = tryProviderId(args.providerId);
@@ -221,6 +231,12 @@ export function createRefImageTools<T extends RefImageEntity, V>(
           const result = await config.generateImage(finalPrompt, {
             ...(reqWidth !== undefined && { width: reqWidth }),
             ...(reqHeight !== undefined && { height: reqHeight }),
+            ...(reqWidth === undefined && reqHeight === undefined
+              ? {
+                  resolution: canvasResolutionIntent,
+                  resolutionSource: canvasSettings ? ('canvas' as const) : ('provider' as const),
+                }
+              : {}),
             ...(providerId !== undefined && { providerId }),
           });
 
@@ -263,7 +279,8 @@ export function createRefImageTools<T extends RefImageEntity, V>(
               view,
               variantCount,
               promptSource: customPrompt.length > 0 ? 'composite+custom' : 'composite',
-              stylePlateUsed: Boolean(stylePlate),
+              stylePlateUsed: Boolean(compiledStyle.prompt),
+              visualStyle: resolvedStyle?.provenance,
             },
           };
         } catch (err) {

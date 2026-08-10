@@ -513,17 +513,17 @@ export function SettingsCommanderSection() {
         <SettingRow
           label={tr(
             'settings.commander.requireStylePlateBeforeRefImage',
-            'Require style plate before reference images',
+            'Require visual-style draft before reference images',
           )}
           description={tr(
             'settings.commander.requireStylePlateBeforeRefImageDesc',
-            'Commander must lock a canvas style plate before character, location, or equipment reference images.',
+            'Commander must create a canonical Canvas visual-style draft before character, location, or equipment reference images.',
           )}
         >
           <ToggleInput
             label={tr(
               'settings.commander.requireStylePlateBeforeRefImage',
-              'Require style plate before reference images',
+              'Require visual-style draft before reference images',
             )}
             checked={state.requireStylePlateBeforeRefImage}
             onChange={(checked) => dispatch(setRequireStylePlateBeforeRefImage(checked))}

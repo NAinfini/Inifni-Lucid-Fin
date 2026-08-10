@@ -479,7 +479,7 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
       'Manage a character reference image. ' +
       'Default view kind "full-sheet" produces ONE composite image: top row is the full-body turnaround (front, left profile, rear) at ~70% sheet height; bottom row is a small expression strip (neutral, happy, angry) at ~30% sheet height. Everything is on a single landscape sheet so the character has one canonical reference. ' +
       'Use view={kind:"extra-angle", angle:"<free form>"} for rare custom angles that the full-sheet does not cover. ' +
-      'Always pass canvasId so the canvas-scoped stylePlate is prepended to the prompt.',
+      'Always pass canvasId so the canonical Canvas visual-style draft is compiled into the prompt.',
     getEntity: async (id) => {
       const characters = await deps.listCharacters();
       return characters.find((c) => c.id === id) ?? null;

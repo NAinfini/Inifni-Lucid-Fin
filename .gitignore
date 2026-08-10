@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+dist-electron/
 out/
 *.tsbuildinfo
 
@@ -12,12 +13,16 @@ out/
 # Electron packager output
 release/
 release-updater-check-final/
+artifacts/
 *.exe
 *.dmg
 *.AppImage
 *.snap
 *.deb
 *.rpm
+*.asar
+*.blockmap
+builder-effective-config.yaml
 
 # Native module build artifacts
 **/*.node
@@ -53,16 +58,20 @@ Desktop.ini
 # Logs
 *.log
 npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Cache
 .npm-cache/
+.pnpm-store/
+.eslintcache
 .vite/
 .turbo/
 
 # AI agent config (local only)
 .agents
 .claude
-.trellis
 AGENTS.md
 
 # Generated reports
@@ -70,3 +79,5 @@ license-audit-report.json
 
 # Misc
 *.orig
+*.sha256
+*.tgz

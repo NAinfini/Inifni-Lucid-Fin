@@ -18,6 +18,8 @@ CREATE TABLE canvases (
   publish_height       INTEGER,
   publish_video_width  INTEGER,
   publish_video_height INTEGER,
+  resolution_policy_json TEXT,
+  visual_style_policy_json TEXT,
   aspect_ratio         TEXT,
   llm_provider_id      TEXT,
   image_provider_id    TEXT,

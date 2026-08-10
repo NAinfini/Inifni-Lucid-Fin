@@ -30,7 +30,13 @@ export async function* oneShotStream(input: OneShotStreamInput): AsyncIterable<L
   for (const tc of input.toolCalls) {
     yield { kind: 'tool_call_started', id: tc.id, name: tc.name };
     yield { kind: 'tool_call_args_delta', id: tc.id, delta: JSON.stringify(tc.arguments) };
-    yield { kind: 'tool_call_complete', id: tc.id, name: tc.name, arguments: tc.arguments };
+    yield {
+      kind: 'tool_call_complete',
+      id: tc.id,
+      name: tc.name,
+      arguments: tc.arguments,
+      thoughtSignature: tc.thoughtSignature,
+    };
   }
   if (input.usage) {
     yield {

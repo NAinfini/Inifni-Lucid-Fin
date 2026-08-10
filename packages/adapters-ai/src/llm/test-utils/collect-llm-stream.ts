@@ -51,12 +51,14 @@ export async function collectLLMStream(
         if (existing) {
           existing.name = event.name || existing.name;
           existing.arguments = event.arguments;
+          existing.thoughtSignature = event.thoughtSignature;
         } else {
           toolOrder.push(event.id);
           toolCallsById.set(event.id, {
             id: event.id,
             name: event.name,
             arguments: event.arguments,
+            thoughtSignature: event.thoughtSignature,
           });
         }
         break;

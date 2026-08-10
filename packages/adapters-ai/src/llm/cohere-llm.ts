@@ -18,6 +18,20 @@ type CohereAdapterConfig = {
   defaultModel?: string;
 };
 
+function cohereMessageContent(message: LLMMessage): unknown {
+  if (!message.images?.length) return message.content;
+
+  const content: Array<Record<string, unknown>> = [];
+  if (message.content) content.push({ type: 'text', text: message.content });
+  for (const image of message.images ?? []) {
+    const url = image.data.startsWith('data:')
+      ? image.data
+      : `data:${image.mimeType};base64,${image.data}`;
+    content.push({ type: 'image_url', image_url: { url } });
+  }
+  return content;
+}
+
 export class CohereLLMAdapter implements LLMAdapter {
   readonly id: string;
   readonly name: string;
@@ -43,7 +57,7 @@ export class CohereLLMAdapter implements LLMAdapter {
     this.id = cfg.id ?? 'cohere';
     this.name = cfg.name ?? 'Cohere';
     this.baseUrl = cfg.defaultBaseUrl ?? 'https://api.cohere.com/v2';
-    this.model = cfg.defaultModel ?? 'command-a-03-2025';
+    this.model = cfg.defaultModel ?? 'command-a-plus-05-2026';
     this.profile = {
       providerId: this.id,
       charsPerToken: 4.0,
@@ -90,8 +104,15 @@ export class CohereLLMAdapter implements LLMAdapter {
       body: JSON.stringify(this.buildBody(messages, opts)),
     });
     if (!res.ok) this.throwError(res.status);
-    const data = (await res.json()) as { message?: { content?: Array<{ text?: string }> } };
-    return data.message?.content?.map((entry) => entry.text ?? '').join('') ?? '';
+    const data = (await res.json()) as {
+      message?: { content?: Array<{ type?: string; text?: string }> };
+    };
+    return (
+      data.message?.content
+        ?.filter((entry) => !entry.type || entry.type === 'text')
+        .map((entry) => entry.text ?? '')
+        .join('') ?? ''
+    );
   }
 
   async *stream(messages: LLMMessage[], opts?: LLMRequestOptions): AsyncIterable<string> {
@@ -115,7 +136,7 @@ export class CohereLLMAdapter implements LLMAdapter {
 
     const data = (await res.json()) as {
       message?: {
-        content?: Array<{ text?: string }>;
+        content?: Array<{ type?: string; text?: string; thinking?: string }>;
         tool_calls?: Array<{
           id?: string;
           function?: { name?: string; arguments?: string | Record<string, unknown> };
@@ -136,8 +157,17 @@ export class CohereLLMAdapter implements LLMAdapter {
     const finishReason: 'tool_calls' | 'length' | 'stop' =
       toolCalls.length > 0 ? 'tool_calls' : data.finish_reason === 'MAX_TOKENS' ? 'length' : 'stop';
 
+    const contentBlocks = data.message?.content ?? [];
     return oneShotStream({
-      content: data.message?.content?.map((entry) => entry.text ?? '').join('') ?? '',
+      content: contentBlocks
+        .filter((entry) => !entry.type || entry.type === 'text')
+        .map((entry) => entry.text ?? '')
+        .join(''),
+      reasoning:
+        contentBlocks
+          .filter((entry) => entry.type === 'thinking')
+          .map((entry) => entry.thinking ?? entry.text ?? '')
+          .join('') || undefined,
       toolCalls,
       finishReason,
     });
@@ -164,7 +194,7 @@ export class CohereLLMAdapter implements LLMAdapter {
 
         const payload: Record<string, unknown> = {
           role: message.role,
-          content: message.content,
+          content: cohereMessageContent(message),
         };
 
         if (message.toolCalls?.length) {
@@ -180,10 +210,10 @@ export class CohereLLMAdapter implements LLMAdapter {
 
         return payload;
       }),
-      temperature: opts?.temperature ?? 0.7,
       max_tokens: opts?.maxTokens ?? 4096,
-      p: opts?.topP,
-      stop_sequences: opts?.stop,
+      ...(opts?.temperature !== undefined && { temperature: opts.temperature }),
+      ...(opts?.topP !== undefined && { p: opts.topP }),
+      ...(opts?.stop !== undefined && { stop_sequences: opts.stop }),
     };
 
     if (opts?.tools?.length) {

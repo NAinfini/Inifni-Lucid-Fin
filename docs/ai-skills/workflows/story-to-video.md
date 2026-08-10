@@ -43,19 +43,38 @@ A reusable catalog may later offer optional inspiration, but cross-provider cata
 
 After accepted shots are assembled, call `workflow.finalExport` exactly once with only the workflow/canvas identity, current row version, and output choices. The host derives the exact selected CAS artifacts, ordering, supported trims/tracks, dimensions, codec/container, and expected duration, then opens gate 3. Stop until the host approval UI approves that exact Manifest revision/hash. After approval, call `render.start` with only the workflow ID, canvas ID, exact Manifest revision/hash, and an optional destination/retry; never send clip paths or replacement settings for a persistent run.
 
+New Final Export manifests require actual source dimensions and default to `contain` with padding.
+Review source/output dimensions, upscaling, padding/crop/distortion warnings, fit mode, and background
+color in the approval UI. Missing source dimensions block manifest creation. Approved v1 manifests
+continue to use their legacy stretch semantics.
+
 ## Bounded autonomous production
 
 Between the three gates, proceed without additional approval prompts while remaining inside the approved story, Visual Constitution, budget, provider/model allowlist, concurrency, and retry limits.
 
+The approved Visual Constitution is the sole style fact source for this run. Canvas `visualStylePolicy`, legacy `stylePlate`, Project Style Guide defaults, Commander-authored scene text, grading repairs, and user quality comments may not replace it. Canvas styling remains available only as a manual/pre-approval draft.
+
 For each asset:
 
 1. Build a structured Generation Spec from approved documents and entity/reference anchors.
-2. Let the deterministic prompt compiler merge hard constraints, constitution fields, preset knowledge, provider capabilities, and any Repair Delta.
-3. Persist the provider attempt before or atomically with submission and use a stable idempotency key.
-4. Evaluate images directly. For video, inspect ffprobe metadata and timestamped keyframes from the beginning, middle, end, and shot transitions.
-5. Score identity, style, script alignment, continuity, composition, lighting, motion, technical quality, and safety with evidence.
-6. Let host policy choose `pass`, `repair`, `regenerate`, or `human_review` from scores and remaining bounds.
-7. Create a new attempt and artifact revision for every repair/regeneration. Never overwrite prior evidence.
+2. Resolve dimensions in this order: node override, Canvas media policy, provider-native default. Use `provider.resolveResolution` before any paid call; never infer pixels from `quality` or silently substitute a tier.
+3. Let the deterministic prompt compiler merge hard constraints, constitution fields, preset knowledge, provider capabilities, and any Repair Delta.
+4. Persist the provider attempt before or atomically with submission and use a stable idempotency key.
+5. Probe the generated file and persist requested, resolved, and actual dimensions. Never copy requested dimensions into actual asset metadata.
+6. Evaluate images directly. For video, inspect ffprobe metadata and timestamped keyframes from the beginning, middle, end, and shot transitions.
+7. Score identity, style, script alignment, continuity, composition, lighting, motion, technical quality, and safety with evidence.
+8. Let host policy choose `pass`, `repair`, `regenerate`, or `human_review` from scores and remaining bounds.
+9. Create a new attempt and artifact revision for every repair/regeneration. Never overwrite prior evidence.
+
+When the user gives a small image or video quality comment, call `workflow.mediaFeedback` with
+the comment verbatim and the exact latest attempt ID and provider-prompt hash from the persistent
+manifest. The host must append an immutable Repair Delta to that prompt lineage, generate a new
+attempt, and grade it. Do not author a replacement prompt or restart the asset from zero.
+
+Use `canvas.setSettings` with canonical `resolutionPolicy` to change Canvas defaults. Use
+`canvas.setMediaParams` with `resolution` to set a node override or
+`clearResolutionOverride: true` to restore Canvas inheritance. Exact, tier, and explicit
+provider-default are distinct states.
 
 If a provider submission has an ambiguous outcome and cannot be checked idempotently, enter recovery and ask the user instead of submitting again.
 

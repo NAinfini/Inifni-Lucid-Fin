@@ -17,7 +17,7 @@ export interface Migration {
  * Current schema version. Bump this when adding a new migration.
  * Version 1 = baseline (all existing tables via schema-sql.ts).
  */
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 /**
  * Ordered list of migrations. Each migration's `version` field is its
@@ -56,6 +56,41 @@ export const MIGRATIONS: Migration[] = [
     description: 'Add persistent production-media attempt and evaluation ledgers',
     up: (db) => {
       db.exec(WORKFLOW_PERSISTENCE_TABLES_SQL);
+    },
+  },
+  {
+    version: 5,
+    description: 'Add durable workflow-bound AskUser decisions',
+    up: (db) => {
+      db.exec(WORKFLOW_PERSISTENCE_TABLES_SQL);
+    },
+  },
+  {
+    version: 6,
+    description: 'Add canonical Canvas resolution policy JSON',
+    up: (db) => {
+      const canvasTable = db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'canvases'")
+        .get();
+      if (!canvasTable) return;
+      const columns = db.pragma('table_info(canvases)') as Array<{ name: string }>;
+      if (!columns.some(({ name }) => name === 'resolution_policy_json')) {
+        db.exec('ALTER TABLE canvases ADD COLUMN resolution_policy_json TEXT');
+      }
+    },
+  },
+  {
+    version: 7,
+    description: 'Add canonical Canvas visual-style draft policy JSON',
+    up: (db) => {
+      const canvasTable = db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'canvases'")
+        .get();
+      if (!canvasTable) return;
+      const columns = db.pragma('table_info(canvases)') as Array<{ name: string }>;
+      if (!columns.some(({ name }) => name === 'visual_style_policy_json')) {
+        db.exec('ALTER TABLE canvases ADD COLUMN visual_style_policy_json TEXT');
+      }
     },
   },
 ];

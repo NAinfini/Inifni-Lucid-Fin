@@ -1,7 +1,15 @@
 import type {
+  AnswerWorkflowDecisionInput,
+  AnswerWorkflowDecisionResult,
   ApproveWorkflowGateInput,
   ApproveWorkflowGateResult,
+  ReviseWorkflowGateInput,
+  ReviseWorkflowGateResult,
+  ReserveWorkflowDecisionInput,
+  ReserveWorkflowDecisionResult,
   WorkflowApproval,
+  WorkflowDecision,
+  WorkflowDecisionFilter,
   WorkflowRun,
   WorkflowStageRun,
   WorkflowTaskRun,
@@ -20,6 +28,9 @@ import type BetterSqlite3 from 'better-sqlite3';
 
 export interface WorkflowApprovalGateBundle {
   run: WorkflowRun;
+  stageRuns: WorkflowStageRun[];
+  taskRuns: WorkflowTaskRun[];
+  taskDependencies: Array<{ taskRunId: string; dependsOnTaskRunId: string }>;
   document: WorkflowDocument;
   approval: WorkflowApproval;
   events: WorkflowEvent[];
@@ -31,6 +42,19 @@ export interface WorkflowApprovalGateRevisionBundle {
   document: WorkflowDocument;
   approval: WorkflowApproval;
   event: Omit<WorkflowEvent, 'seq'>;
+  /**
+   * A Production Plan revision may change shot topology before the first plan
+   * approval. Rebind the still-unstarted downstream graph in the same CAS
+   * transaction so task rows can never describe the rejected plan.
+   */
+  replacementGraph?: {
+    stageRuns: WorkflowStageRun[];
+    taskRuns: WorkflowTaskRun[];
+    taskDependencies: Array<{ taskRunId: string; dependsOnTaskRunId: string }>;
+    runMetadata: Record<string, unknown>;
+    invalidatedByRevision: number;
+    updatedAt: number;
+  };
 }
 
 export interface WorkflowApprovalGateRevisionResult {
@@ -116,6 +140,49 @@ export interface RecordWorkflowMediaEvaluationResult {
   created: boolean;
 }
 
+export interface CompleteExternalWorkflowTaskInput {
+  workflowRunId: string;
+  taskRunId: string;
+  expectedRunRowVersion: number;
+  output: Record<string, unknown>;
+  completedAt: number;
+  event: Omit<WorkflowEvent, 'seq'>;
+}
+
+export interface CompleteExternalWorkflowTaskResult {
+  run: WorkflowRun;
+  stage: WorkflowStageRun;
+  task: WorkflowTaskRun;
+  event: WorkflowEvent;
+}
+
+interface ReopenProductionMediaTaskInput {
+  workflowRunId: string;
+  canvasId: string;
+  taskRunId: string;
+  attemptId: string;
+  expectedRunRowVersion: number;
+  feedback: string;
+  reopenedAt: number;
+  event: Omit<WorkflowEvent, 'seq'>;
+}
+
+interface ReopenProductionMediaTaskResult {
+  run: WorkflowRun;
+  task: WorkflowTaskRun;
+  event: WorkflowEvent;
+}
+
+export interface ReserveProductionMediaFeedbackAttemptInput extends ReopenProductionMediaTaskInput {
+  basePromptHash: string;
+  attempt: WorkflowMediaAttempt;
+}
+
+export interface ReserveProductionMediaFeedbackAttemptResult extends ReopenProductionMediaTaskResult {
+  attempt: WorkflowMediaAttempt;
+  created: boolean;
+}
+
 // --- Workflow Runs ---
 
 export function insertWorkflowRun(db: BetterSqlite3.Database, run: WorkflowRun): void {
@@ -173,6 +240,7 @@ export function listWorkflowRuns(
     status?: string;
     workflowType?: string;
     entityType?: string;
+    entityId?: string;
   },
 ): WorkflowRun[] {
   const conditions: string[] = [];
@@ -189,6 +257,10 @@ export function listWorkflowRuns(
   if (filter?.entityType) {
     conditions.push('entity_type = ?');
     params.push(filter.entityType);
+  }
+  if (filter?.entityId) {
+    conditions.push('entity_id = ?');
+    params.push(filter.entityId);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -306,6 +378,24 @@ export function updateWorkflowRun(
   if (sets.length === 0) return;
   params.push(id);
   db.prepare(`UPDATE workflow_runs SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+}
+
+/** Optimistically replace run metadata while advancing the aggregate version. */
+export function compareAndSetWorkflowRunMetadata(
+  db: BetterSqlite3.Database,
+  id: string,
+  expectedRowVersion: number,
+  metadata: Record<string, unknown>,
+  updatedAt: number,
+): boolean {
+  const result = db
+    .prepare(
+      `UPDATE workflow_runs
+       SET metadata_json = ?, row_version = row_version + 1, updated_at = ?
+       WHERE id = ? AND row_version = ?`,
+    )
+    .run(JSON.stringify(metadata), updatedAt, id, expectedRowVersion);
+  return result.changes === 1;
 }
 
 // --- Persistent Workflow Documents, Approvals, and Events ---
@@ -445,9 +535,37 @@ export function insertWorkflowApprovalGateBundle(
     if (
       bundle.document.workflowRunId !== bundle.run.id ||
       bundle.approval.workflowRunId !== bundle.run.id ||
+      bundle.stageRuns.some((stage) => stage.workflowRunId !== bundle.run.id) ||
+      bundle.taskRuns.some((task) => task.workflowRunId !== bundle.run.id) ||
       bundle.events.some((event) => event.workflowRunId !== bundle.run.id)
     ) {
       throw new Error('Workflow approval-gate bundle contains mismatched workflow run IDs');
+    }
+
+    const stageRunIds = new Set(bundle.stageRuns.map((stage) => stage.id));
+    const taskRunIds = new Set(bundle.taskRuns.map((task) => task.id));
+    if (
+      stageRunIds.size !== bundle.stageRuns.length ||
+      taskRunIds.size !== bundle.taskRuns.length
+    ) {
+      throw new Error('Workflow approval-gate bundle contains duplicate graph IDs');
+    }
+    if (bundle.run.currentStageId && !stageRunIds.has(bundle.run.currentStageId)) {
+      throw new Error('Workflow currentStageId must reference an inserted stage run');
+    }
+    if (bundle.run.currentTaskId && !taskRunIds.has(bundle.run.currentTaskId)) {
+      throw new Error('Workflow currentTaskId must reference an inserted task run');
+    }
+    if (bundle.taskRuns.some((task) => !stageRunIds.has(task.stageRunId))) {
+      throw new Error('Workflow task run references a stage outside its aggregate');
+    }
+    if (
+      bundle.taskDependencies.some(
+        (dependency) =>
+          !taskRunIds.has(dependency.taskRunId) || !taskRunIds.has(dependency.dependsOnTaskRunId),
+      )
+    ) {
+      throw new Error('Workflow task dependency references a task outside its aggregate');
     }
 
     const expectedSequences = bundle.events.map((_event, index) => index + 1);
@@ -456,6 +574,11 @@ export function insertWorkflowApprovalGateBundle(
     }
 
     insertWorkflowRun(db, bundle.run);
+    for (const stageRun of bundle.stageRuns) insertWorkflowStageRun(db, stageRun);
+    for (const taskRun of bundle.taskRuns) insertWorkflowTaskRun(db, taskRun);
+    for (const dependency of bundle.taskDependencies) {
+      insertWorkflowTaskDependency(db, dependency.taskRunId, dependency.dependsOnTaskRunId);
+    }
     insertWorkflowDocument(db, bundle.document);
     insertPendingWorkflowApproval(db, bundle.approval);
     for (const event of bundle.events) insertWorkflowEvent(db, event);
@@ -504,6 +627,15 @@ export function insertWorkflowApprovalGateRevision(
       throw new Error(`Workflow is blocked at a different approval gate: ${currentGate}`);
     }
 
+    if (bundle.replacementGraph) {
+      replaceUnstartedProductionGraph(
+        db,
+        document.workflowRunId,
+        approval.gateKey,
+        bundle.replacementGraph,
+      );
+    }
+
     const latestRevisionRow = db
       .prepare(
         `SELECT COALESCE(MAX(revision), 0) AS latest_revision
@@ -549,12 +681,16 @@ export function insertWorkflowApprovalGateRevision(
       .prepare(
         `UPDATE workflow_runs
          SET current_gate = ?, status = 'awaiting_approval',
+             metadata_json = COALESCE(?, metadata_json),
+             total_tasks = COALESCE(?, total_tasks),
              row_version = row_version + 1, updated_at = ?
          WHERE id = ? AND row_version = ?
            AND (current_gate IS NULL OR current_gate = ?)`,
       )
       .run(
         approval.gateKey,
+        bundle.replacementGraph ? JSON.stringify(bundle.replacementGraph.runMetadata) : null,
+        bundle.replacementGraph ? bundle.replacementGraph.taskRuns.length + 1 : null,
         approval.updatedAt,
         approval.workflowRunId,
         bundle.expectedRowVersion,
@@ -577,6 +713,205 @@ export function insertWorkflowApprovalGateRevision(
   });
 
   return create.immediate();
+}
+
+function replaceUnstartedProductionGraph(
+  db: BetterSqlite3.Database,
+  workflowRunId: string,
+  gateKey: WorkflowApproval['gateKey'],
+  graph: NonNullable<WorkflowApprovalGateRevisionBundle['replacementGraph']>,
+): void {
+  if (gateKey !== 'production_plan') {
+    throw new Error('Only a Production Plan revision may replace the unstarted production graph');
+  }
+  if (
+    graph.invalidatedByRevision < 2 ||
+    graph.stageRuns.some(
+      (stage) => stage.workflowRunId !== workflowRunId || stage.stageId === 'production-plan',
+    ) ||
+    graph.taskRuns.some((task) => task.workflowRunId !== workflowRunId)
+  ) {
+    throw new Error('Replacement production graph is not bound to the revised workflow');
+  }
+
+  const producerRow = db
+    .prepare(
+      `SELECT workflow_task_runs.*
+       FROM workflow_task_runs
+       JOIN workflow_stage_runs ON workflow_stage_runs.id = workflow_task_runs.stage_run_id
+       WHERE workflow_task_runs.workflow_run_id = ?
+         AND workflow_stage_runs.stage_id = 'production-plan'
+         AND workflow_task_runs.task_id = 'production-plan'
+       LIMIT 1`,
+    )
+    .get(workflowRunId) as Record<string, unknown> | undefined;
+  if (!producerRow) throw new Error('Production Plan producer task is missing');
+  const producerTask = rowToWorkflowTaskRun(db, producerRow);
+
+  const existingStageRows = db
+    .prepare(
+      `SELECT * FROM workflow_stage_runs
+       WHERE workflow_run_id = ? AND stage_id <> 'production-plan'`,
+    )
+    .all(workflowRunId) as Array<Record<string, unknown>>;
+  const existingStageIds = new Set(existingStageRows.map((row) => String(row.id)));
+  const desiredStageIds = new Set(graph.stageRuns.map((stage) => stage.id));
+  if (
+    existingStageIds.size !== desiredStageIds.size ||
+    [...existingStageIds].some((stageRunId) => !desiredStageIds.has(stageRunId))
+  ) {
+    throw new Error('Production Plan revision must preserve the persisted stage-run identities');
+  }
+
+  const desiredTaskIds = new Set(graph.taskRuns.map((task) => task.id));
+  if (desiredTaskIds.size !== graph.taskRuns.length || desiredTaskIds.has(producerTask.id)) {
+    throw new Error('Replacement production graph contains duplicate or producer task IDs');
+  }
+  if (
+    graph.taskRuns.some((task) => !desiredStageIds.has(task.stageRunId)) ||
+    graph.taskDependencies.some(
+      (dependency) =>
+        !desiredTaskIds.has(dependency.taskRunId) ||
+        (!desiredTaskIds.has(dependency.dependsOnTaskRunId) &&
+          dependency.dependsOnTaskRunId !== producerTask.id),
+    )
+  ) {
+    throw new Error('Replacement production graph contains an invalid task dependency');
+  }
+  const declaredDependencies = new Set(
+    graph.taskDependencies.map(
+      (dependency) => `${dependency.taskRunId}\u0000${dependency.dependsOnTaskRunId}`,
+    ),
+  );
+  const taskDependencies = new Set(
+    graph.taskRuns.flatMap((task) =>
+      task.dependencyIds.map((dependencyId) => `${task.id}\u0000${dependencyId}`),
+    ),
+  );
+  if (
+    declaredDependencies.size !== taskDependencies.size ||
+    [...declaredDependencies].some((dependency) => !taskDependencies.has(dependency))
+  ) {
+    throw new Error('Replacement task dependency rows do not match task dependency IDs');
+  }
+
+  const sideEffectCount = db
+    .prepare(
+      `SELECT
+         (SELECT COUNT(*) FROM workflow_media_attempts WHERE workflow_run_id = ?) +
+         (SELECT COUNT(*) FROM workflow_export_executions WHERE workflow_run_id = ?) +
+         (SELECT COUNT(*) FROM workflow_decisions WHERE workflow_run_id = ?) +
+         (SELECT COUNT(*) FROM workflow_artifacts WHERE workflow_run_id = ?) AS count`,
+    )
+    .get(workflowRunId, workflowRunId, workflowRunId, workflowRunId) as { count: number };
+  if (Number(sideEffectCount.count) !== 0) {
+    throw new Error('A Production Plan with downstream side effects cannot replace its task graph');
+  }
+
+  const activeTaskRows = db
+    .prepare(
+      `SELECT workflow_task_runs.*
+       FROM workflow_task_runs
+       JOIN workflow_stage_runs ON workflow_stage_runs.id = workflow_task_runs.stage_run_id
+       WHERE workflow_task_runs.workflow_run_id = ?
+         AND workflow_stage_runs.stage_id <> 'production-plan'
+         AND json_extract(workflow_task_runs.input_json, '$.invalidatedByPlanRevision') IS NULL`,
+    )
+    .all(workflowRunId) as Array<Record<string, unknown>>;
+  const activeTasks = activeTaskRows.map((row) => rowToWorkflowTaskRun(db, row));
+  if (
+    activeTasks.some(
+      (task) =>
+        (task.status !== 'blocked' && task.status !== 'pending' && task.status !== 'skipped') ||
+        task.attempts !== 0 ||
+        task.progress !== 0 ||
+        task.providerTaskId !== undefined ||
+        task.assetId !== undefined ||
+        Object.keys(task.output).length > 0,
+    )
+  ) {
+    throw new Error('Only an unstarted downstream production graph can be replaced');
+  }
+
+  for (const stage of graph.stageRuns) {
+    const changed = db
+      .prepare(
+        `UPDATE workflow_stage_runs
+         SET name = ?, status = ?, stage_order = ?, progress = ?,
+             completed_tasks = ?, total_tasks = ?, error_text = NULL,
+             metadata_json = ?, started_at = NULL, completed_at = NULL, updated_at = ?
+         WHERE id = ? AND workflow_run_id = ? AND stage_id = ?`,
+      )
+      .run(
+        stage.name,
+        stage.status,
+        stage.order,
+        stage.progress,
+        stage.completedTasks,
+        stage.totalTasks,
+        JSON.stringify(stage.metadata),
+        graph.updatedAt,
+        stage.id,
+        workflowRunId,
+        stage.stageId,
+      ).changes;
+    if (changed !== 1) throw new Error(`Replacement stage "${stage.stageId}" changed`);
+  }
+
+  const existingById = new Map(activeTasks.map((task) => [task.id, task]));
+  for (const task of graph.taskRuns) {
+    const existing = existingById.get(task.id);
+    if (existing) {
+      const changed = db
+        .prepare(
+          `UPDATE workflow_task_runs
+           SET stage_run_id = ?, task_id = ?, name = ?, kind = ?, status = ?, provider = ?,
+               dependency_ids_json = ?, attempts = 0, max_retries = ?, input_json = ?,
+               output_json = '{}', provider_task_id = NULL, asset_id = NULL, error_text = NULL,
+               progress = 0, current_step = NULL, started_at = NULL, completed_at = NULL,
+               updated_at = ?
+           WHERE id = ? AND workflow_run_id = ?`,
+        )
+        .run(
+          task.stageRunId,
+          task.taskId,
+          task.name,
+          task.kind,
+          task.status,
+          task.provider ?? null,
+          JSON.stringify(task.dependencyIds),
+          task.maxRetries,
+          JSON.stringify(task.input),
+          graph.updatedAt,
+          task.id,
+          workflowRunId,
+        ).changes;
+      if (changed !== 1) throw new Error(`Replacement task "${task.taskId}" changed`);
+      replaceWorkflowTaskDependencies(db, task.id, task.dependencyIds);
+    } else {
+      insertWorkflowTaskRun(db, task);
+    }
+  }
+
+  for (const task of activeTasks) {
+    if (desiredTaskIds.has(task.id)) continue;
+    replaceWorkflowTaskDependencies(db, task.id, []);
+    db.prepare(
+      `UPDATE workflow_task_runs
+       SET status = 'skipped', input_json = ?, output_json = '{}', progress = 100,
+           current_step = 'invalidated_by_plan_revision', completed_at = ?, updated_at = ?
+       WHERE id = ? AND workflow_run_id = ?`,
+    ).run(
+      JSON.stringify({
+        ...task.input,
+        invalidatedByPlanRevision: graph.invalidatedByRevision,
+      }),
+      graph.updatedAt,
+      graph.updatedAt,
+      task.id,
+      workflowRunId,
+    );
+  }
 }
 
 export function getPendingWorkflowApproval(
@@ -680,16 +1015,46 @@ export function approveWorkflowGate(
       return { ok: false, code: 'already_approved', approval };
     }
 
+    if (input.completedProducerTaskRunId) {
+      const producerRow = db
+        .prepare('SELECT * FROM workflow_task_runs WHERE id = ? AND workflow_run_id = ?')
+        .get(input.completedProducerTaskRunId, input.workflowRunId) as
+        Record<string, unknown> | undefined;
+      if (!producerRow) throw new Error('Workflow gate producer task does not exist');
+      const producer = rowToWorkflowTaskRun(db, producerRow);
+      if (producer.input.executionMode !== 'external') {
+        throw new Error('Workflow gate producer must be an external task');
+      }
+      if (producer.status !== 'completed') {
+        const producerUpdated = db
+          .prepare(
+            `UPDATE workflow_task_runs
+             SET status = 'completed', progress = 100, current_step = 'approved',
+                 error_text = NULL, completed_at = ?, updated_at = ?
+             WHERE id = ? AND workflow_run_id = ? AND status IN ('ready', 'running')`,
+          )
+          .run(input.approvedAt, input.approvedAt, producer.id, input.workflowRunId).changes;
+        if (producerUpdated !== 1) {
+          throw new Error(
+            `Workflow gate producer cannot complete from status "${producer.status}"`,
+          );
+        }
+      }
+      recomputeStageAggregate(db, producer.stageRunId);
+    }
+
     const runUpdated = db
       .prepare(
         `UPDATE workflow_runs
          SET current_gate = NULL, status = 'ready',
              current_stage_id = COALESCE(?, current_stage_id),
+             current_task_id = COALESCE(?, current_task_id),
              row_version = row_version + 1, updated_at = ?
          WHERE id = ? AND row_version = ? AND current_gate = ?`,
       )
       .run(
         input.nextStageId ?? null,
+        input.nextTaskId ?? null,
         input.approvedAt,
         input.workflowRunId,
         input.expectedRowVersion,
@@ -743,6 +1108,192 @@ export function approveWorkflowGate(
   return approve.immediate();
 }
 
+/** Reject the exact subject and reopen its external producer task atomically. */
+export function reviseWorkflowGate(
+  db: BetterSqlite3.Database,
+  input: ReviseWorkflowGateInput,
+): ReviseWorkflowGateResult {
+  const reason = input.reason.trim();
+  if (!reason) throw new TypeError('Workflow gate revision reason must not be empty');
+
+  const revise = db.transaction((): ReviseWorkflowGateResult => {
+    const runRow = db
+      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .get(input.workflowRunId) as Record<string, unknown> | undefined;
+    if (!runRow) return { ok: false, code: 'run_not_found' };
+
+    const actualGate =
+      runRow.current_gate == null
+        ? undefined
+        : (String(runRow.current_gate) as WorkflowApproval['gateKey']);
+    if (actualGate !== input.gateKey) {
+      return { ok: false, code: 'gate_not_current', actualGate };
+    }
+
+    const actualRowVersion = Number(runRow.row_version ?? 0);
+    if (actualRowVersion !== input.expectedRowVersion) {
+      return { ok: false, code: 'stale_row_version', actualRowVersion };
+    }
+
+    const approvalRow = db
+      .prepare(
+        `SELECT * FROM workflow_approvals
+         WHERE workflow_run_id = ? AND gate_key = ?
+         ORDER BY subject_revision DESC, created_at DESC
+         LIMIT 1`,
+      )
+      .get(input.workflowRunId, input.gateKey) as Record<string, unknown> | undefined;
+    if (!approvalRow) return { ok: false, code: 'no_approval' };
+    const previousApproval = rowToWorkflowApproval(approvalRow);
+    if (previousApproval.status !== 'pending') {
+      return {
+        ok: false,
+        code: 'approval_not_pending',
+        status: previousApproval.status,
+      };
+    }
+    if (previousApproval.subjectRevision !== input.expectedSubjectRevision) {
+      return {
+        ok: false,
+        code: 'stale_subject_revision',
+        actualSubjectRevision: previousApproval.subjectRevision,
+      };
+    }
+    if (previousApproval.subjectHash !== input.expectedSubjectHash) {
+      return { ok: false, code: 'subject_hash_mismatch' };
+    }
+
+    const previousDocumentRow = db
+      .prepare(
+        `SELECT * FROM workflow_documents
+         WHERE workflow_run_id = ? AND logical_key = ? AND revision = ?`,
+      )
+      .get(
+        input.workflowRunId,
+        previousApproval.subjectLogicalKey,
+        previousApproval.subjectRevision,
+      ) as Record<string, unknown> | undefined;
+    if (!previousDocumentRow) {
+      throw new Error('Pending workflow approval has no immutable subject document');
+    }
+    const previousDocument = rowToWorkflowDocument(previousDocumentRow);
+    const producerTaskRow = db
+      .prepare('SELECT * FROM workflow_task_runs WHERE id = ? AND workflow_run_id = ?')
+      .get(input.producerTaskRunId, input.workflowRunId) as Record<string, unknown> | undefined;
+    if (!producerTaskRow) throw new Error('Workflow gate producer task does not exist');
+    const producerTask = rowToWorkflowTaskRun(db, producerTaskRow);
+    const revisionRequest = {
+      action: input.action,
+      reason,
+      previousRevision: previousDocument.revision,
+      requestedAt: input.revisedAt,
+    };
+
+    const approvalUpdated = db
+      .prepare(
+        `UPDATE workflow_approvals
+         SET status = 'rejected', decided_at = ?, updated_at = ?
+         WHERE id = ? AND status = 'pending'`,
+      )
+      .run(input.revisedAt, input.revisedAt, previousApproval.id).changes;
+    if (approvalUpdated !== 1) {
+      throw new Error('Pending workflow approval changed inside revision transaction');
+    }
+
+    const producerUpdated = db
+      .prepare(
+        `UPDATE workflow_task_runs
+         SET status = 'ready', input_json = ?, output_json = '{}', error_text = NULL,
+             progress = 0, current_step = 'revision_requested', completed_at = NULL,
+             updated_at = ?
+         WHERE id = ? AND workflow_run_id = ?`,
+      )
+      .run(
+        JSON.stringify({ ...producerTask.input, revisionRequest }),
+        input.revisedAt,
+        producerTask.id,
+        input.workflowRunId,
+      ).changes;
+    if (producerUpdated !== 1) throw new Error('Workflow gate producer task changed');
+
+    db.prepare(
+      `UPDATE workflow_stage_runs
+       SET status = 'ready', progress = 0, completed_at = NULL, error_text = NULL, updated_at = ?
+       WHERE id = ? AND workflow_run_id = ?`,
+    ).run(input.revisedAt, producerTask.stageRunId, input.workflowRunId);
+
+    const runUpdated = db
+      .prepare(
+        `UPDATE workflow_runs
+         SET status = 'ready', current_gate = NULL,
+             current_stage_id = ?, current_task_id = ?,
+             row_version = row_version + 1, updated_at = ?
+         WHERE id = ? AND row_version = ? AND current_gate = ?`,
+      )
+      .run(
+        producerTask.stageRunId,
+        producerTask.id,
+        input.revisedAt,
+        input.workflowRunId,
+        input.expectedRowVersion,
+        input.gateKey,
+      ).changes;
+    if (runUpdated !== 1) {
+      throw new Error('Workflow run CAS changed inside gate revision transaction');
+    }
+
+    const seqRow = db
+      .prepare(
+        'SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM workflow_events WHERE workflow_run_id = ?',
+      )
+      .get(input.workflowRunId) as { next_seq: number };
+    const event: WorkflowEvent = {
+      workflowRunId: input.workflowRunId,
+      seq: Number(seqRow.next_seq),
+      eventId: input.eventId,
+      actor: input.actor,
+      correlationId: input.correlationId,
+      causationId: input.causationId,
+      payload: {
+        type:
+          input.action === 'request_changes'
+            ? 'workflow.gate.changes_requested'
+            : 'workflow.gate.rejected',
+        gateKey: input.gateKey,
+        reason,
+        previousApprovalId: previousApproval.id,
+        previousSubjectRevision: previousApproval.subjectRevision,
+        subjectLogicalKey: previousDocument.logicalKey,
+        requestedSubjectRevision: previousDocument.revision + 1,
+        producerTaskRunId: producerTask.id,
+      },
+      timestamp: input.revisedAt,
+    };
+    insertWorkflowEvent(db, event);
+
+    const updatedRunRow = db
+      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .get(input.workflowRunId) as Record<string, unknown>;
+    const updatedPreviousApprovalRow = db
+      .prepare('SELECT * FROM workflow_approvals WHERE id = ?')
+      .get(previousApproval.id) as Record<string, unknown>;
+    const updatedProducerTaskRow = db
+      .prepare('SELECT * FROM workflow_task_runs WHERE id = ?')
+      .get(producerTask.id) as Record<string, unknown>;
+
+    return {
+      ok: true,
+      code: 'revision_requested',
+      run: rowToWorkflowRun(updatedRunRow),
+      previousApproval: rowToWorkflowApproval(updatedPreviousApprovalRow),
+      producerTask: rowToWorkflowTaskRun(db, updatedProducerTaskRow),
+      event,
+    };
+  });
+
+  return revise.immediate();
+}
+
 export function listWorkflowEvents(
   db: BetterSqlite3.Database,
   workflowRunId: string,
@@ -751,6 +1302,703 @@ export function listWorkflowEvents(
     .prepare('SELECT * FROM workflow_events WHERE workflow_run_id = ? ORDER BY seq ASC')
     .all(workflowRunId) as Array<Record<string, unknown>>;
   return rows.map(rowToWorkflowEvent);
+}
+
+// --- Durable workflow-bound AskUser decisions ---
+
+export function reserveWorkflowDecision(
+  db: BetterSqlite3.Database,
+  input: ReserveWorkflowDecisionInput,
+): ReserveWorkflowDecisionResult {
+  const reserve = db.transaction((): ReserveWorkflowDecisionResult => {
+    const proposed = input.decision;
+    const decisionKey = proposed.decisionKey.trim();
+    const question = proposed.question.trim();
+    if (
+      !decisionKey ||
+      !question ||
+      proposed.status !== 'pending' ||
+      proposed.rowVersion !== 0 ||
+      proposed.answer !== undefined ||
+      proposed.answeredAt !== undefined ||
+      proposed.subjectRevision < 1
+    ) {
+      throw new TypeError('New workflow decisions must be a valid unanswered pending decision');
+    }
+    if (input.event.workflowRunId !== proposed.workflowRunId) {
+      throw new Error('Workflow decision event belongs to a different run');
+    }
+    if (
+      proposed.options.length < 2 ||
+      proposed.options.length > 6 ||
+      proposed.options.some((option) => !option.id.trim() || !option.label.trim()) ||
+      new Set(proposed.options.map((option) => option.id)).size !== proposed.options.length
+    ) {
+      throw new TypeError('Workflow decision options require 2-6 unique non-empty ids and labels');
+    }
+
+    const existingRow = db
+      .prepare(
+        `SELECT * FROM workflow_decisions
+         WHERE workflow_run_id = ? AND decision_key = ? AND subject_revision = ?`,
+      )
+      .get(proposed.workflowRunId, decisionKey, proposed.subjectRevision) as
+      Record<string, unknown> | undefined;
+    if (existingRow) {
+      const existing = rowToWorkflowDecision(existingRow);
+      if (
+        existing.taskRunId !== proposed.taskRunId ||
+        existing.canvasId !== proposed.canvasId ||
+        existing.question !== question ||
+        canonicalJson(existing.options) !== canonicalJson(proposed.options) ||
+        existing.allowFreeText !== proposed.allowFreeText
+      ) {
+        throw new Error(
+          'Workflow decision idempotency key conflicts with different persisted content',
+        );
+      }
+      const existingRunRow = db
+        .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+        .get(existing.workflowRunId) as Record<string, unknown>;
+      const existingTaskRow = db
+        .prepare('SELECT * FROM workflow_task_runs WHERE id = ?')
+        .get(existing.taskRunId) as Record<string, unknown>;
+      return {
+        decision: existing,
+        run: rowToWorkflowRun(existingRunRow),
+        task: rowToWorkflowTaskRun(db, existingTaskRow),
+        created: false,
+      };
+    }
+
+    const runRow = db
+      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .get(proposed.workflowRunId) as Record<string, unknown> | undefined;
+    if (!runRow) throw new Error(`Workflow "${proposed.workflowRunId}" not found`);
+    if (
+      String(runRow.workflow_type) !== 'movie.production.v2' ||
+      String(runRow.entity_type) !== 'canvas' ||
+      String(runRow.entity_id ?? '') !== proposed.canvasId
+    ) {
+      throw new Error('Workflow decision is not bound to the requested persistent video canvas');
+    }
+    const actualRunRowVersion = Number(runRow.row_version ?? 0);
+    if (actualRunRowVersion !== input.expectedRunRowVersion) {
+      throw new Error(
+        `Workflow row version changed: expected ${input.expectedRunRowVersion}, got ${actualRunRowVersion}`,
+      );
+    }
+    if (String(runRow.current_task_id ?? '') !== proposed.taskRunId) {
+      throw new Error('Workflow decision must bind to the current workflow task');
+    }
+
+    const taskRow = db
+      .prepare('SELECT * FROM workflow_task_runs WHERE id = ? AND workflow_run_id = ?')
+      .get(proposed.taskRunId, proposed.workflowRunId) as Record<string, unknown> | undefined;
+    if (!taskRow) throw new Error(`Workflow task "${proposed.taskRunId}" not found`);
+    const taskStatus = String(taskRow.status);
+    if (taskStatus !== 'ready' && taskStatus !== 'running') {
+      throw new Error(`Workflow task cannot ask the user while status is "${taskStatus}"`);
+    }
+
+    db.prepare(
+      `INSERT INTO workflow_decisions (
+         id, workflow_run_id, task_run_id, canvas_id, question_id,
+         decision_key, subject_revision, question, options_json, allow_free_text,
+         status, answer, selected_option_id, row_version,
+         created_at, updated_at, answered_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      proposed.id,
+      proposed.workflowRunId,
+      proposed.taskRunId,
+      proposed.canvasId,
+      proposed.questionId,
+      decisionKey,
+      proposed.subjectRevision,
+      question,
+      JSON.stringify(proposed.options),
+      proposed.allowFreeText ? 1 : 0,
+      'pending',
+      null,
+      null,
+      0,
+      proposed.createdAt,
+      proposed.updatedAt,
+      null,
+    );
+
+    const taskChanged = db
+      .prepare(
+        `UPDATE workflow_task_runs
+         SET status = 'blocked', current_step = 'awaiting_user_decision', updated_at = ?
+         WHERE id = ? AND workflow_run_id = ? AND status IN ('ready', 'running')`,
+      )
+      .run(proposed.updatedAt, proposed.taskRunId, proposed.workflowRunId).changes;
+    if (taskChanged !== 1) throw new Error('Workflow task changed inside decision transaction');
+
+    const runChanged = db
+      .prepare(
+        `UPDATE workflow_runs
+         SET status = 'blocked', row_version = row_version + 1, updated_at = ?
+         WHERE id = ? AND row_version = ? AND current_task_id = ?`,
+      )
+      .run(
+        proposed.updatedAt,
+        proposed.workflowRunId,
+        input.expectedRunRowVersion,
+        proposed.taskRunId,
+      ).changes;
+    if (runChanged !== 1) throw new Error('Workflow run CAS changed inside decision transaction');
+
+    const seqRow = db
+      .prepare(
+        'SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM workflow_events WHERE workflow_run_id = ?',
+      )
+      .get(proposed.workflowRunId) as { next_seq: number };
+    const event: WorkflowEvent = {
+      ...input.event,
+      seq: Number(seqRow.next_seq),
+      payload: {
+        ...input.event.payload,
+        type: 'workflow.decision.requested',
+        decisionId: proposed.id,
+        decisionKey,
+        subjectRevision: proposed.subjectRevision,
+        taskRunId: proposed.taskRunId,
+        questionId: proposed.questionId,
+      },
+    };
+    insertWorkflowEvent(db, event);
+
+    const insertedRow = db
+      .prepare('SELECT * FROM workflow_decisions WHERE id = ?')
+      .get(proposed.id) as Record<string, unknown>;
+    const updatedRunRow = db
+      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .get(proposed.workflowRunId) as Record<string, unknown>;
+    const updatedTaskRow = db
+      .prepare('SELECT * FROM workflow_task_runs WHERE id = ?')
+      .get(proposed.taskRunId) as Record<string, unknown>;
+    return {
+      decision: rowToWorkflowDecision(insertedRow),
+      run: rowToWorkflowRun(updatedRunRow),
+      task: rowToWorkflowTaskRun(db, updatedTaskRow),
+      event,
+      created: true,
+    };
+  });
+  return reserve.immediate();
+}
+
+export function getWorkflowDecisionByQuestion(
+  db: BetterSqlite3.Database,
+  canvasId: string,
+  questionId: string,
+): WorkflowDecision | undefined {
+  const row = db
+    .prepare(
+      `SELECT * FROM workflow_decisions
+       WHERE canvas_id = ? AND question_id = ?
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+    )
+    .get(canvasId, questionId) as Record<string, unknown> | undefined;
+  return row ? rowToWorkflowDecision(row) : undefined;
+}
+
+export function listPendingWorkflowDecisions(
+  db: BetterSqlite3.Database,
+  filter: WorkflowDecisionFilter = {},
+): WorkflowDecision[] {
+  const conditions = ["status IN ('pending', 'recovery_required')"];
+  const params: unknown[] = [];
+  if (filter.workflowRunId) {
+    conditions.push('workflow_run_id = ?');
+    params.push(filter.workflowRunId);
+  }
+  if (filter.canvasId) {
+    conditions.push('canvas_id = ?');
+    params.push(filter.canvasId);
+  }
+  const rows = db
+    .prepare(
+      `SELECT * FROM workflow_decisions
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY created_at ASC, id ASC`,
+    )
+    .all(...params) as Array<Record<string, unknown>>;
+  return rows.map(rowToWorkflowDecision);
+}
+
+export function answerWorkflowDecision(
+  db: BetterSqlite3.Database,
+  input: AnswerWorkflowDecisionInput,
+): AnswerWorkflowDecisionResult | undefined {
+  const answer = input.answer.trim();
+  if (!answer) throw new TypeError('Workflow decision answer must not be empty');
+
+  const persist = db.transaction((): AnswerWorkflowDecisionResult | undefined => {
+    const decisionRow = db
+      .prepare(
+        `SELECT * FROM workflow_decisions
+         WHERE canvas_id = ? AND question_id = ?
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+      )
+      .get(input.canvasId, input.questionId) as Record<string, unknown> | undefined;
+    if (!decisionRow) return undefined;
+    const decision = rowToWorkflowDecision(decisionRow);
+    if (input.event.workflowRunId !== decision.workflowRunId) {
+      throw new Error('Workflow decision answer event belongs to a different run');
+    }
+    const resumesRecoveredDecision =
+      decision.status === 'recovery_required' &&
+      input.status === 'answered' &&
+      decision.answer === answer &&
+      (input.selectedOptionId === undefined ||
+        decision.selectedOptionId === input.selectedOptionId);
+    if (decision.status !== 'pending' && !resumesRecoveredDecision) {
+      if (
+        decision.answer === answer &&
+        (input.selectedOptionId === undefined ||
+          decision.selectedOptionId === input.selectedOptionId)
+      ) {
+        const runRow = db
+          .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+          .get(decision.workflowRunId) as Record<string, unknown>;
+        const taskRow = db
+          .prepare('SELECT * FROM workflow_task_runs WHERE id = ?')
+          .get(decision.taskRunId) as Record<string, unknown>;
+        return {
+          decision,
+          run: rowToWorkflowRun(runRow),
+          task: rowToWorkflowTaskRun(db, taskRow),
+          answered: false,
+        };
+      }
+      throw new Error('Workflow decision has already been answered differently');
+    }
+
+    const selectedOptionId =
+      input.selectedOptionId ?? decision.options.find((option) => option.label === answer)?.id;
+    const selectedOption =
+      selectedOptionId === undefined
+        ? undefined
+        : decision.options.find((option) => option.id === selectedOptionId);
+    if (selectedOptionId !== undefined && selectedOption === undefined) {
+      throw new Error('Workflow decision selected option does not exist');
+    }
+    if (!decision.allowFreeText && selectedOption?.label !== answer) {
+      throw new Error('Workflow decision requires one of the listed options');
+    }
+
+    const runRow = db
+      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .get(decision.workflowRunId) as Record<string, unknown> | undefined;
+    const taskRow = db
+      .prepare('SELECT * FROM workflow_task_runs WHERE id = ? AND workflow_run_id = ?')
+      .get(decision.taskRunId, decision.workflowRunId) as Record<string, unknown> | undefined;
+    if (!runRow || !taskRow) throw new Error('Workflow decision binding no longer exists');
+    const actualRunRowVersion = Number(runRow.row_version ?? 0);
+
+    const decisionChanged = db
+      .prepare(
+        `UPDATE workflow_decisions
+         SET status = ?, answer = ?, selected_option_id = ?, answered_at = ?, updated_at = ?,
+             row_version = row_version + 1
+         WHERE id = ? AND row_version = ? AND status = ?`,
+      )
+      .run(
+        input.status,
+        answer,
+        selectedOptionId ?? null,
+        input.answeredAt,
+        input.answeredAt,
+        decision.id,
+        decision.rowVersion,
+        decision.status,
+      ).changes;
+    if (decisionChanged !== 1) throw new Error('Workflow decision changed before answer');
+
+    const canResume = input.status === 'answered';
+    const taskChanged = db
+      .prepare(
+        `UPDATE workflow_task_runs
+         SET status = ?, current_step = ?, updated_at = ?
+         WHERE id = ? AND workflow_run_id = ? AND status = 'blocked'`,
+      )
+      .run(
+        canResume ? 'ready' : 'blocked',
+        canResume ? 'user_decision_answered' : 'recovery_required',
+        input.answeredAt,
+        decision.taskRunId,
+        decision.workflowRunId,
+      ).changes;
+    if (taskChanged !== 1) throw new Error('Workflow decision task is not awaiting an answer');
+
+    const runChanged = db
+      .prepare(
+        `UPDATE workflow_runs
+         SET status = CASE
+               WHEN ? = 0 THEN 'blocked'
+               WHEN current_gate IS NULL THEN 'ready'
+               ELSE 'awaiting_approval'
+             END,
+             row_version = row_version + 1, updated_at = ?
+         WHERE id = ? AND row_version = ? AND current_task_id = ?`,
+      )
+      .run(
+        canResume ? 1 : 0,
+        input.answeredAt,
+        decision.workflowRunId,
+        actualRunRowVersion,
+        decision.taskRunId,
+      ).changes;
+    if (runChanged !== 1) throw new Error('Workflow run changed before decision answer');
+
+    const seqRow = db
+      .prepare(
+        'SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM workflow_events WHERE workflow_run_id = ?',
+      )
+      .get(decision.workflowRunId) as { next_seq: number };
+    const event: WorkflowEvent = {
+      ...input.event,
+      seq: Number(seqRow.next_seq),
+      payload: {
+        ...input.event.payload,
+        type: 'workflow.decision.answered',
+        decisionId: decision.id,
+        decisionKey: decision.decisionKey,
+        subjectRevision: decision.subjectRevision,
+        taskRunId: decision.taskRunId,
+        questionId: decision.questionId,
+        selectedOptionId: selectedOptionId ?? null,
+        resumeStatus: input.status,
+      },
+    };
+    insertWorkflowEvent(db, event);
+
+    const updatedDecisionRow = db
+      .prepare('SELECT * FROM workflow_decisions WHERE id = ?')
+      .get(decision.id) as Record<string, unknown>;
+    const updatedRunRow = db
+      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .get(decision.workflowRunId) as Record<string, unknown>;
+    const updatedTaskRow = db
+      .prepare('SELECT * FROM workflow_task_runs WHERE id = ?')
+      .get(decision.taskRunId) as Record<string, unknown>;
+    return {
+      decision: rowToWorkflowDecision(updatedDecisionRow),
+      run: rowToWorkflowRun(updatedRunRow),
+      task: rowToWorkflowTaskRun(db, updatedTaskRow),
+      event,
+      answered: true,
+    };
+  });
+  return persist.immediate();
+}
+
+/**
+ * Atomically accepts host-verified output for the one current external task.
+ * Dependency checks and the run CAS happen in the same transaction so an AI
+ * cannot skip ahead, complete a stale task, or detach evidence from its task.
+ */
+export function completeExternalWorkflowTask(
+  db: BetterSqlite3.Database,
+  input: CompleteExternalWorkflowTaskInput,
+): CompleteExternalWorkflowTaskResult {
+  const complete = db.transaction((): CompleteExternalWorkflowTaskResult => {
+    if (input.event.workflowRunId !== input.workflowRunId) {
+      throw new Error('External task completion event belongs to a different run');
+    }
+    const runRow = db
+      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .get(input.workflowRunId) as Record<string, unknown> | undefined;
+    if (!runRow) throw new Error(`Workflow "${input.workflowRunId}" not found`);
+    const run = rowToWorkflowRun(runRow);
+    if (run.workflowType !== 'movie.production.v2') {
+      throw new Error('External production completion requires movie.production.v2');
+    }
+    if ((run.rowVersion ?? 0) !== input.expectedRunRowVersion) {
+      throw new Error(
+        `Workflow row version changed: expected ${input.expectedRunRowVersion}, got ${run.rowVersion ?? 0}`,
+      );
+    }
+    if (run.currentGate) throw new Error(`Workflow is awaiting ${run.currentGate} approval`);
+    if (run.currentTaskId !== input.taskRunId) {
+      throw new Error('External completion must target the host-derived current task');
+    }
+
+    const taskRow = db
+      .prepare('SELECT * FROM workflow_task_runs WHERE id = ? AND workflow_run_id = ?')
+      .get(input.taskRunId, input.workflowRunId) as Record<string, unknown> | undefined;
+    if (!taskRow) throw new Error(`Workflow task "${input.taskRunId}" not found`);
+    const task = rowToWorkflowTaskRun(db, taskRow);
+    if (task.input.executionMode !== 'external') {
+      throw new Error('Only external workflow tasks can use host completion');
+    }
+    if (task.status !== 'ready' && task.status !== 'running') {
+      throw new Error(`External workflow task cannot complete from status "${task.status}"`);
+    }
+    const unsatisfied = db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM workflow_task_dependencies d
+         JOIN workflow_task_runs dependency ON dependency.id = d.depends_on_task_run_id
+         WHERE d.task_run_id = ? AND dependency.status NOT IN ('completed', 'skipped')`,
+      )
+      .get(task.id) as { count: number };
+    if (Number(unsatisfied.count) > 0) {
+      throw new Error('External workflow task dependencies are not complete');
+    }
+
+    const taskChanged = db
+      .prepare(
+        `UPDATE workflow_task_runs
+         SET status = 'completed', output_json = ?, progress = 100,
+             current_step = 'completed', error_text = NULL,
+             completed_at = ?, updated_at = ?
+         WHERE id = ? AND workflow_run_id = ? AND status IN ('ready', 'running')`,
+      )
+      .run(
+        JSON.stringify(input.output),
+        input.completedAt,
+        input.completedAt,
+        task.id,
+        input.workflowRunId,
+      ).changes;
+    if (taskChanged !== 1) throw new Error('External workflow task changed before completion');
+
+    recomputeStageAggregate(db, task.stageRunId);
+    recomputeWorkflowAggregate(db, input.workflowRunId);
+    const runChanged = db
+      .prepare(
+        `UPDATE workflow_runs
+         SET row_version = row_version + 1, updated_at = ?
+         WHERE id = ? AND row_version = ? AND current_gate IS NULL`,
+      )
+      .run(input.completedAt, input.workflowRunId, input.expectedRunRowVersion).changes;
+    if (runChanged !== 1)
+      throw new Error('Workflow changed inside external completion transaction');
+
+    const seqRow = db
+      .prepare(
+        'SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM workflow_events WHERE workflow_run_id = ?',
+      )
+      .get(input.workflowRunId) as { next_seq: number };
+    const event: WorkflowEvent = {
+      ...input.event,
+      seq: Number(seqRow.next_seq),
+      payload: {
+        ...input.event.payload,
+        type: 'workflow.external_task.completed',
+        taskRunId: task.id,
+        taskId: task.taskId,
+      },
+    };
+    insertWorkflowEvent(db, event);
+
+    const updatedRunRow = db
+      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .get(input.workflowRunId) as Record<string, unknown>;
+    const updatedStageRow = db
+      .prepare('SELECT * FROM workflow_stage_runs WHERE id = ?')
+      .get(task.stageRunId) as Record<string, unknown>;
+    const updatedTaskRow = db
+      .prepare('SELECT * FROM workflow_task_runs WHERE id = ?')
+      .get(task.id) as Record<string, unknown>;
+    return {
+      run: rowToWorkflowRun(updatedRunRow),
+      stage: rowToWorkflowStageRun(updatedStageRow),
+      task: rowToWorkflowTaskRun(db, updatedTaskRow),
+      event,
+    };
+  });
+  return complete.immediate();
+}
+
+/**
+ * Reopen one completed shot for an additive user refinement without rewinding
+ * the plan, Visual Constitution, other completed shots, or budget ledger.
+ */
+function reopenProductionMediaTask(
+  db: BetterSqlite3.Database,
+  input: ReopenProductionMediaTaskInput,
+): ReopenProductionMediaTaskResult {
+  const reopen = db.transaction((): ReopenProductionMediaTaskResult => {
+    const feedback = input.feedback.trim();
+    if (!feedback) throw new Error('Production-media feedback must not be empty');
+    if (input.event.workflowRunId !== input.workflowRunId) {
+      throw new Error('Production-media feedback event belongs to a different run');
+    }
+    const runRow = db
+      .prepare('SELECT * FROM workflow_runs WHERE id = ?')
+      .get(input.workflowRunId) as Record<string, unknown> | undefined;
+    if (!runRow) throw new Error(`Workflow "${input.workflowRunId}" not found`);
+    const run = rowToWorkflowRun(runRow);
+    if (
+      run.workflowType !== 'movie.production.v2' ||
+      run.entityType !== 'canvas' ||
+      run.entityId !== input.canvasId
+    ) {
+      throw new Error('Production-media feedback is not bound to this persistent canvas workflow');
+    }
+    if ((run.rowVersion ?? 0) !== input.expectedRunRowVersion) {
+      throw new Error(
+        `Workflow row version changed: expected ${input.expectedRunRowVersion}, got ${run.rowVersion ?? 0}`,
+      );
+    }
+    if (run.currentGate) throw new Error(`Workflow is awaiting ${run.currentGate} approval`);
+    const busyAssembly = db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM workflow_task_runs task
+         JOIN workflow_stage_runs stage ON stage.id = task.stage_run_id
+         WHERE task.workflow_run_id = ? AND stage.stage_id = 'assembly'
+           AND task.status IN ('running', 'awaiting_provider', 'completed')`,
+      )
+      .get(input.workflowRunId) as { count: number };
+    if (Number(busyAssembly.count) > 0) {
+      throw new Error('Assembly has already started; revise that stage before changing media');
+    }
+
+    const attempt = getWorkflowMediaAttempt(db, input.attemptId);
+    if (
+      !attempt ||
+      attempt.workflowRunId !== input.workflowRunId ||
+      attempt.canvasId !== input.canvasId ||
+      attempt.generationSpec.workflowTask.taskRunId !== input.taskRunId
+    ) {
+      throw new Error('Production-media feedback attempt/task binding is invalid');
+    }
+    const latest = getLatestWorkflowMediaAttempt(db, input.workflowRunId, attempt.nodeId);
+    if (!latest || latest.id !== attempt.id || attempt.status !== 'accepted') {
+      throw new Error('Only the exact latest accepted media attempt can reopen a completed task');
+    }
+    const taskRow = db
+      .prepare('SELECT * FROM workflow_task_runs WHERE id = ? AND workflow_run_id = ?')
+      .get(input.taskRunId, input.workflowRunId) as Record<string, unknown> | undefined;
+    if (!taskRow) throw new Error(`Workflow task "${input.taskRunId}" not found`);
+    const task = rowToWorkflowTaskRun(db, taskRow);
+    if (
+      task.input.workflowTaskRole !== 'production_media' ||
+      task.id !== attempt.generationSpec.workflowTask.taskRunId
+    ) {
+      throw new Error('Only the attempt-bound production_media task can be reopened');
+    }
+    if (task.status !== 'completed') {
+      throw new Error(`Production-media task cannot reopen from status "${task.status}"`);
+    }
+
+    const taskChanged = db
+      .prepare(
+        `UPDATE workflow_task_runs
+         SET status = 'ready', output_json = '{}', progress = 0,
+             current_step = 'user_feedback_received', error_text = NULL,
+             completed_at = NULL, updated_at = ?
+         WHERE id = ? AND workflow_run_id = ? AND status = 'completed'`,
+      )
+      .run(input.reopenedAt, task.id, input.workflowRunId).changes;
+    if (taskChanged !== 1) throw new Error('Production-media task changed before it was reopened');
+    db.prepare(
+      `UPDATE workflow_stage_runs
+       SET status = 'running', completed_at = NULL, updated_at = ?
+       WHERE id = ? AND workflow_run_id = ?`,
+    ).run(input.reopenedAt, task.stageRunId, input.workflowRunId);
+
+    recomputeStageAggregate(db, task.stageRunId);
+    recomputeWorkflowAggregate(db, input.workflowRunId);
+    const runChanged = db
+      .prepare(
+        `UPDATE workflow_runs
+         SET row_version = row_version + 1, updated_at = ?
+         WHERE id = ? AND row_version = ? AND current_gate IS NULL`,
+      )
+      .run(input.reopenedAt, input.workflowRunId, input.expectedRunRowVersion).changes;
+    if (runChanged !== 1) throw new Error('Workflow changed inside media feedback transaction');
+
+    const seqRow = db
+      .prepare(
+        'SELECT COALESCE(MAX(seq), 0) + 1 AS next_seq FROM workflow_events WHERE workflow_run_id = ?',
+      )
+      .get(input.workflowRunId) as { next_seq: number };
+    const event: WorkflowEvent = {
+      ...input.event,
+      seq: Number(seqRow.next_seq),
+      payload: {
+        ...input.event.payload,
+        type: 'workflow.media.feedback_requested',
+        taskRunId: task.id,
+        attemptId: attempt.id,
+        nodeId: attempt.nodeId,
+        basePromptHash: attempt.promptHash,
+        feedback,
+      },
+    };
+    insertWorkflowEvent(db, event);
+
+    return {
+      run: rowToWorkflowRun(
+        db.prepare('SELECT * FROM workflow_runs WHERE id = ?').get(input.workflowRunId) as Record<
+          string,
+          unknown
+        >,
+      ),
+      task: rowToWorkflowTaskRun(
+        db,
+        db.prepare('SELECT * FROM workflow_task_runs WHERE id = ?').get(task.id) as Record<
+          string,
+          unknown
+        >,
+      ),
+      event,
+    };
+  });
+  return reopen.immediate();
+}
+
+/**
+ * Accept one user-feedback revision as a single durable fact: the completed
+ * task is reopened, its feedback event is written, and the next immutable
+ * attempt is reserved in the same immediate transaction. Any failed CAS,
+ * approval, retry, or budget check rolls all three mutations back.
+ */
+export function reserveProductionMediaFeedbackAttempt(
+  db: BetterSqlite3.Database,
+  input: ReserveProductionMediaFeedbackAttemptInput,
+): ReserveProductionMediaFeedbackAttemptResult {
+  const reserveFeedback = db.transaction((): ReserveProductionMediaFeedbackAttemptResult => {
+    const feedback = input.feedback.trim();
+    const target = getWorkflowMediaAttempt(db, input.attemptId);
+    if (!target || target.promptHash !== input.basePromptHash) {
+      throw new Error('The exact production-media feedback prompt hash is required');
+    }
+    const delta = input.attempt.repairDelta;
+    if (
+      !delta ||
+      delta.source !== 'user_feedback' ||
+      delta.parentAttemptId !== target.id ||
+      delta.basePromptHash !== target.promptHash ||
+      delta.userFeedback?.trim() !== feedback ||
+      input.attempt.workflowRunId !== target.workflowRunId ||
+      input.attempt.canvasId !== target.canvasId ||
+      input.attempt.nodeId !== target.nodeId ||
+      input.attempt.providerId !== target.providerId
+    ) {
+      throw new Error('Production-media feedback attempt lineage is invalid');
+    }
+
+    const reopened = reopenProductionMediaTask(db, input);
+    const reserved = reserveWorkflowMediaAttempt(db, {
+      attempt: input.attempt,
+      expectedRunRowVersion: reopened.run.rowVersion ?? -1,
+    });
+    return {
+      ...reopened,
+      attempt: reserved.attempt,
+      created: reserved.created,
+    };
+  });
+  return reserveFeedback.immediate();
 }
 
 // --- Persistent Production Media Attempts and Evaluations ---
@@ -767,9 +2015,16 @@ export function reserveWorkflowMediaAttempt(
 
     const run = db
       .prepare(
-        `SELECT workflow_type, entity_type, entity_id, status, current_stage_id,
-                current_gate, row_version
-         FROM workflow_runs WHERE id = ?`,
+        `SELECT workflow_runs.workflow_type, workflow_runs.entity_type,
+                workflow_runs.entity_id, workflow_runs.status,
+                workflow_runs.current_stage_id, workflow_stage_runs.stage_id AS current_stage_key,
+                workflow_runs.current_task_id, workflow_runs.current_gate,
+                workflow_runs.row_version
+         FROM workflow_runs
+         LEFT JOIN workflow_stage_runs
+           ON workflow_stage_runs.id = workflow_runs.current_stage_id
+          AND workflow_stage_runs.workflow_run_id = workflow_runs.id
+         WHERE workflow_runs.id = ?`,
       )
       .get(proposed.workflowRunId) as
       | {
@@ -778,6 +2033,8 @@ export function reserveWorkflowMediaAttempt(
           entity_id: string | null;
           status: string;
           current_stage_id: string | null;
+          current_stage_key: string | null;
+          current_task_id: string | null;
           current_gate: string | null;
           row_version: number;
         }
@@ -796,12 +2053,27 @@ export function reserveWorkflowMediaAttempt(
     if (run.current_gate !== null) {
       throw new Error(`Workflow is awaiting ${run.current_gate} approval`);
     }
+    const currentTaskRow = run.current_task_id
+      ? (db
+          .prepare('SELECT * FROM workflow_task_runs WHERE id = ? AND workflow_run_id = ?')
+          .get(run.current_task_id, proposed.workflowRunId) as Record<string, unknown> | undefined)
+      : undefined;
+    const currentTask = currentTaskRow ? rowToWorkflowTaskRun(db, currentTaskRow) : undefined;
+    const currentRole =
+      typeof currentTask?.input.workflowTaskRole === 'string'
+        ? currentTask.input.workflowTaskRole
+        : undefined;
+    const stageAllowsMedia =
+      (run.current_stage_key === 'media-generation' && currentRole === 'production_media') ||
+      (run.current_stage_key === 'preproduction' && currentRole === 'references');
     if (
-      run.current_stage_id !== 'media-generation' ||
+      !currentTask ||
+      !stageAllowsMedia ||
+      (currentTask.status !== 'ready' && currentTask.status !== 'running') ||
       (run.status !== 'ready' && run.status !== 'running')
     ) {
       throw new Error(
-        `Workflow is not ready for media generation (status=${run.status}, stage=${run.current_stage_id ?? 'none'})`,
+        `Workflow is not ready for task-bound media generation (status=${run.status}, stage=${run.current_stage_key ?? 'invalid-stage-run'}, task=${currentTask?.taskId ?? 'none'})`,
       );
     }
 
@@ -811,7 +2083,10 @@ export function reserveWorkflowMediaAttempt(
       spec.canvasId !== proposed.canvasId ||
       spec.nodeId !== proposed.nodeId ||
       spec.mediaType !== proposed.mediaType ||
-      spec.providerId !== proposed.providerId
+      spec.providerId !== proposed.providerId ||
+      spec.workflowTask.taskRunId !== currentTask.id ||
+      spec.workflowTask.taskId !== currentTask.taskId ||
+      spec.workflowTask.role !== currentRole
     ) {
       throw new Error('Generation Spec identity does not match its attempt reservation');
     }
@@ -1459,10 +2734,51 @@ export function completeWorkflowExportExecution(
       ).changes;
     if (executionChanged !== 1) throw new Error('Final Export completion CAS failed');
 
+    const finalTaskRow = db
+      .prepare(
+        `SELECT workflow_task_runs.*
+         FROM workflow_task_runs
+         JOIN workflow_stage_runs ON workflow_stage_runs.id = workflow_task_runs.stage_run_id
+         WHERE workflow_task_runs.workflow_run_id = ?
+           AND workflow_stage_runs.stage_id = 'final-export'
+           AND workflow_task_runs.task_id = 'final-export'
+         LIMIT 1`,
+      )
+      .get(execution.workflowRunId) as Record<string, unknown> | undefined;
+    if (!finalTaskRow) throw new Error('Final Export workflow task is missing');
+    const finalTask = rowToWorkflowTaskRun(db, finalTaskRow);
+    const finalTaskChanged = db
+      .prepare(
+        `UPDATE workflow_task_runs
+         SET status = 'completed', progress = 100, current_step = 'published',
+             output_json = ?, error_text = NULL, completed_at = ?, updated_at = ?
+         WHERE id = ? AND workflow_run_id = ? AND status IN ('ready', 'running')`,
+      )
+      .run(
+        JSON.stringify({
+          executionId: execution.id,
+          outputAssetHash: input.outputAssetHash,
+          outputHash: input.outputHash,
+          outputSize: input.outputSize,
+        }),
+        input.completedAt,
+        input.completedAt,
+        finalTask.id,
+        execution.workflowRunId,
+      ).changes;
+    if (finalTaskChanged !== 1) {
+      throw new Error(
+        `Final Export workflow task cannot complete from status "${finalTask.status}"`,
+      );
+    }
+    recomputeStageAggregate(db, finalTask.stageRunId);
+
     const runChanged = db
       .prepare(
         `UPDATE workflow_runs
          SET status = 'completed', summary = 'Final export completed', progress = 100,
+             completed_stages = total_stages, completed_tasks = total_tasks,
+             current_stage_id = NULL, current_task_id = NULL,
              output_json = ?, error_text = NULL, completed_at = ?, updated_at = ?,
              row_version = row_version + 1
          WHERE id = ? AND row_version = ? AND current_gate IS NULL`,
@@ -1671,7 +2987,10 @@ export function listWorkflowTaskRuns(
 ): WorkflowTaskRun[] {
   const rows = db
     .prepare(
-      'SELECT * FROM workflow_task_runs WHERE workflow_run_id = ? ORDER BY updated_at DESC, id ASC',
+      `SELECT * FROM workflow_task_runs
+       WHERE workflow_run_id = ?
+         AND json_extract(input_json, '$.invalidatedByPlanRevision') IS NULL
+       ORDER BY updated_at DESC, id ASC`,
     )
     .all(workflowRunId) as Array<Record<string, unknown>>;
   const ids = rows.map((r) => r.id as string);
@@ -1685,7 +3004,10 @@ export function listWorkflowTaskRunsByStage(
 ): WorkflowTaskRun[] {
   const rows = db
     .prepare(
-      'SELECT * FROM workflow_task_runs WHERE stage_run_id = ? ORDER BY updated_at DESC, id ASC',
+      `SELECT * FROM workflow_task_runs
+       WHERE stage_run_id = ?
+         AND json_extract(input_json, '$.invalidatedByPlanRevision') IS NULL
+       ORDER BY updated_at DESC, id ASC`,
     )
     .all(stageRunId) as Array<Record<string, unknown>>;
   const ids = rows.map((r) => r.id as string);
@@ -2094,7 +3416,11 @@ export function recomputeStageAggregate(db: BetterSqlite3.Database, stageRunId: 
 
   const taskRows = db
     .prepare(
-      'SELECT id, status, progress, updated_at FROM workflow_task_runs WHERE stage_run_id = ? ORDER BY updated_at DESC, id ASC',
+      `SELECT id, status, progress, updated_at
+       FROM workflow_task_runs
+       WHERE stage_run_id = ?
+         AND json_extract(input_json, '$.invalidatedByPlanRevision') IS NULL
+       ORDER BY updated_at DESC, id ASC`,
     )
     .all(stageRunId) as Array<{
     id: string;
@@ -2140,10 +3466,10 @@ export function recomputeStageAggregate(db: BetterSqlite3.Database, stageRunId: 
     status = 'cancelled';
   } else if (allCompleteLike) {
     status = 'completed';
-  } else if (hasBlocked) {
-    status = 'blocked';
   } else if (hasReady) {
     status = 'ready';
+  } else if (hasBlocked) {
+    status = 'blocked';
   }
 
   const progress =
@@ -2170,8 +3496,18 @@ export function recomputeWorkflowAggregate(
   workflowRunId: string,
 ): void {
   const workflowRow = db
-    .prepare('SELECT updated_at FROM workflow_runs WHERE id = ?')
-    .get(workflowRunId) as { updated_at: number } | undefined;
+    .prepare(
+      `SELECT updated_at, current_gate, current_stage_id, current_task_id
+       FROM workflow_runs WHERE id = ?`,
+    )
+    .get(workflowRunId) as
+    | {
+        updated_at: number;
+        current_gate: string | null;
+        current_stage_id: string | null;
+        current_task_id: string | null;
+      }
+    | undefined;
   if (!workflowRow) {
     return;
   }
@@ -2196,15 +3532,33 @@ export function recomputeWorkflowAggregate(
   // Avoids loading input_json/output_json for each task.
   const tasks = db
     .prepare(
-      `SELECT id, status, updated_at
+      `SELECT workflow_task_runs.id, workflow_task_runs.stage_run_id,
+              workflow_task_runs.task_id, workflow_task_runs.status,
+              workflow_task_runs.updated_at, workflow_stage_runs.stage_order
        FROM workflow_task_runs
-       WHERE workflow_run_id = ?
-       ORDER BY updated_at DESC, id ASC`,
+       JOIN workflow_stage_runs ON workflow_stage_runs.id = workflow_task_runs.stage_run_id
+       WHERE workflow_task_runs.workflow_run_id = ?
+         AND json_extract(workflow_task_runs.input_json, '$.invalidatedByPlanRevision') IS NULL
+       ORDER BY workflow_stage_runs.stage_order ASC,
+                CASE workflow_task_runs.status
+                  WHEN 'running' THEN 0
+                  WHEN 'awaiting_provider' THEN 1
+                  WHEN 'ready' THEN 2
+                  WHEN 'blocked' THEN 3
+                  WHEN 'pending' THEN 4
+                  ELSE 5
+                END ASC,
+                workflow_task_runs.updated_at DESC,
+                workflow_task_runs.task_id ASC,
+                workflow_task_runs.id ASC`,
     )
     .all(workflowRunId) as Array<{
     id: string;
+    stage_run_id: string;
+    task_id: string;
     status: WorkflowTaskRun['status'];
     updated_at: number;
+    stage_order: number;
   }>;
 
   const totalStages = stages.length;
@@ -2246,7 +3600,9 @@ export function recomputeWorkflowAggregate(
     completedTasks > 0;
 
   let status: WorkflowRun['status'];
-  if (hasRunningTask) {
+  if (workflowRow.current_gate !== null) {
+    status = 'awaiting_approval';
+  } else if (hasRunningTask) {
     status = 'running';
   } else if (hasCompletedWithErrors) {
     status = 'completed_with_errors';
@@ -2256,10 +3612,10 @@ export function recomputeWorkflowAggregate(
     status = 'cancelled';
   } else if (allStagesCompleted) {
     status = 'completed';
-  } else if (hasBlocked) {
-    status = 'blocked';
   } else if (hasReady) {
     status = 'ready';
+  } else if (hasBlocked) {
+    status = 'blocked';
   } else {
     status = 'pending';
   }
@@ -2271,9 +3627,12 @@ export function recomputeWorkflowAggregate(
         ? 0
         : Math.round(stages.reduce((sum, stage) => sum + stage.progress, 0) / totalStages);
 
-  const currentStage =
-    status === 'completed' || status === 'completed_with_errors' || status === 'cancelled'
-      ? undefined
+  const terminal =
+    status === 'completed' || status === 'completed_with_errors' || status === 'cancelled';
+  const currentStage = terminal
+    ? undefined
+    : workflowRow.current_gate !== null
+      ? stages.find((stage) => stage.id === workflowRow.current_stage_id)
       : (stages.find((stage) => stage.status === 'running') ??
         stages.find(
           (stage) =>
@@ -2282,16 +3641,27 @@ export function recomputeWorkflowAggregate(
             stage.status !== 'skipped' &&
             stage.status !== 'cancelled',
         ));
-  const currentTask =
-    status === 'completed' || status === 'completed_with_errors' || status === 'cancelled'
-      ? undefined
-      : (tasks.find((task) => task.status === 'running' || task.status === 'awaiting_provider') ??
+  const currentTask = terminal
+    ? undefined
+    : workflowRow.current_gate !== null
+      ? tasks.find((task) => task.id === workflowRow.current_task_id)
+      : (tasks.find(
+          (task) =>
+            task.stage_run_id === currentStage?.id &&
+            (task.status === 'running' || task.status === 'awaiting_provider'),
+        ) ??
         tasks.find(
           (task) =>
-            task.status !== 'completed' && task.status !== 'skipped' && task.status !== 'cancelled',
+            task.stage_run_id === currentStage?.id &&
+            task.status !== 'completed' &&
+            task.status !== 'skipped' &&
+            task.status !== 'cancelled',
         ));
 
-  const summary = `${status} ${completedStages}/${totalStages} stages, ${completedTasks}/${totalTasks} tasks`;
+  const summary =
+    workflowRow.current_gate !== null
+      ? `awaiting ${workflowRow.current_gate} approval; ${completedStages}/${totalStages} stages, ${completedTasks}/${totalTasks} tasks`
+      : `${status} ${completedStages}/${totalStages} stages, ${completedTasks}/${totalTasks} tasks`;
   const updatedAt = Math.max(
     workflowRow.updated_at,
     ...stages.map((stage) => stage.updated_at),
@@ -2378,6 +3748,28 @@ function rowToWorkflowApproval(row: Record<string, unknown>): WorkflowApproval {
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     decidedAt: row.decided_at == null ? undefined : Number(row.decided_at),
+  };
+}
+
+function rowToWorkflowDecision(row: Record<string, unknown>): WorkflowDecision {
+  return {
+    id: String(row.id),
+    workflowRunId: String(row.workflow_run_id),
+    taskRunId: String(row.task_run_id),
+    canvasId: String(row.canvas_id),
+    questionId: String(row.question_id),
+    decisionKey: String(row.decision_key),
+    subjectRevision: Number(row.subject_revision),
+    question: String(row.question),
+    options: JSON.parse(String(row.options_json || '[]')) as WorkflowDecision['options'],
+    allowFreeText: Number(row.allow_free_text) === 1,
+    status: row.status as WorkflowDecision['status'],
+    answer: row.answer == null ? undefined : String(row.answer),
+    selectedOptionId: row.selected_option_id == null ? undefined : String(row.selected_option_id),
+    rowVersion: Number(row.row_version ?? 0),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+    answeredAt: row.answered_at == null ? undefined : Number(row.answered_at),
   };
 }
 
@@ -2638,6 +4030,22 @@ function pickProjectionString(
   }
 
   return undefined;
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === undefined) return 'null';
+  if (value === null || typeof value !== 'object') {
+    const encoded = JSON.stringify(value);
+    if (encoded === undefined) throw new TypeError('Workflow content must be JSON-serializable');
+    return encoded;
+  }
+  if (Array.isArray(value)) return `[${value.map((entry) => canonicalJson(entry)).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+    .join(',')}}`;
 }
 
 function rowToWorkflowTaskSummary(

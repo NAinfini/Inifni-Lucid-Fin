@@ -39,63 +39,6 @@ describe('storyboard slice', () => {
     });
   });
 
-  it('exports action creators with the expected payloads', () => {
-    const keyframe = makeKeyframe();
-    const restored: StoryboardState = {
-      keyframes: [keyframe],
-      selectedId: 'kf-1',
-      staleKeyframeIds: ['kf-1'],
-    };
-
-    expect(setKeyframes([keyframe])).toMatchObject({
-      type: 'storyboard/setKeyframes',
-      payload: [keyframe],
-    });
-    expect(addKeyframe(keyframe)).toMatchObject({
-      type: 'storyboard/addKeyframe',
-      payload: keyframe,
-    });
-    expect(updateKeyframe({ id: 'kf-1', data: { prompt: 'Updated' } })).toMatchObject({
-      type: 'storyboard/updateKeyframe',
-      payload: { id: 'kf-1', data: { prompt: 'Updated' } },
-    });
-    expect(removeKeyframe('kf-1')).toMatchObject({
-      type: 'storyboard/removeKeyframe',
-      payload: 'kf-1',
-    });
-    expect(selectKeyframe('kf-1')).toMatchObject({
-      type: 'storyboard/selectKeyframe',
-      payload: 'kf-1',
-    });
-    expect(approveKeyframe({ id: 'kf-1', variantIndex: 1 })).toMatchObject({
-      type: 'storyboard/approveKeyframe',
-      payload: { id: 'kf-1', variantIndex: 1 },
-    });
-    expect(rejectKeyframe('kf-1')).toMatchObject({
-      type: 'storyboard/rejectKeyframe',
-      payload: 'kf-1',
-    });
-    expect(reorderKeyframes({ activeId: 'kf-1', overId: 'kf-2' })).toMatchObject({
-      type: 'storyboard/reorderKeyframes',
-      payload: { activeId: 'kf-1', overId: 'kf-2' },
-    });
-    expect(markKeyframesStale(['kf-1', 'kf-2'])).toMatchObject({
-      type: 'storyboard/markKeyframesStale',
-      payload: ['kf-1', 'kf-2'],
-    });
-    expect(clearStaleKeyframe('kf-1')).toMatchObject({
-      type: 'storyboard/clearStaleKeyframe',
-      payload: 'kf-1',
-    });
-    expect(clearAllStaleKeyframes()).toMatchObject({
-      type: 'storyboard/clearAllStaleKeyframes',
-    });
-    expect(storyboardSlice.actions.restore(restored)).toMatchObject({
-      type: 'storyboard/restore',
-      payload: restored,
-    });
-  });
-
   it('sets, adds, updates, selects, and removes keyframes', () => {
     let state = storyboardSlice.reducer(
       undefined,

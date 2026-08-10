@@ -48,7 +48,7 @@ function createFakeStream(): FakeStream {
 }
 
 const archiverFactory = vi.hoisted(() =>
-  vi.fn(() => {
+  vi.fn(function () {
     const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
     let output: FakeStream | undefined;
     const instance = {
@@ -130,7 +130,7 @@ vi.mock('@lucid-fin/media-engine', () => ({
 }));
 
 vi.mock('archiver', () => ({
-  default: archiverFactory,
+  ZipArchive: archiverFactory,
 }));
 
 vi.mock('pdfkit', () => ({
@@ -354,7 +354,7 @@ describe('registerExportHandlers', () => {
       fileCount: 2,
       fileSize: 2048,
     });
-    expect(archiverFactory).toHaveBeenCalledWith('zip', { zlib: { level: 6 } });
+    expect(archiverFactory).toHaveBeenCalledWith({ zlib: { level: 6 } });
     expect((archiveInstances[0] as { file: ReturnType<typeof vi.fn> }).file).toHaveBeenCalledWith(
       'C:\\cas\\image\\hash-image.png',
       { name: 'hash-image.png' },

@@ -286,7 +286,7 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
       'Manage reference images for an equipment item. ' +
       'Default view kind "ortho-grid" produces ONE composite image with front/back/left/right + macro detail on a single sheet. ' +
       'Use view={kind:"extra-angle", angle:"<free form>"} for rare custom needs (in-use shot, cutaway, etc). ' +
-      'Always pass canvasId so the canvas-scoped stylePlate is prepended to the prompt.',
+      'Always pass canvasId so the canonical Canvas visual-style draft is compiled into the prompt.',
     getEntity: async (id) => {
       const items = await deps.listEquipment();
       return items.find((e) => e.id === id) ?? null;

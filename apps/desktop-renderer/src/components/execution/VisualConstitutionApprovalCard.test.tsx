@@ -17,6 +17,12 @@ function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function setTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+  setter?.call(textarea, value);
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 const run: WorkflowRun = {
   id: 'wf-visual-1',
   workflowType: 'movie.production.v2',
@@ -274,6 +280,8 @@ describe('VisualConstitutionApprovalCard', () => {
       async () => ({ ok: true, code: 'approved' }) as ApproveWorkflowGateResult,
     );
     const onApproved = vi.fn();
+    const onRequestChanges = vi.fn(async () => undefined);
+    const onRequested = vi.fn();
 
     await act(async () => {
       root.render(
@@ -283,6 +291,8 @@ describe('VisualConstitutionApprovalCard', () => {
           onSelect={vi.fn()}
           onApprove={onApprove}
           onApproved={onApproved}
+          onRequestChanges={onRequestChanges}
+          onRequested={onRequested}
         />,
       );
       await flushPromises();
@@ -290,6 +300,29 @@ describe('VisualConstitutionApprovalCard', () => {
 
     expect(container.textContent).toContain('e'.repeat(64));
     expect(onApprove).not.toHaveBeenCalled();
+    const requestChangesButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes(t('workflowApproval.requestChanges')),
+    );
+    await act(async () => {
+      requestChangesButton?.click();
+      await flushPromises();
+    });
+    const reason = container.querySelector<HTMLTextAreaElement>('textarea');
+    if (!reason) throw new Error('Expected a request-changes reason field');
+    await act(async () => {
+      setTextareaValue(reason, 'Keep the composition but try a warmer palette.');
+      await flushPromises();
+    });
+    const submitChanges = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes(t('workflowApproval.submitRequestChanges')),
+    );
+    await act(async () => {
+      submitChanges?.click();
+      await flushPromises();
+    });
+    expect(onRequestChanges).toHaveBeenCalledWith('Keep the composition but try a warmer palette.');
+    expect(onRequested).toHaveBeenCalledTimes(1);
+
     const approveButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes(t('visualConstitutionApproval.approve')),
     );

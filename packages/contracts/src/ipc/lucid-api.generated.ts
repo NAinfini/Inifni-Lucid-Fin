@@ -199,6 +199,15 @@ import type {
   PresetResetResponse,
   PresetSaveRequest,
   PresetSaveResponse,
+  ProviderOAuthCancelLoginRequest,
+  ProviderOAuthCancelLoginResponse,
+  ProviderOAuthChangedPayload,
+  ProviderOAuthLoginRequest,
+  ProviderOAuthLoginResponse,
+  ProviderOAuthLogoutRequest,
+  ProviderOAuthLogoutResponse,
+  ProviderOAuthStatusRequest,
+  ProviderOAuthStatusResponse,
   RefimageCompletePayload,
   RefimageFailedPayload,
   RefimageStartPayload,
@@ -298,10 +307,16 @@ import type {
   WorkflowGetTasksResponse,
   WorkflowGetVisualAuditionsRequest,
   WorkflowGetVisualAuditionsResponse,
+  WorkflowListPendingDecisionsRequest,
+  WorkflowListPendingDecisionsResponse,
   WorkflowListRequest,
   WorkflowListResponse,
   WorkflowPauseRequest,
   WorkflowPauseResponse,
+  WorkflowRejectGateRequest,
+  WorkflowRejectGateResponse,
+  WorkflowRequestChangesRequest,
+  WorkflowRequestChangesResponse,
   WorkflowResumeRequest,
   WorkflowResumeResponse,
   WorkflowRetryStageRequest,
@@ -636,6 +651,14 @@ export interface LucidAPI_Provider {
   healthGet(req: ProviderHealthGetRequest): Promise<ProviderHealthGetResponse>;
 }
 
+export interface LucidAPI_ProviderOAuth {
+  cancelLogin(req: ProviderOAuthCancelLoginRequest): Promise<ProviderOAuthCancelLoginResponse>;
+  onChanged(cb: (payload: ProviderOAuthChangedPayload) => void): () => void;
+  login(req: ProviderOAuthLoginRequest): Promise<ProviderOAuthLoginResponse>;
+  logout(req: ProviderOAuthLogoutRequest): Promise<ProviderOAuthLogoutResponse>;
+  status(req: ProviderOAuthStatusRequest): Promise<ProviderOAuthStatusResponse>;
+}
+
 export interface LucidAPI_Refimage {
   onComplete(cb: (payload: RefimageCompletePayload) => void): () => void;
   onFailed(cb: (payload: RefimageFailedPayload) => void): () => void;
@@ -742,7 +765,12 @@ export interface LucidAPI_Workflow {
     req: WorkflowGetVisualAuditionsRequest,
   ): Promise<WorkflowGetVisualAuditionsResponse>;
   list(req: WorkflowListRequest): Promise<WorkflowListResponse>;
+  listPendingDecisions(
+    req: WorkflowListPendingDecisionsRequest,
+  ): Promise<WorkflowListPendingDecisionsResponse>;
   pause(req: WorkflowPauseRequest): Promise<WorkflowPauseResponse>;
+  rejectGate(req: WorkflowRejectGateRequest): Promise<WorkflowRejectGateResponse>;
+  requestChanges(req: WorkflowRequestChangesRequest): Promise<WorkflowRequestChangesResponse>;
   resume(req: WorkflowResumeRequest): Promise<WorkflowResumeResponse>;
   retryStage(req: WorkflowRetryStageRequest): Promise<WorkflowRetryStageResponse>;
   retryTask(req: WorkflowRetryTaskRequest): Promise<WorkflowRetryTaskResponse>;
@@ -777,6 +805,7 @@ export interface LucidAPI extends LucidAPIInfrastructure {
   preset: LucidAPI_Preset;
   processPrompt: LucidAPI_ProcessPrompt;
   provider: LucidAPI_Provider;
+  providerOAuth: LucidAPI_ProviderOAuth;
   refimage: LucidAPI_Refimage;
   render: LucidAPI_Render;
   script: LucidAPI_Script;

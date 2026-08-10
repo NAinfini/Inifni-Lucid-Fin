@@ -77,12 +77,15 @@ export function registerKeychainHandlers(
     });
 
     const isLLMGroup = args.group === 'llm' || args.group === 'vision';
-    const mediaAdapter = isLLMGroup ? undefined : resolveMediaAdapter(registry, args.provider);
+    const mediaAdapter = isLLMGroup
+      ? undefined
+      : resolveMediaAdapter(registry, args.provider, args.group);
     if (mediaAdapter) {
       const apiKey = await getStoredKey(keychain, args.provider);
       mediaAdapter.configure(apiKey ?? '', {
         baseUrl: runtimeConfig.baseUrl,
         model: runtimeConfig.model,
+        ...(args.group === 'image' || args.group === 'video' ? { generationType: args.group } : {}),
       });
       try {
         const valid = await mediaAdapter.validate();
@@ -206,6 +209,17 @@ async function hasConfiguredKey(keychain: Keychain, provider: string): Promise<b
   return (await getStoredKey(keychain, provider)) !== null;
 }
 
-function resolveMediaAdapter(registry: AdapterRegistry, provider: string) {
-  return registry.get(provider);
+function resolveMediaAdapter(
+  registry: AdapterRegistry,
+  provider: string,
+  group?: KeychainTestArgs['group'],
+) {
+  if (group === 'image' || group === 'video') {
+    return registry.resolve?.(provider, group) ?? registry.get(provider);
+  }
+  return (
+    registry.get(provider) ??
+    registry.resolve?.(provider, 'image') ??
+    registry.resolve?.(provider, 'video')
+  );
 }

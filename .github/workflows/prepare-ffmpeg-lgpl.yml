@@ -32,7 +32,7 @@ jobs:
             platform_key: darwin-arm64
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Build and verify FFmpeg natively
         run: bash scripts/build-ffmpeg-macos-lgpl.sh --output resources/bin/${{ matrix.platform_key }}
@@ -45,7 +45,7 @@ jobs:
           COPYFILE_DISABLE=1 tar -czf "$archive" -C resources/bin "${{ matrix.platform_key }}"
           shasum -a 256 "$archive" > "$archive.sha256"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ffmpeg-${{ matrix.platform_key }}-8.1.2-lgpl-build
           path: |
@@ -67,13 +67,13 @@ jobs:
       release_tag: ${{ steps.release.outputs.tag }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 26.5.1
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: ffmpeg-darwin-*-8.1.2-lgpl-build
           path: artifacts
@@ -236,7 +236,7 @@ jobs:
             --title 'chore(ffmpeg): pin immutable macOS 8.1.2 artifacts' \
             --body "Pins the native Intel and Apple Silicon LGPL archives from immutable release \`${RELEASE_TAG}\`, including archive and per-file SHA-256 values."
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ffmpeg-8.1.2-lgpl-immutable-manifest
           path: |

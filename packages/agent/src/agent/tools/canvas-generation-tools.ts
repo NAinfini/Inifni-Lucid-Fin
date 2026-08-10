@@ -2,6 +2,9 @@ import {
   getBuiltinProviderCapabilityProfile,
   listBuiltinVideoProvidersWithAudio,
   type CanvasEdge,
+  type CharacterRef,
+  type EquipmentRef,
+  type LocationRef,
 } from '@lucid-fin/contracts';
 import { tryProviderId } from '@lucid-fin/contracts-parse';
 import type { AgentTool, CanvasToolDeps } from './canvas-tool-utils.js';
@@ -17,6 +20,8 @@ import {
   requireNode,
   requireCanvasEdge,
   requireMediaNode,
+  parseResolutionIntent,
+  TypedToolError,
   replaceNodePreservingEdges,
 } from './canvas-tool-utils.js';
 import { extractSet, warnExtraKeys } from './tool-result-helpers.js';
@@ -38,13 +43,70 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
     return [requireString(args, 'nodeId')];
   }
 
+  function buildResolutionMutation(set: Record<string, unknown>): {
+    data: Record<string, unknown>;
+    clearFields: string[];
+  } {
+    const hasWidth = 'width' in set;
+    const hasHeight = 'height' in set;
+    const hasIntent = 'resolution' in set;
+    const clearOverride = set.clearResolutionOverride === true;
+    if (clearOverride && (hasWidth || hasHeight || hasIntent)) {
+      throw new Error(
+        'clearResolutionOverride cannot be combined with width, height, or resolution',
+      );
+    }
+    if (hasIntent && (hasWidth || hasHeight)) {
+      throw new Error('resolution cannot be combined with legacy width or height');
+    }
+    if (hasWidth !== hasHeight) {
+      throw new Error('width and height must be provided together');
+    }
+    if (clearOverride) {
+      return { data: {}, clearFields: ['resolutionIntent', 'width', 'height'] };
+    }
+
+    const intent = hasIntent
+      ? parseResolutionIntent(set.resolution)
+      : hasWidth && hasHeight
+        ? parseResolutionIntent({ mode: 'exact', width: set.width, height: set.height })
+        : undefined;
+    if (!intent) return { data: {}, clearFields: [] };
+    if (intent.mode === 'exact') {
+      return {
+        data: { resolutionIntent: intent, width: intent.width, height: intent.height },
+        clearFields: [],
+      };
+    }
+    return { data: { resolutionIntent: intent }, clearFields: ['width', 'height'] };
+  }
+
+  async function applyResolutionMutation(
+    canvasId: string,
+    nodeId: string,
+    data: Record<string, unknown>,
+    clearFields: string[],
+  ): Promise<void> {
+    if (Object.keys(data).length > 0) await deps.updateNodeData(canvasId, nodeId, data);
+    if (clearFields.length === 0) return;
+    if (deps.clearNodeDataFields) {
+      await deps.clearNodeDataFields(canvasId, nodeId, clearFields);
+      return;
+    }
+    await deps.updateNodeData(
+      canvasId,
+      nodeId,
+      Object.fromEntries(clearFields.map((field) => [field, undefined])),
+    );
+  }
+
   // ---------------------------------------------------------------------------
-  // canvas.generation — start, cancel, or estimate cost
+  // canvas.generation — start, incrementally refine, cancel, or estimate cost
   // ---------------------------------------------------------------------------
   const generation: AgentTool = {
     name: 'canvas.generation',
     description:
-      'Manual or exploratory generation control: start, cancel, or estimate media generation. It is fail-closed for media owned by an active persistent workflow; use workflow.media there.',
+      "Manual or exploratory generation control: start, incrementally refine, cancel, or estimate media generation. refine loads the selected asset's exact previous provider prompt in the host, appends the user's small quality comment, and sends that compiled prompt to the same generation path without starting from zero. It is fail-closed for media owned by an active persistent workflow; use workflow.mediaFeedback there.",
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -53,7 +115,7 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         action: {
           type: 'string',
-          enum: ['start', 'cancel', 'estimate'],
+          enum: ['start', 'refine', 'cancel', 'estimate'],
           description: 'The generation action to perform.',
         },
         nodeId: {
@@ -63,7 +125,12 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
         prompt: {
           type: 'string',
           description:
-            'Manual-mode only: the FINAL generation prompt sent to the image/video provider VERBATIM (for start). Never use this override for an active persistent workflow; workflow.media compiles its host-owned Generation Spec. Omit to use automatic compilation from node fields.',
+            'Manual-mode only: a Commander-authored creative scene/shot body for start. The host still injects the Canvas visual-style policy, references, presets, and negative constraints. Never use this for an active persistent workflow; use workflow.media there. Omit to compile from node fields.',
+        },
+        feedback: {
+          type: 'string',
+          description:
+            "For refine only: the user's small image/video quality comment. The host appends it to the exact selected asset prompt; never provide a full replacement prompt.",
         },
         nodeIds: {
           type: 'array',
@@ -146,6 +213,88 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
             nodeId,
             status: 'timeout',
             error: 'Generation did not complete within 5 minutes',
+          });
+        } catch (error) {
+          return fail(error);
+        }
+      } else if (action === 'refine') {
+        try {
+          const canvasId = requireString(args, 'canvasId');
+          const nodeId = requireString(args, 'nodeId');
+          const feedback = requireText(args, 'feedback').trim();
+          if (!feedback) {
+            throw new TypedToolError('feedback is required', 'validation');
+          }
+          if (feedback.length > 2_000) {
+            throw new TypedToolError('feedback must be 2000 characters or fewer', 'validation');
+          }
+          const { node } = await requireNode(deps, canvasId, nodeId);
+          if (node.type !== 'image' && node.type !== 'video') {
+            throw new TypedToolError('refine supports image and video nodes only', 'validation');
+          }
+          if (!deps.preparePromptRefinement) {
+            throw new Error('Incremental prompt refinement is unavailable in this host');
+          }
+          const lineage = await deps.preparePromptRefinement(canvasId, nodeId, feedback);
+          const providerId = tryProviderId(args.providerId);
+          const variantCount =
+            typeof args.variantCount === 'number' ? Math.round(args.variantCount) : undefined;
+          await deps.triggerGeneration(
+            canvasId,
+            nodeId,
+            providerId,
+            variantCount,
+            lineage.prompt,
+            'precompiled',
+          );
+
+          const common = {
+            nodeId,
+            lineage: {
+              sourceAssetHash: lineage.sourceAssetHash,
+              basePromptHash: lineage.basePromptHash,
+              promptHash: lineage.promptHash,
+            },
+          };
+          if (args.wait !== true) {
+            return ok({
+              ...common,
+              status: 'generating',
+              steps: refinementSteps('in_progress', 'pending'),
+            });
+          }
+
+          const maxWaitMs = 5 * 60 * 1000;
+          const pollIntervalMs = 3000;
+          const start = Date.now();
+          while (Date.now() - start < maxWaitMs) {
+            await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+            const current = await requireNode(deps, canvasId, nodeId);
+            const data = current.node.data as Record<string, unknown>;
+            const status = data.status as string | undefined;
+            if (status === 'done') {
+              return ok({
+                ...common,
+                status: 'done',
+                variants: Array.isArray(data.variants) ? data.variants : [],
+                assetHash: data.assetHash,
+                steps: refinementSteps('completed', 'pending'),
+              });
+            }
+            if (status === 'failed') {
+              return ok({
+                ...common,
+                status: 'failed',
+                error: typeof data.error === 'string' ? data.error : 'Generation failed',
+                steps: refinementSteps('failed', 'pending'),
+              });
+            }
+          }
+          return ok({
+            ...common,
+            status: 'timeout',
+            error: 'Generation did not complete within 5 minutes',
+            steps: refinementSteps('in_progress', 'pending'),
           });
         } catch (error) {
           return fail(error);
@@ -480,7 +629,7 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
   const setMediaParams: AgentTool = {
     name: 'canvas.setMediaParams',
     description:
-      'Set media generation parameters on nodes. Use mediaType to select which kind of parameters to set.',
+      'Set media generation parameters on nodes. Resolution precedence is node override → Canvas policy → provider default. Use resolution for provider-default/exact/tier; clearResolutionOverride=true restores Canvas inheritance. Legacy width+height remains accepted as an exact override and must be provided together.',
     context: CANVAS_CONTEXT,
     tier: 2,
     parameters: {
@@ -504,6 +653,27 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
           properties: {
             width: { type: 'number', description: 'Width in pixels (image/video).' },
             height: { type: 'number', description: 'Height in pixels (image/video).' },
+            resolution: {
+              type: 'object',
+              description:
+                'Canonical node override: {mode:"provider-default",aspectRatio?}, {mode:"exact",width,height}, or {mode:"tier",tier,aspectRatio?}.',
+              properties: {
+                mode: {
+                  type: 'string',
+                  enum: ['provider-default', 'exact', 'tier'],
+                  description: 'Resolution intent mode.',
+                },
+                width: { type: 'number', description: 'Exact width.' },
+                height: { type: 'number', description: 'Exact height.' },
+                tier: { type: 'string', description: 'Provider resolution tier.' },
+                aspectRatio: { type: 'string', description: 'Optional provider aspect ratio.' },
+              },
+            },
+            clearResolutionOverride: {
+              type: 'boolean',
+              description:
+                'Set true to delete the node resolution override and inherit the Canvas policy.',
+            },
             steps: {
               type: 'number',
               description: 'Inference steps, typically 20-50 (image/video).',
@@ -569,15 +739,15 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
               throw new Error(`Node "${nodeId}" type "${node.type}" is not an image or video node`);
             }
             const data: Record<string, unknown> = {};
-            if (typeof set.width === 'number') data.width = set.width;
-            if (typeof set.height === 'number') data.height = set.height;
+            const resolutionMutation = buildResolutionMutation(set);
+            Object.assign(data, resolutionMutation.data);
             if (typeof set.steps === 'number') data.steps = Math.round(set.steps as number);
             if (typeof set.cfgScale === 'number') data.cfgScale = set.cfgScale;
             if (typeof set.scheduler === 'string') data.scheduler = set.scheduler;
             if (typeof set.img2imgStrength === 'number')
               data.img2imgStrength = Math.max(0, Math.min(1, set.img2imgStrength as number));
 
-            if (Object.keys(data).length > 0) await deps.updateNodeData(canvasId, nodeId, data);
+            await applyResolutionMutation(canvasId, nodeId, data, resolutionMutation.clearFields);
             results.push({ nodeId, updated: data });
           }
           return ok(results.length === 1 ? results[0] : results);
@@ -597,12 +767,14 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
               throw new Error(`Node "${nodeId}" type "${node.type}" is not a video node`);
             }
             const data: Record<string, unknown> = {};
+            const resolutionMutation = buildResolutionMutation(set);
+            Object.assign(data, resolutionMutation.data);
             if (typeof set.duration === 'number') data.duration = set.duration;
             if (typeof set.audio === 'boolean') data.audio = set.audio;
             if (typeof set.quality === 'string') data.quality = set.quality;
             if (typeof set.lipSyncEnabled === 'boolean') data.lipSyncEnabled = set.lipSyncEnabled;
 
-            if (Object.keys(data).length > 0) await deps.updateNodeData(canvasId, nodeId, data);
+            await applyResolutionMutation(canvasId, nodeId, data, resolutionMutation.clearFields);
             results.push({ nodeId, updated: data });
           }
           return ok(results.length === 1 ? results[0] : results);
@@ -640,6 +812,58 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
         }
       } else {
         return fail(`Unknown mediaType "${mediaType}". Must be one of: image, video, audio.`);
+      }
+    },
+  };
+
+  const resolveResolution: AgentTool = {
+    name: 'provider.resolveResolution',
+    description:
+      'Run a local-only resolution capability and cost preflight for an image/video node. It never validates remotely or starts paid generation. Omit resolution to inspect the node → Canvas → provider effective policy; pass a candidate intent to test it before changing the node.',
+    context: CANVAS_CONTEXT,
+    tier: 1,
+    parameters: {
+      type: 'object',
+      properties: {
+        canvasId: { type: 'string', description: 'The target canvas ID.' },
+        nodeId: { type: 'string', description: 'The image or video node ID.' },
+        resolution: {
+          type: 'object',
+          description:
+            'Optional candidate: {mode:"provider-default",aspectRatio?}, {mode:"exact",width,height}, or {mode:"tier",tier,aspectRatio?}.',
+          properties: {
+            mode: {
+              type: 'string',
+              enum: ['provider-default', 'exact', 'tier'],
+              description: 'Resolution intent mode.',
+            },
+            width: { type: 'number', description: 'Exact width.' },
+            height: { type: 'number', description: 'Exact height.' },
+            tier: { type: 'string', description: 'Provider tier.' },
+            aspectRatio: { type: 'string', description: 'Optional provider aspect ratio.' },
+          },
+        },
+      },
+      required: ['canvasId', 'nodeId'],
+    },
+    async execute(args) {
+      try {
+        if (!deps.preflightResolution) {
+          return fail('provider.resolveResolution is not wired in this environment');
+        }
+        const canvasId = requireString(args, 'canvasId');
+        const nodeId = requireString(args, 'nodeId');
+        const { node } = await requireNode(deps, canvasId, nodeId);
+        if (!isVisualMedia(node.type)) {
+          return fail(`Node "${nodeId}" is not an image or video node`);
+        }
+        const intent =
+          args.resolution === undefined
+            ? undefined
+            : parseResolutionIntent(args.resolution, 'resolution');
+        return ok(await deps.preflightResolution(canvasId, nodeId, intent));
+      } catch (error) {
+        return fail(error);
       }
     },
   };
@@ -1010,6 +1234,55 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
     },
   };
 
+  const characterRefItem = {
+    type: 'object' as const,
+    description: 'One character identity and its exact visual reference selection.',
+    properties: {
+      characterId: { type: 'string' as const, description: 'Character ID.' },
+      loadoutId: { type: 'string' as const, description: 'Optional loadout ID.' },
+      costume: { type: 'string' as const, description: 'Optional costume override.' },
+      emotion: { type: 'string' as const, description: 'Optional visible emotion.' },
+      angleSlot: {
+        type: 'string' as const,
+        description: 'Exact entity reference-image slot to use.',
+      },
+      referenceImageHash: {
+        type: 'string' as const,
+        description: 'Exact entity-owned reference image hash; takes precedence over angleSlot.',
+      },
+    },
+  };
+  const equipmentRefItem = {
+    type: 'object' as const,
+    description: 'One equipment identity and its exact visual reference selection.',
+    properties: {
+      equipmentId: { type: 'string' as const, description: 'Equipment ID.' },
+      angleSlot: {
+        type: 'string' as const,
+        description: 'Exact entity reference-image slot to use.',
+      },
+      referenceImageHash: {
+        type: 'string' as const,
+        description: 'Exact entity-owned reference image hash; takes precedence over angleSlot.',
+      },
+    },
+  };
+  const locationRefItem = {
+    type: 'object' as const,
+    description: 'One location identity and its exact visual reference selection.',
+    properties: {
+      locationId: { type: 'string' as const, description: 'Location ID.' },
+      angleSlot: {
+        type: 'string' as const,
+        description: 'Exact entity reference-image slot to use.',
+      },
+      referenceImageHash: {
+        type: 'string' as const,
+        description: 'Exact entity-owned reference image hash; takes precedence over angleSlot.',
+      },
+    },
+  };
+
   const setNodeRefs: AgentTool = {
     name: 'canvas.setNodeRefs',
     description: `Set character, equipment, and/or location references on image/video nodes. Two modes:
@@ -1031,33 +1304,18 @@ Use this for entity refs (character/location/equipment). For prompt text changes
         },
         characterRefs: {
           type: 'array',
-          description: 'Array of character references (used with nodeId/nodeIds).',
-          items: {
-            type: 'object',
-            description: 'A character reference.',
-            properties: {
-              characterId: { type: 'string', description: 'Character ID.' },
-              loadoutId: { type: 'string', description: 'Optional loadout ID.' },
-            },
-          },
+          description: 'Character references with lossless identity/selector fields.',
+          items: characterRefItem,
         },
         equipmentRefs: {
           type: 'array',
-          description: 'Array of equipment references (used with nodeId/nodeIds).',
-          items: {
-            type: 'object',
-            description: 'An equipment reference.',
-            properties: { equipmentId: { type: 'string', description: 'Equipment ID.' } },
-          },
+          description: 'Equipment references with exact selector fields.',
+          items: equipmentRefItem,
         },
         locationRefs: {
           type: 'array',
-          description: 'Array of location references (used with nodeId/nodeIds).',
-          items: {
-            type: 'object',
-            description: 'A location reference.',
-            properties: { locationId: { type: 'string', description: 'Location ID.' } },
-          },
+          description: 'Location references with exact selector fields.',
+          items: locationRefItem,
         },
         nodes: {
           type: 'array',
@@ -1070,32 +1328,17 @@ Use this for entity refs (character/location/equipment). For prompt text changes
               characterRefs: {
                 type: 'array',
                 description: 'Character references for this node.',
-                items: {
-                  type: 'object',
-                  description: 'Character ref.',
-                  properties: {
-                    characterId: { type: 'string', description: 'Character ID.' },
-                    loadoutId: { type: 'string', description: 'Loadout ID.' },
-                  },
-                },
+                items: characterRefItem,
               },
               equipmentRefs: {
                 type: 'array',
                 description: 'Equipment references for this node.',
-                items: {
-                  type: 'object',
-                  description: 'Equipment ref.',
-                  properties: { equipmentId: { type: 'string', description: 'Equipment ID.' } },
-                },
+                items: equipmentRefItem,
               },
               locationRefs: {
                 type: 'array',
                 description: 'Location references for this node.',
-                items: {
-                  type: 'object',
-                  description: 'Location ref.',
-                  properties: { locationId: { type: 'string', description: 'Location ID.' } },
-                },
+                items: locationRefItem,
               },
             },
           },
@@ -1109,33 +1352,112 @@ Use this for entity refs (character/location/equipment). For prompt text changes
 
         // Parse ref arrays from a raw object (args or a per-node entry)
         type ParsedRefs = {
-          characterRefs?: Array<{ characterId: string; loadoutId: string }>;
-          equipmentRefs?: Array<{ equipmentId: string }>;
-          locationRefs?: Array<{ locationId: string }>;
+          characterRefs?: CharacterRef[];
+          equipmentRefs?: EquipmentRef[];
+          locationRefs?: LocationRef[];
         };
+        function parseRequiredRefString(
+          ref: Record<string, unknown>,
+          key: string,
+          refType: string,
+          index: number,
+        ): string {
+          const value = ref[key];
+          if (typeof value !== 'string' || !value.trim()) {
+            throw new TypedToolError(
+              `canvas.setNodeRefs: ${refType}[${index}].${key} must be a non-empty string`,
+              'validation',
+            );
+          }
+          return value.trim();
+        }
+        function parseOptionalRefString(
+          ref: Record<string, unknown>,
+          key: string,
+          refType: string,
+          index: number,
+        ): string | undefined {
+          const value = ref[key];
+          if (value === undefined || value === null || value === '') return undefined;
+          if (typeof value !== 'string') {
+            throw new TypedToolError(
+              `canvas.setNodeRefs: ${refType}[${index}].${key} must be a string`,
+              'validation',
+            );
+          }
+          return value.trim() || undefined;
+        }
+        function requireRefRecord(
+          value: unknown,
+          refType: string,
+          index: number,
+        ): Record<string, unknown> {
+          if (!value || typeof value !== 'object' || Array.isArray(value)) {
+            throw new TypedToolError(
+              `canvas.setNodeRefs: ${refType}[${index}] must be an object`,
+              'validation',
+            );
+          }
+          return value as Record<string, unknown>;
+        }
         function parseRefs(source: Record<string, unknown>): ParsedRefs {
           const parsed: ParsedRefs = {};
           if (Array.isArray(source.characterRefs)) {
-            parsed.characterRefs = (source.characterRefs as Array<Record<string, unknown>>).map(
-              (r) => ({
-                characterId: String(r.characterId ?? ''),
-                loadoutId: typeof r.loadoutId === 'string' ? r.loadoutId : '',
-              }),
-            );
+            parsed.characterRefs = source.characterRefs.map((value, index) => {
+              const ref = requireRefRecord(value, 'characterRefs', index);
+              const costume = parseOptionalRefString(ref, 'costume', 'characterRefs', index);
+              const emotion = parseOptionalRefString(ref, 'emotion', 'characterRefs', index);
+              const angleSlot = parseOptionalRefString(ref, 'angleSlot', 'characterRefs', index);
+              const referenceImageHash = parseOptionalRefString(
+                ref,
+                'referenceImageHash',
+                'characterRefs',
+                index,
+              );
+              return {
+                characterId: parseRequiredRefString(ref, 'characterId', 'characterRefs', index),
+                loadoutId:
+                  parseOptionalRefString(ref, 'loadoutId', 'characterRefs', index) ?? '',
+                ...(costume ? { costume } : {}),
+                ...(emotion ? { emotion } : {}),
+                ...(angleSlot ? { angleSlot } : {}),
+                ...(referenceImageHash ? { referenceImageHash } : {}),
+              };
+            });
           }
           if (Array.isArray(source.equipmentRefs)) {
-            parsed.equipmentRefs = (source.equipmentRefs as Array<Record<string, unknown>>).map(
-              (r) => ({
-                equipmentId: String(r.equipmentId ?? ''),
-              }),
-            );
+            parsed.equipmentRefs = source.equipmentRefs.map((value, index) => {
+              const ref = requireRefRecord(value, 'equipmentRefs', index);
+              const angleSlot = parseOptionalRefString(ref, 'angleSlot', 'equipmentRefs', index);
+              const referenceImageHash = parseOptionalRefString(
+                ref,
+                'referenceImageHash',
+                'equipmentRefs',
+                index,
+              );
+              return {
+                equipmentId: parseRequiredRefString(ref, 'equipmentId', 'equipmentRefs', index),
+                ...(angleSlot ? { angleSlot } : {}),
+                ...(referenceImageHash ? { referenceImageHash } : {}),
+              };
+            });
           }
           if (Array.isArray(source.locationRefs)) {
-            parsed.locationRefs = (source.locationRefs as Array<Record<string, unknown>>).map(
-              (r) => ({
-                locationId: String(r.locationId ?? ''),
-              }),
-            );
+            parsed.locationRefs = source.locationRefs.map((value, index) => {
+              const ref = requireRefRecord(value, 'locationRefs', index);
+              const angleSlot = parseOptionalRefString(ref, 'angleSlot', 'locationRefs', index);
+              const referenceImageHash = parseOptionalRefString(
+                ref,
+                'referenceImageHash',
+                'locationRefs',
+                index,
+              );
+              return {
+                locationId: parseRequiredRefString(ref, 'locationId', 'locationRefs', index),
+                ...(angleSlot ? { angleSlot } : {}),
+                ...(referenceImageHash ? { referenceImageHash } : {}),
+              };
+            });
           }
           return parsed;
         }
@@ -1291,6 +1613,7 @@ Use this for entity refs (character/location/equipment). For prompt text changes
     setNodeLayout,
     configureNode,
     setMediaParams,
+    resolveResolution,
     selectVariant,
     previewPrompt,
     addNote,
@@ -1302,5 +1625,17 @@ Use this for entity refs (character/location/equipment). For prompt text changes
     manageEdge,
     setVideoFrames,
     setNodeRefs,
+  ];
+}
+
+function refinementSteps(
+  generationStatus: 'pending' | 'in_progress' | 'completed' | 'failed',
+  gradeStatus: 'pending' | 'in_progress' | 'completed' | 'failed',
+) {
+  return [
+    { id: 'load_existing_prompt', status: 'completed' },
+    { id: 'apply_feedback_delta', status: 'completed' },
+    { id: 'generate', status: generationStatus },
+    { id: 'grade', status: gradeStatus },
   ];
 }

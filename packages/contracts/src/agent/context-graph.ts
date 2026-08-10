@@ -43,6 +43,7 @@ export interface AssistantTurnItem {
     id: string;
     name: string;
     arguments: Record<string, unknown>;
+    thoughtSignature?: string;
   }>;
   /** Model reasoning/thinking content (if available). */
   reasoning?: string;

@@ -15,7 +15,11 @@ import type {
   StyleGuide,
   VideoNodeData,
 } from '@lucid-fin/contracts';
-import { createEmptyPresetTrackSet, normalizeCharacterRefSlot } from '@lucid-fin/contracts';
+import {
+  createEmptyPresetTrackSet,
+  normalizeCharacterRefSlot,
+  normalizeLocationRefSlot,
+} from '@lucid-fin/contracts';
 import type { ResolvedCharacter } from '@lucid-fin/application';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import { tryCharacterId, tryEquipmentId, tryLocationId } from '@lucid-fin/contracts-parse';
@@ -134,37 +138,126 @@ export function hasLocationRefs(data: unknown): data is { locationRefs?: Locatio
 
 export interface ResolvedEntityRefsAndImages {
   referenceImages: string[];
+  referenceBindings: Array<{
+    entityType: 'character' | 'equipment' | 'location';
+    entityId: string;
+    imageHash: string;
+  }>;
   characterRefs?: GenerationEntityRef[];
   equipmentRefs?: GenerationEntityRef[];
   locationRefs?: GenerationEntityRef[];
 }
 
+export class EntityReferenceResolutionError extends Error {
+  readonly code = 'ENTITY_REFERENCE_INVALID';
+
+  constructor(
+    readonly details: {
+      nodeId: string;
+      entityType: 'character' | 'equipment' | 'location';
+      entityId: string;
+      selector?: string;
+      reason: 'invalid-id' | 'entity-not-found' | 'no-images' | 'ambiguous' | 'selector-not-found';
+    },
+    message: string,
+  ) {
+    super(message);
+    this.name = 'EntityReferenceResolutionError';
+  }
+}
+
+type EntityReferenceImage = {
+  slot?: string;
+  assetHash?: string;
+  variants?: string[];
+};
+
+type EntityReferenceContext = {
+  nodeId: string;
+  entityType: 'character' | 'equipment' | 'location';
+  entityId: string;
+};
+
+function normalizeReferenceSlot(slot: string | undefined): string {
+  return (slot ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-')
+    .replace(/-+/g, '-');
+}
+
+function referenceError(
+  context: EntityReferenceContext,
+  reason: EntityReferenceResolutionError['details']['reason'],
+  message: string,
+  selector?: string,
+): EntityReferenceResolutionError {
+  return new EntityReferenceResolutionError(
+    { ...context, ...(selector ? { selector } : {}), reason },
+    `Node "${context.nodeId}" ${context.entityType} reference "${context.entityId}": ${message}`,
+  );
+}
+
 function resolveRefImageHashes(
-  entity: { referenceImages?: Array<{ slot?: string; assetHash?: string }> } | undefined,
+  entity: { referenceImages?: EntityReferenceImage[] },
   ref: { angleSlot?: string; referenceImageHash?: string },
+  context: EntityReferenceContext,
   normalizeSlot?: (s: string | undefined) => string | undefined,
 ): string[] {
-  const hashes: string[] = [];
+  const images = entity.referenceImages ?? [];
+  const activeImages = images.flatMap((image) => {
+    const assetHash = normalizeOptionalString(image.assetHash);
+    return assetHash ? [{ image, assetHash }] : [];
+  });
   const explicitHash = normalizeOptionalString(ref.referenceImageHash);
   if (explicitHash) {
-    hashes.push(explicitHash);
-    return hashes;
-  }
-  if (ref.angleSlot && entity?.referenceImages) {
-    const normalize = normalizeSlot ?? ((s: string | undefined) => s);
-    const slotHash = normalizeOptionalString(
-      entity.referenceImages.find((r) => normalize(r.slot) === normalize(ref.angleSlot))?.assetHash,
+    const belongsToEntity = images.some(
+      (image) =>
+        normalizeOptionalString(image.assetHash) === explicitHash ||
+        (image.variants ?? []).some((variant) => normalizeOptionalString(variant) === explicitHash),
     );
-    if (slotHash) {
-      hashes.push(slotHash);
-      return hashes;
+    if (!belongsToEntity) {
+      throw referenceError(
+        context,
+        'selector-not-found',
+        `selected image hash "${explicitHash}" is not assigned to this entity`,
+        explicitHash,
+      );
     }
+    return [explicitHash];
   }
-  for (const image of entity?.referenceImages ?? []) {
-    const h = normalizeOptionalString(image.assetHash);
-    if (h) hashes.push(h);
+  const requestedSlot = normalizeOptionalString(ref.angleSlot);
+  if (requestedSlot) {
+    const normalize = normalizeSlot ?? normalizeReferenceSlot;
+    const rawRequestedSlot = normalizeReferenceSlot(requestedSlot);
+    const slotHash = normalizeOptionalString(
+      (
+        images.find((image) => normalizeReferenceSlot(image.slot) === rawRequestedSlot) ??
+        images.find((image) => normalize(image.slot) === normalize(requestedSlot))
+      )?.assetHash,
+    );
+    if (!slotHash) {
+      throw referenceError(
+        context,
+        'selector-not-found',
+        `selected slot "${requestedSlot}" has no active reference image`,
+        requestedSlot,
+      );
+    }
+    return [slotHash];
   }
-  return hashes;
+
+  if (activeImages.length === 0) {
+    throw referenceError(context, 'no-images', 'no active reference image is available');
+  }
+  if (activeImages.length > 1) {
+    throw referenceError(
+      context,
+      'ambiguous',
+      `has ${activeImages.length} active reference images; choose angleSlot or referenceImageHash explicitly`,
+    );
+  }
+  return [activeImages[0].assetHash];
 }
 
 export function resolveEntityRefsAndImages(
@@ -173,51 +266,83 @@ export function resolveEntityRefsAndImages(
 ): ResolvedEntityRefsAndImages {
   const nodeData = node.data as ImageNodeData | VideoNodeData;
   const allHashes = new Set<string>();
+  const referenceBindings: ResolvedEntityRefsAndImages['referenceBindings'] = [];
   const chars: GenerationEntityRef[] = [];
   const equips: GenerationEntityRef[] = [];
   const locs: GenerationEntityRef[] = [];
 
   for (const ref of nodeData.characterRefs ?? []) {
+    const context: EntityReferenceContext = {
+      nodeId: node.id,
+      entityType: 'character',
+      entityId: ref.characterId,
+    };
     const characterId = tryCharacterId(ref.characterId);
-    if (!characterId) continue;
-    const character = db.repos.entities.getCharacter(characterId);
-    if (!character) continue;
-
-    const hashes = resolveRefImageHashes(character, ref, normalizeCharacterRefSlot);
-    for (const h of hashes) allHashes.add(h);
-    if (hashes.length > 0) {
-      chars.push({ entityId: ref.characterId, imageHashes: hashes });
+    if (!characterId) {
+      throw referenceError(context, 'invalid-id', 'entity ID is invalid');
     }
+    const character = db.repos.entities.getCharacter(characterId);
+    if (!character) {
+      throw referenceError(context, 'entity-not-found', 'entity was not found');
+    }
+
+    const hashes = resolveRefImageHashes(character, ref, context, normalizeCharacterRefSlot);
+    for (const h of hashes) {
+      allHashes.add(h);
+      referenceBindings.push({ entityType: 'character', entityId: ref.characterId, imageHash: h });
+    }
+    chars.push({ entityId: ref.characterId, imageHashes: hashes });
   }
 
   for (const ref of (nodeData as { equipmentRefs?: EquipmentRef[] }).equipmentRefs ?? []) {
+    const context: EntityReferenceContext = {
+      nodeId: node.id,
+      entityType: 'equipment',
+      entityId: ref.equipmentId,
+    };
     const equipmentId = tryEquipmentId(ref.equipmentId);
-    if (!equipmentId) continue;
-    const equipment = db.repos.entities.getEquipment(equipmentId);
-    if (!equipment) continue;
-
-    const hashes = resolveRefImageHashes(equipment, ref);
-    for (const h of hashes) allHashes.add(h);
-    if (hashes.length > 0) {
-      equips.push({ entityId: ref.equipmentId, imageHashes: hashes });
+    if (!equipmentId) {
+      throw referenceError(context, 'invalid-id', 'entity ID is invalid');
     }
+    const equipment = db.repos.entities.getEquipment(equipmentId);
+    if (!equipment) {
+      throw referenceError(context, 'entity-not-found', 'entity was not found');
+    }
+
+    const hashes = resolveRefImageHashes(equipment, ref, context);
+    for (const h of hashes) {
+      allHashes.add(h);
+      referenceBindings.push({ entityType: 'equipment', entityId: ref.equipmentId, imageHash: h });
+    }
+    equips.push({ entityId: ref.equipmentId, imageHashes: hashes });
   }
 
   for (const ref of nodeData.locationRefs ?? []) {
+    const context: EntityReferenceContext = {
+      nodeId: node.id,
+      entityType: 'location',
+      entityId: ref.locationId,
+    };
     const locationId = tryLocationId(ref.locationId);
-    if (!locationId) continue;
-    const location = db.repos.entities.getLocation(locationId);
-    if (!location) continue;
-
-    const hashes = resolveRefImageHashes(location, ref);
-    for (const h of hashes) allHashes.add(h);
-    if (hashes.length > 0) {
-      locs.push({ entityId: ref.locationId, imageHashes: hashes });
+    if (!locationId) {
+      throw referenceError(context, 'invalid-id', 'entity ID is invalid');
     }
+    const location = db.repos.entities.getLocation(locationId);
+    if (!location) {
+      throw referenceError(context, 'entity-not-found', 'entity was not found');
+    }
+
+    const hashes = resolveRefImageHashes(location, ref, context, normalizeLocationRefSlot);
+    for (const h of hashes) {
+      allHashes.add(h);
+      referenceBindings.push({ entityType: 'location', entityId: ref.locationId, imageHash: h });
+    }
+    locs.push({ entityId: ref.locationId, imageHashes: hashes });
   }
 
   return {
     referenceImages: Array.from(allHashes),
+    referenceBindings,
     characterRefs: chars.length > 0 ? chars : undefined,
     equipmentRefs: equips.length > 0 ? equips : undefined,
     locationRefs: locs.length > 0 ? locs : undefined,

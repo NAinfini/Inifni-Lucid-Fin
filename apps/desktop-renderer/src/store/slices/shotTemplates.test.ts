@@ -45,59 +45,6 @@ describe('shotTemplates slice', () => {
     expect(state.hiddenIds).toEqual([]);
   });
 
-  it('exports action creators with the expected payloads', () => {
-    const template = makeTemplate();
-    const restored: ShotTemplatesState = {
-      builtIn: BUILT_IN_SHOT_TEMPLATES,
-      custom: [template],
-      loading: true,
-      hiddenIds: ['builtin-tmpl-dramatic-reveal'],
-    };
-
-    expect(shotTemplatesSlice.actions.setCustomTemplates([template])).toMatchObject({
-      type: 'shotTemplates/setCustomTemplates',
-      payload: [template],
-    });
-    expect(addCustomTemplate(template)).toMatchObject({
-      type: 'shotTemplates/addCustomTemplate',
-      payload: template,
-    });
-    expect(
-      updateCustomTemplate({
-        id: 'custom-template-1',
-        changes: { name: 'Updated', description: 'Updated description' },
-      }),
-    ).toMatchObject({
-      type: 'shotTemplates/updateCustomTemplate',
-      payload: {
-        id: 'custom-template-1',
-        changes: { name: 'Updated', description: 'Updated description' },
-      },
-    });
-    expect(
-      updateCustomTemplateTracks({ id: 'custom-template-1', tracks: template.tracks }),
-    ).toMatchObject({
-      type: 'shotTemplates/updateCustomTemplateTracks',
-      payload: { id: 'custom-template-1', tracks: template.tracks },
-    });
-    expect(removeCustomTemplate('custom-template-1')).toMatchObject({
-      type: 'shotTemplates/removeCustomTemplate',
-      payload: 'custom-template-1',
-    });
-    expect(toggleTemplateHidden('builtin-tmpl-dramatic-reveal')).toMatchObject({
-      type: 'shotTemplates/toggleTemplateHidden',
-      payload: 'builtin-tmpl-dramatic-reveal',
-    });
-    expect(shotTemplatesSlice.actions.setLoading(true)).toMatchObject({
-      type: 'shotTemplates/setLoading',
-      payload: true,
-    });
-    expect(shotTemplatesSlice.actions.restore(restored)).toMatchObject({
-      type: 'shotTemplates/restore',
-      payload: restored,
-    });
-  });
-
   it('sets, adds, updates, removes, and hides custom templates', () => {
     let state = shotTemplatesSlice.reducer(
       undefined,

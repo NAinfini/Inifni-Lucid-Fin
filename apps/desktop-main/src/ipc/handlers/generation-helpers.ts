@@ -11,10 +11,12 @@ import type {
 } from '@lucid-fin/contracts';
 import {
   JobStatus,
+  listBuiltinMediaProviders,
   resolvePrimaryVideoConditioningImage,
   resolveVideoReferenceImageField,
 } from '@lucid-fin/contracts';
 import type { CAS, Keychain } from '@lucid-fin/storage';
+import { probeMedia, type MediaProbeResult } from '@lucid-fin/media-engine';
 import log from '../../logger.js';
 import { sanitizePng } from '../../sanitize-png.js';
 import { isStoredKeyAllowedForBaseUrl } from './provider-host-allowlist.js';
@@ -74,6 +76,26 @@ export async function materializeAsset(generated: {
   }
 
   throw new Error('Generated asset did not include a usable file path or URL');
+}
+
+/** Probe the generated file; request dimensions are never accepted as actual output facts. */
+export async function probeGeneratedAsset(
+  filePath: string,
+  assetType: AssetType,
+  probe: (path: string) => Promise<MediaProbeResult> = probeMedia,
+): Promise<{ width?: number; height?: number; duration?: number }> {
+  if (assetType === 'audio') return {};
+  const result = await probe(filePath);
+  if (!result.width || !result.height) {
+    throw new Error(`Generated ${assetType} has no probeable pixel dimensions`);
+  }
+  return {
+    width: result.width,
+    height: result.height,
+    ...(assetType === 'video' && result.durationSeconds > 0
+      ? { duration: result.durationSeconds }
+      : {}),
+  };
 }
 
 async function decodeBase64DataUrl(dataUrl: string): Promise<MaterializedAsset> {
@@ -140,19 +162,19 @@ export function materializeGenerationRequest(
     if (sourceImagePath) {
       extraParams.sourceImagePath = sourceImagePath;
     } else {
-      log.warn('[canvas:generation] sourceImageHash could not be resolved to a file', {
-        sourceImageHash: request.sourceImageHash,
-      });
+      throw new Error(
+        `Source image asset "${request.sourceImageHash}" could not be resolved from CAS`,
+      );
     }
   }
 
   const frameReferenceImages = request.frameReferenceImages
     ? {
         first: request.frameReferenceImages.first
-          ? resolveImg2ImgSourcePath(request.frameReferenceImages.first, cas)
+          ? requireReferenceImagePath(request.frameReferenceImages.first, cas, 'First-frame')
           : undefined,
         last: request.frameReferenceImages.last
-          ? resolveImg2ImgSourcePath(request.frameReferenceImages.last, cas)
+          ? requireReferenceImagePath(request.frameReferenceImages.last, cas, 'Last-frame')
           : undefined,
       }
     : undefined;
@@ -160,16 +182,9 @@ export function materializeGenerationRequest(
   let referenceImages: string[] | undefined;
 
   if (request.referenceImages && request.referenceImages.length > 0) {
-    const resolved = request.referenceImages
-      .map((hash) => resolveImg2ImgSourcePath(hash, cas))
-      .filter((p): p is string => p !== undefined);
-    referenceImages = resolved.length > 0 ? resolved : undefined;
-    if (resolved.length < request.referenceImages.length) {
-      log.warn('[canvas:generation] some referenceImage hashes could not be resolved', {
-        total: request.referenceImages.length,
-        resolved: resolved.length,
-      });
-    }
+    referenceImages = request.referenceImages.map((hash) =>
+      requireReferenceImagePath(hash, cas, 'Reference'),
+    );
   }
 
   const hasExtra = Object.keys(extraParams).length > 0;
@@ -183,6 +198,38 @@ export function materializeGenerationRequest(
   };
 }
 
+function requireReferenceImagePath(hash: string, cas: CAS, label: string): string {
+  const resolved = resolveImg2ImgSourcePath(hash, cas);
+  if (!resolved) throw new Error(`${label} image asset "${hash}" could not be resolved from CAS`);
+  return resolved;
+}
+
+export async function resolveStoredProviderApiKey(
+  keychain: Keychain,
+  providerId: string,
+  group?: 'image' | 'video',
+): Promise<string | undefined> {
+  const normalizedProviderId = providerId.trim().toLowerCase();
+  const entries = group
+    ? listBuiltinMediaProviders(group).filter(
+        (entry) =>
+          entry.providerId === normalizedProviderId ||
+          entry.adapterId === normalizedProviderId ||
+          entry.credentialId === normalizedProviderId,
+      )
+    : [];
+  const exactProvider = entries.find((entry) => entry.providerId === normalizedProviderId);
+  const credentialIds = exactProvider
+    ? [exactProvider.credentialId]
+    : [...new Set(entries.map((entry) => entry.credentialId))];
+  const candidates = [...(credentialIds.length === 1 ? credentialIds : []), normalizedProviderId];
+  for (const candidate of [...new Set(candidates)]) {
+    const key = await keychain.getKey(candidate);
+    if (key) return key;
+  }
+  return undefined;
+}
+
 export async function buildAdhocAdapter(
   id: string,
   config: ProviderConfigOverride,
@@ -194,7 +241,11 @@ export async function buildAdhocAdapter(
   // Security: only auto-fill the stored key when baseUrl is a canonical host for
   // this provider (or loopback). Otherwise an explicit apiKey must be supplied;
   // we will not send the keychain key to a renderer-chosen arbitrary endpoint.
-  const storedKeyAllowed = isStoredKeyAllowedForBaseUrl(id, baseUrl);
+  const storedKeyAllowed = isStoredKeyAllowedForBaseUrl(
+    id,
+    baseUrl,
+    genType === 'image' || genType === 'video' ? genType : undefined,
+  );
   if (!config.apiKey && !storedKeyAllowed) {
     log.warn('[ad-hoc adapter] refusing to attach stored key to untrusted baseUrl', {
       category: 'canvas-generation',
@@ -202,7 +253,13 @@ export async function buildAdhocAdapter(
       baseUrl,
     });
   }
-  const storedKey = storedKeyAllowed ? await keychain.getKey(id) : null;
+  const storedKey = storedKeyAllowed
+    ? await resolveStoredProviderApiKey(
+        keychain,
+        id,
+        genType === 'image' || genType === 'video' ? genType : undefined,
+      )
+    : undefined;
   const apiKey = config.apiKey || storedKey || '';
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

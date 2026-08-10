@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
-import { CheckCircle2, Clapperboard, LoaderCircle, LockKeyhole } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clapperboard, LoaderCircle, LockKeyhole } from 'lucide-react';
 import type {
   ApproveWorkflowGateResult,
   FinalExportManifestContent,
   WorkflowApprovalContext,
 } from '@lucid-fin/contracts';
 import { t } from '../../i18n.js';
+import { WorkflowRequestChangesForm } from './WorkflowRequestChangesForm.js';
 
 type FinalExportApprovalCardProps = {
   context: WorkflowApprovalContext;
   onApprove: () => Promise<ApproveWorkflowGateResult>;
   onApproved?: () => void;
+  onRequestChanges?: (reason: string) => Promise<unknown>;
+  onRequested?: () => void;
 };
 
 function formatSeconds(value: number): string {
@@ -25,6 +28,8 @@ export function FinalExportApprovalCard({
   context,
   onApprove,
   onApproved,
+  onRequestChanges,
+  onRequested,
 }: FinalExportApprovalCardProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -184,6 +189,16 @@ export function FinalExportApprovalCard({
                   <dd className="text-right">{segment.speed}×</dd>
                   <dt className="text-muted-foreground">{t('finalExportApproval.assetFormat')}</dt>
                   <dd className="text-right">{segment.assetFormat}</dd>
+                  {segment.sourceWidth && segment.sourceHeight && (
+                    <>
+                      <dt className="text-muted-foreground">
+                        {t('finalExportApproval.sourceResolution')}
+                      </dt>
+                      <dd className="text-right">
+                        {segment.sourceWidth}×{segment.sourceHeight}
+                      </dd>
+                    </>
+                  )}
                 </dl>
               </article>
             ))}
@@ -207,6 +222,8 @@ export function FinalExportApprovalCard({
             </dd>
             <dt className="text-muted-foreground">{t('finalExportApproval.fps')}</dt>
             <dd className="text-right">{manifest.output.fps}</dd>
+            <dt className="text-muted-foreground">{t('finalExportApproval.fitMode')}</dt>
+            <dd className="text-right">{manifest.output.fitMode ?? 'stretch'}</dd>
             <dt className="text-muted-foreground">{t('finalExportApproval.fileName')}</dt>
             <dd className="truncate text-right">{manifest.output.logicalFileName}</dd>
             <dt className="text-muted-foreground">{t('finalExportApproval.audioCodec')}</dt>
@@ -217,6 +234,23 @@ export function FinalExportApprovalCard({
             <dd className="text-right">{manifest.output.overwritePolicy}</dd>
           </dl>
         </div>
+
+        {(manifest.resolutionRisks?.length ?? 0) > 0 && (
+          <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-xs">
+            <div className="flex items-center gap-2 font-medium text-amber-100">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              {t('finalExportApproval.resolutionRisks')}
+            </div>
+            <ul className="mt-2 space-y-1.5 text-amber-100/90">
+              {manifest.resolutionRisks?.map((risk, index) => (
+                <li key={`${risk.nodeId}:${risk.code}:${index}`}>
+                  {risk.nodeId}: {t(`finalExportApproval.risk.${risk.code}`)} ({risk.source.width}×
+                  {risk.source.height} → {risk.output.width}×{risk.output.height})
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-lg border bg-background/70 p-3 text-xs">
@@ -274,6 +308,8 @@ export function FinalExportApprovalCard({
             {error}
           </div>
         )}
+
+        <WorkflowRequestChangesForm onRequestChanges={onRequestChanges} onRequested={onRequested} />
 
         <button
           type="button"

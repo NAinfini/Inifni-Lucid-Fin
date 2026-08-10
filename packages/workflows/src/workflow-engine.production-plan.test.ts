@@ -75,7 +75,7 @@ describe('WorkflowEngine persistent production-plan gate', () => {
     for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('atomically creates an immutable plan gate without starting tasks or media work', async () => {
+  it('atomically creates an immutable plan gate and its durable production graph', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-production-plan-'));
     roots.push(root);
     const db = open(path.join(root, 'project.db'));
@@ -93,14 +93,44 @@ describe('WorkflowEngine persistent production-plan gate', () => {
       revision: 1,
     });
     expect(result.contentHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(engine.get(result.workflowRunId)).toMatchObject({
+    const run = engine.get(result.workflowRunId);
+    const stages = engine.getStages(result.workflowRunId);
+    const tasks = engine.getTasks(result.workflowRunId);
+    const stageByLogicalId = new Map(stages.map((stage) => [stage.stageId, stage]));
+
+    expect(run).toMatchObject({
       status: WorkflowRunStatus.AwaitingApproval,
       currentGate: 'production_plan',
       rowVersion: 1,
-      currentStageId: undefined,
+      totalStages: 6,
     });
-    expect(engine.getStages(result.workflowRunId)).toEqual([]);
-    expect(engine.getTasks(result.workflowRunId)).toEqual([]);
+    expect(run?.currentStageId).toBe(stageByLogicalId.get('production-plan')?.id);
+    expect(stages.map((stage) => stage.stageId)).toEqual([
+      'production-plan',
+      'style-exploration',
+      'preproduction',
+      'media-generation',
+      'assembly',
+      'final-export',
+    ]);
+    expect(tasks.map((task) => task.taskId)).toEqual(
+      expect.arrayContaining([
+        'production-plan',
+        'style-audition',
+        'script',
+        'entities',
+        'references',
+        'shot-spec-001',
+        'media-shot-001',
+        'assembly',
+        'final-export',
+      ]),
+    );
+    const shotSpec = tasks.find((task) => task.taskId === 'shot-spec-001');
+    const mediaShot = tasks.find((task) => task.taskId === 'media-shot-001');
+    expect(shotSpec).toBeDefined();
+    expect(mediaShot?.dependencyIds).toContain(shotSpec?.id);
+    expect(db.repos.workflows.listTaskDependencies(mediaShot?.id as never)).toContain(shotSpec?.id);
     expect(db.repos.workflows.listEvents(result.workflowRunId as never)).toEqual([
       expect.objectContaining({
         seq: 1,
@@ -166,16 +196,23 @@ describe('WorkflowEngine persistent production-plan gate', () => {
       expectedSubjectRevision: pending.approval.subjectRevision,
       expectedSubjectHash: pending.approval.subjectHash,
     });
+    const styleStage = engine
+      .getStages(created.workflowRunId)
+      .find((stage) => stage.stageId === 'style-exploration');
     expect(approved).toMatchObject({
       ok: true,
       code: 'approved',
       run: {
         status: WorkflowRunStatus.Ready,
-        currentStageId: 'style-exploration',
+        currentStageId: styleStage?.id,
         currentGate: undefined,
       },
       event: { actor: 'user' },
     });
+    await engine.waitForAutoPump();
+    expect(
+      engine.getTasks(created.workflowRunId).find((task) => task.taskId === 'style-audition'),
+    ).toMatchObject({ status: 'ready' });
     expect(engine.getPendingApprovalContext(created.workflowRunId)).toBeUndefined();
 
     const repeated = engine.approvePendingGateFromUser({
@@ -187,6 +224,117 @@ describe('WorkflowEngine persistent production-plan gate', () => {
     });
     expect(repeated).toMatchObject({ ok: false, code: 'already_approved' });
     expect(reopened.repos.workflows.listEvents(created.workflowRunId as never)).toHaveLength(3);
+  });
+
+  it('persists and atomically claims one keyless Commander continuation per durable task phase', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-production-continuation-'));
+    roots.push(root);
+    const db = open(path.join(root, 'project.db'));
+    const engine = createEngine(db);
+    const created = engine.createProductionPlan({
+      canvasId: 'canvas-1',
+      idea: 'A radio operator hears a transmission from tomorrow.',
+      plan: makePlan(),
+      commanderContinuation: {
+        version: 1,
+        sessionId: 'session-1',
+        provider: {
+          id: 'openai',
+          name: 'OpenAI',
+          baseUrl: 'https://api.openai.com/v1',
+          model: 'gpt-5.6-sol',
+          protocol: 'openai-responses',
+          authStyle: 'bearer',
+        },
+        permissionMode: 'normal',
+        locale: 'en-US',
+      },
+    });
+    const pending = engine.getPendingApprovalContext(created.workflowRunId);
+    if (!pending) throw new Error('Expected pending Production Plan gate');
+    const approved = engine.approvePendingGateFromUser({
+      workflowRunId: created.workflowRunId,
+      gateKey: 'production_plan',
+      expectedRowVersion: pending.run.rowVersion ?? -1,
+      expectedSubjectRevision: pending.approval.subjectRevision,
+      expectedSubjectHash: pending.approval.subjectHash,
+    });
+    expect(approved.ok).toBe(true);
+    await engine.waitForAutoPump();
+
+    const readyRun = engine.get(created.workflowRunId);
+    const task = engine
+      .getTasks(created.workflowRunId)
+      .find((candidate) => candidate.taskId === 'style-audition');
+    if (!readyRun || !task) throw new Error('Expected ready style-audition task');
+    const claimKey = `${task.id}:style_exploration:0`;
+    const claimed = engine.claimCommanderContinuation({
+      workflowRunId: created.workflowRunId,
+      taskRunId: task.id,
+      claimKey,
+      claimOwnerId: 'process-1',
+      expectedRowVersion: readyRun.rowVersion ?? -1,
+    });
+
+    expect(claimed).toMatchObject({
+      ok: true,
+      run: { rowVersion: (readyRun.rowVersion ?? 0) + 1 },
+      continuation: {
+        version: 1,
+        sessionId: 'session-1',
+        provider: { id: 'openai' },
+        claim: {
+          key: claimKey,
+          ownerId: 'process-1',
+          status: 'running',
+        },
+      },
+    });
+    if (!claimed.ok) throw new Error('Expected continuation claim');
+    expect(
+      engine.claimCommanderContinuation({
+        workflowRunId: created.workflowRunId,
+        taskRunId: task.id,
+        claimKey,
+        claimOwnerId: 'process-1',
+        expectedRowVersion: claimed.run.rowVersion ?? -1,
+      }),
+    ).toMatchObject({ ok: false, code: 'already_claimed' });
+
+    const reclaimed = engine.claimCommanderContinuation({
+      workflowRunId: created.workflowRunId,
+      taskRunId: task.id,
+      claimKey,
+      claimOwnerId: 'process-2',
+      expectedRowVersion: claimed.run.rowVersion ?? -1,
+    });
+    expect(reclaimed).toMatchObject({
+      ok: true,
+      continuation: { claim: { ownerId: 'process-2', status: 'running' } },
+    });
+    if (!reclaimed.ok) throw new Error('Expected a restarted process to reclaim the task');
+
+    expect(
+      engine.finishCommanderContinuationClaim({
+        workflowRunId: created.workflowRunId,
+        claimKey,
+        claimOwnerId: 'process-2',
+        expectedRowVersion: reclaimed.run.rowVersion ?? -1,
+        outcome: 'failed',
+        reason: 'Commander ended before task completion',
+      }),
+    ).toBe(true);
+    const retryRun = engine.get(created.workflowRunId);
+    if (!retryRun) throw new Error('Expected workflow after failed continuation');
+    expect(
+      engine.claimCommanderContinuation({
+        workflowRunId: created.workflowRunId,
+        taskRunId: task.id,
+        claimKey,
+        claimOwnerId: 'process-2',
+        expectedRowVersion: retryRun.rowVersion ?? -1,
+      }),
+    ).toMatchObject({ ok: true, continuation: { claim: { status: 'running' } } });
   });
 
   it('refuses generic resume and retry while a human approval gate is pending', async () => {

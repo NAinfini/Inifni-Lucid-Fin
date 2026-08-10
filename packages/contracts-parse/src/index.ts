@@ -80,6 +80,9 @@ export * from './ipc/channels/batch-10.js';
 // Batch 13 — provider health
 export * from './ipc/channels/batch-13.js';
 
+// Batch 14 — capability-scoped provider OAuth
+export * from './ipc/channels/batch-14.js';
+
 // ── Phase C-1: Agent / tool catalog ────────────────────────────
 // `defineTool` and its types are re-exported above from `./tools.js`; the
 // agent barrel adds `createCatalog` on top without duplicating them.
@@ -122,6 +125,22 @@ export {
   type CanvasDto,
   type CanvasSettingsDto,
 } from './dto/canvas.js';
+export {
+  ResolutionIntentSchema,
+  ResolutionPolicySchema,
+  ResolvedResolutionSchema,
+  ResolutionAuditSchema,
+  type ResolutionIntentDto,
+  type ResolutionPolicyDto,
+  type ResolutionAuditDto,
+} from './dto/resolution.js';
+export {
+  VisualStyleGrammarSchema,
+  CanvasVisualStylePolicySchema,
+  VisualStyleProvenanceSchema,
+  type CanvasVisualStylePolicyDto,
+  type VisualStyleProvenanceDto,
+} from './dto/visual-style.js';
 
 // ── Phase G1-2.6: Entity-domain ID parsers + DTOs ──────────────
 export { parseCharacterId, tryCharacterId } from './brands/character-id.js';

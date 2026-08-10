@@ -33,6 +33,8 @@ import {
   CUSTOM_RESOLUTION_VALUE,
   DURATION_PRESETS,
   FPS_PRESETS,
+  INHERIT_CANVAS_RESOLUTION_VALUE,
+  PROVIDER_DEFAULT_RESOLUTION_VALUE,
   createRandomSeed,
   getDefaultResolution,
   getResolutionPresetDimensions,
@@ -43,7 +45,12 @@ import {
   type VisualGenerationNodeType,
   type ResolutionPresetValue,
 } from './inspector-generation-utils.js';
-import type { CanvasNode, ImageNodeData, VideoNodeData, AudioNodeData } from '@lucid-fin/contracts';
+import type {
+  AudioNodeData,
+  CanvasNode,
+  ImageNodeData,
+  VideoNodeData,
+} from '@lucid-fin/contracts';
 
 const VARIANT_OPTIONS = [1, 2, 4, 9];
 
@@ -146,7 +153,6 @@ export function InspectorGenerationState({
   const imageProviders = useSelector((s: RootState) => s.settings.image.providers);
   const videoProviders = useSelector((s: RootState) => s.settings.video.providers);
   const audioProviders = useSelector((s: RootState) => s.settings.audio.providers);
-
   const generationData = selectedNode.data as ImageNodeData | VideoNodeData | AudioNodeData;
   const activeProviderId = generationData.providerId;
   const providerCandidates = useMemo(() => {
@@ -170,29 +176,50 @@ export function InspectorGenerationState({
   const activeVariants = generationData.variants ?? [];
   const selectedVariantIndex = generationData.selectedVariantIndex ?? 0;
   const visualGenerationNode = isVisualGenerationNode(selectedNode) ? selectedNode : undefined;
-  // Canvas-scoped publish resolution layers over the per-node-type factory
-  // default. Image and video are stored separately on the canvas, so pick
-  // the right one based on the selected node type.
-  const canvasPublishResolution = useSelector((s: RootState) => {
+  const canvasResolutionSettings = useSelector((s: RootState) => {
     const id = s.canvas.activeCanvasId;
     if (!id) return undefined;
-    const settings = s.canvas.canvases.entities[id]?.settings;
-    if (!visualGenerationNode) return undefined;
-    return visualGenerationNode.type === 'video'
-      ? settings?.publishVideoResolution
-      : settings?.publishImageResolution;
+    return s.canvas.canvases.entities[id]?.settings;
   });
+  const canvasPublishResolution = visualGenerationNode
+    ? visualGenerationNode.type === 'video'
+      ? canvasResolutionSettings?.publishVideoResolution
+      : canvasResolutionSettings?.publishImageResolution
+    : undefined;
+  const canvasResolutionIntent = visualGenerationNode
+    ? visualGenerationNode.type === 'video'
+      ? canvasResolutionSettings?.resolutionPolicy?.video
+      : canvasResolutionSettings?.resolutionPolicy?.image
+    : undefined;
+  const nodeResolutionIntent = visualGenerationNode?.data.resolutionIntent;
+  const inheritedExactResolution =
+    canvasResolutionIntent?.mode === 'exact' ? canvasResolutionIntent : canvasPublishResolution;
   const defaultResolution = visualGenerationNode
-    ? (canvasPublishResolution ?? getDefaultResolution(visualGenerationNode.type))
+    ? (inheritedExactResolution ?? getDefaultResolution(visualGenerationNode.type))
     : undefined;
   const activeWidth = visualGenerationNode
-    ? (visualGenerationNode.data.width ?? defaultResolution?.width)
+    ? nodeResolutionIntent?.mode === 'exact'
+      ? nodeResolutionIntent.width
+      : nodeResolutionIntent
+        ? undefined
+        : (visualGenerationNode.data.width ?? inheritedExactResolution?.width)
     : undefined;
   const activeHeight = visualGenerationNode
-    ? (visualGenerationNode.data.height ?? defaultResolution?.height)
+    ? nodeResolutionIntent?.mode === 'exact'
+      ? nodeResolutionIntent.height
+      : nodeResolutionIntent
+        ? undefined
+        : (visualGenerationNode.data.height ?? inheritedExactResolution?.height)
     : undefined;
   const activeResolutionPreset = visualGenerationNode
-    ? getResolutionPresetValue(visualGenerationNode.type, activeWidth, activeHeight)
+    ? nodeResolutionIntent?.mode === 'provider-default'
+      ? PROVIDER_DEFAULT_RESOLUTION_VALUE
+      : nodeResolutionIntent?.mode === 'tier'
+        ? (`tier:${nodeResolutionIntent.tier}` as const)
+        : nodeResolutionIntent?.mode === 'exact' ||
+            (visualGenerationNode.data.width != null && visualGenerationNode.data.height != null)
+          ? getResolutionPresetValue(visualGenerationNode.type, activeWidth, activeHeight)
+          : INHERIT_CANVAS_RESOLUTION_VALUE
     : CUSTOM_RESOLUTION_VALUE;
   const activeDuration =
     selectedNode.type === 'video'
@@ -220,14 +247,16 @@ export function InspectorGenerationState({
   const [providerLoading, setProviderLoading] = useState(false);
 
   useEffect(() => {
+    setResolutionSelectValue(null);
+  }, [selectedNode.id]);
+
+  useEffect(() => {
     if (!visualGenerationNode) {
       setResolutionSelectValue(null);
       return;
     }
-    setResolutionSelectValue(
-      getResolutionPresetValue(visualGenerationNode.type, activeWidth, activeHeight),
-    );
-  }, [activeHeight, activeWidth, visualGenerationNode]);
+    setResolutionSelectValue(activeResolutionPreset);
+  }, [activeResolutionPreset, visualGenerationNode]);
 
   useEffect(() => {
     if (selectedNode.type !== 'video') {
@@ -364,16 +393,36 @@ export function InspectorGenerationState({
     (value: ResolutionPresetValue) => {
       if (!visualGenerationNode) return;
       setResolutionSelectValue(value);
+      if (value === INHERIT_CANVAS_RESOLUTION_VALUE) {
+        dispatch(setNodeResolution({ id: visualGenerationNode.id, intent: null }));
+        return;
+      }
+      if (value === PROVIDER_DEFAULT_RESOLUTION_VALUE) {
+        dispatch(
+          setNodeResolution({
+            id: visualGenerationNode.id,
+            intent: { mode: 'provider-default' },
+          }),
+        );
+        return;
+      }
+      if (value.startsWith('tier:')) {
+        dispatch(
+          setNodeResolution({
+            id: visualGenerationNode.id,
+            intent: { mode: 'tier', tier: value.slice('tier:'.length) },
+          }),
+        );
+        return;
+      }
       if (value === CUSTOM_RESOLUTION_VALUE) {
-        if (typeof activeWidth === 'number' && typeof activeHeight === 'number') {
-          dispatch(
-            setNodeResolution({
-              id: visualGenerationNode.id,
-              width: activeWidth,
-              height: activeHeight,
-            }),
-          );
-        }
+        dispatch(
+          setNodeResolution({
+            id: visualGenerationNode.id,
+            width: activeWidth ?? defaultResolution?.width ?? 1024,
+            height: activeHeight ?? defaultResolution?.height ?? 1024,
+          }),
+        );
         return;
       }
       const preset = getResolutionPresetDimensions(value);
@@ -386,7 +435,14 @@ export function InspectorGenerationState({
         }),
       );
     },
-    [activeHeight, activeWidth, dispatch, visualGenerationNode],
+    [
+      activeHeight,
+      activeWidth,
+      defaultResolution?.height,
+      defaultResolution?.width,
+      dispatch,
+      visualGenerationNode,
+    ],
   );
 
   const handleResolutionSelectChange = useCallback(
@@ -675,6 +731,12 @@ export function InspectorGenerationState({
       })
     : null;
 
+  const hasConfiguredProvider = configuredProviders.some((provider) => provider.hasKey);
+  const providerReadinessWarning =
+    !providerLoading && configuredProviders.length > 0 && !hasConfiguredProvider
+      ? t('generation.noKeyWarning')
+      : undefined;
+
   const generationBar = (
     <InspectorGenerationBar
       t={t}
@@ -705,15 +767,38 @@ export function InspectorGenerationState({
       nodeType={selectedNode.type}
       resolutionGroups={
         visualGenerationNode
-          ? groupResolutionPresets(getResolutionPresetsForNodeType(visualGenerationNode.type)).map(
-              (group) => ({
+          ? [
+              {
+                label: t('resolutionPresetGroups.policy'),
+                options: [
+                  {
+                    value: INHERIT_CANVAS_RESOLUTION_VALUE,
+                    label: t('resolutionPresetGroups.inheritCanvas'),
+                  },
+                  {
+                    value: PROVIDER_DEFAULT_RESOLUTION_VALUE,
+                    label: t('resolutionPresetGroups.providerDefault'),
+                  },
+                  ...(nodeResolutionIntent?.mode === 'tier'
+                    ? [
+                        {
+                          value: `tier:${nodeResolutionIntent.tier}`,
+                          label: `${t('resolutionPresetGroups.providerTier')}: ${nodeResolutionIntent.tier}`,
+                        },
+                      ]
+                    : []),
+                ],
+              },
+              ...groupResolutionPresets(
+                getResolutionPresetsForNodeType(visualGenerationNode.type),
+              ).map((group) => ({
                 label: t(`resolutionPresetGroups.${group.label.toLowerCase()}`),
                 options: group.options.map((preset) => ({
                   value: preset.value,
                   label: preset.label,
                 })),
-              }),
-            )
+              })),
+            ]
           : undefined
       }
       resolutionValue={visualGenerationNode ? resolutionControlValue : undefined}
@@ -787,13 +872,7 @@ export function InspectorGenerationState({
           ? handleClearUploadedAsset
           : undefined
       }
-      noKeyWarning={
-        !providerLoading &&
-        configuredProviders.length > 0 &&
-        !configuredProviders.some((p) => p.hasKey)
-          ? t('generation.noKeyWarning')
-          : undefined
-      }
+      noKeyWarning={providerReadinessWarning}
       noKeyActionLabel={t('generation.openProviders')}
       onNoKeyAction={() => {
         window.location.hash = '#/settings';

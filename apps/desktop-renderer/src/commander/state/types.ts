@@ -127,6 +127,7 @@ export interface PendingQuestion {
   toolCallId: string;
   question: string;
   options: CommanderQuestionOption[];
+  allowFreeText: boolean;
 }
 
 export interface CommanderSession {

@@ -15,17 +15,17 @@ reproducible corpus of session traces for system-level debugging:
 
 ```bash
 # Full 50-user run using all providers in rotation (Codex Plus only today).
-npx tsx evals/commander-study/harness/run-all.ts --count 50
+pnpm exec tsx evals/commander-study/harness/run-all.ts --count 50
 
 # Smoke: 2 users, single persona index, useful for iterating on harness itself.
-npx tsx evals/commander-study/harness/run-all.ts --count 2 --persona 0
+pnpm exec tsx evals/commander-study/harness/run-all.ts --count 2 --persona 0
 
 # Reuse a previous run's temp DB (skip seeding) — per-user runs still fresh.
-npx tsx evals/commander-study/harness/run-all.ts --count 50 --max-steps 100
+pnpm exec tsx evals/commander-study/harness/run-all.ts --count 50 --max-steps 100
 
 # Include Codex Team (it's currently broken at the distributor — models claim
 # gpt-5.4 is not available for that key even though /v1/models lists it).
-npx tsx evals/commander-study/harness/run-all.ts --count 50 --team-if-working
+pnpm exec tsx evals/commander-study/harness/run-all.ts --count 50 --team-if-working
 ```
 
 Reports land in `evals/commander-study/reports/<timestamp>/`:
@@ -43,13 +43,13 @@ Reports land in `evals/commander-study/reports/<timestamp>/`:
   Lucid Fin app settings with a valid API key. The harness resolves provider
   ids + base URL + model straight from `%APPDATA%/Lucid Fin/settings.json` and
   reads keys from the OS keychain under service name `lucid-fin`.
-- Node ≥ 22.12.0 (we use Node 24 locally).
+- Node ≥ 26.5.1, matching the repository engine requirement.
 - `better-sqlite3` must be compiled for the **Node** you're running tsx under,
   not for Electron. Swap with:
 
   ```bash
-  npm rebuild better-sqlite3                    # before harness run
-  npx electron-rebuild -w better-sqlite3        # after, so the app works again
+  pnpm rebuild better-sqlite3                    # before harness run
+  pnpm exec electron-rebuild -w better-sqlite3   # after, so the app works again
   ```
 
   Yes this is annoying. Long-term fix: ship two copies of the native module

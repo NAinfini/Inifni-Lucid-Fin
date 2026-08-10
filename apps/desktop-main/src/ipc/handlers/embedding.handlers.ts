@@ -1,9 +1,10 @@
 import type { IpcMain, BrowserWindow } from 'electron';
-import type { CAS, Keychain, SqliteIndex } from '@lucid-fin/storage';
+import type { SqliteIndex } from '@lucid-fin/storage';
 import { parseAssetHash } from '@lucid-fin/contracts-parse';
 import { assetReindexProgressChannel } from '@lucid-fin/contracts-parse';
 import log from '../../logger.js';
 import { describeImageAsset } from './vision.handlers.js';
+import type { VisualAnalyzer } from '../../services/visual-analyzer.service.js';
 import {
   createRendererPushGateway,
   type RendererPushGateway,
@@ -31,12 +32,11 @@ function tokenize(text: string): string[] {
 // ---------------------------------------------------------------------------
 
 export async function generateEmbeddingForAsset(
-  cas: CAS,
-  keychain: Keychain,
+  visualAnalyzer: VisualAnalyzer,
   db: SqliteIndex,
   assetHash: string,
 ): Promise<void> {
-  const description = await describeImageAsset(cas, keychain, assetHash, 'description');
+  const description = await describeImageAsset(visualAnalyzer, assetHash, 'description');
   const tokens = tokenize(description);
   const model = 'vision-description';
   db.repos.assets.insertEmbedding(parseAssetHash(assetHash), description, tokens, model);
@@ -54,8 +54,7 @@ export async function generateEmbeddingForAsset(
 export function registerEmbeddingHandlers(
   ipcMain: IpcMain,
   deps: {
-    cas: CAS;
-    keychain: Keychain;
+    visualAnalyzer: VisualAnalyzer;
     db: SqliteIndex;
     /** Optional — provide to enable push progress events during reindex. */
     getWindow?: () => BrowserWindow | null;
@@ -63,7 +62,7 @@ export function registerEmbeddingHandlers(
     pushGateway?: RendererPushGateway;
   },
 ): void {
-  const { cas, keychain, db } = deps;
+  const { visualAnalyzer, db } = deps;
   // Progress gateway: use injected gateway first, fall back to constructing
   // one from getWindow, or leave undefined (no progress events emitted).
   const gateway: RendererPushGateway | undefined =
@@ -74,7 +73,7 @@ export function registerEmbeddingHandlers(
     if (!args?.assetHash || typeof args.assetHash !== 'string') {
       throw new Error('assetHash is required');
     }
-    await generateEmbeddingForAsset(cas, keychain, db, args.assetHash);
+    await generateEmbeddingForAsset(visualAnalyzer, db, args.assetHash);
     return { ok: true };
   });
 
@@ -128,7 +127,7 @@ export function registerEmbeddingHandlers(
 
       for (const asset of batch) {
         try {
-          await generateEmbeddingForAsset(cas, keychain, db, asset.hash);
+          await generateEmbeddingForAsset(visualAnalyzer, db, asset.hash);
           indexed++;
         } catch (err) {
           failed++;

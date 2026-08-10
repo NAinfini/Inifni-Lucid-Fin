@@ -7,6 +7,8 @@ import type {
 } from './job.js';
 import type { AdapterError } from '../errors/index.js';
 import type { ProviderProfile } from './provider-profile.js';
+import type { AdapterResolutionController } from './resolution.js';
+import type { OAuthProviderTarget } from '../oauth-provider.js';
 
 export type AdapterType = 'text' | 'image' | 'video' | 'voice' | 'music' | 'sfx';
 
@@ -19,6 +21,7 @@ export type Capability =
   | 'text-to-music'
   | 'text-to-sfx'
   | 'text-generation'
+  | 'image-understanding'
   | 'script-expand'
   | 'scene-breakdown'
   | 'character-extract'
@@ -104,14 +107,52 @@ export interface AdapterExecutionCapabilities {
   cancellation: boolean;
 }
 
+/**
+ * Declares how an adapter consumes visual conditioning inputs.
+ *
+ * The generic `image-to-*` capabilities only prove that a provider can accept
+ * one primary image.  Adapters must opt in here before callers may send more
+ * than one ordered reference image or a distinct final-frame constraint.
+ */
+export interface AdapterConditioningCapabilities {
+  /** Ordered generic references (character, location, equipment, or style). */
+  referenceImages?: {
+    maxImages: number;
+    preservesOrder: boolean;
+    /** Explicit opt-in when generic references may coexist with source/first/last frame inputs. */
+    canCombineWithFrameImages?: boolean;
+  };
+  /** Accepts a dedicated first-frame image in addition to generic references. */
+  firstFrame?: boolean;
+  /** Accepts a dedicated last-frame image in addition to generic references. */
+  lastFrame?: boolean;
+}
+
+/** Provider-facing prompt bounds checked before validation, billing, or submission. */
+export interface AdapterPromptLimits {
+  maxPromptChars: number;
+  maxNegativePromptChars?: number;
+  negativePrompt: 'native' | 'embedded' | 'unsupported' | 'unknown';
+}
+
 export interface AIProviderAdapter {
   readonly id: string;
   readonly name: string;
   readonly type: AdapterType | AdapterType[];
   readonly capabilities: Capability[];
   readonly maxConcurrent: number;
+  /** How credentials are supplied. Managed adapters own auth outside the API-key keychain. */
+  readonly credentialMode?: 'api-key' | 'oauth' | 'none';
+  /** Capability-scoped OAuth identity used by managed adapters. */
+  readonly oauthTarget?: OAuthProviderTarget;
   /** Optional execution capabilities (streaming, webhooks, etc.) */
   readonly executionCapabilities?: AdapterExecutionCapabilities;
+  /** Explicit visual-conditioning limits. Missing declarations fail closed. */
+  readonly conditioningCapabilities?: AdapterConditioningCapabilities;
+  /** Optional pure, no-network resolution capability declaration. */
+  readonly resolutionController?: AdapterResolutionController;
+  /** Pure request-aware prompt capability declaration. */
+  getPromptLimits?(request: GenerationRequest): AdapterPromptLimits;
 
   configure(apiKey: string, options?: AdapterConfigureOptions): void;
   validate(): Promise<boolean>;
@@ -138,6 +179,8 @@ export interface LLMMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
   images?: Array<{ data: string; mimeType: string }>; // base64-encoded image data for vision models
+  /** Provider reasoning that must be replayed during tool-call continuation. */
+  reasoning?: string;
   toolCalls?: LLMToolCall[];
   toolCallId?: string; // for role='tool' messages
 }
@@ -165,11 +208,25 @@ export interface LLMToolCall {
   id: string;
   name: string;
   arguments: Record<string, unknown>;
+  /** Opaque Gemini continuation token; must be returned byte-for-byte. */
+  thoughtSignature?: string;
+  /** The provider requested this call in-turn and the host bridge already executed it. */
+  handledByProviderLoop?: boolean;
 }
 
 export interface LLMToolResult {
   toolCallId: string;
   content: string;
+}
+
+export interface ProviderToolExecutionResult {
+  toolCallId: string;
+  content: string;
+  success: boolean;
+}
+
+export interface ProviderToolBridge {
+  execute(call: LLMToolCall): Promise<ProviderToolExecutionResult>;
 }
 
 export type LLMFinishReason = 'stop' | 'tool_calls' | 'length' | 'error';
@@ -191,6 +248,8 @@ export type LLMStreamEvent =
       id: string;
       name: string;
       arguments: Record<string, unknown>;
+      thoughtSignature?: string;
+      handledByProviderLoop?: boolean;
     }
   | {
       kind: 'usage';
@@ -209,12 +268,17 @@ export interface LLMRequestOptions {
   toolChoice?: 'auto' | 'none' | { name: string };
   /** Cancels the underlying fetch and ends the iterator. */
   signal?: AbortSignal;
+  /** Host-owned execution bridge for providers whose tool loop remains inside one turn. */
+  providerToolBridge?: ProviderToolBridge;
 }
 
 export interface LLMAdapter {
   readonly id: string;
   readonly name: string;
   readonly capabilities: Capability[];
+  readonly credentialMode?: 'api-key' | 'oauth' | 'none';
+  readonly oauthTarget?: OAuthProviderTarget;
+  readonly toolLoopMode?: 'host-returned' | 'provider-managed';
   /** Per-provider configuration for message construction and token estimation. */
   readonly profile?: ProviderProfile;
   /** Model context window in tokens, discovered from /models endpoint. */

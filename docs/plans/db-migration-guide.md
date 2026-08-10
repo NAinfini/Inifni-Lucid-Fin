@@ -503,13 +503,13 @@ describe('MyNewTableRepository', () => {
 
 ```bash
 # Run all storage tests
-cd packages/storage && npx vitest run
+cd packages/storage && pnpm exec vitest run
 
 # Run a specific test file
-cd packages/storage && npx vitest run src/repositories/my-new-table-repository.test.ts
+cd packages/storage && pnpm exec vitest run src/repositories/my-new-table-repository.test.ts
 
 # Typecheck (catches column-constant drift)
-npx tsc --noEmit
+pnpm exec tsc --noEmit
 ```
 
 ### Schema Drift Detection

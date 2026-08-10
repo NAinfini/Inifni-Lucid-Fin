@@ -11,11 +11,13 @@
 
 import type {
   ApproveWorkflowGateResult,
+  ReviseWorkflowGateResult,
   SelectVisualConstitutionCandidateInput,
   VisualConstitutionSelectionResult,
   WorkflowApprovalContext,
   WorkflowApprovalGateKey,
   WorkflowFinalExportContext,
+  WorkflowDecision,
   WorkflowVisualAuditionContext,
 } from '../../dto/workflow.js';
 
@@ -123,3 +125,25 @@ export interface WorkflowApproveGateRequest {
   expectedSubjectHash: string;
 }
 export type WorkflowApproveGateResponse = ApproveWorkflowGateResult;
+
+// ── workflow:requestChanges (invoke, human UI only) ─────────
+export interface WorkflowRequestChangesRequest {
+  workflowRunId: string;
+  gateKey: WorkflowApprovalGateKey;
+  expectedRowVersion: number;
+  expectedSubjectRevision: number;
+  expectedSubjectHash: string;
+  reason: string;
+}
+export type WorkflowRequestChangesResponse = ReviseWorkflowGateResult;
+
+// ── workflow:rejectGate (invoke, human UI only) ──────────────
+export type WorkflowRejectGateRequest = WorkflowRequestChangesRequest;
+export type WorkflowRejectGateResponse = ReviseWorkflowGateResult;
+
+// ── workflow:listPendingDecisions (invoke) ──────────────────
+export interface WorkflowListPendingDecisionsRequest {
+  workflowRunId?: string;
+  canvasId?: string;
+}
+export type WorkflowListPendingDecisionsResponse = WorkflowDecision[];

@@ -187,4 +187,46 @@ describe('registerCommanderMetaHandlers', () => {
       }),
     );
   });
+
+  it('persists a workflow-bound answer without an active Commander and marks recovery required', async () => {
+    const answerAskUserDecisionFromUser = vi.fn(() => ({
+      answered: true,
+      decision: {
+        id: 'decision-1',
+        workflowRunId: 'workflow-1',
+        status: 'recovery_required',
+      },
+    }));
+    registerCommanderMetaHandlers(
+      {
+        handle(channel: string, handler: (...args: unknown[]) => unknown) {
+          handlers.set(channel, handler);
+        },
+      } as never,
+      { workflowEngine: { answerAskUserDecisionFromUser } as never },
+    );
+
+    await expect(
+      handlers.get('commander:tool:answer')?.(
+        {},
+        { canvasId: 'canvas-1', toolCallId: 'question-1', answer: 'Analog' },
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(answerAskUserDecisionFromUser).toHaveBeenCalledWith({
+      canvasId: 'canvas-1',
+      questionId: 'question-1',
+      answer: 'Analog',
+      status: 'recovery_required',
+    });
+    expect(scopedLogger.warn).toHaveBeenCalledWith(
+      'Workflow decision answer persisted without an active Commander continuation',
+      expect.objectContaining({
+        canvasId: 'canvas-1',
+        workflowRunId: 'workflow-1',
+        questionId: 'question-1',
+        recoveryRequired: true,
+      }),
+    );
+  });
 });

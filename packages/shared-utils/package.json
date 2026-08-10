@@ -1,6 +1,7 @@
 {
   "name": "@lucid-fin/shared-utils",
   "version": "0.0.8",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -12,7 +13,7 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@lucid-fin/contracts": "*"
+    "@lucid-fin/contracts": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^6.0.2"

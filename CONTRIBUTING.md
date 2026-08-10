@@ -2,16 +2,17 @@
 
 Thanks for your interest in contributing to **Lucid Fin** -- an AI-powered film production desktop app built with Electron, React, and TypeScript.
 
+The canonical version matrix and upgrade policy live in [docs/TECH_STACK.md](docs/TECH_STACK.md).
+
 ---
 
 ## Prerequisites
 
 | Tool         | Version    | Notes                                                   |
 | ------------ | ---------- | ------------------------------------------------------- |
-| **Node.js**  | >= 22.12.0 | Required by `engines` in `package.json`                 |
-| **npm**      | >= 10      | Ships with Node 22; used for workspace management       |
+| **Node.js**  | >= 26.5.1  | Required by `engines` in `package.json`                 |
+| **pnpm**     | 11.21.0    | Canonical workspace package manager                     |
 | **Git**      | any recent | Standard version control                                |
-| **Python 3** | >= 3.10    | Only needed for `.trellis/` workflow scripts (optional) |
 
 ### Platform-specific requirements
 
@@ -21,7 +22,7 @@ Thanks for your interest in contributing to **Lucid Fin** -- an AI-powered film 
 
 ### Optional runtime dependencies
 
-- **FFmpeg 7+** -- required for video/audio processing features (`@lucid-fin/media-engine` wraps `fluent-ffmpeg`). Not needed for building or running tests.
+- **FFmpeg 8.1.2 LGPL runtime** -- pinned and verified for video/audio processing. Local binaries can be restored with `node scripts/fetch-ffmpeg.ts`; they are not needed for ordinary builds or unit tests.
 
 ---
 
@@ -32,25 +33,27 @@ Thanks for your interest in contributing to **Lucid Fin** -- an AI-powered film 
 git clone https://github.com/NAinfini/Inifni-Lucid-Fin.git
 cd Inifni-Lucid-Fin
 
-# 2. Install dependencies (also runs postinstall: patch-package + electron-rebuild)
-npm ci
+# 2. Install dependencies from the canonical lock file
+pnpm install --frozen-lockfile
 
 # 3. Build all workspaces in dependency order
-npm run build
+pnpm run build
 
 # 4. Start the development app
-npm run dev
+pnpm run dev
 ```
 
-`npm run dev` builds all packages, builds the renderer in dev mode, then launches Electron with the main process.
+`pnpm run dev` builds all packages, builds the renderer in dev mode, then launches Electron with the main process.
 
-> **Note:** The `postinstall` script automatically rebuilds `better-sqlite3` for the Electron version. If you see native module errors, run `npm rebuild better-sqlite3` manually.
+> **Note:** The `postinstall` script verifies `better-sqlite3` against the installed Electron version. If the Electron ABI is stale, run `pnpm run predev`; Node test scripts perform their own Node ABI check.
+
+`pnpm-workspace.yaml` controls native/package build scripts through `allowBuilds`: it permits `better-sqlite3`, `keytar`, `electron-winstaller`, and the `esbuild` binary used by `tsx`, while blocking Electron's installer in favor of the repository's verified installer. Review and pin any future addition; never use a blanket script approval.
 
 ---
 
 ## Project Structure
 
-This is an **npm workspaces** monorepo with two apps and eight packages.
+This is a **pnpm workspace** monorepo with two apps and ten packages. `pnpm-lock.yaml` is the only install/CI source of truth; `package-lock.json` must not be reintroduced.
 
 ```
 lucid-fin/
@@ -66,9 +69,10 @@ lucid-fin/
     storage/               # SQLite persistence (better-sqlite3) + keytar secrets
     adapters-ai/           # AI provider adapters (LLM, vision, TTS, image-gen)
     media-engine/          # FFmpeg-based video/audio processing
+    workflows/             # Persisted production workflow execution
+    agent/                 # Commander planning, tools, grading, and repair loop
   scripts/                 # Repo-level tooling (codegen, lint checks, coverage ratchet)
   evals/                   # Commander evaluation harness (not linted)
-  .trellis/                # Workflow tracking and dev specs
 ```
 
 ### Dependency graph (simplified)
@@ -81,7 +85,9 @@ contracts  (type-only, no deps)
   +-- adapters-ai      (+ zod)
   +-- media-engine
   +-- storage           (+ better-sqlite3, zod)
-        +-- application (+ zod, depends on storage, adapters-ai, shared-utils)
+        +-- workflows
+              +-- agent
+                    +-- application (+ zod; also uses storage, adapters-ai, shared-utils)
 
 desktop-main   --> application, storage, adapters-ai, media-engine, contracts-parse
 desktop-renderer --> contracts only (no zod in renderer bundle)
@@ -131,31 +137,42 @@ chore: test cleanup, lint fixes, and version bump to 0.0.6
 
 ```bash
 # Run all tests
-npm test
+pnpm test
 
 # Run tests with verbose output (matches CI)
-npx vitest run --reporter=verbose
+pnpm exec vitest run --reporter=verbose
 
 # Run tests in watch mode (during development)
-npx vitest
+pnpm exec vitest
 
-# Run coverage report
-npm run test:coverage
+# Run the critical coverage gate
+pnpm run test:coverage:critical
+
+# Compile the dedicated type-contract tests
+pnpm run test:types
+
+# Run machine-sensitive performance tests (kept out of the default lane)
+pnpm run test:perf
+
+# Run the built Electron smoke tests
+pnpm run test:e2e
 ```
 
-Tests use **Vitest 4** with `vmForks` pool. The `pretest` script automatically rebuilds `better-sqlite3`.
+Tests use **Vitest 4** with the `vmForks` pool. The default lane excludes `*.perf.test.ts`
+benchmarks and `tests/types`; run those through `test:perf` and `test:types`. The `pretest`
+script probes `better-sqlite3` in the target runtime and rebuilds it only when incompatible.
 
 ### Lint
 
 ```bash
 # Run full lint (ESLint + contract drift check)
-npm run lint
+pnpm run lint
 
 # ESLint only
-npx eslint .
+pnpm exec eslint .
 
 # Contract drift only
-npm run lint:contracts
+pnpm run lint:contracts
 ```
 
 ESLint 10 is configured at the repo root (`eslint.config.js`) with `typescript-eslint` and `react-hooks` plugin.
@@ -164,9 +181,10 @@ ESLint 10 is configured at the repo root (`eslint.config.js`) with `typescript-e
 
 ```bash
 # Type check specific packages (matches CI)
-npx tsc --noEmit -p packages/contracts/tsconfig.json
-npx tsc --noEmit -p packages/application/tsconfig.json
-npx tsc --noEmit -p packages/adapters-ai/tsconfig.json
+pnpm exec tsc --noEmit -p packages/contracts/tsconfig.json
+pnpm exec tsc --noEmit -p packages/application/tsconfig.json
+pnpm exec tsc --noEmit -p packages/adapters-ai/tsconfig.json
+pnpm run test:types
 ```
 
 All packages extend `tsconfig.base.json` which targets **ES2022** with strict mode.
@@ -175,10 +193,10 @@ All packages extend `tsconfig.base.json` which targets **ES2022** with strict mo
 
 ```bash
 # Format all files
-npm run format
+pnpm run format
 
 # Check formatting without writing
-npm run format:check
+pnpm run format:check
 ```
 
 Prettier config (`.prettierrc.json`): 100 char width, single quotes, semicolons, trailing commas.
@@ -186,7 +204,7 @@ Prettier config (`.prettierrc.json`): 100 char width, single quotes, semicolons,
 ### IPC drift checks
 
 ```bash
-npm run check:ipc-drift
+pnpm run check:ipc-drift
 ```
 
 Verifies that the preload bridge, migration allowlist, and generated preload code are in sync.
@@ -197,15 +215,15 @@ Verifies that the preload bridge, migration allowlist, and generated preload cod
 
 ```bash
 # Full production build (all workspaces in order)
-npm run build
+pnpm run build
 
 # Package distributable for current platform
-npm run dist
+pnpm run dist
 
 # Platform-specific packaging
-npm run pack:win --workspace=apps/desktop-main
-npm run pack:mac --workspace=apps/desktop-main
-npm run pack:linux --workspace=apps/desktop-main
+pnpm --filter ./apps/desktop-main run pack:win
+pnpm --filter ./apps/desktop-main run pack:mac
+pnpm --filter ./apps/desktop-main run pack:linux
 ```
 
 The build order matters because packages have inter-dependencies. The root `build` script handles the correct sequence.
@@ -214,15 +232,15 @@ The build order matters because packages have inter-dependencies. The root `buil
 
 ## CI Pipeline
 
-CI runs on **GitHub Actions** (`windows-latest`, Node 22) for pushes to `main`, `dev`, and `feature/**` branches.
+CI runs on **GitHub Actions** (`windows-latest`, Node 26.5.1, pnpm 11.21.0) for pushes to `main`, `dev`, and `feature/**` branches.
 
 Steps:
 
-1. `npm ci` + `npm rebuild better-sqlite3`
-2. `npm run build` -- full workspace build
-3. Type check (`tsc --noEmit` on key packages)
-4. `npx vitest run --reporter=verbose`
-5. `npx eslint . --max-warnings=0`
+1. `pnpm install --frozen-lockfile`
+2. `pnpm run build` -- full workspace build
+3. Type check (`tsc --noEmit` on key packages plus `pnpm run test:types`)
+4. `pnpm test -- --reporter=verbose` (the native ABI pretest rebuilds only if needed)
+5. `pnpm exec eslint . --max-warnings=0`
 
 All checks must pass before merging.
 
@@ -232,15 +250,13 @@ All checks must pass before merging.
 
 ### `better-sqlite3` native module errors
 
-The native module must be compiled for the Electron version, not your system Node. Fix:
+The native module must match the active runtime ABI. For the Electron app, run:
 
 ```bash
-npm rebuild better-sqlite3
-# or the full rebuild:
-npx @electron/rebuild -f -w better-sqlite3 -v 41.2.0
+pnpm run predev
 ```
 
-### `npm install` fails with native compilation errors
+### `pnpm install` fails with native compilation errors
 
 Ensure you have the C++ build toolchain installed for your platform (see Prerequisites above).
 
@@ -249,7 +265,7 @@ Ensure you have the C++ build toolchain installed for your platform (see Prerequ
 Packages must be built in dependency order. Run:
 
 ```bash
-npm run build
+pnpm run build
 ```
 
 This builds all workspaces in the correct sequence.
@@ -259,24 +275,12 @@ This builds all workspaces in the correct sequence.
 If packages have been modified, ensure they are rebuilt first:
 
 ```bash
-npm run build && npm test
+pnpm run build && pnpm test
 ```
 
 ### Renderer imports from `contracts-parse` -- ESLint error
 
 This is intentional. The renderer must only import types from `@lucid-fin/contracts`. Runtime schemas (zod) belong in `@lucid-fin/contracts-parse` and must stay out of the renderer bundle.
-
----
-
-## Development Specs
-
-Detailed development guidelines live in `.trellis/spec/`:
-
-- **Frontend:** `.trellis/spec/frontend/index.md` -- component patterns, hooks, state management, type safety
-- **Backend:** `.trellis/spec/backend/index.md` -- database, logging, type safety
-- **Guides:** `.trellis/spec/guides/` -- cross-layer thinking guide
-
-Read the relevant spec docs before making changes to unfamiliar areas.
 
 ---
 
@@ -289,4 +293,4 @@ Read the relevant spec docs before making changes to unfamiliar areas.
 - **Radix UI** for accessible primitives
 - **`cva`** (class-variance-authority) for component variants
 - **Redux Toolkit** for state management in the renderer
-- Prettier enforces formatting -- run `npm run format` before committing
+- Prettier enforces formatting -- run `pnpm run format` before committing

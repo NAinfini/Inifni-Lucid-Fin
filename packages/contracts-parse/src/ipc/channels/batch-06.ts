@@ -226,6 +226,55 @@ export const workflowApproveGateChannel = defineInvokeChannel({
 export type WorkflowApproveGateRequest = z.infer<typeof WorkflowApproveGateRequest>;
 export type WorkflowApproveGateResponse = z.infer<typeof WorkflowApproveGateResponse>;
 
+const WorkflowGateRevisionRequest = z
+  .object({
+    workflowRunId: z.string().min(1),
+    gateKey: z.enum(['production_plan', 'visual_constitution', 'final_export']),
+    expectedRowVersion: z.number().int().nonnegative(),
+    expectedSubjectRevision: z.number().int().positive(),
+    expectedSubjectHash: z.string().regex(/^[a-f0-9]{64}$/i),
+    reason: z.string().trim().min(1),
+  })
+  .strict();
+
+// ── workflow:requestChanges (invoke, human UI only) ─────────
+export const workflowRequestChangesChannel = defineInvokeChannel({
+  channel: 'workflow:requestChanges',
+  request: WorkflowGateRevisionRequest,
+  response: z.unknown(),
+});
+export type WorkflowRequestChangesRequest = z.infer<typeof WorkflowGateRevisionRequest>;
+export type WorkflowRequestChangesResponse = unknown;
+
+// ── workflow:rejectGate (invoke, human UI only) ──────────────
+export const workflowRejectGateChannel = defineInvokeChannel({
+  channel: 'workflow:rejectGate',
+  request: WorkflowGateRevisionRequest,
+  response: z.unknown(),
+});
+export type WorkflowRejectGateRequest = z.infer<typeof WorkflowGateRevisionRequest>;
+export type WorkflowRejectGateResponse = unknown;
+
+// ── workflow:listPendingDecisions (invoke) ──────────────────
+const WorkflowListPendingDecisionsRequest = z
+  .object({
+    workflowRunId: z.string().min(1).optional(),
+    canvasId: z.string().min(1).optional(),
+  })
+  .strict()
+  .refine((request) => request.workflowRunId !== undefined || request.canvasId !== undefined, {
+    message: 'workflowRunId or canvasId is required',
+  });
+export const workflowListPendingDecisionsChannel = defineInvokeChannel({
+  channel: 'workflow:listPendingDecisions',
+  request: WorkflowListPendingDecisionsRequest,
+  response: z.array(z.unknown()),
+});
+export type WorkflowListPendingDecisionsRequest = z.infer<
+  typeof WorkflowListPendingDecisionsRequest
+>;
+export type WorkflowListPendingDecisionsResponse = unknown[];
+
 export const workflowChannels = [
   workflowListChannel,
   workflowGetChannel,
@@ -243,4 +292,7 @@ export const workflowChannels = [
   workflowGetFinalExportChannel,
   workflowSelectVisualCandidateChannel,
   workflowApproveGateChannel,
+  workflowRequestChangesChannel,
+  workflowRejectGateChannel,
+  workflowListPendingDecisionsChannel,
 ] as const;

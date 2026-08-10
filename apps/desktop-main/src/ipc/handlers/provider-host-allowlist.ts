@@ -16,23 +16,17 @@
  * an external exfiltration target).
  */
 
-/** Canonical hostnames a provider's stored key is permitted to reach. */
+import {
+  getBuiltinMediaProvider,
+  listBuiltinMediaProviders,
+  type MediaProviderGroup,
+} from '@lucid-fin/contracts';
+
+/** Canonical hostnames for non-media and legacy providers. Media hosts come from the catalog. */
 const PROVIDER_ALLOWED_HOSTS: Record<string, readonly string[]> = {
-  // Image
-  'openai-dalle': ['api.openai.com'],
-  flux: ['api.replicate.com'],
-  replicate: ['api.replicate.com'],
-  ideogram: ['api.ideogram.ai'],
+  // Legacy media IDs that are not exposed by the current built-in catalog.
   leonardo: ['cloud.leonardo.ai'],
-  recraft: ['external.api.recraft.ai'],
-  // Video
-  kling: ['api.klingai.com'],
-  luma: ['api.lumalabs.ai'],
-  minimax: ['api.minimax.chat'],
-  pika: ['api.pika.art'],
-  runway: ['api.dev.runwayml.com'],
   higgsfield: ['api.higgsfield.ai'],
-  veo: ['generativelanguage.googleapis.com'],
   // Audio / voice / music / sfx
   cartesia: ['api.cartesia.ai'],
   elevenlabs: ['api.elevenlabs.io'],
@@ -46,9 +40,13 @@ const PROVIDER_ALLOWED_HOSTS: Record<string, readonly string[]> = {
 
   // LLM providers (commander chat) — known official hosts
   openai: ['api.openai.com'],
+  'chatgpt-oauth': ['chatgpt.com'],
   claude: ['api.anthropic.com'],
   anthropic: ['api.anthropic.com'],
   gemini: ['generativelanguage.googleapis.com'],
+  'gemini-oauth': ['generativelanguage.googleapis.com'],
+  'gemini-vision-oauth': ['generativelanguage.googleapis.com'],
+  'chatgpt-vision-oauth': ['chatgpt.com'],
   cohere: ['api.cohere.com'],
   deepseek: ['api.deepseek.com'],
   grok: ['api.x.ai'],
@@ -79,6 +77,13 @@ function hostOf(url: string): string | null {
   }
 }
 
+function hostMatchesAllowed(host: string, allowedHost: string): boolean {
+  const normalized = allowedHost.trim().toLowerCase();
+  if (!normalized.startsWith('*.')) return host === normalized;
+  const suffix = normalized.slice(1);
+  return host.length > suffix.length && host.endsWith(suffix);
+}
+
 /**
  * Whether the stored keychain key for `providerId` is allowed to be sent to
  * `baseUrl`. Returns true when no custom baseUrl is supplied, when the host is
@@ -90,12 +95,32 @@ function hostOf(url: string): string | null {
 export function isStoredKeyAllowedForBaseUrl(
   providerId: string,
   baseUrl: string | undefined,
+  group?: MediaProviderGroup,
 ): boolean {
   if (!baseUrl) return true; // normal path — adapter uses its own default host
   const host = hostOf(baseUrl);
   if (!host) return false; // unparseable URL — refuse to attach the stored key
   if (isLoopbackHost(host)) return true;
-  const allowed = PROVIDER_ALLOWED_HOSTS[providerId];
+  const normalizedProviderId = providerId.trim().toLowerCase();
+  const catalogAllowed = group
+    ? (getBuiltinMediaProvider(group, normalizedProviderId)?.allowedHosts ??
+      listBuiltinMediaProviders(group, { includeExcluded: true })
+        .filter(
+          (entry) =>
+            entry.adapterId === normalizedProviderId || entry.credentialId === normalizedProviderId,
+        )
+        .flatMap((entry) => entry.allowedHosts))
+    : listBuiltinMediaProviders(undefined, { includeExcluded: true })
+        .filter(
+          (entry) =>
+            entry.providerId === normalizedProviderId ||
+            entry.adapterId === normalizedProviderId ||
+            entry.credentialId === normalizedProviderId,
+        )
+        .flatMap((entry) => entry.allowedHosts);
+  const allowed = catalogAllowed?.length
+    ? [...new Set(catalogAllowed)]
+    : PROVIDER_ALLOWED_HOSTS[normalizedProviderId];
   if (!allowed) return false; // unknown/custom provider + remote host — not trusted
-  return allowed.includes(host);
+  return allowed.some((allowedHost) => hostMatchesAllowed(host, allowedHost));
 }

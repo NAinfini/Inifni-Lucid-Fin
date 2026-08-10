@@ -35,7 +35,7 @@ describe('DeepSeekLLMAdapter', () => {
 
       expect(adapter.id).toBe('deepseek');
       expect(adapter.name).toBe('DeepSeek');
-      expect(Reflect.get(adapter, 'model')).toBe('deepseek-chat');
+      expect(Reflect.get(adapter, 'model')).toBe('deepseek-v4-pro');
 
       await expect(adapter.validate()).resolves.toBe(true);
       expect(Reflect.get(adapter, 'baseUrl')).toBe('https://api.deepseek.com/v1');
@@ -47,6 +47,7 @@ describe('DeepSeekLLMAdapter', () => {
   });
 
   it('maps DeepSeek rate limits into LucidError details', async () => {
+    vi.useFakeTimers();
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -76,17 +77,20 @@ describe('DeepSeekLLMAdapter', () => {
       // transport error after retries are exhausted. The resulting error code
       // is SERVICE_UNAVAILABLE (transport path), and the provider context is
       // still attached via the error details.
-      await expect(adapter.complete([{ role: 'user', content: 'hello' }])).rejects.toMatchObject<
-        Partial<LucidError>
-      >({
+      const completion = adapter.complete([{ role: 'user', content: 'hello' }]);
+      const rejection = expect(completion).rejects.toMatchObject({
         code: ErrorCode.ServiceUnavailable,
         details: expect.objectContaining({
           endpoint: 'https://api.deepseek.com/v1/chat/completions',
           provider: 'DeepSeek',
           providerId: 'deepseek',
         }),
-      });
+      } satisfies Partial<LucidError>);
+
+      await vi.advanceTimersByTimeAsync(3000);
+      await rejection;
     } finally {
+      vi.useRealTimers();
       vi.unstubAllGlobals();
       vi.restoreAllMocks();
     }

@@ -64,6 +64,33 @@ CREATE TABLE IF NOT EXISTS workflow_events (
 CREATE INDEX IF NOT EXISTS idx_workflow_events_run_seq
   ON workflow_events(workflow_run_id, seq);
 
+CREATE TABLE IF NOT EXISTS workflow_decisions (
+  id                  TEXT PRIMARY KEY,
+  workflow_run_id     TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  task_run_id         TEXT NOT NULL,
+  canvas_id           TEXT NOT NULL,
+  question_id         TEXT NOT NULL,
+  decision_key        TEXT NOT NULL,
+  subject_revision    INTEGER NOT NULL CHECK (subject_revision > 0),
+  question            TEXT NOT NULL,
+  options_json        TEXT NOT NULL,
+  allow_free_text     INTEGER NOT NULL DEFAULT 0 CHECK (allow_free_text IN (0, 1)),
+  status              TEXT NOT NULL CHECK (status IN ('pending', 'answered', 'recovery_required')),
+  answer              TEXT,
+  selected_option_id  TEXT,
+  row_version         INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0),
+  created_at          INTEGER NOT NULL,
+  updated_at          INTEGER NOT NULL,
+  answered_at         INTEGER,
+  UNIQUE (workflow_run_id, decision_key, subject_revision)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_decisions_pending
+  ON workflow_decisions(workflow_run_id, status, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_decisions_canvas_question
+  ON workflow_decisions(canvas_id, question_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS workflow_export_executions (
   id                  TEXT PRIMARY KEY,
   workflow_run_id     TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
@@ -498,6 +525,8 @@ CREATE TABLE IF NOT EXISTS canvases (
   publish_height       INTEGER,
   publish_video_width  INTEGER,
   publish_video_height INTEGER,
+  resolution_policy_json TEXT,
+  visual_style_policy_json TEXT,
   aspect_ratio         TEXT,
   llm_provider_id      TEXT,
   image_provider_id    TEXT,

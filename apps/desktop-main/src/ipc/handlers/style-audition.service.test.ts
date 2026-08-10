@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
+  LLMAdapter,
   VisualAuditionDocumentContent,
   VisualDirectionCandidateProposal,
   VisualPreviewGrade,
@@ -14,7 +15,7 @@ import {
   WorkflowRegistry,
 } from '@lucid-fin/application';
 import { CommanderImageGenerationError } from './commander-image-gen.js';
-import { createStyleAuditionService } from './style-audition.service.js';
+import { createStyleAuditionService, createVisualPreviewGrader } from './style-audition.service.js';
 
 function grammar(rendering: string) {
   return {
@@ -143,6 +144,46 @@ describe('style audition service', () => {
     for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
   });
 
+  it('grades visual auditions with the Commander-selected visual LLM', async () => {
+    const activeLLM = {
+      id: 'chatgpt-oauth',
+      name: 'ChatGPT',
+      capabilities: ['text-generation', 'image-understanding'],
+    } as unknown as LLMAdapter;
+    const visualAnalyzer = {
+      analyzeImageAsset: vi.fn(async () => ({
+        text: JSON.stringify({
+          promptAdherence: 90,
+          styleClarity: 88,
+          storyFit: 86,
+          lighting: 84,
+          composition: 82,
+          continuityPotential: 80,
+          strengths: ['Visible hierarchy'],
+          risks: [],
+          repairPrompt: '',
+          evidence: 'The radio room is visibly lit by one tungsten practical.',
+        }),
+        providerId: activeLLM.id,
+        model: 'codex',
+      })),
+      analyzeImageAssets: vi.fn(),
+    };
+    const grader = createVisualPreviewGrader({ visualAnalyzer, preferredLLMAdapter: activeLLM });
+
+    await expect(
+      grader({
+        assetHash: 'preview-asset',
+        candidate: candidates()[0],
+        productionPlan: { title: 'Signal', genre: 'science fiction' },
+      }),
+    ).resolves.toMatchObject({ visionProviderId: 'chatgpt-oauth', visionModel: 'codex' });
+    expect(visualAnalyzer.analyzeImageAsset).toHaveBeenCalledWith(
+      'preview-asset',
+      expect.objectContaining({ preferredLLMAdapter: activeLLM }),
+    );
+  });
+
   it('persists every graded real asset and refuses duplicate completed work', async () => {
     const { db, workflowEngine, workflowRunId } = setup();
     let generatedCount = 0;
@@ -175,6 +216,10 @@ describe('style audition service', () => {
       ],
     });
     expect(generateImage).toHaveBeenCalledTimes(2);
+    expect(generateImage.mock.calls[0]?.[0]).toContain('VISUAL STYLE AUTHORITY');
+    expect(generateImage.mock.calls[0]?.[1]).toMatchObject({
+      negativePrompt: 'no neon cyberpunk',
+    });
     expect(gradeImage).toHaveBeenCalledTimes(2);
     await expect(run(request(workflowRunId))).rejects.toThrow(/already complete/);
     expect(generateImage).toHaveBeenCalledTimes(2);

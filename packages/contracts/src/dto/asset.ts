@@ -1,5 +1,8 @@
 export type AssetType = 'image' | 'video' | 'audio';
 
+import type { ResolutionAudit } from './resolution.js';
+import type { VisualStyleProvenance } from './visual-style.js';
+
 /** Entity reference snapshot captured at generation time. */
 export interface GenerationEntityRef {
   entityId: string;
@@ -34,6 +37,9 @@ export interface AssetGenerationMetadata {
   referenceAssetHashes?: string[];
   estimatedCostUsd?: number;
   reportedActualCostUsd?: number;
+  resolution?: ResolutionAudit;
+  /** Exact style authority used to compile this provider request. */
+  visualStyle?: VisualStyleProvenance;
   /** Timestamped evaluation-frame provenance. */
   sourceVideoHash?: string;
   timestampSeconds?: number;

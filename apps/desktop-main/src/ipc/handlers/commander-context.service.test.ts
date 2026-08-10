@@ -1,10 +1,228 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  selectPromptGuidesForContext,
+  buildWorkspaceSnapshot,
   buildPersistentWorkflowContext,
   buildPersistentWorkflowManifest,
 } from './commander-context.service.js';
 
+describe('buildWorkspaceSnapshot', () => {
+  it('recognizes a structured Canvas style draft even when it has no summary', () => {
+    const snapshot = buildWorkspaceSnapshot(
+      {
+        id: 'canvas-1',
+        name: 'Storyboard',
+        nodes: [],
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+        notes: [],
+        settings: {
+          visualStylePolicy: {
+            version: 1,
+            locked: { lighting: 'low-key tungsten', palette: 'amber and teal' },
+          },
+        },
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      [],
+      {
+        repos: {
+          entities: {
+            listCharacters: () => ({ rows: [] }),
+            listLocations: () => ({ rows: [] }),
+            listEquipment: () => ({ rows: [] }),
+          },
+        },
+      } as never,
+    );
+
+    expect(snapshot).toContain(
+      'Canvas manual style draft (not workflow authority): structured locks:',
+    );
+    expect(snapshot).toContain('lighting');
+    expect(snapshot).toContain('palette');
+    expect(snapshot).not.toContain('Canvas manual style draft (not workflow authority): NOT SET');
+  });
+});
+
+describe('selectPromptGuidesForContext', () => {
+  it('keeps applicable guides discovery-only unless autoInject is explicitly enabled', () => {
+    const selected = selectPromptGuidesForContext(
+      [
+        { id: 'manual', name: 'Manual guide', content: 'manual', priority: 100 },
+        {
+          id: 'automatic',
+          name: 'Automatic guide',
+          content: 'full automatic guide',
+          autoInject: true,
+          autoInjectContent: 'automatic kernel',
+          priority: 1,
+        },
+      ],
+      'media_generation',
+    );
+
+    expect(selected.injected).toEqual([
+      expect.objectContaining({ id: 'automatic', content: 'automatic kernel' }),
+    ]);
+    expect(selected.discoveryOnly).toContainEqual({ id: 'manual', name: 'Manual guide' });
+  });
+
+  it('ranks a later workflow-critical guide ahead of the first eight low-priority guides', () => {
+    const guides = [
+      ...Array.from({ length: 8 }, (_, index) => ({
+        id: `low-${index}`,
+        name: `Low ${index}`,
+        content: 'low',
+        autoInject: true,
+        autoInjectContent: 'low',
+        priority: 1,
+      })),
+      {
+        id: 'story-to-video',
+        name: 'Story to Video',
+        content: 'critical',
+        autoInject: true,
+        autoInjectContent: 'critical',
+        priority: 100,
+        retention: 'workflow' as const,
+        phases: ['media_generation' as const],
+      },
+    ];
+
+    const selected = selectPromptGuidesForContext(guides, 'media_generation');
+
+    expect(selected.injected.map((guide) => guide.id)).toContain('story-to-video');
+    expect(selected.injected).toHaveLength(8);
+    expect(selected.discoveryOnly.map((guide) => guide.id)).toContain('low-7');
+  });
+
+  it('enforces the hard character budget even for auto-injected guides', () => {
+    const selected = selectPromptGuidesForContext(
+      Array.from({ length: 5 }, (_, index) => ({
+        id: `guide-${index}`,
+        name: `Guide ${index}`,
+        content: `full guide ${index}`,
+        autoInject: true,
+        autoInjectContent: String(index).repeat(2000),
+        priority: 5 - index,
+      })),
+      'unbound',
+    );
+
+    expect(selected.injected.map((guide) => guide.id)).toEqual([
+      'guide-0',
+      'guide-1',
+      'guide-2',
+      'guide-3',
+    ]);
+    expect(
+      selected.injected.reduce((sum, guide) => sum + guide.content.length, 0),
+    ).toBeLessThanOrEqual(8000);
+    expect(selected.discoveryOnly).toEqual([{ id: 'guide-4', name: 'Guide 4' }]);
+  });
+
+  it('keeps a full guide discovery-only when its injection summary is missing or oversized', () => {
+    const selected = selectPromptGuidesForContext(
+      [
+        { id: 'missing', name: 'Missing', content: 'full', autoInject: true },
+        {
+          id: 'oversized',
+          name: 'Oversized',
+          content: 'full',
+          autoInject: true,
+          autoInjectContent: 'x'.repeat(2001),
+        },
+      ],
+      'unbound',
+    );
+
+    expect(selected.injected).toEqual([]);
+    expect(selected.discoveryOnly).toEqual([
+      { id: 'missing', name: 'Missing' },
+      { id: 'oversized', name: 'Oversized' },
+    ]);
+  });
+
+  it('keeps guides for other workflow phases discovery-only', () => {
+    const selected = selectPromptGuidesForContext(
+      [
+        {
+          id: 'style-only',
+          name: 'Style only',
+          content: 'style',
+          autoInject: true,
+          autoInjectContent: 'style kernel',
+          phases: ['style_exploration'],
+        },
+      ],
+      'media_generation',
+    );
+
+    expect(selected.injected).toEqual([]);
+    expect(selected.discoveryOnly).toEqual([{ id: 'style-only', name: 'Style only' }]);
+  });
+});
+
 describe('buildPersistentWorkflowManifest', () => {
+  it('projects the current durable task contract and bounded shot input', () => {
+    const manifest = buildPersistentWorkflowManifest({
+      repos: {
+        workflows: {
+          listRuns: vi.fn(() => ({
+            rows: [
+              {
+                id: 'wf-shot-1',
+                workflowType: 'movie.production.v2',
+                entityType: 'canvas',
+                entityId: 'canvas-1',
+                status: 'ready',
+                rowVersion: 7,
+                currentStageId: 'stage-preproduction-1',
+                currentTaskId: 'task-shot-1',
+              },
+            ],
+          })),
+          getStageRun: vi.fn(() => ({
+            id: 'stage-preproduction-1',
+            workflowRunId: 'wf-shot-1',
+            stageId: 'preproduction',
+          })),
+          getTaskRun: vi.fn(() => ({
+            id: 'task-shot-1',
+            workflowRunId: 'wf-shot-1',
+            taskId: 'shot-spec-003',
+            status: 'ready',
+            input: {
+              workflowTaskRole: 'shot_spec',
+              executionMode: 'external',
+              privateProviderConfig: 'must-not-leak',
+              shot: {
+                id: '003',
+                actIndex: 0,
+                sceneIndex: 2,
+                title: 'Crossing the salt flats',
+                storyBeat: 'Mara sees the beacon',
+                privateNotes: 'must-not-leak',
+              },
+            },
+          })),
+          getLatestDocument: vi.fn(() => undefined),
+          getPendingApproval: vi.fn(() => undefined),
+        },
+      },
+    } as never);
+
+    expect(manifest).toContain('Current task contract');
+    expect(manifest).toContain('Persist the structured shot contract');
+    expect(manifest).toContain('canvas.setNodeRefs');
+    expect(manifest).toContain('Crossing the salt flats');
+    expect(manifest).toContain('Mara sees the beacon');
+    expect(manifest).not.toContain('privateProviderConfig');
+    expect(manifest).not.toContain('privateNotes');
+  });
+
   it('reloads the exact pending gate and approved bounds without exposing the resume token', () => {
     const getLatestDocument = vi.fn((_runId: string, logicalKey: string) =>
       logicalKey === 'production-plan'
@@ -79,9 +297,14 @@ describe('buildPersistentWorkflowManifest', () => {
                 entityId: 'canvas-1',
                 status: 'ready',
                 rowVersion: 9,
-                currentStageId: 'style-exploration',
+                currentStageId: 'stage-visual-1',
               },
             ],
+          })),
+          getStageRun: vi.fn(() => ({
+            id: 'stage-visual-1',
+            workflowRunId: 'wf-visual-1',
+            stageId: 'style-exploration',
           })),
           getLatestDocument: vi.fn((_runId: string, logicalKey: string) =>
             logicalKey === 'visual-auditions'
@@ -172,9 +395,14 @@ describe('buildPersistentWorkflowManifest', () => {
                 entityId: 'canvas-1',
                 status: 'ready',
                 rowVersion: 12,
-                currentStageId: 'final-export',
+                currentStageId: 'stage-final-1',
               },
             ],
+          })),
+          getStageRun: vi.fn(() => ({
+            id: 'stage-final-1',
+            workflowRunId: 'wf-final-1',
+            stageId: 'final-export',
           })),
           getLatestDocument: vi.fn((_runId: string, logicalKey: string) =>
             logicalKey === 'final-export'
@@ -253,9 +481,14 @@ describe('buildPersistentWorkflowManifest', () => {
                 entityId: 'canvas-1',
                 status: 'ready',
                 rowVersion: 8,
-                currentStageId: 'media-generation',
+                currentStageId: 'stage-media-1',
               },
             ],
+          })),
+          getStageRun: vi.fn(() => ({
+            id: 'stage-media-1',
+            workflowRunId: 'wf-media-1',
+            stageId: 'media-generation',
           })),
           getLatestDocument: vi.fn(() => undefined),
           getLatestExportExecution: vi.fn(() => undefined),
@@ -307,11 +540,106 @@ describe('buildPersistentWorkflowManifest', () => {
     } as never);
 
     expect(manifest).toContain('Production media budget ledger');
+    expect(manifest).toContain('attemptId=attempt-1');
+    expect(manifest).toContain(`basePromptHash=${'p'.repeat(64)}`);
     expect(manifest).toContain('status=repair_required');
     expect(manifest).toContain('production-media-rubric-v1');
     expect(manifest).toContain('middle frame shows a blue scarf');
     expect(manifest).toContain('restore red scarf');
     expect(manifest).not.toContain('very long private provider prompt');
+  });
+
+  it('reloads pending and recovery-required workflow decisions with their durable task facts', () => {
+    const manifest = buildPersistentWorkflowManifest({
+      repos: {
+        workflows: {
+          listRuns: vi.fn(() => ({
+            rows: [
+              {
+                id: 'wf-decisions-1',
+                workflowType: 'movie.production.v2',
+                entityType: 'canvas',
+                entityId: 'canvas-1',
+                status: 'blocked',
+                rowVersion: 14,
+                currentStageId: 'stage-media-1',
+                currentTaskId: 'task-media-2',
+              },
+            ],
+          })),
+          getStageRun: vi.fn(() => ({
+            id: 'stage-media-1',
+            workflowRunId: 'wf-decisions-1',
+            stageId: 'media-generation',
+          })),
+          getTaskRun: vi.fn((taskRunId: string) => ({
+            id: taskRunId,
+            workflowRunId: 'wf-decisions-1',
+            taskId: taskRunId === 'task-media-2' ? 'media-shot-002' : 'media-shot-001',
+            status: 'blocked',
+            input: { workflowTaskRole: 'production_media', shotId: 'shot-001' },
+          })),
+          getLatestDocument: vi.fn(() => undefined),
+          getLatestExportExecution: vi.fn(() => undefined),
+          listMediaAttempts: vi.fn(() => []),
+          listMediaEvaluations: vi.fn(() => []),
+          getMediaCostSummary: vi.fn(() => undefined),
+          listPendingDecisions: vi.fn(() => [
+            {
+              id: 'decision-pending',
+              workflowRunId: 'wf-decisions-1',
+              taskRunId: 'task-media-1',
+              canvasId: 'canvas-1',
+              questionId: 'question-provider',
+              decisionKey: 'missing-video-provider',
+              subjectRevision: 3,
+              question: 'Which configured video provider should render this shot?',
+              options: [
+                {
+                  id: 'primary',
+                  label: 'Primary provider',
+                  description: 'Use the approved default.',
+                },
+              ],
+              allowFreeText: false,
+              status: 'pending',
+              rowVersion: 1,
+              createdAt: 100,
+              updatedAt: 100,
+            },
+            {
+              id: 'decision-recovery',
+              workflowRunId: 'wf-decisions-1',
+              taskRunId: 'task-media-2',
+              canvasId: 'canvas-1',
+              questionId: 'question-budget',
+              decisionKey: 'budget-overrun',
+              subjectRevision: 3,
+              question: 'The approved retry budget is exhausted. What should happen next?',
+              options: [{ id: 'stop', label: 'Stop here' }],
+              allowFreeText: true,
+              status: 'recovery_required',
+              answer: 'Stop and keep the latest accepted clip.',
+              selectedOptionId: 'stop',
+              rowVersion: 2,
+              createdAt: 200,
+              updatedAt: 300,
+              answeredAt: 300,
+            },
+          ]),
+          getPendingApproval: vi.fn(() => undefined),
+        },
+      },
+    } as never);
+
+    expect(manifest).toContain('Workflow decision: status=pending');
+    expect(manifest).toContain('decisionKey=missing-video-provider');
+    expect(manifest).toContain('Which configured video provider');
+    expect(manifest).toContain('task=media-shot-001 (task-media-1)');
+    expect(manifest).toContain('Workflow decision: status=recovery_required');
+    expect(manifest).toContain('Stop and keep the latest accepted clip.');
+    expect(manifest).toContain('selectedOption=stop');
+    expect(manifest).toContain('task=media-shot-002 (task-media-2)');
   });
 
   it('derives a production-plan pending policy only from the exact stored subject', () => {
@@ -338,8 +666,22 @@ describe('buildPersistentWorkflowManifest', () => {
                   status: 'awaiting_approval',
                   rowVersion: 3,
                   currentGate: 'production_plan',
+                  currentStageId: 'stage-plan-1',
+                  currentTaskId: 'task-plan-1',
                 },
               ],
+            })),
+            getStageRun: vi.fn(() => ({
+              id: 'stage-plan-1',
+              workflowRunId: 'wf-plan-1',
+              stageId: 'production-plan',
+            })),
+            getTaskRun: vi.fn(() => ({
+              id: 'task-plan-1',
+              workflowRunId: 'wf-plan-1',
+              taskId: 'production-plan',
+              status: 'blocked',
+              input: { workflowTaskRole: 'document' },
             })),
             getLatestDocument: vi.fn(() => undefined),
             getLatestApproval: vi.fn(() => undefined),
@@ -356,6 +698,11 @@ describe('buildPersistentWorkflowManifest', () => {
       rowVersion: 3,
       phase: 'production_plan_pending',
       gate: 'production_plan',
+      currentTaskRunId: 'task-plan-1',
+      currentTaskId: 'production-plan',
+      currentTaskRole: 'document',
+      currentStageId: 'production-plan',
+      subjectRevision: 1,
     });
   });
 

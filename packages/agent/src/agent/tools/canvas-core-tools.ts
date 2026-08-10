@@ -4,7 +4,7 @@ import {
   type CanvasEdge,
   type CanvasSettings,
 } from '@lucid-fin/contracts';
-import { tryProviderId } from '@lucid-fin/contracts-parse';
+import { CanvasVisualStylePolicySchema, tryProviderId } from '@lucid-fin/contracts-parse';
 import type { AgentTool, CanvasToolDeps } from './canvas-tool-utils.js';
 import {
   CANVAS_CONTEXT,
@@ -25,6 +25,7 @@ import {
   buildDuplicatedNodes,
   layoutCanvasNodes,
   autoPositionNode,
+  parseResolutionIntent,
   TypedToolError,
   formatValidationError,
 } from './canvas-tool-utils.js';
@@ -473,12 +474,13 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
     description:
       'Patch canvas-scoped settings. Include only the fields you want to change. ' +
       'Pass null for a field to clear it. ' +
-      'stylePlate is a free-form style prompt describing the visual look of this canvas/video; ' +
-      'it is prepended to every ref-image generation prompt as the leading style anchor. ' +
-      'negativePrompt is a free-form "avoid" prompt appended to every ref-image generation. ' +
+      'visualStylePolicy is the canonical manual/pre-approval Canvas draft and is injected into reference images plus manual image/video generation. ' +
+      'Approved persistent workflows ignore this draft and use their immutable Visual Constitution. ' +
+      'stylePlate and negativePrompt are legacy compatibility mirrors. ' +
       'refResolution sets the default size for ref-image generation (overrides per-entity defaults). ' +
       'publishImageResolution sets the default size for image-node outputs. ' +
       'publishVideoResolution sets the default size for video-node outputs. ' +
+      'resolutionPolicy is canonical and supports provider-default, exact pixels, or provider tiers independently for referenceImage/image/video. ' +
       'Valid aspectRatio: 16:9 | 9:16 | 1:1 | 2.39:1.',
     tags: ['canvas', 'write', 'settings'],
     context: CANVAS_CONTEXT,
@@ -487,6 +489,26 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
+        visualStylePolicy: {
+          type: 'object',
+          description:
+            'Canonical Canvas style draft: {version:1, summary?, locked?, allowedVariations?, negativeConstraints?}. Pass null to clear. This cannot override an approved Visual Constitution.',
+          properties: {
+            version: { type: 'number', description: 'Must be 1.' },
+            summary: { type: 'string', description: 'Human-readable visual direction.' },
+            locked: { type: 'object', description: 'Structured visual grammar fields to lock.' },
+            allowedVariations: {
+              type: 'array',
+              description: 'Permitted shot-to-shot variations within the draft style.',
+              items: { type: 'string', description: 'Permitted shot-to-shot variation.' },
+            },
+            negativeConstraints: {
+              type: 'array',
+              description: 'Visual failure modes that manual generation should exclude.',
+              items: { type: 'string', description: 'Visual failure modes to exclude.' },
+            },
+          },
+        },
         stylePlate: {
           type: 'string',
           description:
@@ -497,7 +519,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
           type: 'string',
           description:
             'Free-form negative prompt (e.g. "text, watermark, blurry, low-quality, extra limbs"). ' +
-            'Appended to every ref-image prompt as "Avoid: …". Pass null to clear.',
+            'Legacy mirror compiled into manual image/video and ref-image exclusions. Pass null to clear.',
         },
         refResolution: {
           type: 'object',
@@ -526,6 +548,16 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
             height: { type: 'number', description: 'Height in pixels.' },
           },
         },
+        resolutionPolicy: {
+          type: 'object',
+          description:
+            'Canonical Canvas resolution policy. Each media key accepts {mode:"provider-default"}, {mode:"exact",width,height}, or {mode:"tier",tier,aspectRatio?}. Pass null to clear the policy. Do not combine with legacy resolution fields in one call.',
+          properties: {
+            referenceImage: { type: 'object', description: 'Reference-image resolution intent.' },
+            image: { type: 'object', description: 'Image-node resolution intent.' },
+            video: { type: 'object', description: 'Video-node resolution intent.' },
+          },
+        },
         aspectRatio: {
           type: 'string',
           description: 'Publishing aspect ratio override.',
@@ -550,7 +582,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
     async execute(args) {
       try {
         const canvasId = requireString(args, 'canvasId');
-        await requireCanvas(deps, canvasId);
+        const canvas = await requireCanvas(deps, canvasId);
         if (!deps.patchCanvasSettings) {
           return fail('canvas.setSettings is not wired in this environment');
         }
@@ -572,6 +604,51 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
         copy('imageProviderId');
         copy('videoProviderId');
         copy('audioProviderId');
+        if ('visualStylePolicy' in args) {
+          if (args.visualStylePolicy === null) {
+            (patch as Record<string, unknown>).visualStylePolicy = null;
+            (patch as Record<string, unknown>).stylePlate = null;
+            (patch as Record<string, unknown>).negativePrompt = null;
+          } else {
+            const parsed = CanvasVisualStylePolicySchema.safeParse(args.visualStylePolicy);
+            if (!parsed.success) {
+              return fail(
+                `visualStylePolicy is invalid: ${parsed.error.issues[0]?.message ?? 'unknown error'}`,
+              );
+            }
+            patch.visualStylePolicy = parsed.data;
+            (patch as Record<string, unknown>).stylePlate = parsed.data.summary ?? null;
+            (patch as Record<string, unknown>).negativePrompt =
+              parsed.data.negativeConstraints?.join(', ') ?? null;
+          }
+        } else if ('stylePlate' in args || 'negativePrompt' in args) {
+          const current = canvas.settings?.visualStylePolicy ?? { version: 1 as const };
+          const { summary, negativeConstraints, ...preserved } = current;
+          const nextSummary =
+            'stylePlate' in args
+              ? typeof args.stylePlate === 'string' && args.stylePlate.trim()
+                ? args.stylePlate.trim()
+                : undefined
+              : summary;
+          const nextNegative =
+            'negativePrompt' in args
+              ? typeof args.negativePrompt === 'string' && args.negativePrompt.trim()
+                ? [args.negativePrompt.trim()]
+                : undefined
+              : negativeConstraints;
+          const next = {
+            ...preserved,
+            version: 1 as const,
+            ...(nextSummary ? { summary: nextSummary } : {}),
+            ...(nextNegative?.length ? { negativeConstraints: nextNegative } : {}),
+          };
+          const hasContent =
+            Boolean(next.summary) ||
+            Boolean(next.locked && Object.keys(next.locked).length > 0) ||
+            Boolean(next.allowedVariations?.length) ||
+            Boolean(next.negativeConstraints?.length);
+          (patch as Record<string, unknown>).visualStylePolicy = hasContent ? next : null;
+        }
         const copyResolution = (
           key: 'refResolution' | 'publishImageResolution' | 'publishVideoResolution',
         ) => {
@@ -600,6 +677,59 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
         if (pubImgErr) return fail(pubImgErr);
         const pubVidErr = copyResolution('publishVideoResolution');
         if (pubVidErr) return fail(pubVidErr);
+
+        const legacyPolicyFields = [
+          'refResolution',
+          'publishImageResolution',
+          'publishVideoResolution',
+        ] as const;
+        const hasLegacyResolution = legacyPolicyFields.some((key) => key in args);
+        if ('resolutionPolicy' in args && hasLegacyResolution) {
+          return fail(
+            'resolutionPolicy cannot be combined with refResolution, publishImageResolution, or publishVideoResolution in the same call',
+          );
+        }
+        if ('resolutionPolicy' in args) {
+          const raw = args.resolutionPolicy;
+          if (raw === null) {
+            (patch as Record<string, unknown>).resolutionPolicy = null;
+          } else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+            const policy: NonNullable<CanvasSettings['resolutionPolicy']> = {};
+            for (const key of ['referenceImage', 'image', 'video'] as const) {
+              if (key in raw) {
+                policy[key] = parseResolutionIntent(
+                  (raw as Record<string, unknown>)[key],
+                  `resolutionPolicy.${key}`,
+                );
+              }
+            }
+            patch.resolutionPolicy = policy;
+          } else {
+            return fail('resolutionPolicy must be an object or null');
+          }
+        } else if (hasLegacyResolution) {
+          const policy: NonNullable<CanvasSettings['resolutionPolicy']> = {
+            ...(canvas.settings?.resolutionPolicy ?? {}),
+          };
+          const mappings = [
+            ['refResolution', 'referenceImage'],
+            ['publishImageResolution', 'image'],
+            ['publishVideoResolution', 'video'],
+          ] as const;
+          for (const [legacyKey, policyKey] of mappings) {
+            if (!(legacyKey in args)) continue;
+            const legacy = (patch as Record<string, unknown>)[legacyKey];
+            policy[policyKey] =
+              legacy && typeof legacy === 'object'
+                ? {
+                    mode: 'exact',
+                    width: (legacy as { width: number }).width,
+                    height: (legacy as { height: number }).height,
+                  }
+                : { mode: 'provider-default' };
+          }
+          patch.resolutionPolicy = policy;
+        }
         const settings = await deps.patchCanvasSettings(canvasId, patch);
         return ok({ canvasId, settings });
       } catch (error) {

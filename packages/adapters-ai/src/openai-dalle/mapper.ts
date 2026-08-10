@@ -4,12 +4,16 @@ import { parseAdapterError } from '../error-utils.js';
 
 export function toOpenAIRequest(req: GenerationRequest): Record<string, unknown> {
   return {
-    model: 'gpt-image-1',
+    model: 'gpt-image-2',
     prompt: req.prompt,
     n: 1,
     size: `${req.width ?? 1024}x${req.height ?? 1024}`,
-    quality: 'standard',
+    quality: normalizeQuality(req.quality),
   };
+}
+
+function normalizeQuality(quality: string | undefined): 'low' | 'medium' | 'high' | 'auto' {
+  return quality === 'low' || quality === 'medium' || quality === 'high' ? quality : 'auto';
 }
 
 export function parseOpenAIResponse(data: Record<string, unknown>): { url: string } {

@@ -198,7 +198,7 @@ async function main(): Promise<void> {
     const output = [
       '# Raw ipcMain.handle registrations that still need typed registrar migration.',
       '# Format: <repo-relative path> :: <channel literal or reviewed dynamic expression>',
-      '# Generated with: npx tsx scripts/check-ipc-migration-allowlist.ts --write',
+      '# Generated with: pnpm exec tsx scripts/check-ipc-migration-allowlist.ts --write',
       '',
       ...registrations.map((registration) => registration.entry),
       '',

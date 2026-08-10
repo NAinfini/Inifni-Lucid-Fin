@@ -1,5 +1,6 @@
 import {
   mergePromptGuidesWithBuiltIns,
+  EXCLUDED_TOOLS,
   makeGenerateImage,
   createRendererPushGateway,
   refimageStartChannel,
@@ -18,6 +19,8 @@ import { registerEntityTools } from './entity-tools.js';
 import { registerMediaTools } from './media-tools.js';
 import { registerSystemTools } from './system-tools.js';
 import { registerSessionTools } from './session-tools.js';
+import type { CommanderPromptGuide } from '@lucid-fin/contracts';
+import { ToolCatalog } from '@lucid-fin/application';
 
 export { requireCanvas, touchCanvas, mergePromptGuidesWithBuiltIns } from './helpers.js';
 export type { ToolRegistrationDeps } from './helpers.js';
@@ -26,7 +29,7 @@ export function registerAllTools(
   registry: AgentToolRegistry,
   deps: ToolRegistrationDeps,
   getWindow: () => BrowserWindow | null,
-  promptGuides: Array<{ id: string; name: string; content: string; autoInject?: boolean }>,
+  promptGuides: CommanderPromptGuide[],
   compactRef?: {
     compact?: (
       instructions?: string,
@@ -35,7 +38,7 @@ export function registerAllTools(
   sessionId?: string,
   defaultProviders?: Record<string, string>,
   pushGateway?: RendererPushGateway,
-  processPromptGuides?: Array<{ id: string; name: string; content: string }>,
+  processPromptGuides?: CommanderPromptGuide[],
 ): void {
   const mergedPromptGuides = mergePromptGuidesWithBuiltIns(promptGuides, processPromptGuides);
   const gateway = pushGateway ?? createRendererPushGateway({ getWindow });
@@ -117,4 +120,16 @@ export function registerAllTools(
   registerMediaTools(registry, deps, generateImage);
 
   registerSessionTools(registry, deps.db, sessionId);
+
+  assertCommanderToolCoverage(registry);
+}
+
+/** Fail fast when a creative/app tool silently disappears from Commander. */
+export function assertCommanderToolCoverage(registry: AgentToolRegistry): void {
+  const missing = Object.keys(ToolCatalog.byKey).filter(
+    (name) => !EXCLUDED_TOOLS.has(name) && !registry.get(name),
+  );
+  if (missing.length > 0) {
+    throw new Error(`Commander tool registry is missing catalog tools: ${missing.join(', ')}`);
+  }
 }

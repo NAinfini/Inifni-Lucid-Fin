@@ -213,6 +213,22 @@ export function removeNodeLocationRef(
   canvas.updatedAt = node.updatedAt;
 }
 
+export function updateNodeLocationRef(
+  state: CanvasSliceState,
+  action: PayloadAction<{ id: string; locationId: string; changes: Partial<LocationRef> }>,
+): void {
+  const canvas = findActiveCanvas(state);
+  if (!canvas) return;
+  const node = canvas.nodes.find((entry) => entry.id === action.payload.id);
+  if (!node || (node.type !== 'image' && node.type !== 'video')) return;
+  const data = node.data as ImageNodeData | VideoNodeData;
+  const ref = data.locationRefs?.find((entry) => entry.locationId === action.payload.locationId);
+  if (!ref) return;
+  Object.assign(ref, action.payload.changes);
+  node.updatedAt = Date.now();
+  canvas.updatedAt = node.updatedAt;
+}
+
 // ---------------------------------------------------------------------------
 // Duplicate / copy / paste
 // ---------------------------------------------------------------------------

@@ -33,6 +33,36 @@ describe('StrictCanvasSchema', () => {
   it.each(NODE_TYPES)('accepts %s nodes', (nodeType) => {
     expect(StrictCanvasSchema.safeParse(makeCanvas(nodeType)).success).toBe(true);
   });
+
+  it('accepts a structured Canvas visual-style draft and rejects an empty one', () => {
+    const canvas = makeCanvas('image');
+    expect(
+      StrictCanvasSchema.safeParse({
+        ...canvas,
+        settings: {
+          visualStylePolicy: {
+            version: 1,
+            summary: 'Low-key hand-painted gothic animation',
+            negativeConstraints: ['flat lighting'],
+          },
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      StrictCanvasSchema.safeParse({
+        ...canvas,
+        settings: { visualStylePolicy: { version: 1 } },
+      }).success,
+    ).toBe(false);
+    expect(
+      StrictCanvasSchema.safeParse({
+        ...canvas,
+        settings: {
+          visualStylePolicy: { version: 1, locked: { characterAnchors: [] } },
+        },
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe('CanvasPatchSchema', () => {

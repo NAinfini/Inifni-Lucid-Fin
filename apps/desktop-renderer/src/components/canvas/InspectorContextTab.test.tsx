@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InspectorContextTab } from './InspectorContextTab.js';
 
@@ -25,6 +25,8 @@ const t = (key: string) =>
       'inspector.noCharacters': 'No characters',
       'inspector.noEquipment': 'No equipment',
       'inspector.noLocations': 'No locations',
+      'inspector.autoAngle': 'Auto angle',
+      'inspector.referenceImage': 'Reference image',
     }) as Record<string, string>
   )[key] ?? key;
 
@@ -75,6 +77,7 @@ describe('InspectorContextTab', () => {
         onAddLocation={vi.fn()}
         onCharacterSlotChange={vi.fn()}
         onEquipmentSlotChange={vi.fn()}
+        onLocationSlotChange={vi.fn()}
         onRemoveCharacter={vi.fn()}
         onRemoveEquipment={vi.fn()}
         onRemoveLocation={vi.fn()}
@@ -98,5 +101,83 @@ describe('InspectorContextTab', () => {
     );
     expect(equipmentThumb.querySelector('img')).toBeNull();
     expect(screen.getByText('Blade')).toBeTruthy();
+  });
+
+  it('renders localized slot selectors for characters, equipment, and locations', () => {
+    const onCharacterSlotChange = vi.fn();
+    const onEquipmentSlotChange = vi.fn();
+    const onLocationSlotChange = vi.fn();
+    render(
+      <InspectorContextTab
+        t={t}
+        selectedNodeType="video"
+        charPickerOpen={false}
+        equipPickerOpen={false}
+        locPickerOpen={false}
+        allCharacters={[]}
+        allEquipment={[]}
+        allLocations={[]}
+        addedCharacterIds={new Set()}
+        addedEquipmentIds={new Set()}
+        addedLocationIds={new Set()}
+        characterItems={[
+          {
+            id: 'character-1',
+            label: 'Astra',
+            selectedSlot: 'full-sheet',
+            slotOptions: [
+              { value: 'full-sheet', label: 'Full sheet' },
+              { value: 'extra-angle:left', label: 'Left' },
+            ],
+          },
+        ]}
+        equipmentItems={[
+          {
+            id: 'equipment-1',
+            label: 'Blade',
+            selectedSlot: 'ortho-grid',
+            slotOptions: [{ value: 'ortho-grid', label: 'Ortho grid' }],
+          },
+        ]}
+        locationItems={[
+          {
+            id: 'location-1',
+            label: 'Hangar Bay',
+            selectedSlot: 'bible',
+            slotOptions: [
+              { value: 'bible', label: 'Bible' },
+              { value: 'fake-360', label: 'Fake 360' },
+            ],
+          },
+        ]}
+        onToggleCharPicker={vi.fn()}
+        onToggleEquipPicker={vi.fn()}
+        onToggleLocPicker={vi.fn()}
+        onAddCharacter={vi.fn()}
+        onAddEquipment={vi.fn()}
+        onAddLocation={vi.fn()}
+        onCharacterSlotChange={onCharacterSlotChange}
+        onEquipmentSlotChange={onEquipmentSlotChange}
+        onLocationSlotChange={onLocationSlotChange}
+        onRemoveCharacter={vi.fn()}
+        onRemoveEquipment={vi.fn()}
+        onRemoveLocation={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Astra: Reference image'), {
+      target: { value: 'extra-angle:left' },
+    });
+    fireEvent.change(screen.getByLabelText('Blade: Reference image'), {
+      target: { value: '' },
+    });
+    fireEvent.change(screen.getByLabelText('Hangar Bay: Reference image'), {
+      target: { value: 'fake-360' },
+    });
+
+    expect(onCharacterSlotChange).toHaveBeenCalledWith('character-1', 'extra-angle:left');
+    expect(onEquipmentSlotChange).toHaveBeenCalledWith('equipment-1', undefined);
+    expect(onLocationSlotChange).toHaveBeenCalledWith('location-1', 'fake-360');
+    expect(screen.getAllByText('Auto angle')).toHaveLength(3);
   });
 });

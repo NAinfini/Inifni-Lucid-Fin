@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { createServerMock, randomUUIDMock, writeFileMock, readFileMock, tmpdirMock, logger } =
   vi.hoisted(() => ({
@@ -53,6 +53,8 @@ vi.mock('./logger.js', () => ({
   fatal: logger.fatal,
 }));
 
+import { startApiServer, stopApiServer } from './api-server.js';
+
 type RequestHandler = (req: unknown, res: unknown) => Promise<void>;
 
 interface MockServer {
@@ -68,6 +70,9 @@ interface MockResponse {
   statusCode?: number;
   writeHead: ReturnType<typeof vi.fn>;
 }
+
+let requestHandler: RequestHandler | undefined;
+let server: MockServer;
 
 function createResponse(): MockResponse {
   const res: MockResponse = {
@@ -126,36 +131,39 @@ async function dispatch(
   return res;
 }
 
-async function loadModule() {
-  vi.resetModules();
-  const server: MockServer = {
-    listen: vi.fn((port: number, host: string, callback?: () => void) => callback?.()),
-    on: vi.fn(),
-    close: vi.fn((callback?: () => void) => callback?.()),
-  };
-  createServerMock.mockImplementation((handler: RequestHandler) => {
-    createServerMock.mock.lastHandler = handler;
-    return server;
-  });
-
-  const module = await import('./api-server.js');
-  const handler = () => createServerMock.mock.lastHandler as RequestHandler;
-
-  return { ...module, handler, server };
+function handler(): RequestHandler {
+  if (!requestHandler) throw new Error('API server handler was not registered');
+  return requestHandler;
 }
 
 beforeEach(() => {
+  stopApiServer();
   vi.restoreAllMocks();
   vi.clearAllMocks();
   delete process.env['LUCID_API_PORT'];
   randomUUIDMock.mockReturnValue('test-token');
   tmpdirMock.mockReturnValue('C:/temp');
+  requestHandler = undefined;
+  server = {
+    listen: vi.fn((port: number, host: string, callback?: () => void) => callback?.()),
+    on: vi.fn(),
+    close: vi.fn((callback?: () => void) => callback?.()),
+  };
+  createServerMock.mockImplementation((nextHandler: RequestHandler) => {
+    requestHandler = nextHandler;
+    return server;
+  });
+});
+
+afterEach(() => {
+  stopApiServer();
+  delete process.env['LUCID_API_PORT'];
+  vi.restoreAllMocks();
 });
 
 describe('api server', () => {
-  it('starts once, binds the configured port, and stops cleanly', async () => {
+  it('starts once, binds the configured port, and stops cleanly', () => {
     process.env['LUCID_API_PORT'] = '43111';
-    const { startApiServer, stopApiServer, server } = await loadModule();
 
     startApiServer({ db: {} as never });
     startApiServer({ db: {} as never });
@@ -170,7 +178,6 @@ describe('api server', () => {
   });
 
   it('rejects requests without the bearer token before route matching', async () => {
-    const { handler, startApiServer } = await loadModule();
     const listSpy = vi.fn();
     const db = {
       repos: {
@@ -192,8 +199,6 @@ describe('api server', () => {
   });
 
   it('serves the health route for authenticated requests', async () => {
-    const { handler, startApiServer } = await loadModule();
-
     startApiServer({ db: {} as never });
     const res = await dispatch(handler(), {
       method: 'GET',
@@ -208,7 +213,6 @@ describe('api server', () => {
   });
 
   it('lists all canvases', async () => {
-    const { handler, startApiServer } = await loadModule();
     const listSpy = vi.fn(() => [{ id: 'canvas-1' }]);
     const db = {
       repos: {
@@ -234,7 +238,6 @@ describe('api server', () => {
   });
 
   it('matches the canvas detail route, decodes ids, and returns 404 for missing canvases', async () => {
-    const { handler, startApiServer } = await loadModule();
     const getSpy = vi
       .fn()
       .mockReturnValueOnce({ id: 'canvas/1', title: 'Storyboard' })
@@ -271,8 +274,6 @@ describe('api server', () => {
   });
 
   it('parses JSON export requests and writes metadata to a temp file', async () => {
-    const { handler, startApiServer } = await loadModule();
-
     vi.spyOn(Date, 'now').mockReturnValue(1700000000000);
     startApiServer({ db: {} as never });
 
@@ -309,8 +310,6 @@ describe('api server', () => {
   });
 
   it('returns 400 responses for invalid export request bodies', async () => {
-    const { handler, startApiServer } = await loadModule();
-
     startApiServer({ db: {} as never });
     const headers = {
       authorization: 'Bearer test-token',
@@ -349,7 +348,6 @@ describe('api server', () => {
   });
 
   it('returns 404 for unmatched routes and 500 when a handler throws', async () => {
-    const { handler, startApiServer } = await loadModule();
     const db = {
       repos: {
         canvases: {

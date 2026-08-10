@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import type BetterSqlite3 from 'better-sqlite3';
-import type { ProcessPromptKey } from '@lucid-fin/contracts';
+import { COMMANDER_GUIDE_LIMITS, type ProcessPromptKey } from '@lucid-fin/contracts';
 import { ProcessPromptRepository } from './repositories/process-prompt-repository.js';
 
 const require = createRequire(import.meta.url);
@@ -42,7 +42,7 @@ export const PROCESS_PROMPT_DEFAULTS: ProcessPromptDefault[] = [
 
 Shared workflow — always, in order:
 1. Read the entity record and its existing reference images. Know whether the current sheet is usable before regenerating.
-2. Call the entity's \`.generateRefImage\` tool with the entity ID. The composite prompt (entity appearance/description + canvas style plate + layout) is ALWAYS generated automatically. If you pass a custom \`prompt\`, it is appended as supplementary instructions after the composite — use it only for this-sheet-only guidance the entity record does not capture (e.g. anti-collapse language, scale indicator, specific camera tweak). Otherwise omit.
+2. Call the entity's \`.generateRefImage\` tool with the entity ID and Canvas ID. The composite prompt (entity appearance/description + canonical Canvas visual-style draft + layout) is ALWAYS generated automatically. If you pass a custom \`prompt\`, it is appended as supplementary instructions after the composite — use it only for this-sheet-only guidance the entity record does not capture (e.g. anti-collapse language, scale indicator, specific camera tweak). Otherwise omit.
 3. Call ONE at a time. Verify the returned asset before triggering any follow-up.
 
 When to regenerate vs leave alone (all entity types):
@@ -126,7 +126,7 @@ Workflow — always, in order:
 4. If character / location / equipment refs are missing, stale, or wrong entity, fix them with \`canvas.setNodeRefs\` before generation. Generating against missing refs produces identity drift that is hard to correct later.
 5. Compile one unified prompt that covers the five elements below. Order them however the provider and scene read best — the five elements are the checklist, not a rigid sequence. Optionally call \`canvas.previewPrompt\` to inspect a reference draft (node prompt + refs + preset tracks + connected text, with synergy and conflict diagnostics) — use it as input, not as the final answer; YOU write the final prompt.
 6. If the user has not clarified a significant creative choice (style direction, mood shift, alternate costume), call \`commander.askUser\` BEFORE calling \`canvas.generation\`. Technical execution proceeds autonomously; creative direction does not.
-7. Call \`canvas.generation\` with \`{ canvasId, action: 'start', nodeId, nodeType: 'image', prompt: <your compiled final prompt> }\`. \`canvasId\` and \`action: 'start'\` are REQUIRED — the start branch never runs without them. You are the author of the prompt: pass the complete prompt you compiled in the \`prompt\` argument and it is sent to the provider VERBATIM. Always pass \`nodeType: 'image'\` — this routes the process prompt correctly. Omit \`prompt\` ONLY to fall back to automatic compilation from node fields. Set \`wait=false\` for fire-and-forget; set \`wait=true\` only when the next tool call depends on the output.
+7. Call \`canvas.generation\` with \`{ canvasId, action: 'start', nodeId, nodeType: 'image', prompt: <creative scene body> }\`. \`canvasId\` and \`action: 'start'\` are REQUIRED. The host deterministically adds the Canvas visual-style draft, references, preset constraints, and negative prompt; do not duplicate or attempt to replace them. Always pass \`nodeType: 'image'\` for process routing. Omit \`prompt\` to compile the body from node fields. Set \`wait=false\` for fire-and-forget; set \`wait=true\` only when the next tool call depends on the output.
 8. Verify result. If generation fails or drifts, correct the specific failure, do not retry blindly.
 
 Five elements (every compiled prompt should cover all five; order by what the frame needs to communicate first):
@@ -183,7 +183,7 @@ Workflow — always, in order:
 4. If the clip depends on continuity images (first-frame image or last-frame image), verify them with \`canvas.setVideoFrames\`. First-frame and last-frame roles MUST be explicit — a video model that guesses direction from ambiguous anchors will drift.
 5. Compile ONE shot using the three-part thinking model below (stage, describe, land). Write it as natural prose — no SCENE/ACTION/BEAT labels. Optionally call \`canvas.previewPrompt\` to inspect a reference draft (refs + preset tracks + connected text, with synergy and conflict diagnostics) — use it as input, not as the final answer; YOU write the final shot.
 6. If the user has not approved a significant creative or motion choice (pacing, cut strategy, alternate action), call \`commander.askUser\` first.
-7. Call \`canvas.generation\` with \`{ canvasId, action: 'start', nodeId, nodeType: 'video', prompt: <your compiled final shot> }\`. \`canvasId\` and \`action: 'start'\` are REQUIRED — the start branch never runs without them. You are the author of the prompt: pass the complete shot you wrote in the \`prompt\` argument and it is sent to the provider VERBATIM. Pass \`nodeType: 'video'\` always so process routing stays correct. Omit \`prompt\` ONLY to fall back to automatic compilation from node fields. Set \`wait=true\` only when the next call depends on the output.
+7. Call \`canvas.generation\` with \`{ canvasId, action: 'start', nodeId, nodeType: 'video', prompt: <creative shot body> }\`. \`canvasId\` and \`action: 'start'\` are REQUIRED. The host deterministically adds the applicable Canvas preservation/style policy, references, presets, and negative constraints; do not duplicate or replace them. Pass \`nodeType: 'video'\` for process routing. Omit \`prompt\` to compile the body from node fields. Set \`wait=true\` only when the next call depends on the output.
 8. Verify result. Short duration first — generate a 3-5s version to lock motion, then expand only when motion is right.
 
 Three-part structure (think the shot this way; write it as natural prose without labels):
@@ -1402,36 +1402,38 @@ After control actions:
   ),
   defineProcessPrompt(
     'style-plate-lock',
-    'Style Plate Lock (ref-image precondition)',
-    'Triggered when a canvas has ref-image entities but no stylePlate set. Forces Commander to lock a canvas-scoped style prompt before running character/equipment/location ref-image generation.',
-    `Before you generate any reference image on this canvas, verify that \`canvas.settings.stylePlate\` is locked. The stylePlate is a free-form style-description string (e.g. "flat 2D cel anime, saturated palette, no outlines") that every ref-image builder prepends as prompt segment 0. Without it, entities render in clashing styles and the whole project looks inconsistent.
+    'Visual Style Draft (manual/pre-approval)',
+    'Guides Commander to create a structured Canvas visual-style draft for manual media and previews without competing with an approved Visual Constitution.',
+    `Before manual reference-image or Canvas media generation, inspect \`canvas.settings.visualStylePolicy\` (legacy \`stylePlate\` is read compatibly). The host deterministically compiles this draft into reference-image and manual image/video prompts.
+
+If the Canvas is bound to a persistent workflow with an approved Visual Constitution, STOP using this draft workflow. The immutable approved Visual Constitution is the only style authority; use workflow media tools and the existing revision/approval gate.
 
 Workflow — non-negotiable order:
 1. Call \`canvas.getInfo({ scope: 'settings' })\` for the active canvas.
-2. Inspect \`stylePlate\` on the returned settings.
-   - **Present and non-empty** → plate is locked. Proceed with the requested ref-image generation. The builder prepends \`Style: <stylePlate>.\` automatically.
-   - **Missing or empty string** → STOP. Do not call \`entity.generateRefImage\` yet. Run the style-plate lock workflow first.
+2. Inspect \`visualStylePolicy\` (or legacy \`stylePlate\`) on the returned settings.
+   - **Present** → proceed. The host injects it automatically; do not repeat it in scene text.
+   - **Missing** → ask one targeted question or offer visible project-specific style auditions so a non-expert can choose by sight.
 
-Style-plate lock workflow (when no plate is set):
+Visual-style draft workflow (when no draft is set):
 - Call \`guide.get({ ids: ['workflow-style-plate'] })\` to read the full lock procedure.
 - Ask the user ONE question: which art style anchors this project (e.g. "Japanese anime, flat cel shading", "Pixar 3D with subsurface scatter", upload an image and describe it).
-- When the user answers, compose a 20–60 word stylePlate string covering: medium, line work, palette, texture, lighting, era cue. No character names, no scene, no action.
-- Immediately lock it: call \`canvas.setSettings({ settings: { stylePlate: '<composed string>' } })\`. Do NOT ask for confirmation again — the user already gave direction. If they want tweaks, they will say so.
+- When the user answers, compose a 20–60 word \`summary\` plus structured locks covering medium, line work, palette, texture, lighting, and era. No character names, scene, or action.
+- Persist it: call \`canvas.setSettings({ canvasId, visualStylePolicy: { version: 1, summary, locked, allowedVariations, negativeConstraints } })\`. If the direction came from a user choice, do not ask for duplicate confirmation.
 - Re-call \`canvas.getInfo\` to verify it landed.
 - THEN return to the original ref-image request without pausing.
 
 Hard rules:
-- Do NOT silently generate a ref image without a plate. The output will visually clash with every other entity in the same project and the user will redo it.
-- Do NOT hardcode a stylePlate for the user — let them steer the vocabulary. Your job is to compose the string from their description.
-- Do NOT embed scene/action/character details in the plate. stylePlate is style only.
+- Do NOT present a Canvas draft as an approved workflow lock.
+- Do NOT hardcode style vocabulary for the user. Let them choose with plain-language descriptions or visible previews.
+- Do NOT embed scene/action/character details in the style policy; those belong in node prompts.
 
 User-visible behavior:
-- If a plate is already locked: proceed silently with ref-image generation. Report success as usual.
-- If no plate: surface ONE short message explaining you need to lock a style plate first, then ask the style question. Keep it under 40 words.
+- If a draft exists: proceed and report the style provenance with the result.
+- If no draft exists: ask one concise question or offer previews; do not lecture the user about film terminology.
 
 Verification after locking:
-- \`canvas.getInfo\` returns the exact string you wrote.
-- The originally requested ref-image tool now runs with the plate prepended (check \`stylePlateUsed: true\` in the result).`,
+- \`canvas.getInfo\` returns the structured policy you wrote.
+- The generated result reports \`visualStyle.policyHash\`; generated assets persist the same provenance.`,
   ),
   defineProcessPrompt(
     'entities-before-generation',
@@ -1539,15 +1541,15 @@ Hard rules:
 
 Key settings:
 - \`aspectRatio\`: Default output aspect ratio for new image/video nodes (e.g. "16:9", "9:16", "1:1", "4:3"). Changing this does NOT retroactively resize existing nodes — only new nodes inherit the canvas default.
-- \`stylePlate\`: The style-identity anchor for the canvas. A locked style plate means all generation uses the same visual language. Setting this to a preset name (e.g. "Ghibli Watercolor") locks it; setting to null unlocks. The style-plate-lock spec fires when generation is attempted on a canvas with no plate — lock it early.
+- \`visualStylePolicy\`: the canonical manual/pre-approval Canvas style draft. Legacy \`stylePlate\` is only a compatibility mirror. An approved persistent workflow always uses its immutable Visual Constitution instead.
 - \`defaultProvider\`: Canvas-level provider override. When set, all generation on this canvas uses this provider unless a node has its own override. When null, the global active provider is used.
 
 Rules:
 - Read before writing: call \`canvas.getInfo\` to see current values before calling \`canvas.setSettings\`.
 - Only set fields you intend to change — omitted fields are left untouched.
-- When the user asks to "set the style" or "lock the look", that maps to \`stylePlate\`.
+- Outside a bound persistent run, "set the style" or "lock the look" maps to \`visualStylePolicy\`; keep the legacy mirrors synchronized through \`canvas.setSettings\`.
 - When the user asks to "change the format" or "make it vertical/horizontal", that maps to \`aspectRatio\`.
-- Changing \`stylePlate\` mid-session is a significant creative decision — confirm with the user via \`commander.askUser\` if entities and ref images already exist, because changing the plate may require regenerating all ref images.
+- Changing the manual draft after entities or reference images exist is a significant creative decision: use \`commander.askUser\` once because affected manual assets must be regenerated. For a bound persistent run, do not edit the Canvas draft; create and approve a new Visual Constitution revision through Gate 2.
 - Changing \`aspectRatio\` mid-session only affects new nodes. Existing nodes keep their current dimensions.`,
   ),
 ];
@@ -1621,7 +1623,7 @@ export class ProcessPromptStore {
   }
 
   list(): ProcessPromptRecord[] {
-    return this.repo.list().rows;
+    return this.repo.list().rows.filter((prompt) => this.defaults.has(prompt.processKey));
   }
 
   get(processKey: string): ProcessPromptRecord | null {
@@ -1633,6 +1635,11 @@ export class ProcessPromptStore {
   }
 
   setCustom(processKey: string, value: string): void {
+    if (value.length > COMMANDER_GUIDE_LIMITS.maxProcessPromptChars) {
+      throw new Error(
+        `Process prompt must be at most ${COMMANDER_GUIDE_LIMITS.maxProcessPromptChars} characters`,
+      );
+    }
     this.repo.setCustom(processKey as ProcessPromptKey, value);
   }
 

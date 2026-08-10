@@ -149,14 +149,34 @@ describe('SessionRepository', () => {
         content: { success: true },
         schemaVersion: 1,
       },
+      {
+        kind: 'assistant-turn',
+        itemId: 'item-3' as import('@lucid-fin/contracts').ContextItemId,
+        producedAtStep: 1,
+        content: '',
+        reasoning: 'inspect first',
+        toolCalls: [
+          {
+            id: 'call-1',
+            name: 'image.analyze',
+            arguments: { assetId: 'asset-1' },
+            thoughtSignature: 'opaque-signature',
+          },
+        ],
+      },
     ];
 
     repo.saveContextGraph('s1' as SessionId, items);
     const loaded = repo.getContextGraph('s1' as SessionId);
     expect(loaded).not.toBeNull();
-    expect(loaded).toHaveLength(2);
+    expect(loaded).toHaveLength(3);
     expect(loaded![0]!.kind).toBe('user-message');
     expect(loaded![1]!.kind).toBe('tool-result');
+    expect(loaded![2]).toMatchObject({
+      kind: 'assistant-turn',
+      reasoning: 'inspect first',
+      toolCalls: [{ thoughtSignature: 'opaque-signature' }],
+    });
   });
 
   it('getContextGraph returns null on malformed JSON (fail-soft)', () => {

@@ -11,6 +11,32 @@ export const LOCATION_STANDARD_SLOTS = [
 
 export type LocationStandardSlot = (typeof LOCATION_STANDARD_SLOTS)[number];
 
+const LOCATION_REF_SLOT_ALIASES: Record<string, string> = {
+  main: 'bible',
+  primary: 'bible',
+  default: 'bible',
+  'default-view': 'bible',
+  'wide-establishing': 'bible',
+  bible: 'bible',
+  fake360: 'fake-360',
+  'fake-360': 'fake-360',
+  '360': 'fake-360',
+};
+
+export function normalizeLocationRefSlot(slot: string | undefined | null): string {
+  const normalized = (slot ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, '-')
+    .replace(/-+/g, '-');
+  if (!normalized) return 'bible';
+  if (normalized.startsWith('extra-angle:')) {
+    const angle = normalized.slice('extra-angle:'.length).trim().replace(/\s+/g, '-');
+    return angle ? `extra-angle:${angle}` : 'bible';
+  }
+  return LOCATION_REF_SLOT_ALIASES[normalized] ?? normalized;
+}
+
 // --- Phase 2 overhaul: view-kind discriminated union ----------------------
 // Locations use a 2-kind primary set: `bible` (wide establish + atmosphere +
 // interior detail + key angles on one sheet) and `fake-360` (8 panels at 45°
@@ -27,10 +53,11 @@ export function locationViewToSlot(view: LocationRefImageView): string {
 }
 
 export function locationSlotToView(slot: string): LocationRefImageView {
-  if (slot === 'bible') return { kind: 'bible' };
-  if (slot === 'fake-360') return { kind: 'fake-360' };
-  if (slot.startsWith('extra-angle:')) {
-    return { kind: 'extra-angle', angle: slot.slice('extra-angle:'.length) };
+  const normalized = normalizeLocationRefSlot(slot);
+  if (normalized === 'bible') return { kind: 'bible' };
+  if (normalized === 'fake-360') return { kind: 'fake-360' };
+  if (normalized.startsWith('extra-angle:')) {
+    return { kind: 'extra-angle', angle: normalized.slice('extra-angle:'.length) };
   }
   return { kind: 'bible' };
 }

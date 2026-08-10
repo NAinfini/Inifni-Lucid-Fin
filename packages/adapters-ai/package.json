@@ -1,6 +1,7 @@
 {
   "name": "@lucid-fin/adapters-ai",
   "version": "0.0.8",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -11,11 +12,12 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@lucid-fin/contracts": "*",
+    "@lucid-fin/contracts": "workspace:*",
+    "replicate": "^1.4.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
+    "@types/node": "^26.1.2",
     "typescript": "^6.0.2"
   }
 }

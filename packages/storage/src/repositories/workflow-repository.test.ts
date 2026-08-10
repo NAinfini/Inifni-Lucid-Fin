@@ -134,10 +134,14 @@ describe('WorkflowRepository', () => {
     expect(got.metadata).toEqual({ traceId: 't' });
   });
 
-  it('listRuns filters by status and returns degradedCount', () => {
-    ctx.repo.insertRun(mkRun('r1', { status: 'queued' }));
-    ctx.repo.insertRun(mkRun('r2', { status: 'running' }));
-    const { rows, degradedCount } = ctx.repo.listRuns({ status: 'running' });
+  it('listRuns filters by status and exact entity binding and returns degradedCount', () => {
+    ctx.repo.insertRun(mkRun('r1', { status: 'queued', entityId: 'canvas-1' }));
+    ctx.repo.insertRun(mkRun('r2', { status: 'running', entityId: 'canvas-1' }));
+    ctx.repo.insertRun(mkRun('r3', { status: 'running', entityId: 'canvas-2' }));
+    const { rows, degradedCount } = ctx.repo.listRuns({
+      status: 'running',
+      entityId: 'canvas-1',
+    });
     expect(degradedCount).toBe(0);
     expect(rows.map((r) => r.id)).toEqual(['r2']);
   });

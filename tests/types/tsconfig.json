@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "rootDir": "../..",
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": ["./*.type-test.ts", "../../packages/contracts/src/workflow-projections.typecheck.ts"]
+}

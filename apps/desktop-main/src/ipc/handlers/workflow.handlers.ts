@@ -3,10 +3,19 @@ import type { WorkflowEngine } from '@lucid-fin/application';
 import type {
   SelectVisualConstitutionCandidateInput,
   WorkflowApprovalGateKey,
+  WorkflowDecisionFilter,
+  UserRejectWorkflowGateInput,
+  UserRequestWorkflowGateChangesInput,
 } from '@lucid-fin/contracts';
 import log from '../../logger.js';
 
-export function registerWorkflowHandlers(ipcMain: IpcMain, workflowEngine: WorkflowEngine): void {
+export function registerWorkflowHandlers(
+  ipcMain: IpcMain,
+  workflowEngine: WorkflowEngine,
+  options?: {
+    requestCommanderContinuation?: (workflowRunId: string, reason: string) => void;
+  },
+): void {
   ipcMain.handle('workflow:list', async (_event, args?: { status?: string }) => {
     return workflowEngine.list(args);
   });
@@ -75,6 +84,7 @@ export function registerWorkflowHandlers(ipcMain: IpcMain, workflowEngine: Workf
       workflowRunId: args.id,
     });
     await workflowEngine.resume(args.id);
+    options?.requestCommanderContinuation?.(args.id, 'workflow-resumed');
   });
 
   ipcMain.handle('workflow:cancel', async (_event, args: { id: string }) => {
@@ -95,6 +105,7 @@ export function registerWorkflowHandlers(ipcMain: IpcMain, workflowEngine: Workf
 
   ipcMain.handle('workflow:retryWorkflow', async (_event, args: { id: string }) => {
     await workflowEngine.retryWorkflow(args.id);
+    options?.requestCommanderContinuation?.(args.id, 'workflow-retried');
   });
 
   ipcMain.handle(
@@ -152,13 +163,72 @@ export function registerWorkflowHandlers(ipcMain: IpcMain, workflowEngine: Workf
         gateKey: args.gateKey,
         subjectRevision: args.expectedSubjectRevision,
       });
-      return workflowEngine.approvePendingGateFromUser({
+      const result = workflowEngine.approvePendingGateFromUser({
         workflowRunId: args.workflowRunId,
         gateKey: args.gateKey,
         expectedRowVersion: args.expectedRowVersion,
         expectedSubjectRevision: args.expectedSubjectRevision,
         expectedSubjectHash: args.expectedSubjectHash,
       });
+      if (result.ok && result.code === 'approved') {
+        await workflowEngine.waitForAutoPump();
+        options?.requestCommanderContinuation?.(result.run.id, `gate-approved:${args.gateKey}`);
+      }
+      return result;
     },
+  );
+
+  ipcMain.handle(
+    'workflow:requestChanges',
+    async (_event, args: UserRequestWorkflowGateChangesInput) => {
+      log.info('Human workflow changes requested', {
+        category: 'workflow',
+        workflowRunId: args.workflowRunId,
+        gateKey: args.gateKey,
+        subjectRevision: args.expectedSubjectRevision,
+      });
+      const result = workflowEngine.requestChangesPendingGateFromUser({
+        workflowRunId: args.workflowRunId,
+        gateKey: args.gateKey,
+        expectedRowVersion: args.expectedRowVersion,
+        expectedSubjectRevision: args.expectedSubjectRevision,
+        expectedSubjectHash: args.expectedSubjectHash,
+        reason: args.reason,
+      });
+      if (result.ok) {
+        await workflowEngine.pump(args.workflowRunId);
+        options?.requestCommanderContinuation?.(
+          args.workflowRunId,
+          `gate-changes-requested:${args.gateKey}`,
+        );
+      }
+      return result;
+    },
+  );
+
+  ipcMain.handle('workflow:rejectGate', async (_event, args: UserRejectWorkflowGateInput) => {
+    log.info('Human workflow gate rejected', {
+      category: 'workflow',
+      workflowRunId: args.workflowRunId,
+      gateKey: args.gateKey,
+      subjectRevision: args.expectedSubjectRevision,
+    });
+    const result = workflowEngine.rejectPendingGateFromUser({
+      workflowRunId: args.workflowRunId,
+      gateKey: args.gateKey,
+      expectedRowVersion: args.expectedRowVersion,
+      expectedSubjectRevision: args.expectedSubjectRevision,
+      expectedSubjectHash: args.expectedSubjectHash,
+      reason: args.reason,
+    });
+    if (result.ok) {
+      await workflowEngine.pump(args.workflowRunId);
+      options?.requestCommanderContinuation?.(args.workflowRunId, `gate-rejected:${args.gateKey}`);
+    }
+    return result;
+  });
+
+  ipcMain.handle('workflow:listPendingDecisions', async (_event, args: WorkflowDecisionFilter) =>
+    workflowEngine.listPendingDecisions(args),
   );
 }

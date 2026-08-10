@@ -185,6 +185,7 @@ export function InspectorPanel() {
     handleEquipmentAngleChange,
     handleAddLocationRef,
     handleRemoveLocationRef,
+    handleLocationAngleChange,
   } = entityRefs;
 
   // --- Debounced text inputs: local state buffer for responsive typing ---
@@ -448,6 +449,12 @@ export function InspectorPanel() {
     () =>
       nodeLocationRefs.map((ref) => {
         const location = locationById[ref.locationId];
+        const slotOptions = (location?.referenceImages ?? [])
+          .filter((image: ReferenceImage) => image.assetHash)
+          .map((image: ReferenceImage) => ({
+            value: image.slot,
+            label: localizeSlot(image.slot),
+          }));
         const thumbnailAssetHash =
           ref.referenceImageHash ??
           (location?.referenceImages ?? []).find((image: ReferenceImage) => image.assetHash)
@@ -456,6 +463,8 @@ export function InspectorPanel() {
           id: ref.locationId,
           label: location?.name ?? ref.locationId.slice(0, 8),
           thumbnailAssetHash,
+          selectedSlot: ref.angleSlot ?? '',
+          slotOptions,
         };
       }),
     [nodeLocationRefs, locationById],
@@ -722,6 +731,7 @@ export function InspectorPanel() {
             onAddLocation={handleAddLocationRef}
             onCharacterSlotChange={handleCharacterAngleChange}
             onEquipmentSlotChange={handleEquipmentAngleChange}
+            onLocationSlotChange={handleLocationAngleChange}
             onRemoveCharacter={handleRemoveCharacterRef}
             onRemoveEquipment={handleRemoveEquipmentRef}
             onRemoveLocation={handleRemoveLocationRef}

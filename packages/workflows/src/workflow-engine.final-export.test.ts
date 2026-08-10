@@ -150,11 +150,27 @@ describe('WorkflowEngine final export gate', () => {
     };
   }
 
-  function approvePlanAndVisual(target: WorkflowEngine, db: SqliteIndex): string {
+  async function approvePlanAndVisual(target: WorkflowEngine, db: SqliteIndex): Promise<string> {
+    const shotCount = Math.max(1, db.repos.canvases.get('canvas-1' as never)?.nodes.length ?? 1);
+    const productionPlan = {
+      ...plan(),
+      story: {
+        acts: [
+          {
+            name: 'Act 1',
+            purpose: 'Discover',
+            scenes: Array.from({ length: shotCount }, (_, index) => ({
+              title: `Call ${index + 1}`,
+              summary: `Planned shot ${index + 1}`,
+            })),
+          },
+        ],
+      },
+    };
     const created = target.createProductionPlan({
       canvasId: 'canvas-1',
       idea: 'A signal arrives from tomorrow.',
-      plan: plan(),
+      plan: productionPlan,
     });
     const planPending = target.getPendingApprovalContext(created.workflowRunId)!;
     expect(
@@ -231,23 +247,49 @@ describe('WorkflowEngine final export gate', () => {
         expectedSubjectHash: selected.context.approval.subjectHash,
       }),
     ).toMatchObject({ ok: true });
+    await target.waitForAutoPump();
+    while (true) {
+      const run = target.get(created.workflowRunId);
+      const stage = target
+        .getStages(created.workflowRunId)
+        .find((candidate) => candidate.id === run?.currentStageId);
+      if (stage?.stageId !== 'preproduction') break;
+      const task = target
+        .getTasks(created.workflowRunId)
+        .find((candidate) => candidate.id === run?.currentTaskId);
+      if (!run || !task) throw new Error('Pre-production current task is missing');
+      await target.completeCreativeTask({
+        canvasId: 'canvas-1',
+        workflowRunId: created.workflowRunId,
+        taskRunId: task.id,
+        expectedRowVersion: run.rowVersion ?? -1,
+        summary: `Completed ${task.taskId}`,
+      });
+    }
     return created.workflowRunId;
   }
 
-  function seedAcceptedMedia(
+  async function seedAcceptedMedia(
+    target: WorkflowEngine,
     db: SqliteIndex,
     workflowRunId: string,
     entries: Array<{ nodeId: string; assetHash: string }>,
-  ): void {
+  ): Promise<void> {
     const repo = db.repos.workflows;
     const productionPlan = repo.getLatestDocument(workflowRunId as never, 'production-plan')!;
     const visualConstitution = repo.getLatestDocument(
       workflowRunId as never,
       'visual-constitution',
     )!;
-    const run = repo.getRun(workflowRunId as never)!;
     const counts = new Map<string, number>();
     for (const [index, entry] of entries.entries()) {
+      const run = repo.getRun(workflowRunId as never)!;
+      const task = target
+        .getTasks(workflowRunId)
+        .find((candidate) => candidate.id === run.currentTaskId);
+      if (!task || task.input.workflowTaskRole !== 'production_media') {
+        throw new Error(`No current production-media task for ${entry.nodeId}`);
+      }
       const number = (counts.get(entry.nodeId) ?? 0) + 1;
       counts.set(entry.nodeId, number);
       const generationSpec: ProductionMediaGenerationSpec = {
@@ -256,6 +298,14 @@ describe('WorkflowEngine final export gate', () => {
         canvasId: 'canvas-1',
         nodeId: entry.nodeId,
         nodeUpdatedAt: 1_000,
+        workflowTask: {
+          taskRunId: task.id,
+          taskId: task.taskId,
+          role: 'production_media',
+          ...(typeof (task.input.shot as { id?: unknown } | undefined)?.id === 'string'
+            ? { shotId: (task.input.shot as { id: string }).id }
+            : {}),
+        },
         mediaType: 'video',
         generationType: 'video',
         mode: 'text-to-video',
@@ -358,7 +408,32 @@ describe('WorkflowEngine final export gate', () => {
           createdAt: 33_000 + index,
         },
       });
+      const nextEntry = entries[index + 1];
+      if (!nextEntry || nextEntry.nodeId !== entry.nodeId) {
+        await target.completeProductionMediaTask({
+          canvasId: 'canvas-1',
+          workflowRunId,
+          taskRunId: task.id,
+          expectedRowVersion: run.rowVersion ?? -1,
+          nodeId: entry.nodeId,
+          attemptId: id,
+        });
+      }
     }
+    const assemblyRun = target.get(workflowRunId);
+    const assemblyTask = target
+      .getTasks(workflowRunId)
+      .find((task) => task.id === assemblyRun?.currentTaskId);
+    if (!assemblyRun || assemblyTask?.input.workflowTaskRole !== 'assembly') {
+      throw new Error('Assembly task was not made ready after accepted media');
+    }
+    await target.completeCreativeTask({
+      canvasId: 'canvas-1',
+      workflowRunId,
+      taskRunId: assemblyTask.id,
+      expectedRowVersion: assemblyRun.rowVersion ?? -1,
+      summary: 'Assembled accepted shots in story order.',
+    });
   }
 
   afterEach(() => {
@@ -372,7 +447,7 @@ describe('WorkflowEngine final export gate', () => {
     for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('binds exact selected CAS assets and output settings to the third approval gate', () => {
+  it('binds exact selected CAS assets and output settings to the third approval gate', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-final-gate-'));
     roots.push(root);
     const dbPath = path.join(root, 'project.db');
@@ -384,17 +459,21 @@ describe('WorkflowEngine final export gate', () => {
       type: 'video',
       format: 'mp4',
       duration: 6,
+      width: 1280,
+      height: 720,
     });
     db.repos.assets.insert({
       hash: secondHash,
       type: 'video',
       format: 'mp4',
       duration: 6,
+      width: 720,
+      height: 1280,
     });
     db.repos.canvases.upsert(canvas([firstHash, secondHash]));
     const target = engine(db);
-    const workflowRunId = approvePlanAndVisual(target, db);
-    seedAcceptedMedia(db, workflowRunId, [
+    const workflowRunId = await approvePlanAndVisual(target, db);
+    await seedAcceptedMedia(target, db, workflowRunId, [
       { nodeId: 'shot-1', assetHash: firstHash },
       { nodeId: 'shot-2', assetHash: secondHash },
     ]);
@@ -420,6 +499,7 @@ describe('WorkflowEngine final export gate', () => {
         manifest: {
           logicalKey: 'final-export',
           content: {
+            manifestVersion: 2,
             canvasId: 'canvas-1',
             output: {
               container: 'mp4',
@@ -428,10 +508,31 @@ describe('WorkflowEngine final export gate', () => {
               width: 3840,
               height: 2160,
               fps: 30,
+              fitMode: 'contain',
+              backgroundColor: '#000000',
             },
             segments: [
-              { order: 0, nodeId: 'shot-1', assetHash: firstHash, durationSeconds: 6 },
-              { order: 1, nodeId: 'shot-2', assetHash: secondHash, durationSeconds: 6 },
+              {
+                order: 0,
+                nodeId: 'shot-1',
+                assetHash: firstHash,
+                durationSeconds: 6,
+                sourceWidth: 1280,
+                sourceHeight: 720,
+              },
+              {
+                order: 1,
+                nodeId: 'shot-2',
+                assetHash: secondHash,
+                durationSeconds: 6,
+                sourceWidth: 720,
+                sourceHeight: 1280,
+              },
+            ],
+            resolutionRisks: [
+              { code: 'upscale', nodeId: 'shot-1' },
+              { code: 'aspect_padding', nodeId: 'shot-2' },
+              { code: 'upscale', nodeId: 'shot-2' },
             ],
             estimatedDurationSeconds: 12,
             audioTracks: [],
@@ -455,6 +556,9 @@ describe('WorkflowEngine final export gate', () => {
       }),
     ).toMatchObject({ created: false, context: { manifest: { revision: 1 } } });
 
+    const finalStage = target
+      .getStages(workflowRunId)
+      .find((stage) => stage.stageId === 'final-export');
     expect(
       target.approvePendingGateFromUser({
         workflowRunId,
@@ -465,7 +569,7 @@ describe('WorkflowEngine final export gate', () => {
       }),
     ).toMatchObject({
       ok: true,
-      run: { currentStageId: 'final-export', currentGate: undefined },
+      run: { currentStageId: finalStage?.id, currentGate: undefined },
     });
 
     const approved = target.requireApprovedFinalExportManifest(workflowRunId, 'canvas-1');
@@ -480,15 +584,22 @@ describe('WorkflowEngine final export gate', () => {
     });
   });
 
-  it('does not open Final Export for ungraded selected media', () => {
+  it('does not open Final Export before the planned media task is graded', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-final-ungraded-'));
     roots.push(root);
     const db = open(path.join(root, 'project.db'));
     const assetHash = hash('ungraded-video');
-    db.repos.assets.insert({ hash: assetHash, type: 'video', format: 'mp4', duration: 6 });
+    db.repos.assets.insert({
+      hash: assetHash,
+      type: 'video',
+      format: 'mp4',
+      duration: 6,
+      width: 1920,
+      height: 1080,
+    });
     db.repos.canvases.upsert(canvas([assetHash]));
     const target = engine(db);
-    const workflowRunId = approvePlanAndVisual(target, db);
+    const workflowRunId = await approvePlanAndVisual(target, db);
 
     expect(() =>
       target.prepareFinalExportManifest({
@@ -497,23 +608,112 @@ describe('WorkflowEngine final export gate', () => {
         expectedRowVersion: target.get(workflowRunId)?.rowVersion ?? -1,
         output: { codec: 'h264', quality: 'standard', width: 1920, height: 1080, fps: 24 },
       }),
-    ).toThrow(/must pass persistent media evaluation/i);
+    ).toThrow(/cannot prepare Final Export/i);
     expect(target.getPendingApprovalContext(workflowRunId)).toBeUndefined();
   });
 
-  it('requires a new manifest revision and approval when the selected media changes', () => {
+  it('reopens the same Final Export gate only for a genuinely revised manifest', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-final-request-changes-'));
+    roots.push(root);
+    const db = open(path.join(root, 'project.db'));
+    const assetHash = hash('request-changes-video');
+    db.repos.assets.insert({
+      hash: assetHash,
+      type: 'video',
+      format: 'mp4',
+      duration: 6,
+      width: 1920,
+      height: 1080,
+    });
+    db.repos.canvases.upsert(canvas([assetHash]));
+    const target = engine(db);
+    const workflowRunId = await approvePlanAndVisual(target, db);
+    await seedAcceptedMedia(target, db, workflowRunId, [{ nodeId: 'shot-1', assetHash }]);
+
+    const originalOutput = {
+      codec: 'h264' as const,
+      quality: 'standard' as const,
+      width: 1920,
+      height: 1080,
+      fps: 24,
+    };
+    const first = target.prepareFinalExportManifest({
+      workflowRunId,
+      canvasId: 'canvas-1',
+      expectedRowVersion: target.get(workflowRunId)?.rowVersion ?? -1,
+      output: originalOutput,
+    });
+    const requested = target.requestChangesPendingGateFromUser({
+      workflowRunId,
+      gateKey: 'final_export',
+      expectedRowVersion: first.context.run.rowVersion ?? -1,
+      expectedSubjectRevision: first.context.approval.subjectRevision,
+      expectedSubjectHash: first.context.approval.subjectHash,
+      reason: 'Use a higher-quality delivery profile.',
+    });
+    expect(requested).toMatchObject({
+      ok: true,
+      code: 'revision_requested',
+      previousApproval: { status: 'rejected', subjectRevision: 1 },
+      producerTask: { taskId: 'final-export', status: 'ready' },
+    });
+    if (!requested.ok) throw new Error('Expected Final Export revision request');
+
+    expect(() =>
+      target.prepareFinalExportManifest({
+        workflowRunId,
+        canvasId: 'canvas-1',
+        expectedRowVersion: requested.run.rowVersion ?? -1,
+        output: originalOutput,
+      }),
+    ).toThrow(/must differ from the rejected revision/i);
+
+    const revised = target.prepareFinalExportManifest({
+      workflowRunId,
+      canvasId: 'canvas-1',
+      expectedRowVersion: requested.run.rowVersion ?? -1,
+      output: { ...originalOutput, quality: 'high' },
+    });
+    expect(revised).toMatchObject({
+      created: true,
+      context: {
+        run: { currentGate: 'final_export', status: 'awaiting_approval' },
+        manifest: { revision: 2, content: { output: { quality: 'high' } } },
+        approval: { gateKey: 'final_export', subjectRevision: 2, status: 'pending' },
+      },
+    });
+    expect(
+      target.approvePendingGateFromUser({
+        workflowRunId,
+        gateKey: 'final_export',
+        expectedRowVersion: revised.context.run.rowVersion ?? -1,
+        expectedSubjectRevision: revised.context.approval.subjectRevision,
+        expectedSubjectHash: revised.context.approval.subjectHash,
+      }),
+    ).toMatchObject({ ok: true, code: 'approved', approval: { status: 'approved' } });
+    expect(target.getPendingApprovalContext(workflowRunId)).toBeUndefined();
+  });
+
+  it('requires a new manifest revision and approval when the selected media changes', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-final-revision-'));
     roots.push(root);
     const db = open(path.join(root, 'project.db'));
     const firstHash = hash('video-a');
     const replacementHash = hash('video-c');
     for (const assetHash of [firstHash, replacementHash]) {
-      db.repos.assets.insert({ hash: assetHash, type: 'video', format: 'mp4', duration: 6 });
+      db.repos.assets.insert({
+        hash: assetHash,
+        type: 'video',
+        format: 'mp4',
+        duration: 6,
+        width: 1920,
+        height: 1080,
+      });
     }
     db.repos.canvases.upsert(canvas([firstHash]));
     const target = engine(db);
-    const workflowRunId = approvePlanAndVisual(target, db);
-    seedAcceptedMedia(db, workflowRunId, [
+    const workflowRunId = await approvePlanAndVisual(target, db);
+    await seedAcceptedMedia(target, db, workflowRunId, [
       { nodeId: 'shot-1', assetHash: firstHash },
       { nodeId: 'shot-1', assetHash: replacementHash },
     ]);

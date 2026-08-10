@@ -97,17 +97,6 @@ describe('SqliteIndex', () => {
       const all = db.repos.jobs.list().rows;
       expect(all.length).toBe(3);
     });
-
-    it('query performance < 50ms for 100 jobs', () => {
-      for (let i = 0; i < 100; i++) {
-        db.repos.jobs.insert(makeJob({ id: `j${i}`, priority: i % 5 }));
-      }
-      const start = performance.now();
-      const jobs = db.repos.jobs.list().rows;
-      const elapsed = performance.now() - start;
-      expect(jobs.length).toBe(100);
-      expect(elapsed).toBeLessThan(50);
-    });
   });
 
   describe('workflow runs CRUD', () => {

@@ -36,6 +36,11 @@ function createDeps(): WorkflowToolDeps {
       status: 'accepted',
       message: 'passed',
     })),
+    refineMedia: vi.fn(async (input) => ({
+      ...input,
+      status: 'accepted',
+      message: 'refined and passed',
+    })),
     prepareFinalExport: vi.fn(
       async () =>
         ({
@@ -139,6 +144,7 @@ describe('createWorkflowTools', () => {
       'workflow.manage',
       'workflow.visual',
       'workflow.media',
+      'workflow.mediaFeedback',
       'workflow.finalExport',
     ]);
     expect(tools.every((tool) => tool.context?.includes('canvas'))).toBe(true);
@@ -351,6 +357,7 @@ describe('createWorkflowTools', () => {
       getTool(createWorkflowTools(deps), 'workflow.media').execute({
         canvasId: 'canvas-1',
         workflowRunId: 'wf-plan-1',
+        taskRunId: 'task-shot-3',
         nodeId: 'shot-3',
         expectedRowVersion: 7,
         prompt: 'must be ignored by the schema and never forwarded',
@@ -359,8 +366,53 @@ describe('createWorkflowTools', () => {
     expect(deps.produceMedia).toHaveBeenCalledWith({
       canvasId: 'canvas-1',
       workflowRunId: 'wf-plan-1',
+      taskRunId: 'task-shot-3',
       nodeId: 'shot-3',
       expectedRowVersion: 7,
     });
+  });
+
+  it('forwards only an exact attempt identity and additive user feedback for media refinement', async () => {
+    const deps = createDeps();
+    const basePromptHash = 'c'.repeat(64);
+
+    await expect(
+      getTool(createWorkflowTools(deps), 'workflow.mediaFeedback').execute({
+        canvasId: 'canvas-1',
+        workflowRunId: 'wf-plan-1',
+        nodeId: 'shot-3',
+        expectedRowVersion: 8,
+        targetAttemptId: 'attempt-shot-3-v1',
+        basePromptHash,
+        feedback: 'Keep everything else; make the motion less shaky.',
+        prompt: 'a forged full replacement prompt',
+      }),
+    ).resolves.toMatchObject({ success: true, data: { status: 'accepted' } });
+    expect(deps.refineMedia).toHaveBeenCalledWith({
+      canvasId: 'canvas-1',
+      workflowRunId: 'wf-plan-1',
+      nodeId: 'shot-3',
+      expectedRowVersion: 8,
+      targetAttemptId: 'attempt-shot-3-v1',
+      basePromptHash,
+      feedback: 'Keep everything else; make the motion less shaky.',
+    });
+  });
+
+  it('rejects stale-looking media feedback identities before host execution', async () => {
+    const deps = createDeps();
+
+    await expect(
+      getTool(createWorkflowTools(deps), 'workflow.mediaFeedback').execute({
+        canvasId: 'canvas-1',
+        workflowRunId: 'wf-plan-1',
+        nodeId: 'shot-3',
+        expectedRowVersion: 8,
+        targetAttemptId: 'attempt-shot-3-v1',
+        basePromptHash: 'not-a-hash',
+        feedback: 'Less shaky.',
+      }),
+    ).resolves.toMatchObject({ success: false, errorClass: 'validation' });
+    expect(deps.refineMedia).not.toHaveBeenCalled();
   });
 });

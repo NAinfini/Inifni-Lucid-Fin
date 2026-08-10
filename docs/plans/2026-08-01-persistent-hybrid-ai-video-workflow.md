@@ -108,7 +108,34 @@ All remain, with non-overlapping responsibilities:
 
 Migrate `skillDefinitions.ts`/`lucid-skills-v1`, `PromptStore`, `ProcessPromptStore`, and narrative workflow definitions into one SQLite catalog. Precedence is `project override > migrated user override > built-in revision`; a run locks exact versions. Skills use progressive disclosure: metadata first, body after selection, and references only when required.
 
-AI does not receive all prose and freely concatenate a final provider prompt. It returns structured `CreativePlan`, `ShotSpec`, `GenerationSpec`, and `RepairDelta` documents. A deterministic Prompt Compiler merges hard constraints, the approved Constitution, identity anchors, presets, provider capabilities, and the repair delta in a fixed order. A manual prompt edit creates a new revision and invalidates affected approvals.
+AI does not receive all prose and freely concatenate a final provider prompt. It returns structured `CreativePlan`, `ShotSpec`, `GenerationSpec`, and `RepairDelta` documents. A deterministic Prompt Compiler merges hard constraints, the approved Constitution, identity anchors, presets, provider capabilities, and the repair delta in a fixed order. A direct prompt replacement creates a new revision and invalidates affected approvals. Small user quality comments use an additive, immutable `RepairDelta` over the exact latest stored provider prompt; they do not reconstruct the prompt from zero or invalidate an unchanged Plan/Visual Constitution. Changing selected media still invalidates any prepared Final Export manifest.
+
+### 6.1 Executable visual-style authority contract
+
+The shared contracts are `CanvasVisualStylePolicy` and `VisualStyleProvenance` in
+`packages/contracts/src/dto/visual-style.ts`. The matching strict parse schemas are in
+`packages/contracts-parse/src/dto/visual-style.ts`. Manual and pre-approval work may write
+`Canvas.settings.visualStylePolicy`; `stylePlate` and `negativePrompt` are compatibility mirrors only.
+
+For a persistent run, `ProductionMediaGenerationSpec.visualConstitution.revision` and
+`.contentHash` identify the exact approved document. `buildGenerationContext` receives
+`styleAuthority: 'visual-constitution'`, which disables Canvas and Project Style Guide fallback.
+Generated assets record `generation.visualStyle` with `source: 'visual-constitution'`,
+`workflowRunId`, `revision`, `contentHash`, and `policyHash`. Manual assets record the Canvas policy
+fingerprint so later refinements can detect a stale draft.
+
+| Case                                                                       | Required behavior                                                                              | Assertion point                                                                      |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Good: manual Canvas without a bound run                                    | Compile the current Canvas draft into image/video/ref-image prompts and record its fingerprint | `prompt-compiler.test.ts`, `generation-context.test.ts`, `ref-image-factory.test.ts` |
+| Base: approved persistent run                                              | Compile only the exact approved Visual Constitution; grade and repair within its revision/hash | `production-media.service.test.ts`                                                   |
+| Bad: Commander supplies a replacement prompt                               | Treat it as creative body and still inject the active authority                                | `generation-context.test.ts`                                                         |
+| Bad: prior manual asset has a different Canvas fingerprint                 | Reject incremental refinement and require one regeneration under the current draft             | `canvas-generation-tools.test.ts`                                                    |
+| Bad: manual generation targets a Canvas with a non-terminal persistent run | Reject before provider selection/call and direct generation back to the workflow               | `canvas-generation.handlers.test.ts`                                                 |
+| Bad: workflow state or provenance is unreadable/mismatched                 | Fail closed or route to human review; never fall back to mutable Canvas style                  | `canvas-generation.handlers.test.ts`, `production-media.service.test.ts`             |
+
+Changing the approved style creates and approves a new Visual Constitution revision through Gate 2;
+it does not create a fourth gate. User quality feedback creates an additive repair delta over the latest
+stored prompt, while the approved style boundary remains authoritative.
 
 ## 7. Visual discovery for non-experts
 
@@ -137,6 +164,43 @@ The shared rubric covers:
 
 Evaluators only emit scores, evidence, defects, and a Repair Delta. Deterministic policy chooses pass, repair, regeneration, pause, or human review from thresholds and remaining bounds. Repeated failures route by category—prompt delta, reference replacement, provider change, or human review—rather than resubmitting the same request.
 
+User-directed refinement follows the same ledger. The caller supplies the exact latest attempt ID,
+its prompt SHA-256, and verbatim feedback; the host verifies lineage, reloads the stored request,
+adds the feedback as a delta, persists a new attempt, generates, and grades. A completed shot may be
+reopened before assembly starts without restarting planning, style approval, or unrelated shots.
+
+For Seedance video, the provider adapter uses the official Replicate client and
+`bytedance/seedance-2.0` schema. Ordered local reference images are uploaded and forwarded through
+`reference_images`; first/last frames remain a mutually exclusive input mode, and a last frame is
+rejected unless a first frame or source image is also present. Provider-specific resolution pricing
+is reserved before submission.
+
+### Unified resolution policy
+
+Resolution uses one persisted precedence chain for reference images, image nodes, and video nodes:
+
+```text
+node ResolutionIntent override
+→ Canvas media policy
+→ provider-native default
+```
+
+`ResolutionIntent` can request provider default, exact pixels, or a provider tier. A node with no
+intent inherits the Canvas; an explicit provider-default intent bypasses the Canvas. New nodes do
+not receive hidden pixel defaults. Legacy width/height fields remain readable as exact overrides,
+and clearing an override deletes both canonical and legacy fields.
+
+The AI reads or changes Canvas policy through `canvas.setSettings`, changes or clears a node override
+through `canvas.setMediaParams`, and calls `provider.resolveResolution` for local-only capability and
+cost preflight. Unsupported requests fail before remote validation or generation and return provider
+alternatives; the host never silently changes aspect ratio, tier, or pixels.
+
+Every new generated asset records requested, provider-resolved, and probed actual dimensions plus
+estimated/reported cost. Final Export manifests created after this policy are v2: they lock source
+dimensions, fit mode, and resolution risks into the approval hash. Their default is `contain` with a
+black pad; approved v1 manifests retain legacy stretch behavior. The rendered file is probed before
+CAS import and fails if its actual dimensions differ from the approved output.
+
 ## 9. Context window, clear, and compaction
 
 Every model request rebuilds a `ContextManifest` from SQLite containing only stage-relevant facts: run/task, approved document IDs/revisions/hashes, pending approval, active attempts, artifact/evaluation heads, unresolved decisions, locked prompt/skill versions, and allowed tools.
@@ -159,6 +223,97 @@ Compaction changes the model view, never the complete event/document/artifact hi
 Default exposure is limited to `tool.search/get`, `guide.search/get`, `workflow.status`, the host-mediated approval surface, and persisted `commander.askUser`. Load full schemas by stage, permission, provider capability, and risk; evict unused schemas after several turns. Host policy filters tools before the model sees them. Discoverability does not imply execution authority.
 
 Tool descriptions state user intent, stable input/output, mutation scope, idempotency, and possible approval outcomes. Generation tools run only from the matching workflow task. Approval, budget, permission, and recovery failures are explicit; no fake success or silent downgrade is allowed.
+
+### Commander runtime contract
+
+#### 1. Scope and trigger
+
+This contract applies whenever Commander builds a tool surface, discovers a deferred schema, runs
+multiple tool calls from one assistant turn, asks a durable question, or crosses a persistent
+workflow phase. It does not weaken the three host-owned approval gates.
+
+#### 2. Signatures
+
+- `selectContextualToolSet({ workflowPhase, ...workspace }): Set<string>` in
+  `packages/agent/src/agent/context-manager.ts` returns the initial phase bundle.
+- `resolveEffectiveToolTier(toolName, args, declaredTier): number` in
+  `packages/agent/src/agent/tool-executor.ts` resolves mixed-action confirmation risk.
+- `ToolExecutor.executeToolCalls(...)` executes `tool.get` first, serializes non-read tools, and
+  parallelizes only deterministic get/list/log/query tools.
+- `QuestionPromptEvent` carries `options[].{id,label,description?}` and `allowFreeText` through the
+  shared contract, parser, renderer projection, and `QuestionCard`.
+- `reserveWorkflowDecision` and `answerWorkflowDecision` in
+  `packages/storage/src/sqlite-workflows.ts` persist and enforce the same question policy.
+
+#### 3. Contracts
+
+| Host phase                     | Initial Commander tool bundle                                                                    |
+| ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| unbound                        | manual Canvas/entity editing, manual generation/preflight, presets/providers, workflow creation  |
+| plan pending/revision          | inspection, AskUser/guides, and `workflow.manage` only                                           |
+| style exploration              | inspection plus `workflow.visual`                                                                |
+| preproduction/media generation | node/entity preparation plus `workflow.media` and `workflow.mediaFeedback`; no manual generation |
+| assembly                       | accepted-asset arrangement plus `workflow.mediaFeedback`; no new untracked media                 |
+| final export preparation       | inspection plus `workflow.finalExport`                                                           |
+| final export approved          | inspection plus `render.start`/`render.cancel`                                                   |
+
+`tool.get` is discovery, not authority. In a multi-call response it runs before every other call;
+each successfully returned registered tool is added to both the durable discovered set and the
+current turn's active set. A known-but-unloaded result is transient discovery state and is not
+recorded by cross-step deduplication.
+
+`commander.askUser` requires 2–6 non-empty options. Each option may have a plain-language
+description. `allowFreeText` defaults to `true`; when `false`, storage accepts only one of the
+persisted options. Persistent questions also require a stable `decisionKey` and exact run/task,
+subject revision, and row-version binding.
+
+Mixed-action risk is resolved from arguments: workflow cancellation is tier 4; pause/resume/retry
+remain tier 2; manual generation start/refine is tier 3; estimate is tier 1; preset delete/reset and
+shot-template delete are tier 3. `prompt.setCustom` and `video.clone` are human-only and absent from
+the Commander registry.
+
+#### 4. Validation and error matrix
+
+| Condition                                               | Required result                                                          |
+| ------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Deferred tool called after same-turn `tool.get`         | execute once with the freshly active schema                              |
+| Known tool called without discovery                     | explicit not-loaded result; exact retry remains eligible after discovery |
+| Tool blocked by current workflow phase                  | fail closed before execution regardless of permission mode               |
+| AskUser has fewer than 2 or more than 6 valid options   | structured tool error; never wait for an answer                          |
+| Persistent AskUser lacks `decisionKey` or fresh binding | fail closed without creating a transient question                        |
+| Closed-choice answer does not match a persisted option  | storage error; decision remains pending                                  |
+| Mutation followed by read in one assistant turn         | mutation completes before the read begins                                |
+
+#### 5. Good, base, and bad cases
+
+- Good: `tool.get(render.start)` followed by `render.start` after final approval; discovery runs
+  first and the exact approved manifest still passes host policy.
+- Base: independent Canvas reads execute concurrently and preserve original result order.
+- Bad: `tool.get(canvas.generation)` during a bound production workflow; the composite paid schema
+  remains hidden and the model must use `workflow.media`/`workflow.mediaFeedback`.
+
+#### 6. Required tests
+
+- `packages/agent/src/agent/tool-executor.test.ts`: same-turn discovery, effective tiers, AskUser
+  validation, read parallelism, and write/read serialization.
+- `packages/agent/src/agent/agent-orchestrator.test.ts`: transient availability failures are not
+  deduplicated and plan-pending schemas are phase-limited.
+- `packages/agent/src/agent/context-manager.test.ts`: every persistent phase receives only its core
+  tools, including feedback and final render at their exact phases.
+- `apps/desktop-main/src/ipc/handlers/commander-context.service.test.ts`: only explicit
+  `autoInject: true` guides enter root context.
+- `apps/desktop-renderer/src/commander/state/run-derivation.test.ts` and
+  `packages/storage/src/repositories/workflow-persistence.decision.test.ts`: descriptions and
+  free-text policy survive and are enforced end to end.
+
+#### 7. Wrong versus correct
+
+Wrong: expose every core schema on every turn, run discovery and its target concurrently, and use
+one tier for list/update/delete actions.
+
+Correct: derive a minimal phase bundle from SQLite, sequence discovery before use, serialize
+mutations, and resolve confirmation risk from the exact action while keeping approval gates in the
+host.
 
 ## 11. Harness mechanisms adopted
 

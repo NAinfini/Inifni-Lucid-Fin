@@ -18,6 +18,16 @@ export function getBuiltinLLMProviderPreset(providerId: string) {
 }
 
 export function buildRuntimeLLMAdapter(config: LLMProviderRuntimeConfig): LLMAdapter {
+  const capabilities = config.supportsVision
+    ? ([
+        'text-generation',
+        'image-understanding',
+        'script-expand',
+        'scene-breakdown',
+        'character-extract',
+        'prompt-enhance',
+      ] as const)
+    : undefined;
   switch (config.protocol) {
     case 'anthropic':
       return new ClaudeLLMAdapter({
@@ -25,6 +35,7 @@ export function buildRuntimeLLMAdapter(config: LLMProviderRuntimeConfig): LLMAda
         name: config.name,
         defaultBaseUrl: config.baseUrl,
         defaultModel: config.model,
+        supportsVision: config.supportsVision,
       });
     case 'gemini':
       return new GeminiLLMAdapter({
@@ -47,6 +58,7 @@ export function buildRuntimeLLMAdapter(config: LLMProviderRuntimeConfig): LLMAda
         defaultBaseUrl: config.baseUrl,
         defaultModel: config.model,
         authStyle: config.authStyle,
+        capabilities: capabilities ? [...capabilities] : undefined,
       });
     case 'openai-compatible':
     default:
@@ -56,6 +68,7 @@ export function buildRuntimeLLMAdapter(config: LLMProviderRuntimeConfig): LLMAda
         defaultBaseUrl: config.baseUrl,
         defaultModel: config.model,
         authStyle: config.authStyle,
+        capabilities: capabilities ? [...capabilities] : undefined,
       });
   }
 }

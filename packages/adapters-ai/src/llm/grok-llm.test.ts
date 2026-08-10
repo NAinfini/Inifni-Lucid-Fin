@@ -13,7 +13,7 @@ describe('GrokLLMAdapter', () => {
     const fetchMock = vi.fn(async (_input: string | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
       expect(body).toMatchObject({
-        model: 'grok-3',
+        model: 'grok-4.5',
         tools: [
           {
             type: 'function',

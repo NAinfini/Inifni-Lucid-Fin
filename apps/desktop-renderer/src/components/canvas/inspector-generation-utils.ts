@@ -1,8 +1,7 @@
 import type { NodeKind } from '@lucid-fin/contracts';
 
 export type VisualGenerationNodeType = Extract<NodeKind, 'image' | 'video'>;
-export type ResolutionPresetValue =
-  | 'provider-default'
+export type ExactResolutionPresetValue =
   | 'square-1024'
   | 'square-2048'
   | 'landscape-1344-768'
@@ -10,11 +9,13 @@ export type ResolutionPresetValue =
   | 'landscape-720'
   | 'landscape-1080'
   | 'portrait-720'
-  | 'portrait-1080'
-  | 'custom';
+  | 'portrait-1080';
+
+export type ResolutionPresetValue =
+  'inherit-canvas' | 'provider-default' | ExactResolutionPresetValue | `tier:${string}` | 'custom';
 
 export type ResolutionPreset = {
-  value: Exclude<ResolutionPresetValue, 'custom' | 'provider-default'>;
+  value: ExactResolutionPresetValue;
   groupLabel: 'Square' | 'Landscape' | 'Portrait';
   label: string;
   width: number;
@@ -22,6 +23,7 @@ export type ResolutionPreset = {
 };
 
 export const CUSTOM_RESOLUTION_VALUE = 'custom' as const;
+export const INHERIT_CANVAS_RESOLUTION_VALUE = 'inherit-canvas' as const;
 export const PROVIDER_DEFAULT_RESOLUTION_VALUE = 'provider-default' as const;
 export const DEFAULT_IMAGE_RESOLUTION = { width: 1024, height: 1024 } as const;
 export const DEFAULT_VIDEO_RESOLUTION = { width: 1280, height: 720 } as const;
@@ -135,7 +137,12 @@ export function getResolutionPresetValue(
 export function getResolutionPresetDimensions(
   value: ResolutionPresetValue,
 ): { width: number; height: number } | null {
-  if (value === CUSTOM_RESOLUTION_VALUE || value === PROVIDER_DEFAULT_RESOLUTION_VALUE) {
+  if (
+    value === CUSTOM_RESOLUTION_VALUE ||
+    value === INHERIT_CANVAS_RESOLUTION_VALUE ||
+    value === PROVIDER_DEFAULT_RESOLUTION_VALUE ||
+    value.startsWith('tier:')
+  ) {
     return null;
   }
   const match = RESOLUTION_PRESETS.find((preset) => preset.value === value);

@@ -28,6 +28,7 @@ import { commanderChannels, commanderPushChannels } from './channels/batch-09.js
 import { seriesChannels } from './channels/batch-11.js';
 import { folderChannels, setFolderChannels, processPromptChannels } from './channels/batch-12.js';
 import { providerHealthChannels } from './channels/batch-13.js';
+import { providerOAuthChannels } from './channels/batch-14.js';
 import {
   appChannels,
   aiChannels,
@@ -101,6 +102,9 @@ export * from './channels/batch-12.js';
 // Batch 13 — provider health
 export * from './channels/batch-13.js';
 
+// Batch 14 — capability-scoped provider OAuth
+export * from './channels/batch-14.js';
+
 /** Every channel known to the registry, concatenated for codegen. */
 export const allChannels = [
   ...healthChannels,
@@ -158,4 +162,6 @@ export const allChannels = [
   ...processPromptChannels,
   // Batch 13 — provider health
   ...providerHealthChannels,
+  // Batch 14 — capability-scoped provider OAuth
+  ...providerOAuthChannels,
 ] as const;

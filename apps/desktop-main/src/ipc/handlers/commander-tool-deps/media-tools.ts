@@ -6,10 +6,6 @@ import {
   createPromptTools,
   createRenderTools,
   EXCLUDED_TOOLS,
-  getCachedProviders,
-  buildRuntimeLLMAdapter,
-  normalizeLLMProviderRuntimeConfig,
-  getBuiltinVisionProviderPreset,
   detectScenes,
   extractFrameAtTime,
   randomUUID,
@@ -22,24 +18,13 @@ import {
   type CanvasNode,
   type AgentToolRegistry,
 } from './helpers.js';
+import { describeImageAsset } from '../vision.handlers.js';
 
 export function registerMediaTools(
   registry: AgentToolRegistry,
   deps: ToolRegistrationDeps,
   _generateImage: ReturnType<typeof import('./helpers.js').makeGenerateImage>,
 ): void {
-  const IMAGE_EXTENSIONS_VISION = ['png', 'jpg', 'jpeg', 'webp'] as const;
-  const MIME_MAP_VISION: Record<string, string> = {
-    png: 'image/png',
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    webp: 'image/webp',
-  };
-  const VISION_PROMPT_DEFAULT =
-    'You are an expert at describing images for AI generation. Analyze this image and write a detailed prompt that could be used to recreate it with an AI image generator.\n\nInclude: subject/scene description, art style, lighting quality and direction, color palette, mood/atmosphere, camera angle/lens, composition, texture/material details, and any notable cinematic or photographic techniques.\n\nOutput ONLY the prompt text, no explanations or labels. Write in English.';
-  const VISION_PROMPT_STYLE_ANALYSIS =
-    'You are a visual style analyst for AI filmmaking. Analyze this image and extract its visual style characteristics.\n\nReport in this exact format:\nArt Style: [style name]\nLighting: [lighting description]\nColor Palette: [primary colors and mood]\nMood: [emotional atmosphere]\nComposition: [framing and arrangement]\nCamera: [angle, lens, movement if applicable]\nTexture: [surface quality, grain, post-processing]\nReference: [closest cinematic/artistic reference]\n\nBe specific and technical. Output ONLY the analysis, no explanations.';
-
   for (const tool of createTextAnalyzeTools({
     callLLM: async (systemPrompt: string, userText: string) => {
       const adapters = deps.llmRegistry.list();
@@ -53,51 +38,14 @@ export function registerMediaTools(
       throw new Error('No configured LLM adapter available for text analyze tools.');
     },
     describeImage: async (assetHash, _assetType, style, providerId) => {
-      const visionProviders = getCachedProviders('vision');
-      const providerInfo = providerId
-        ? (visionProviders.find((p) => p.id === providerId) ?? visionProviders[0])
-        : visionProviders[0];
-      if (!providerInfo?.id) {
-        throw new Error('Vision provider not configured. Go to Settings → Vision.');
-      }
-      const apiKey = await deps.keychain.getKey(providerInfo.id);
-      const preset = getBuiltinVisionProviderPreset(providerInfo.id);
-      const runtimeConfig = normalizeLLMProviderRuntimeConfig({
-        id: providerInfo.id,
-        name: providerInfo.name || preset?.name || providerInfo.id,
-        baseUrl: providerInfo.baseUrl || preset?.baseUrl || '',
-        model: providerInfo.model || preset?.model || '',
-        protocol: providerInfo.protocol ?? preset?.protocol,
-        authStyle: providerInfo.authStyle ?? preset?.authStyle,
-      });
-      const adapter = buildRuntimeLLMAdapter(runtimeConfig);
-      adapter.configure(apiKey ?? '', {
-        baseUrl: runtimeConfig.baseUrl,
-        model: runtimeConfig.model,
-      });
-      let resolvedPath: string | null = null;
-      let resolvedExt = 'jpg';
-      for (const ext of IMAGE_EXTENSIONS_VISION) {
-        const p = deps.cas.getAssetPath(assetHash, 'image', ext);
-        if (fs.existsSync(p)) {
-          resolvedPath = p;
-          resolvedExt = ext;
-          break;
-        }
-      }
-      if (!resolvedPath) {
-        throw new Error(`Asset file not found for hash: ${assetHash}`);
-      }
-      const imageBuffer = fs.readFileSync(resolvedPath);
-      const base64Data = imageBuffer.toString('base64');
-      const mimeType = MIME_MAP_VISION[resolvedExt] ?? 'image/jpeg';
-      const systemPrompt =
-        style === 'style-analysis' ? VISION_PROMPT_STYLE_ANALYSIS : VISION_PROMPT_DEFAULT;
-      const result = await adapter.complete([
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: 'Describe this image.', images: [{ data: base64Data, mimeType }] },
-      ]);
-      return { prompt: result };
+      const prompt = await describeImageAsset(
+        deps.visualAnalyzer,
+        assetHash,
+        style === 'style-analysis' ? 'style-analysis' : 'prompt',
+        deps.activeLLMAdapter,
+        providerId,
+      );
+      return { prompt };
     },
     getNodeAssetHash: async (nodeId: string, canvasId?: string) => {
       if (canvasId) {

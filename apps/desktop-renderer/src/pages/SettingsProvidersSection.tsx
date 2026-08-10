@@ -19,7 +19,11 @@ import {
   Volume2,
   Zap,
 } from 'lucide-react';
-import type { LLMProviderProtocol } from '@lucid-fin/contracts';
+import type {
+  LLMProviderProtocol,
+  OAuthProviderStatus,
+  OAuthProviderTarget,
+} from '@lucid-fin/contracts';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
 import type { RootState } from '../store/index.js';
@@ -90,7 +94,330 @@ export function SettingsProvidersSection({
   );
 }
 
+type OAuthAction = 'login' | 'cancelLogin' | 'logout';
+
+function OAuthProviderCard({
+  metadata,
+  provider,
+}: {
+  metadata: ProviderMetadata;
+  provider: ProviderConfig;
+}) {
+  const dispatch = useDispatch();
+  const { error: showErrorToast } = useToast();
+  const [expanded, setExpanded] = useState(false);
+  const [status, setStatus] = useState<OAuthProviderStatus | null>(null);
+  const [action, setAction] = useState<OAuthAction | null>(null);
+  const target = metadata.oauthTarget!;
+
+  const displayName = translateOrFallback(`providerNames.${provider.id}`, provider.name);
+  const statusState = status?.state;
+  const readyStatus = status?.state === 'ready' ? status : null;
+  const statusIssue =
+    status?.state === 'unavailable'
+      ? status.reason
+      : status?.state === 'error'
+        ? status.message
+        : null;
+  const canSignIn =
+    statusState === 'signedOut' ||
+    (status?.state === 'unavailable' && target.provider === 'chatgpt') ||
+    (status?.state === 'error' && status.retryable);
+  const canSignOut =
+    status?.state === 'ready' ||
+    (status?.state === 'error' && status.code !== 'configuration_missing');
+
+  const statusLabel =
+    statusState === 'signedOut'
+      ? t('settings.providerCard.oauth.signedOut')
+      : statusState === 'signingIn'
+        ? t('settings.providerCard.oauth.signingIn')
+        : statusState === 'ready'
+          ? t('settings.providerCard.oauth.ready')
+          : statusState === 'error'
+            ? t('settings.providerCard.oauth.error')
+            : statusState === 'unavailable'
+              ? t('settings.providerCard.oauth.unavailable')
+              : t('settings.providerCard.oauth.checking');
+
+  const statusClassName =
+    statusState === 'ready'
+      ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-400'
+      : statusState === 'error' || statusState === 'unavailable'
+        ? 'border-destructive/30 bg-destructive/10 text-destructive'
+        : statusState === 'signingIn'
+          ? 'border-amber-400/30 bg-amber-400/10 text-amber-400'
+          : 'border-border bg-muted/40 text-muted-foreground';
+
+  useEffect(() => {
+    const api = getAPI();
+    const providerOAuth = api?.providerOAuth;
+    if (!api || !providerOAuth) {
+      setStatus({
+        target,
+        state: 'unavailable',
+        reason: t('settings.providerCard.oauth.unavailable'),
+      });
+      return;
+    }
+
+    let mounted = true;
+    const applyStatus = (nextStatus: OAuthProviderStatus) => {
+      if (!sameOAuthTarget(nextStatus.target, target) || !mounted) return;
+      setStatus(nextStatus);
+      dispatch(
+        setProviderHasKey({
+          group: target.capability,
+          provider: provider.id,
+          hasKey: nextStatus.state === 'ready',
+        }),
+      );
+    };
+    const refresh = () => {
+      void providerOAuth
+        .status({ target })
+        .then(applyStatus)
+        .catch(() => {
+          applyStatus({
+            target,
+            state: 'error',
+            code: 'process_exited',
+            message: t('settings.providerCard.oauth.actionFailed'),
+            retryable: true,
+          });
+        });
+    };
+
+    const unsubscribeChanged = providerOAuth.onChanged(applyStatus);
+    const unsubscribeReady = api.onReady(refresh);
+
+    return () => {
+      mounted = false;
+      unsubscribeChanged();
+      unsubscribeReady();
+    };
+  }, [dispatch, provider.id, target.capability, target.provider]);
+
+  async function runAuthAction(nextAction: OAuthAction) {
+    const providerOAuth = getAPI()?.providerOAuth;
+    if (!providerOAuth || action) return;
+
+    setAction(nextAction);
+    try {
+      setStatus(await providerOAuth[nextAction]({ target }));
+    } catch {
+      const title = t('settings.providerCard.oauth.actionFailed');
+      dispatch(
+        addLog({
+          level: 'error',
+          category: 'provider',
+          message: title,
+          detail: `${target.capability}:${provider.id}`,
+        }),
+      );
+      showErrorToast({ title, message: title });
+    } finally {
+      setAction(null);
+    }
+  }
+
+  return (
+    <div
+      className={cn(
+        'rounded-md border transition-colors',
+        expanded ? 'border-primary/40 bg-primary/5' : 'border-border/60 bg-card',
+      )}
+    >
+      <div className="flex items-center gap-2 px-3 py-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium">{displayName}</div>
+          <div className="truncate text-[10px] text-muted-foreground">
+            {t('settings.providerCard.oauth.managedAuth')}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              'rounded-full border px-2 py-0.5 text-[10px] font-medium',
+              statusClassName,
+            )}
+          >
+            {statusLabel}
+          </span>
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="rounded p-1 text-muted-foreground hover:bg-muted"
+            aria-label={
+              expanded ? t('settings.providerCard.collapse') : t('settings.providerCard.expand')
+            }
+          >
+            {expanded ? (
+              <ChevronUp className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="space-y-2.5 border-t border-border/40 px-3 py-2.5">
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="rounded border border-border/60 bg-secondary/40 px-2 py-1.5">
+              <div className="text-[10px] text-muted-foreground">
+                {t('settings.providerCard.oauth.plan')}
+              </div>
+              <div className="mt-0.5 font-medium">
+                {readyStatus
+                  ? (readyStatus.planType ?? t('settings.providerCard.oauth.planUnknown'))
+                  : '—'}
+              </div>
+            </div>
+            <div className="rounded border border-border/60 bg-secondary/40 px-2 py-1.5">
+              <div className="text-[10px] text-muted-foreground">
+                {t('settings.providerCard.oauth.capability')}
+              </div>
+              <div className="mt-0.5 font-medium text-emerald-400">
+                {translateOrFallback(GROUP_META[target.capability].labelKey, target.capability)}
+              </div>
+            </div>
+          </div>
+
+          {readyStatus && <OAuthUsagePanel status={readyStatus} />}
+
+          {statusIssue && (
+            <div className="flex items-start gap-1.5 rounded border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-xs text-destructive">
+              <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <div className="space-y-1">
+                <div>{statusIssue}</div>
+                {status?.state === 'unavailable' && status.setupUrl && (
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 underline underline-offset-2"
+                    onClick={() => void getAPI()?.openExternal(status.setupUrl!)}
+                  >
+                    {t('settings.providerCard.oauth.setup')}
+                    <ExternalLink className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            {t('settings.providerCard.oauth.noFallback')}
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {canSignIn && (
+              <button
+                type="button"
+                onClick={() => void runAuthAction('login')}
+                disabled={action !== null}
+                className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50"
+              >
+                {t('settings.providerCard.oauth.signIn')}
+              </button>
+            )}
+            {statusState === 'signingIn' && (
+              <button
+                type="button"
+                onClick={() => void runAuthAction('cancelLogin')}
+                disabled={action !== null}
+                className="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50"
+              >
+                {t('settings.providerCard.oauth.cancelSignIn')}
+              </button>
+            )}
+            {canSignOut && (
+              <button
+                type="button"
+                onClick={() => void runAuthAction('logout')}
+                disabled={action !== null}
+                className="rounded border border-border px-2 py-1 text-xs hover:bg-muted disabled:opacity-50"
+              >
+                {t('settings.providerCard.oauth.signOut')}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OAuthUsagePanel({ status }: { status: Extract<OAuthProviderStatus, { state: 'ready' }> }) {
+  if (status.usage.state === 'unavailable') {
+    const dashboardUrl = status.usage.dashboardUrl;
+    return (
+      <div className="rounded border border-border/60 bg-secondary/30 px-2 py-2 text-[11px] text-muted-foreground">
+        <div>{status.usage.reason}</div>
+        {dashboardUrl && (
+          <button
+            type="button"
+            className="mt-1 inline-flex items-center gap-1 text-foreground underline underline-offset-2"
+            onClick={() => void getAPI()?.openExternal(dashboardUrl)}
+          >
+            {t('settings.providerCard.oauth.openQuotaDashboard')}
+            <ExternalLink className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded border border-border/60 bg-secondary/30 px-2 py-2">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        {t('settings.providerCard.oauth.usageLeft')}
+      </div>
+      {status.usage.windows.map((window) => (
+        <div key={window.id} className="space-y-1">
+          <div className="flex items-center justify-between gap-2 text-[11px]">
+            <span>{window.label}</span>
+            <span className="font-medium">{Math.round(window.remainingPercent)}%</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-emerald-400 transition-[width]"
+              style={{ width: `${window.remainingPercent}%` }}
+            />
+          </div>
+          {window.resetsAt && (
+            <div className="text-[10px] text-muted-foreground">
+              {t('settings.providerCard.oauth.resetsAt')}{' '}
+              {new Date(window.resetsAt).toLocaleString()}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function sameOAuthTarget(left: OAuthProviderTarget, right: OAuthProviderTarget): boolean {
+  return left.provider === right.provider && left.capability === right.capability;
+}
+
 function ProviderCard({
+  group,
+  metadata,
+  provider,
+}: {
+  group: APIGroup;
+  metadata?: ProviderMetadata;
+  provider: ProviderConfig;
+}) {
+  if (metadata?.credentialMode === 'oauth' && metadata.oauthTarget) {
+    return <OAuthProviderCard metadata={metadata} provider={provider} />;
+  }
+
+  return <ApiKeyProviderCard group={group} metadata={metadata} provider={provider} />;
+}
+
+function ApiKeyProviderCard({
   group,
   metadata,
   provider,
@@ -692,8 +1019,12 @@ function ProviderGroupSection({ group }: { group: APIGroup }) {
     .filter((provider) => !getProviderMetadata(group, provider.id))
     .map((provider) => ({ provider }));
   const providerIdsKey = useMemo(
-    () => groupState.providers.map((provider) => provider.id).join('|'),
-    [groupState.providers],
+    () =>
+      groupState.providers
+        .filter((provider) => getProviderMetadata(group, provider.id)?.credentialMode !== 'oauth')
+        .map((provider) => provider.id)
+        .join('|'),
+    [group, groupState.providers],
   );
 
   useEffect(() => {
@@ -702,7 +1033,8 @@ function ProviderGroupSection({ group }: { group: APIGroup }) {
     if (!api) return;
     const providerIds = providerIdsKey ? providerIdsKey.split('|') : [];
 
-    // Wait for IPC handlers to be registered before calling keychain
+    // Wait for IPC handlers to be registered before calling keychain. Managed
+    // providers authenticate through their own renderer-safe IPC namespace.
     const unsub = api.onReady(() => {
       for (const id of providerIds) {
         void api.keychain
@@ -741,6 +1073,17 @@ function ProviderGroupSection({ group }: { group: APIGroup }) {
   return (
     <section className="mb-6">
       <div className="space-y-3">
+        {group === 'vision' && (
+          <div className="flex gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2.5">
+            <ScanEye className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            <div className="space-y-0.5">
+              <div className="text-xs font-medium">{t('settings.visionRouting.title')}</div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {t('settings.visionRouting.body')}
+              </p>
+            </div>
+          </div>
+        )}
         <ProviderSubsection
           title={translateOrFallback('settings.providerSections.official', 'Official Providers')}
           group={group}

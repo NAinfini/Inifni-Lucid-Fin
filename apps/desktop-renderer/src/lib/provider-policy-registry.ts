@@ -483,9 +483,6 @@ const PROVIDER_POLICY_ALIASES: Record<string, string> = {
   // Anthropic variants
   'claude-vision': 'claude',
 
-  // DeepSeek variants
-  'deepseek-vision': 'deepseek',
-
   // xAI variants
   'grok-vision': 'grok',
 

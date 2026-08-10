@@ -14,10 +14,11 @@ import {
   type Location,
   type LocationRefImageView,
   type ReferenceImage,
-  type AudioNodeData,
-  type VideoNodeData,
+  type ResolutionIntent,
+  type ResolutionSource,
 } from '@lucid-fin/contracts';
 import { tryProviderId } from '@lucid-fin/contracts-parse';
+import { compileVisualStylePolicy, resolveCanvasVisualStylePolicy } from '@lucid-fin/shared-utils';
 import type { AgentTool } from '../tool-registry.js';
 import {
   extractSet,
@@ -122,10 +123,6 @@ function parseEquipmentView(raw: unknown): EquipmentRefImageView {
   throw new Error(`view.kind must be "ortho-grid" or "extra-angle" (got ${String(kind)})`);
 }
 
-function readStylePlateFromCanvas(canvas: Canvas | undefined): string | undefined {
-  return canvas?.settings?.stylePlate;
-}
-
 // ---------------------------------------------------------------------------
 // EntityToolDeps
 // ---------------------------------------------------------------------------
@@ -146,7 +143,14 @@ export interface EntityToolDeps {
   // Shared
   generateImage?: (
     prompt: string,
-    options?: { providerId?: string; width?: number; height?: number },
+    options?: {
+      providerId?: string;
+      width?: number;
+      height?: number;
+      resolution?: ResolutionIntent;
+      resolutionSource?: ResolutionSource;
+      negativePrompt?: string;
+    },
   ) => Promise<{ assetHash: string }>;
   getCanvas?: (canvasId: string) => Promise<Canvas>;
 }
@@ -1031,15 +1035,17 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
         canvasId: {
           type: 'string',
           description:
-            'Canvas ID whose settings (stylePlate, provider overrides) drive prompt composition.',
+            'Canvas ID whose canonical visual-style draft and provider overrides drive prompt composition.',
         },
         width: {
           type: 'number',
-          description: `Image width in pixels. When omitted, the provider's maximum supported resolution is used automatically.`,
+          description:
+            'Exact image width. Provide together with height; omit both to inherit the Canvas reference-image policy.',
         },
         height: {
           type: 'number',
-          description: `Image height in pixels. When omitted, the provider's maximum supported resolution is used automatically.`,
+          description:
+            'Exact image height. Provide together with width; omit both to inherit the Canvas reference-image policy.',
         },
         prompt: {
           type: 'string',
@@ -1082,26 +1088,30 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
         const slot = handlers.viewToSlot(view);
 
         const canvasSettings = await resolveCanvasSettings(args.canvasId);
-        const stylePlate = readStylePlateFromCanvas(
-          canvasSettings ? ({ settings: canvasSettings } as Canvas) : undefined,
-        );
+        const resolvedStyle = resolveCanvasVisualStylePolicy(canvasSettings);
+        const compiledStyle = compileVisualStylePolicy(resolvedStyle?.policy, 'character-sheet');
 
         const customPrompt = typeof args.prompt === 'string' ? args.prompt.trim() : '';
-        const negativePrompt = canvasSettings?.negativePrompt?.trim() ?? '';
-        const compositePrompt = handlers.buildPrompt(entity, view, stylePlate);
+        const negativePrompt = compiledStyle.negativePrompt?.trim() ?? '';
+        const compositePrompt = handlers.buildPrompt(entity, view, compiledStyle.prompt);
         let finalPrompt = compositePrompt;
         if (customPrompt.length > 0) {
           finalPrompt = `${compositePrompt}\n\nAdditional instructions: ${customPrompt}`;
         }
-        if (negativePrompt.length > 0) {
-          finalPrompt = `${finalPrompt}\n\nAvoid: ${negativePrompt}`;
-        }
 
-        const canvasRefW = canvasSettings?.refResolution?.width;
-        const canvasRefH = canvasSettings?.refResolution?.height;
-        const reqWidth = typeof args.width === 'number' && args.width > 0 ? args.width : canvasRefW;
+        const reqWidth = typeof args.width === 'number' && args.width > 0 ? args.width : undefined;
         const reqHeight =
-          typeof args.height === 'number' && args.height > 0 ? args.height : canvasRefH;
+          typeof args.height === 'number' && args.height > 0 ? args.height : undefined;
+        const legacyCanvasResolution = canvasSettings?.refResolution;
+        const canvasResolutionIntent: ResolutionIntent =
+          canvasSettings?.resolutionPolicy?.referenceImage ??
+          (legacyCanvasResolution
+            ? {
+                mode: 'exact',
+                width: legacyCanvasResolution.width,
+                height: legacyCanvasResolution.height,
+              }
+            : { mode: 'provider-default' });
 
         const explicitProvider = tryProviderId(args.providerId);
         const canvasProvider = tryProviderId(canvasSettings?.imageProviderId);
@@ -1110,7 +1120,14 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
         const result = await deps.generateImage(finalPrompt, {
           ...(reqWidth !== undefined && { width: reqWidth }),
           ...(reqHeight !== undefined && { height: reqHeight }),
+          ...(reqWidth === undefined && reqHeight === undefined
+            ? {
+                resolution: canvasResolutionIntent,
+                resolutionSource: canvasSettings ? ('canvas' as const) : ('provider' as const),
+              }
+            : {}),
           ...(providerId !== undefined && { providerId }),
+          ...(negativePrompt ? { negativePrompt } : {}),
         });
 
         const referenceImages: ReferenceImage[] = [...(entity.referenceImages ?? [])];
@@ -1152,7 +1169,8 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
             view,
             variantCount,
             promptSource: customPrompt.length > 0 ? 'composite+custom' : 'composite',
-            stylePlateUsed: Boolean(stylePlate),
+            stylePlateUsed: Boolean(compiledStyle.prompt),
+            visualStyle: resolvedStyle?.provenance,
           },
         };
       } catch (err) {
@@ -1316,13 +1334,13 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
         const canvas = await deps.getCanvas(args.canvasId);
         const node = canvas.nodes.find((n) => n.id === args.nodeId);
         if (!node) return { success: false, error: `Node not found: ${args.nodeId}` };
-        if (node.type !== 'image' && node.type !== 'video' && node.type !== 'audio') {
+        if (node.type !== 'image' && node.type !== 'backdrop') {
           return {
             success: false,
-            error: `Node type does not support reference images: ${node.type}`,
+            error: `Reference images require an image or backdrop node; received ${node.type}`,
           };
         }
-        const data = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
+        const data = node.data as ImageNodeData;
         const variants = Array.isArray(data.variants) ? data.variants : [];
         const idx = typeof data.selectedVariantIndex === 'number' ? data.selectedVariantIndex : 0;
         const assetHash = variants[idx] ?? data.assetHash;

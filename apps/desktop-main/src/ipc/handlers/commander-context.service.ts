@@ -6,6 +6,7 @@
  * master index) that gets injected into the LLM system prompt.
  */
 import {
+  COMMANDER_GUIDE_LIMITS,
   deriveNodeStatus,
   type Canvas,
   type CanvasNode,
@@ -16,12 +17,20 @@ import {
   type Location,
   type Equipment,
   type WorkflowApprovalGateKey,
+  type WorkflowApproval,
   type WorkflowRun,
   type WorkflowRunId,
+  type CommanderPromptGuide,
+  type CommanderWorkflowGuidePhase,
 } from '@lucid-fin/contracts';
-import { matchNode } from '@lucid-fin/shared-utils';
+import { matchNode, resolveCanvasVisualStylePolicy } from '@lucid-fin/shared-utils';
 import type { SqliteIndex } from '@lucid-fin/storage';
-import type { AgentContext, WorkflowToolPolicy } from '@lucid-fin/application';
+import {
+  getMovieProductionTaskContract,
+  type AgentContext,
+  type WorkflowToolPolicy,
+} from '@lucid-fin/application';
+import { isTerminalPersistentWorkflowStatus } from './persistent-workflow-guard.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -29,17 +38,10 @@ import type { AgentContext, WorkflowToolPolicy } from '@lucid-fin/application';
 
 const MAX_CONTEXT_SELECTED_NODES = 10;
 const MAX_CONTEXT_SELECTED_NODE_SUMMARIES = 4;
-const MAX_CONTEXT_PROMPT_GUIDES = 8;
 const MAX_CONTEXT_WORKFLOWS = 3;
 const MAX_WORKFLOW_DOCUMENT_CHARS = 6000;
 const MAX_CONTEXT_MEDIA_ATTEMPTS = 24;
-const TERMINAL_WORKFLOW_STATUSES = new Set([
-  'completed',
-  'completed_with_errors',
-  'failed',
-  'cancelled',
-  'dead',
-]);
+const MAX_CONTEXT_WORKFLOW_DECISIONS = 12;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -187,9 +189,24 @@ export function buildWorkspaceSnapshot(
     `Canvas: "${canvas.name}" (${canvas.nodes.length} nodes${typeBreakdown ? ` [${typeBreakdown}]` : ''}, ${canvas.edges.length} edges)`,
   );
 
-  // Style plate status
-  const stylePlate = canvas.settings?.stylePlate;
-  lines.push(`Style plate: ${stylePlate ? truncSnap(stylePlate, 80) : 'NOT SET'}`);
+  // Manual/pre-approval Canvas style draft (never an approved workflow authority).
+  const resolvedStyleDraft = resolveCanvasVisualStylePolicy(canvas.settings);
+  if (resolvedStyleDraft) {
+    const lockedFields = Object.entries(resolvedStyleDraft.policy.locked ?? {})
+      .filter(([, value]) => (Array.isArray(value) ? value.length > 0 : Boolean(value)))
+      .map(([key]) => key)
+      .slice(0, 4);
+    const styleDraft =
+      resolvedStyleDraft.policy.summary ??
+      (lockedFields.length > 0
+        ? `structured locks: ${lockedFields.join(', ')}`
+        : 'constraint-only draft');
+    lines.push(
+      `Canvas manual style draft (not workflow authority): ${truncSnap(styleDraft, 80)} [${resolvedStyleDraft.provenance.source}, ${resolvedStyleDraft.provenance.policyHash}]`,
+    );
+  } else {
+    lines.push('Canvas manual style draft (not workflow authority): NOT SET');
+  }
 
   // Entity counts with ref-image status
   try {
@@ -252,8 +269,11 @@ export function buildWorkspaceSnapshot(
  */
 function listPersistentVideoRuns(db: SqliteIndex, canvasId?: string): WorkflowRun[] {
   return db.repos.workflows
-    .listRuns({ workflowType: 'movie.production.v2' })
-    .rows.filter((run) => !TERMINAL_WORKFLOW_STATUSES.has(run.status))
+    .listRuns({
+      workflowType: 'movie.production.v2',
+      ...(canvasId ? { entityType: 'canvas', entityId: canvasId } : {}),
+    })
+    .rows.filter((run) => !isTerminalPersistentWorkflowStatus(run.status))
     .filter((run) => !canvasId || (run.entityType === 'canvas' && run.entityId === canvasId))
     .slice(0, MAX_CONTEXT_WORKFLOWS);
 }
@@ -372,15 +392,74 @@ function projectWorkflowDocumentFacts(
   return content;
 }
 
+function projectCurrentTaskInput(input: Record<string, unknown>): Record<string, unknown> {
+  const shot = asContextRecord(input.shot);
+  const shotFacts = Object.fromEntries(
+    ['id', 'actIndex', 'sceneIndex', 'title', 'summary', 'storyBeat', 'dialogueIntent'].flatMap(
+      (key) => (shot[key] === undefined ? [] : [[key, shot[key]]]),
+    ),
+  );
+  return {
+    ...(typeof input.documentLogicalKey === 'string'
+      ? { documentLogicalKey: input.documentLogicalKey }
+      : {}),
+    ...(typeof input.shotId === 'string' ? { shotId: input.shotId } : {}),
+    ...(Object.keys(shotFacts).length > 0 ? { shot: shotFacts } : {}),
+  };
+}
+
 function renderPersistentWorkflowManifest(db: SqliteIndex, runs: WorkflowRun[]): string {
   if (runs.length === 0) return '';
   const lines = ['Authority: SQLite workflow aggregate. Chat confirmations never approve a gate.'];
   for (const run of runs) {
     const runId = run.id as WorkflowRunId;
+    const currentStage = run.currentStageId
+      ? db.repos.workflows.getStageRun(run.currentStageId as never)
+      : undefined;
+    const currentTask = run.currentTaskId
+      ? db.repos.workflows.getTaskRun(run.currentTaskId as never)
+      : undefined;
     lines.push(
       `Run ${run.id}: status=${run.status}; rowVersion=${run.rowVersion ?? 0}; ` +
-        `stage=${run.currentStageId ?? 'none'}; gate=${run.currentGate ?? 'none'}`,
+        `stage=${currentStage?.stageId ?? 'none'} (${run.currentStageId ?? 'none'}); ` +
+        `task=${currentTask?.taskId ?? 'none'} (${run.currentTaskId ?? 'none'}); ` +
+        `taskStatus=${currentTask?.status ?? 'none'}; ` +
+        `taskRole=${typeof currentTask?.input.workflowTaskRole === 'string' ? currentTask.input.workflowTaskRole : 'none'}; ` +
+        `gate=${run.currentGate ?? 'none'}`,
     );
+    if (currentTask) {
+      const taskRole = currentTask.input.workflowTaskRole;
+      const taskContract = getMovieProductionTaskContract(taskRole);
+      lines.push(
+        taskContract
+          ? `Current task contract: ${truncSnap(JSON.stringify(taskContract), 3000)}`
+          : 'Current task contract: unavailable; do not mutate workflow state until the task role is recognized.',
+      );
+      const taskInput = projectCurrentTaskInput(currentTask.input);
+      if (Object.keys(taskInput).length > 0) {
+        lines.push(`Current task input: ${truncSnap(JSON.stringify(taskInput), 2000)}`);
+      }
+    }
+    const continuation = asContextRecord(asContextRecord(run.metadata).commanderContinuation);
+    const continuationClaim = asContextRecord(continuation.claim);
+    if (typeof continuationClaim.status === 'string') {
+      lines.push(
+        `Commander continuation: status=${continuationClaim.status}; ` +
+          `taskClaim=${continuationClaim.key ?? 'unknown'}; ` +
+          `startedAt=${continuationClaim.startedAt ?? 'unknown'}; ` +
+          `finishedAt=${continuationClaim.finishedAt ?? 'none'}; ` +
+          `reason=${continuationClaim.reason ? truncSnap(String(continuationClaim.reason), 500) : 'none'}`,
+      );
+    }
+    const contextRecovery = asContextRecord(asContextRecord(run.metadata).contextRecovery);
+    if (typeof contextRecovery.state === 'string') {
+      lines.push(
+        `Context recovery: state=${contextRecovery.state}; ` +
+          `consecutiveFailures=${contextRecovery.consecutiveFailures ?? 0}; ` +
+          `reason=${contextRecovery.reason ?? 'none'}; ` +
+          `previousRunStatus=${contextRecovery.previousRunStatus ?? 'none'}`,
+      );
+    }
 
     for (const [logicalKey, label] of [
       ['production-plan', 'Production Plan'],
@@ -430,8 +509,8 @@ function renderPersistentWorkflowManifest(db: SqliteIndex, runs: WorkflowRun[]):
     for (const attempt of mediaAttempts.slice(-MAX_CONTEXT_MEDIA_ATTEMPTS)) {
       const evaluation = evaluationsByAttempt.get(attempt.id);
       lines.push(
-        `Media attempt: node=${attempt.nodeId}; attempt=${attempt.attempt}; media=${attempt.mediaType}; ` +
-          `status=${attempt.status}; specSha256=${attempt.specHash}; promptSha256=${attempt.promptHash}; ` +
+        `Media attempt: attemptId=${attempt.id}; node=${attempt.nodeId}; attempt=${attempt.attempt}; media=${attempt.mediaType}; ` +
+          `status=${attempt.status}; specSha256=${attempt.specHash}; basePromptHash=${attempt.promptHash}; ` +
           `provider=${attempt.providerId}; model=${attempt.model ?? 'unknown'}; seed=${attempt.seed ?? 'none'}; ` +
           `estimatedUsd=${attempt.estimatedCostUsd}; actualUsd=${attempt.reportedActualCostUsd ?? 'unreported'}; ` +
           `asset=${attempt.assetHash ?? 'none'}; ` +
@@ -446,6 +525,34 @@ function renderPersistentWorkflowManifest(db: SqliteIndex, runs: WorkflowRun[]):
             `risks=${truncSnap(JSON.stringify(evaluation.risks), 800)}; ` +
             `evidence=${truncSnap(JSON.stringify(evaluation.evidence), 1000)}; ` +
             `frames=${truncSnap(JSON.stringify(evaluation.frameEvidence), 800)}`,
+        );
+      }
+    }
+
+    const pendingDecisions =
+      db.repos.workflows.listPendingDecisions?.({ workflowRunId: run.id }) ?? [];
+    for (const decision of pendingDecisions.slice(0, MAX_CONTEXT_WORKFLOW_DECISIONS)) {
+      const task = db.repos.workflows.getTaskRun(decision.taskRunId as never);
+      const taskRole =
+        typeof task?.input.workflowTaskRole === 'string' ? task.input.workflowTaskRole : 'none';
+      const options = decision.options.slice(0, 8).map((option) => ({
+        id: option.id,
+        label: option.label,
+        description: option.description,
+      }));
+      lines.push(
+        `Workflow decision: status=${decision.status}; decisionKey=${decision.decisionKey}; ` +
+          `questionId=${decision.questionId}; subjectRevision=${decision.subjectRevision}; ` +
+          `task=${task?.taskId ?? 'missing'} (${decision.taskRunId}); ` +
+          `taskStatus=${task?.status ?? 'missing'}; taskRole=${taskRole}; ` +
+          `allowFreeText=${decision.allowFreeText}; selectedOption=${decision.selectedOptionId ?? 'none'}`,
+      );
+      lines.push(`Workflow decision question: ${truncSnap(decision.question, 1000)}`);
+      lines.push(`Workflow decision options: ${truncSnap(JSON.stringify(options), 1500)}`);
+      if (decision.status === 'recovery_required') {
+        lines.push(
+          `Workflow decision recovery facts: answer=${decision.answer ? truncSnap(decision.answer, 1000) : 'none'}; ` +
+            `answeredAt=${decision.answeredAt ?? 'unknown'}; rowVersion=${decision.rowVersion}`,
         );
       }
     }
@@ -471,31 +578,71 @@ export function buildPersistentWorkflowManifest(db: SqliteIndex, canvasId?: stri
   }
 }
 
-function hasExactApprovedGate(
+function getExactApprovedGate(
   db: SqliteIndex,
   runId: WorkflowRunId,
   gateKey: WorkflowApprovalGateKey,
-): boolean {
+): WorkflowApproval | undefined {
   const approval = db.repos.workflows.getLatestApproval(runId, gateKey);
-  if (!approval || approval.status !== 'approved') return false;
+  if (!approval || approval.status !== 'approved') return undefined;
   const document = db.repos.workflows.getDocumentRevision(
     runId,
     approval.subjectLogicalKey,
     approval.subjectRevision,
   );
-  return Boolean(
-    document &&
+  return document &&
     document.revision === approval.subjectRevision &&
-    document.contentHash === approval.subjectHash,
-  );
+    document.contentHash === approval.subjectHash
+    ? approval
+    : undefined;
 }
 
 function deriveWorkflowToolPolicy(db: SqliteIndex, run: WorkflowRun): WorkflowToolPolicy {
   const runId = run.id as WorkflowRunId;
-  const base = { workflowRunId: run.id, rowVersion: run.rowVersion ?? 0 };
-  const planApproved = hasExactApprovedGate(db, runId, 'production_plan');
-  const visualApproved = hasExactApprovedGate(db, runId, 'visual_constitution');
-  const finalApproved = hasExactApprovedGate(db, runId, 'final_export');
+  const currentStage = run.currentStageId
+    ? db.repos.workflows.getStageRun(run.currentStageId as never)
+    : undefined;
+  const currentTask = run.currentTaskId
+    ? db.repos.workflows.getTaskRun(run.currentTaskId as never)
+    : undefined;
+  const base = {
+    workflowRunId: run.id,
+    rowVersion: run.rowVersion ?? 0,
+    currentTaskRunId: run.currentTaskId,
+    currentTaskId: currentTask?.taskId,
+    currentTaskRole:
+      typeof currentTask?.input.workflowTaskRole === 'string'
+        ? currentTask.input.workflowTaskRole
+        : undefined,
+    currentStageId: currentStage?.stageId,
+  };
+  if (
+    (run.currentStageId && (!currentStage || currentStage.workflowRunId !== run.id)) ||
+    (run.currentTaskId && (!currentTask || currentTask.workflowRunId !== run.id))
+  ) {
+    return {
+      ...base,
+      phase: 'blocked',
+      reason: 'The current durable stage/task binding could not be verified.',
+    };
+  }
+  if (run.status === 'paused') {
+    const recovery = asContextRecord(asContextRecord(run.metadata).contextRecovery);
+    return {
+      ...base,
+      phase: 'blocked',
+      gate: run.currentGate,
+      reason:
+        recovery.state === 'recovery_required'
+          ? `Workflow is paused for context recovery after ${recovery.consecutiveFailures ?? 0} consecutive failures.`
+          : 'Workflow is paused.',
+    };
+  }
+  const planApproval = getExactApprovedGate(db, runId, 'production_plan');
+  const visualApproval = getExactApprovedGate(db, runId, 'visual_constitution');
+  const finalApproval = getExactApprovedGate(db, runId, 'final_export');
+  const planApproved = Boolean(planApproval);
+  const visualApproved = Boolean(visualApproval);
 
   if (run.currentGate) {
     const pending = db.repos.workflows.getPendingApproval(runId, run.currentGate);
@@ -515,7 +662,12 @@ function deriveWorkflowToolPolicy(db: SqliteIndex, run: WorkflowRun): WorkflowTo
       };
     }
     if (run.currentGate === 'production_plan') {
-      return { ...base, phase: 'production_plan_pending', gate: run.currentGate };
+      return {
+        ...base,
+        phase: 'production_plan_pending',
+        gate: run.currentGate,
+        subjectRevision: pending.subjectRevision,
+      };
     }
     if (!planApproved) {
       return {
@@ -526,7 +678,12 @@ function deriveWorkflowToolPolicy(db: SqliteIndex, run: WorkflowRun): WorkflowTo
       };
     }
     if (run.currentGate === 'visual_constitution') {
-      return { ...base, phase: 'visual_constitution_pending', gate: run.currentGate };
+      return {
+        ...base,
+        phase: 'visual_constitution_pending',
+        gate: run.currentGate,
+        subjectRevision: pending.subjectRevision,
+      };
     }
     if (!visualApproved) {
       return {
@@ -536,16 +693,75 @@ function deriveWorkflowToolPolicy(db: SqliteIndex, run: WorkflowRun): WorkflowTo
         reason: 'Visual Constitution approval is missing or inconsistent.',
       };
     }
-    return { ...base, phase: 'final_export_pending', gate: run.currentGate };
+    return {
+      ...base,
+      phase: 'final_export_pending',
+      gate: run.currentGate,
+      subjectRevision: pending.subjectRevision,
+    };
   }
 
-  if (finalApproved) return { ...base, phase: 'final_export_approved' };
-  if (visualApproved) return { ...base, phase: 'media_generation' };
-  if (planApproved) return { ...base, phase: 'style_exploration' };
+  if (finalApproval) {
+    return {
+      ...base,
+      phase: 'final_export_approved',
+      subjectRevision: finalApproval.subjectRevision,
+    };
+  }
+  switch (currentStage?.stageId) {
+    case 'production-plan': {
+      const latestPlan = db.repos.workflows.getLatestDocument(runId, 'production-plan');
+      const latestApproval = db.repos.workflows.getLatestApproval(runId, 'production_plan');
+      return latestPlan && latestApproval?.status === 'rejected'
+        ? { ...base, phase: 'production_plan_revision', subjectRevision: latestPlan.revision + 1 }
+        : {
+            ...base,
+            phase: 'blocked',
+            reason: 'Production Plan revision state is inconsistent.',
+          };
+    }
+    case 'style-exploration': {
+      if (!planApproval) break;
+      const latest = db.repos.workflows.getLatestDocument(runId, 'visual-constitution');
+      return {
+        ...base,
+        phase: 'style_exploration',
+        subjectRevision: (latest?.revision ?? 0) + 1,
+      };
+    }
+    case 'preproduction':
+      if (planApproval && visualApproval) {
+        return { ...base, phase: 'preproduction', subjectRevision: visualApproval.subjectRevision };
+      }
+      break;
+    case 'media-generation':
+      if (planApproval && visualApproval) {
+        return {
+          ...base,
+          phase: 'media_generation',
+          subjectRevision: visualApproval.subjectRevision,
+        };
+      }
+      break;
+    case 'assembly':
+      if (planApproval && visualApproval) {
+        return { ...base, phase: 'assembly', subjectRevision: visualApproval.subjectRevision };
+      }
+      break;
+    case 'final-export': {
+      if (!planApproval || !visualApproval) break;
+      const latest = db.repos.workflows.getLatestDocument(runId, 'final-export');
+      return {
+        ...base,
+        phase: 'final_export_preparation',
+        subjectRevision: (latest?.revision ?? 0) + 1,
+      };
+    }
+  }
   return {
     ...base,
     phase: 'blocked',
-    reason: 'No exact approved Production Plan revision is available for this workflow.',
+    reason: 'The durable workflow stage does not have all exact approved prerequisite revisions.',
   };
 }
 
@@ -591,7 +807,7 @@ export function buildContext(
   _presetLibrary: PresetDefinition[],
   selectedNodeIds: string[],
   db: SqliteIndex,
-  promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>,
+  promptGuides?: CommanderPromptGuide[],
   editingNodeId?: string | null,
 ): AgentContext {
   const limitedSelectedNodeIds = selectedNodeIds.slice(0, MAX_CONTEXT_SELECTED_NODES);
@@ -628,40 +844,79 @@ export function buildContext(
     extra.workflowToolPolicy = persistentWorkflow.workflowToolPolicy;
   }
   if (Array.isArray(promptGuides) && promptGuides.length > 0) {
-    // Auto-inject guides: guides with `autoInject: true` are always injected
-    // into the system prompt. Remaining guides fill the budget up to 8k chars;
-    // overflow becomes discovery-only via guide.get.
-    const AUTO_INJECT_BUDGET = 8000;
-    const autoInjected: Array<{ id: string; name: string; content: string }> = [];
-    const discoveryOnly: Array<{ id: string; name: string }> = [];
-    let remaining = AUTO_INJECT_BUDGET;
-    const limited = promptGuides.slice(0, MAX_CONTEXT_PROMPT_GUIDES);
-    // Pass 1: inject guides with autoInject flag (always included, bypass budget).
-    for (const guide of limited) {
-      if (guide.autoInject) {
-        autoInjected.push(guide);
-        remaining -= guide.content.length;
-      }
-    }
-    // Pass 2: fill remaining budget with non-flagged guides.
-    for (const guide of limited) {
-      if (guide.autoInject) continue;
-      if (guide.content.length <= remaining) {
-        autoInjected.push(guide);
-        remaining -= guide.content.length;
-      } else {
-        discoveryOnly.push({ id: guide.id, name: guide.name });
-      }
-    }
+    const selected = selectPromptGuidesForContext(
+      promptGuides,
+      persistentWorkflow.workflowToolPolicy?.phase,
+    );
+    const autoInjected = selected.injected;
     if (autoInjected.length > 0) {
       extra.autoInjectGuides = autoInjected;
-    }
-    if (discoveryOnly.length > 0) {
-      extra.availablePromptGuides = discoveryOnly;
     }
   }
   // v2: Master Index removed — tool.get() browsing provides equivalent info.
   return { page: 'canvas', extra };
+}
+
+export function selectPromptGuidesForContext(
+  promptGuides: CommanderPromptGuide[],
+  phase?: CommanderWorkflowGuidePhase,
+): {
+  injected: CommanderPromptGuide[];
+  discoveryOnly: Array<{ id: string; name: string }>;
+} {
+  const ranked = promptGuides
+    .map((guide, index) => ({ guide, index }))
+    .sort((left, right) => {
+      const leftApplicable = isGuideApplicable(left.guide, phase) ? 1 : 0;
+      const rightApplicable = isGuideApplicable(right.guide, phase) ? 1 : 0;
+      if (leftApplicable !== rightApplicable) return rightApplicable - leftApplicable;
+      const leftAuto = left.guide.autoInject ? 1 : 0;
+      const rightAuto = right.guide.autoInject ? 1 : 0;
+      if (leftAuto !== rightAuto) return rightAuto - leftAuto;
+      const priorityDifference = (right.guide.priority ?? 0) - (left.guide.priority ?? 0);
+      return priorityDifference || left.index - right.index;
+    });
+
+  const injected: CommanderPromptGuide[] = [];
+  const selectedIds = new Set<string>();
+  let usedChars = 0;
+  for (const { guide } of ranked) {
+    if (
+      guide.autoInject !== true ||
+      !isGuideApplicable(guide, phase) ||
+      guide.retention === 'discovery'
+    ) {
+      continue;
+    }
+    const summary = guide.autoInjectContent;
+    if (
+      typeof summary !== 'string' ||
+      summary.length === 0 ||
+      summary.length > COMMANDER_GUIDE_LIMITS.maxAutoInjectCharsPerGuide
+    ) {
+      continue;
+    }
+    if (injected.length >= COMMANDER_GUIDE_LIMITS.maxAutoInjectItems) continue;
+    if (usedChars + summary.length > COMMANDER_GUIDE_LIMITS.maxAutoInjectCharsTotal) continue;
+    const { autoInjectContent: _autoInjectContent, ...guideMetadata } = guide;
+    injected.push({ ...guideMetadata, content: summary });
+    selectedIds.add(guide.id);
+    usedChars += summary.length;
+  }
+
+  return {
+    injected,
+    discoveryOnly: promptGuides
+      .filter((guide) => !selectedIds.has(guide.id))
+      .map((guide) => ({ id: guide.id, name: guide.name })),
+  };
+}
+
+function isGuideApplicable(
+  guide: CommanderPromptGuide,
+  phase: CommanderWorkflowGuidePhase | undefined,
+): boolean {
+  return !guide.phases || guide.phases.length === 0 || (!!phase && guide.phases.includes(phase));
 }
 
 // ---------------------------------------------------------------------------

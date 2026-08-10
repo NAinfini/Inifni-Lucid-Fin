@@ -15,7 +15,17 @@ const askUser: AgentTool = {
   parameters: {
     type: 'object',
     properties: {
+      decisionKey: {
+        type: 'string',
+        description:
+          'Stable semantic key for this decision (required when a persistent workflow is active), e.g. style.horror.subgenre.',
+      },
       question: { type: 'string', description: 'The question to ask the user' },
+      allowFreeText: {
+        type: 'boolean',
+        description:
+          'Whether the user may provide a custom answer in addition to the listed options. Defaults to true.',
+      },
       options: {
         type: 'array',
         description:

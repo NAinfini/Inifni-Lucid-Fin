@@ -34,9 +34,12 @@ import { registerStorageHandlers } from './handlers/storage.handlers.js';
 import { registerSnapshotHandlers } from './handlers/snapshot.handlers.js';
 import { registerProcessPromptHandlers } from './handlers/process-prompt.handlers.js';
 import { registerFolderHandlers } from './handlers/folder.handlers.js';
+import { registerProviderOAuthHandlers } from './handlers/provider-oauth.handlers.js';
 import { BUILT_IN_PRESET_LIBRARY } from '@lucid-fin/contracts';
 import { createFinalExportService } from '../services/final-export.service.js';
 import { createProductionMediaService } from '../services/production-media.service.js';
+import { createVisualAnalyzer } from '../services/visual-analyzer.service.js';
+import type { ProviderOAuthManager } from '../oauth/provider-oauth-manager.js';
 
 const { ipcMain } = electron;
 
@@ -51,6 +54,7 @@ export interface AppDeps {
   agent: AgentOrchestrator | null;
   promptStore: PromptStore;
   processPromptStore: ProcessPromptStore;
+  oauthManager: ProviderOAuthManager;
 }
 
 export function registerAllHandlers(getWindow: () => BrowserWindow | null, deps: AppDeps): void {
@@ -65,15 +69,18 @@ export function registerAllHandlers(getWindow: () => BrowserWindow | null, deps:
     agent,
     promptStore,
     processPromptStore,
+    oauthManager,
   } = deps;
   log.info('Registering IPC handlers', {
     category: 'ipc',
     hasWindowGetter: typeof getWindow === 'function',
     hasAgent: Boolean(agent),
   });
-  registerAssetHandlers(ipcMain, cas, db, keychain);
+  const visualAnalyzer = createVisualAnalyzer({ cas, llmRegistry });
+  registerAssetHandlers(ipcMain, cas, db, visualAnalyzer);
   registerJobHandlers(ipcMain, getWindow, db, jobQueue);
   registerKeychainHandlers(ipcMain, keychain, registry, llmRegistry);
+  registerProviderOAuthHandlers(ipcMain, getWindow, oauthManager);
   registerScriptHandlers(ipcMain, db);
   registerCharacterHandlers(ipcMain, db);
   registerEquipmentHandlers(ipcMain, db);
@@ -88,11 +95,11 @@ export function registerAllHandlers(getWindow: () => BrowserWindow | null, deps:
     db,
     cas,
     keychain,
+    visualAnalyzer,
     adapterRegistry: registry,
     canvasStore,
     workflowEngine,
   });
-  registerWorkflowHandlers(ipcMain, workflowEngine);
   registerRenderHandlers(ipcMain, finalExportService);
   registerFfmpegHandlers(ipcMain);
   registerSeriesHandlers(ipcMain, db);
@@ -107,7 +114,7 @@ export function registerAllHandlers(getWindow: () => BrowserWindow | null, deps:
     getWindow,
   });
   registerPresetHandlers(ipcMain, db);
-  registerCommanderHandlers(ipcMain, getWindow, {
+  const commanderContinuation = registerCommanderHandlers(ipcMain, getWindow, {
     adapterRegistry: registry,
     llmRegistry,
     canvasStore,
@@ -120,6 +127,7 @@ export function registerAllHandlers(getWindow: () => BrowserWindow | null, deps:
     promptStore,
     finalExportService,
     productionMediaService,
+    visualAnalyzer,
     resolvePrompt: (code: string) => promptStore.resolve(code),
     resolveProcessPrompt: (processKey: string) => processPromptStore.getEffectiveValue(processKey),
     listProcessPromptKeys: () =>
@@ -127,17 +135,21 @@ export function registerAllHandlers(getWindow: () => BrowserWindow | null, deps:
         .list()
         .map((record) => ({ processKey: record.processKey, name: record.name })),
   });
+  registerWorkflowHandlers(ipcMain, workflowEngine, {
+    requestCommanderContinuation: commanderContinuation.request,
+  });
   registerEntityHandlers(ipcMain, { adapterRegistry: registry, cas, db });
-  registerVisionHandlers(ipcMain, { cas, keychain });
+  registerVisionHandlers(ipcMain, { visualAnalyzer });
   registerVideoChainHandlers(ipcMain, canvasStore, cas);
   registerLipSyncHandlers(ipcMain, { cas, canvasStore, db });
-  registerEmbeddingHandlers(ipcMain, { cas, keychain, db, getWindow });
+  registerEmbeddingHandlers(ipcMain, { visualAnalyzer, db, getWindow });
   registerVideoCloneHandlers(ipcMain, { cas, canvasStore, getWindow });
   registerStorageHandlers(ipcMain, { db, cas });
   registerSnapshotHandlers(ipcMain, db);
   registerFolderHandlers(ipcMain, db);
   productionMediaService.recoverInterruptedAttempts();
   finalExportService.recoverInterruptedExecutions();
+  commanderContinuation.recoverPending();
   log.info('IPC handlers registered', {
     category: 'ipc',
     canvasStoreReady: true,

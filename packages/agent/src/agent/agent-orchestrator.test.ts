@@ -27,7 +27,13 @@ async function* responseToStream(r: MockLLMResponse): AsyncIterable<LLMStreamEve
   if (r.content) yield { kind: 'text_delta', delta: r.content };
   for (const tc of r.toolCalls) {
     yield { kind: 'tool_call_started', id: tc.id, name: tc.name };
-    yield { kind: 'tool_call_complete', id: tc.id, name: tc.name, arguments: tc.arguments };
+    yield {
+      kind: 'tool_call_complete',
+      id: tc.id,
+      name: tc.name,
+      arguments: tc.arguments,
+      thoughtSignature: tc.thoughtSignature,
+    };
   }
   yield { kind: 'finished', finishReason: r.finishReason };
 }
@@ -105,6 +111,28 @@ describe('AgentOrchestrator', () => {
     expect(diagnostics[0]?.contextWindowTokens).toBe(128_000);
   });
 
+  it('reports the characters used by auto-injected guide summaries', async () => {
+    const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
+    const diagnostics: Array<{ promptGuideChars: number }> = [];
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+
+    await agent.execute(
+      'hello',
+      {
+        extra: {
+          autoInjectGuides: [
+            { id: 'guide-1', name: 'Guide One', content: 'alpha' },
+            { id: 'guide-2', name: 'Guide Two', content: 'beta!' },
+          ],
+        },
+      },
+      () => {},
+      { onLLMRequest: (value) => diagnostics.push(value) },
+    );
+
+    expect(diagnostics[0]?.promptGuideChars).toBe(10);
+  });
+
   it('does not call the provider when protected context remains at or above 92 percent', async () => {
     const adapter = createMockAdapter([
       { content: 'must not run', toolCalls: [], finishReason: 'stop' },
@@ -124,10 +152,181 @@ describe('AgentOrchestrator', () => {
     expect(result.exitDecision).toEqual({ outcome: 'budget_exhausted', metric: 'tokens' });
   });
 
-  it('removes workflow-blocked tool schemas before the model request', async () => {
+  it('persists the 92 percent hard stop against the bound workflow before returning', async () => {
+    const adapter = createMockAdapter([
+      { content: 'must not run', toolCalls: [], finishReason: 'stop' },
+    ]);
+    Object.assign(adapter, {
+      contextWindow: 1024,
+      effectiveContextWindow: 1024,
+    });
+    const onContextRecoveryReport = vi.fn(async () => ({
+      state: 'recovery_required' as const,
+      consecutiveFailures: 1,
+      changed: true,
+    }));
+    const agent = new AgentOrchestrator(adapter, toolRegistry, () => 'x'.repeat(8_000), {
+      contextWindowTokens: 1024,
+      resolvePersistentContext: () => ({
+        workflowToolPolicy: {
+          workflowRunId: 'workflow-context-1',
+          phase: 'media_generation',
+          rowVersion: 7,
+        },
+      }),
+      onContextRecoveryReport,
+    });
+
+    await agent.execute('continue', {}, () => {});
+
+    expect(onContextRecoveryReport).toHaveBeenCalledWith({
+      workflowRunId: 'workflow-context-1',
+      outcome: 'failed',
+      reason: 'hard_stop',
+      forcePause: true,
+    });
+    expect(adapter.completeWithTools).not.toHaveBeenCalled();
+  });
+
+  it('pauses after the third durable compaction failure across orchestrator instances', async () => {
+    let durableFailures = 0;
+    const onContextRecoveryReport = vi.fn(async (report: { outcome: 'failed' | 'recovered' }) => {
+      if (report.outcome === 'recovered') durableFailures = 0;
+      else durableFailures += 1;
+      return {
+        state: durableFailures >= 3 ? ('recovery_required' as const) : ('recovering' as const),
+        consecutiveFailures: durableFailures,
+        changed: durableFailures === 3,
+      };
+    });
+    const providerCalls: Array<ReturnType<typeof vi.fn>> = [];
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
+      Object.assign(adapter, {
+        contextWindow: 4096,
+        effectiveContextWindow: 4096,
+      });
+      providerCalls.push(adapter.completeWithTools as ReturnType<typeof vi.fn>);
+      const agent = new AgentOrchestrator(adapter, toolRegistry, () => 'x'.repeat(12_300), {
+        contextWindowTokens: 4096,
+        resolvePersistentContext: () => ({
+          workflowToolPolicy: {
+            workflowRunId: 'workflow-context-1',
+            phase: 'media_generation',
+            rowVersion: attempt,
+          },
+        }),
+        onContextRecoveryReport,
+      });
+      vi.spyOn(
+        (
+          agent as unknown as {
+            contextManager: {
+              compactWithLLMResult: () => Promise<{
+                attempted: boolean;
+                changed: boolean;
+                truncated: number;
+              }>;
+            };
+          }
+        ).contextManager,
+        'compactWithLLMResult',
+      ).mockResolvedValue({ attempted: true, changed: false, truncated: 0 });
+
+      const result = await agent.execute('continue', {}, () => {});
+      if (attempt === 3) expect(result.content).toMatch(/recovery failed three times/i);
+    }
+
+    expect(onContextRecoveryReport).toHaveBeenCalledTimes(3);
+    expect(providerCalls[0]).toHaveBeenCalledOnce();
+    expect(providerCalls[1]).toHaveBeenCalledOnce();
+    expect(providerCalls[2]).not.toHaveBeenCalled();
+  });
+
+  it('reports a verified persistent-context reload so the durable failure counter is cleared', async () => {
+    const adapter = createMockAdapter([{ content: 'ready', toolCalls: [], finishReason: 'stop' }]);
+    Object.assign(adapter, {
+      contextWindow: 128_000,
+      effectiveContextWindow: 128_000,
+    });
+    const onContextRecoveryReport = vi.fn(async () => ({
+      state: 'active' as const,
+      consecutiveFailures: 0,
+      changed: true,
+    }));
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+      resolvePersistentContext: () => ({
+        workflowToolPolicy: {
+          workflowRunId: 'workflow-context-1',
+          phase: 'media_generation',
+          rowVersion: 8,
+        },
+      }),
+      onContextRecoveryReport,
+    });
+
+    await agent.execute('continue', {}, () => {});
+
+    expect(onContextRecoveryReport).toHaveBeenCalledWith({
+      workflowRunId: 'workflow-context-1',
+      outcome: 'recovered',
+      reason: 'persistent_context_reloaded',
+    });
+    expect(adapter.completeWithTools).toHaveBeenCalledOnce();
+  });
+
+  it('rebuilds workflow authorization after a successful recovery unpauses the durable run', async () => {
+    const adapter = createMockAdapter([
+      { content: 'resumed', toolCalls: [], finishReason: 'stop' },
+    ]);
+    Object.assign(adapter, {
+      contextWindow: 128_000,
+      effectiveContextWindow: 128_000,
+    });
+    let paused = true;
+    const resolvePersistentContext = vi.fn(() => ({
+      workflowToolPolicy: paused
+        ? {
+            workflowRunId: 'workflow-context-1',
+            phase: 'blocked' as const,
+            rowVersion: 9,
+            reason: 'Workflow is paused for context recovery.',
+          }
+        : {
+            workflowRunId: 'workflow-context-1',
+            phase: 'media_generation' as const,
+            rowVersion: 10,
+          },
+    }));
+    const onContextRecoveryReport = vi.fn(async () => {
+      paused = false;
+      return { state: 'active' as const, consecutiveFailures: 0, changed: true };
+    });
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+      resolvePersistentContext,
+      onContextRecoveryReport,
+    });
+
+    const result = await agent.execute('continue', {}, () => {});
+
+    expect(result.content).toBe('resumed');
+    expect(resolvePersistentContext).toHaveBeenCalledTimes(4);
+    expect(onContextRecoveryReport).toHaveBeenCalledOnce();
+    expect(adapter.completeWithTools).toHaveBeenCalledOnce();
+  });
+
+  it('loads only the phase-safe inspection bundle while plan approval is pending', async () => {
     toolRegistry.register({
       name: 'canvas.generation',
       description: 'Generate media',
+      tier: 3,
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true })),
+    });
+    toolRegistry.register({
+      name: 'entity.generateRefImage',
+      description: 'Generate an entity reference image',
       tier: 3,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(async () => ({ success: true })),
@@ -164,6 +363,62 @@ describe('AgentOrchestrator', () => {
     const names = options.tools?.map((tool) => tool.name) ?? [];
     expect(names).toContain('canvas.listNodes');
     expect(names).not.toContain('canvas.generation');
+    expect(names).not.toContain('entity.generateRefImage');
+  });
+
+  it('refreshes the phase-core bundle after a durable stage transition', async () => {
+    let advanced = false;
+    toolRegistry.register({
+      name: 'workflow.manage',
+      description: 'Advance workflow',
+      tier: 2,
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => {
+        advanced = true;
+        return { success: true };
+      }),
+    });
+    toolRegistry.register({
+      name: 'workflow.finalExport',
+      description: 'Prepare final export',
+      tier: 1,
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({ success: true })),
+    });
+    const adapter = createMockAdapter([
+      {
+        content: '',
+        toolCalls: [
+          {
+            id: 'advance',
+            name: 'workflow.manage',
+            arguments: { action: 'completeCurrentTask' },
+          },
+        ],
+        finishReason: 'tool_calls',
+      },
+      { content: 'ready to export', toolCalls: [], finishReason: 'stop' },
+    ]);
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+      resolvePersistentContext: () => ({
+        workflowToolPolicy: {
+          workflowRunId: 'workflow-1',
+          phase: advanced ? ('final_export_preparation' as const) : ('assembly' as const),
+          rowVersion: advanced ? 2 : 1,
+        },
+      }),
+    });
+
+    await agent.execute('finish assembly', { page: 'canvas' }, () => {});
+
+    const firstOptions = vi.mocked(adapter.completeWithTools).mock.calls[0]?.[1] as {
+      tools?: Array<{ name: string }>;
+    };
+    const secondOptions = vi.mocked(adapter.completeWithTools).mock.calls[1]?.[1] as {
+      tools?: Array<{ name: string }>;
+    };
+    expect(firstOptions.tools?.map((tool) => tool.name)).not.toContain('workflow.finalExport');
+    expect(secondOptions.tools?.map((tool) => tool.name)).toContain('workflow.finalExport');
   });
 
   it('executes tool calls and feeds results back', async () => {
@@ -179,7 +434,15 @@ describe('AgentOrchestrator', () => {
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [{ id: 'tc1', name: 'character.list', arguments: {} }],
+        reasoning: 'I should inspect the character list.',
+        toolCalls: [
+          {
+            id: 'tc1',
+            name: 'character.list',
+            arguments: {},
+            thoughtSignature: 'opaque-signature',
+          },
+        ],
         finishReason: 'tool_calls',
       },
       {
@@ -197,12 +460,92 @@ describe('AgentOrchestrator', () => {
 
     expect(mockTool).toHaveBeenCalled();
     expect(result.content).toBe('Found 5 characters.');
+    const secondRequest = vi.mocked(adapter.completeWithTools).mock.calls[1]?.[0];
+    expect(secondRequest?.find((message) => message.role === 'assistant')).toMatchObject({
+      reasoning: 'I should inspect the character list.',
+      toolCalls: [{ id: 'tc1', thoughtSignature: 'opaque-signature' }],
+    });
     expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'tool_call')).toBe(
       true,
     );
     expect(events.some((e: unknown) => (e as Record<string, unknown>).kind === 'tool_result')).toBe(
       true,
     );
+  });
+
+  it('records guide_loaded evidence for every guide returned by guide.get', async () => {
+    toolRegistry.register({
+      name: 'guide.get',
+      description: 'Load prompt guides',
+      tier: 1,
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({
+        success: true,
+        data: {
+          guides: [
+            { id: 'guide-1', name: 'Guide One', content: 'alpha' },
+            { id: 'guide-2', name: 'Guide Two', content: 'beta' },
+          ],
+        },
+      })),
+    });
+    const adapter = createMockAdapter([
+      {
+        content: '',
+        toolCalls: [
+          { id: 'tc-guide', name: 'guide.get', arguments: { ids: ['guide-1', 'guide-2'] } },
+        ],
+        finishReason: 'tool_calls',
+      },
+      { content: 'loaded', toolCalls: [], finishReason: 'stop' },
+    ]);
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+
+    await agent.execute('load guides', {}, () => {}, { discoveredTools: ['guide.get'] });
+
+    const evidence = (
+      agent as unknown as {
+        evidenceLedger: {
+          entries(): ReadonlyArray<{ kind: string; guideId?: string }>;
+        };
+      }
+    ).evidenceLedger.entries();
+    expect(
+      evidence.filter((entry) => entry.kind === 'guide_loaded').map((entry) => entry.guideId),
+    ).toEqual(['guide-1', 'guide-2']);
+  });
+
+  it('does not treat guide-list metadata as loaded guide content', async () => {
+    toolRegistry.register({
+      name: 'guide.get',
+      description: 'List prompt guides',
+      tier: 1,
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute: vi.fn(async () => ({
+        success: true,
+        data: { total: 1, guides: [{ id: 'guide-1', name: 'Guide One' }] },
+      })),
+    });
+    const adapter = createMockAdapter([
+      {
+        content: '',
+        toolCalls: [{ id: 'tc-guide-list', name: 'guide.get', arguments: {} }],
+        finishReason: 'tool_calls',
+      },
+      { content: 'listed', toolCalls: [], finishReason: 'stop' },
+    ]);
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+
+    await agent.execute('list guides', {}, () => {}, { discoveredTools: ['guide.get'] });
+
+    const evidence = (
+      agent as unknown as {
+        evidenceLedger: {
+          entries(): ReadonlyArray<{ kind: string; guideId?: string }>;
+        };
+      }
+    ).evidenceLedger.entries();
+    expect(evidence.filter((entry) => entry.kind === 'guide_loaded')).toEqual([]);
   });
 
   it('handles tool execution errors gracefully', async () => {
@@ -1795,6 +2138,50 @@ describe('AgentOrchestrator', () => {
         (e) => e.kind === 'phase_note' && e.note === 'tool_skipped_dedup',
       );
       expect(skipNotes).toHaveLength(0);
+    });
+
+    it('does not deduplicate a transient unloaded-tool failure after discovery succeeds', async () => {
+      const target = vi.fn(async () => ({ success: true, data: { completed: true } }));
+      toolRegistry.register({
+        name: 'tool.get',
+        description: 'Load tool schema',
+        tier: 1,
+        parameters: { type: 'object', properties: {}, required: [] },
+        execute: vi.fn(async () => ({
+          success: true,
+          data: { tools: [{ name: 'test.execute' }] },
+        })),
+      });
+      toolRegistry.register({
+        name: 'test.execute',
+        description: 'Execute a test action',
+        tier: 2,
+        parameters: { type: 'object', properties: {}, required: [] },
+        execute: target,
+      });
+      const adapter = createMockAdapter([
+        {
+          content: '',
+          toolCalls: [{ id: 'unloaded', name: 'test.execute', arguments: {} }],
+          finishReason: 'tool_calls',
+        },
+        {
+          content: '',
+          toolCalls: [{ id: 'discover', name: 'tool.get', arguments: { names: ['test.execute'] } }],
+          finishReason: 'tool_calls',
+        },
+        {
+          content: '',
+          toolCalls: [{ id: 'retry', name: 'test.execute', arguments: {} }],
+          finishReason: 'tool_calls',
+        },
+        { content: 'done', toolCalls: [], finishReason: 'stop' },
+      ]);
+
+      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+      await agent.execute('run test action', { page: 'canvas' }, () => {});
+
+      expect(target).toHaveBeenCalledOnce();
     });
   });
 

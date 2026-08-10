@@ -1,8 +1,15 @@
 import type { IpcMain } from 'electron';
+import type { WorkflowEngine } from '@lucid-fin/application';
 import log from '../../logger.js';
 import { runningSessions, lastToolRegistry } from './commander-registry.js';
 
-export function registerCommanderMetaHandlers(ipcMain: IpcMain): void {
+export function registerCommanderMetaHandlers(
+  ipcMain: IpcMain,
+  deps?: {
+    workflowEngine: WorkflowEngine;
+    requestWorkflowContinuation?: (workflowRunId: string, reason: string) => void;
+  },
+): void {
   const logger = log.scoped('commander', { surface: 'meta' });
 
   ipcMain.handle('commander:cancel', async (_event, args: { canvasId: string }) => {
@@ -104,6 +111,49 @@ export function registerCommanderMetaHandlers(ipcMain: IpcMain): void {
         throw new Error('toolCallId is required');
       if (typeof args.answer !== 'string') throw new Error('answer is required');
       const session = runningSessions.get(args.canvasId);
+      const canContinue = Boolean(
+        session?.orchestrator || deps?.requestWorkflowContinuation,
+      );
+      const durable = deps?.workflowEngine.answerAskUserDecisionFromUser({
+        canvasId: args.canvasId,
+        questionId: args.toolCallId,
+        answer: args.answer,
+        status: canContinue ? 'answered' : 'recovery_required',
+      });
+      if (durable) {
+        if (session?.orchestrator) {
+          logger.info('Workflow decision answer persisted and resumed', {
+            canvasId: args.canvasId,
+            workflowRunId: durable.decision.workflowRunId,
+            questionId: args.toolCallId,
+            answerChars: args.answer.length,
+          });
+          session.orchestrator.answerQuestion(args.toolCallId, args.answer);
+        } else if (deps?.requestWorkflowContinuation) {
+          logger.info('Workflow decision answer persisted for a new Commander continuation', {
+            canvasId: args.canvasId,
+            workflowRunId: durable.decision.workflowRunId,
+            questionId: args.toolCallId,
+            answerChars: args.answer.length,
+          });
+          deps.requestWorkflowContinuation(
+            durable.decision.workflowRunId,
+            'durable-question-answered',
+          );
+        } else {
+          logger.warn(
+            'Workflow decision answer persisted without an active Commander continuation',
+            {
+              canvasId: args.canvasId,
+              workflowRunId: durable.decision.workflowRunId,
+              questionId: args.toolCallId,
+              answerChars: args.answer.length,
+              recoveryRequired: true,
+            },
+          );
+        }
+        return;
+      }
       if (!session?.orchestrator) {
         logger.warn('Commander tool answer received with no active session', {
           canvasId: args.canvasId,

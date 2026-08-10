@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type {
   Canvas,
+  CommanderPromptGuide,
   CommanderProcessBehaviorSettings,
   TimelineEvent,
   WireEnvelope,
@@ -12,6 +13,8 @@ import type {
   PresetLibraryExportRequest,
   PresetLibraryImportPayload,
   PresetResetRequest,
+  OAuthProviderStatus,
+  OAuthProviderTarget,
   EquipmentLoadout,
   IpcChannel,
   IpcRequest,
@@ -300,6 +303,11 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     selectVisualCandidate: (request: Record<string, unknown>) =>
       invoke('workflow:selectVisualCandidate', request),
     approveGate: (request: Record<string, unknown>) => invoke('workflow:approveGate', request),
+    requestChanges: (request: Record<string, unknown>) =>
+      invoke('workflow:requestChanges', request),
+    rejectGate: (request: Record<string, unknown>) => invoke('workflow:rejectGate', request),
+    listPendingDecisions: (request: Record<string, unknown>) =>
+      invoke('workflow:listPendingDecisions', request),
     start: (request: Record<string, unknown>) => invoke('workflow:start', request),
     pause: (id: string) => invoke('workflow:pause', { id }),
     resume: (id: string) => invoke('workflow:resume', { id }),
@@ -325,6 +333,20 @@ contextBridge.exposeInMainWorld('lucidAPI', {
         providerConfig,
         group,
       }),
+  },
+
+  // Capability-scoped OAuth. Tokens and authorization URLs never cross IPC.
+  providerOAuth: {
+    status: (request: { target: OAuthProviderTarget }) =>
+      invoke<OAuthProviderStatus>('providerOAuth:status', request),
+    login: (request: { target: OAuthProviderTarget }) =>
+      invoke<OAuthProviderStatus>('providerOAuth:login', request),
+    cancelLogin: (request: { target: OAuthProviderTarget }) =>
+      invoke<OAuthProviderStatus>('providerOAuth:cancelLogin', request),
+    logout: (request: { target: OAuthProviderTarget }) =>
+      invoke<OAuthProviderStatus>('providerOAuth:logout', request),
+    onChanged: (cb: (status: OAuthProviderStatus) => void) =>
+      subscribe('providerOAuth:changed', cb as Callback),
   },
 
   // AI Commander
@@ -392,7 +414,7 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       message: string,
       history: Array<Record<string, unknown>>,
       selectedNodeIds: string[],
-      promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>,
+      promptGuides?: CommanderPromptGuide[],
       customLLMProvider?: LLMProviderRuntimeConfig,
       permissionMode?: 'danger' | 'auto' | 'normal' | 'strict',
       locale?: string,

@@ -7,10 +7,10 @@
  * thresholds only ever go up, never down.
  *
  * Usage:
- *   npx tsx scripts/ratchet-coverage.ts          # dry-run (report only)
- *   npx tsx scripts/ratchet-coverage.ts --write   # apply updates to vitest.config.ts
+ *   pnpm exec tsx scripts/ratchet-coverage.ts          # dry-run (report only)
+ *   pnpm exec tsx scripts/ratchet-coverage.ts --write   # apply updates to vitest.config.ts
  *
- * Prerequisites: run `npx vitest run --coverage` first so that
+ * Prerequisites: run `pnpm exec vitest run --coverage` first so that
  * `coverage/coverage-summary.json` exists.
  */
 import { readFile, writeFile } from 'node:fs/promises';
@@ -123,7 +123,7 @@ async function main(): Promise<void> {
   } catch {
     console.error(
       'ratchet-coverage: coverage/coverage-summary.json not found.\n' +
-        'Run `npx vitest run --coverage` first.',
+        'Run `pnpm exec vitest run --coverage` first.',
     );
     process.exitCode = 1;
     return;

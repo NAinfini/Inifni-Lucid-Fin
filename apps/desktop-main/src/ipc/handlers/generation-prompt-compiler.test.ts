@@ -36,6 +36,7 @@ import {
   hasPresetTracks,
   loadCurrentProjectStyleGuide,
   resolveCharacterEntities,
+  resolveEntityRefsAndImages,
   resolveLocationEntities,
   resolveStandaloneEquipment,
   resolveVideoFrameReferenceImages,
@@ -678,6 +679,143 @@ describe('findConnectedImageHash', () => {
 
     const result = findConnectedImageHash(canvas, 'vid-1');
     expect(result).toBe('outgoing-hash');
+  });
+});
+
+// ===========================================================================
+// resolveEntityRefsAndImages
+// ===========================================================================
+
+describe('resolveEntityRefsAndImages', () => {
+  it('uses only the explicitly selected character image', () => {
+    const character = makeCharacter('char-1', {
+      referenceImages: [
+        { slot: 'full-sheet', assetHash: 'char-sheet', isStandard: true },
+        { slot: 'extra-angle:left', assetHash: 'char-left', isStandard: false },
+      ],
+    });
+    const db = makeDb({ getCharacter: vi.fn(() => character) });
+    const node = makeImageNode('image-reference-selection', {
+      characterRefs: [
+        {
+          characterId: 'char-1',
+          loadoutId: '',
+          angleSlot: 'extra-angle:left',
+          referenceImageHash: 'char-left',
+        },
+      ],
+    });
+
+    expect(resolveEntityRefsAndImages(db, node)).toEqual({
+      referenceImages: ['char-left'],
+      referenceBindings: [{ entityType: 'character', entityId: 'char-1', imageHash: 'char-left' }],
+      characterRefs: [{ entityId: 'char-1', imageHashes: ['char-left'] }],
+      equipmentRefs: undefined,
+      locationRefs: undefined,
+    });
+  });
+
+  it('resolves a location slot without adding the entity other images', () => {
+    const location = makeLocation('loc-1', {
+      referenceImages: [
+        { slot: 'bible', assetHash: 'location-bible', isStandard: true },
+        { slot: 'fake-360', assetHash: 'location-360', isStandard: true },
+      ],
+    });
+    const db = makeDb({ getLocation: vi.fn(() => location) });
+    const node = makeVideoNode('video-location-selection', {
+      locationRefs: [{ locationId: 'loc-1', angleSlot: 'fake-360' }],
+    });
+
+    const result = resolveEntityRefsAndImages(db, node);
+    expect(result.referenceImages).toEqual(['location-360']);
+    expect(result.locationRefs).toEqual([{ entityId: 'loc-1', imageHashes: ['location-360'] }]);
+  });
+
+  it('normalizes legacy location aliases while preferring an exact canonical slot', () => {
+    const currentLocation = makeLocation('loc-current', {
+      referenceImages: [
+        { slot: 'wide-establishing', assetHash: 'legacy-wide', isStandard: true },
+        { slot: 'bible', assetHash: 'current-bible', isStandard: true },
+      ],
+    });
+    const legacyLocation = makeLocation('loc-legacy', {
+      referenceImages: [{ slot: 'wide_establishing', assetHash: 'legacy-only', isStandard: true }],
+    });
+    const db = makeDb({
+      getLocation: vi.fn((id) => (id === 'loc-current' ? currentLocation : legacyLocation)),
+    });
+
+    expect(
+      resolveEntityRefsAndImages(
+        db,
+        makeImageNode('exact-location', {
+          locationRefs: [{ locationId: 'loc-current', angleSlot: 'bible' }],
+        }),
+      ).referenceImages,
+    ).toEqual(['current-bible']);
+    expect(
+      resolveEntityRefsAndImages(
+        db,
+        makeImageNode('legacy-location', {
+          locationRefs: [{ locationId: 'loc-legacy', angleSlot: 'main' }],
+        }),
+      ).referenceImages,
+    ).toEqual(['legacy-only']);
+  });
+
+  it('accepts an unselected entity only when exactly one active image exists', () => {
+    const equipment = makeEquipment('eq-1', {
+      referenceImages: [{ slot: 'ortho-grid', assetHash: 'equipment-grid', isStandard: true }],
+    });
+    const db = makeDb({ getEquipment: vi.fn(() => equipment) });
+    const node = makeImageNode('image-single-equipment', {
+      equipmentRefs: [{ equipmentId: 'eq-1' }],
+    });
+
+    expect(resolveEntityRefsAndImages(db, node).referenceImages).toEqual(['equipment-grid']);
+  });
+
+  it('fails with node and entity context when a multi-image ref has no selector', () => {
+    const location = makeLocation('loc-ambiguous', {
+      referenceImages: [
+        { slot: 'bible', assetHash: 'location-bible', isStandard: true },
+        { slot: 'fake-360', assetHash: 'location-360', isStandard: true },
+      ],
+    });
+    const db = makeDb({ getLocation: vi.fn(() => location) });
+    const node = makeImageNode('image-ambiguous-location', {
+      locationRefs: [{ locationId: 'loc-ambiguous' }],
+    });
+
+    expect(() => resolveEntityRefsAndImages(db, node)).toThrow(
+      /Node "image-ambiguous-location" location reference "loc-ambiguous".*choose angleSlot or referenceImageHash/i,
+    );
+  });
+
+  it('fails instead of silently dropping a missing entity', () => {
+    const db = makeDb({ getCharacter: vi.fn(() => undefined) });
+    const node = makeImageNode('image-missing-character', {
+      characterRefs: [{ characterId: 'missing-character', loadoutId: '' }],
+    });
+
+    expect(() => resolveEntityRefsAndImages(db, node)).toThrow(
+      /Node "image-missing-character" character reference "missing-character": entity was not found/i,
+    );
+  });
+
+  it('rejects an explicit hash that is not assigned to the referenced entity', () => {
+    const character = makeCharacter('char-1', {
+      referenceImages: [{ slot: 'full-sheet', assetHash: 'known-hash', isStandard: true }],
+    });
+    const db = makeDb({ getCharacter: vi.fn(() => character) });
+    const node = makeImageNode('image-foreign-hash', {
+      characterRefs: [{ characterId: 'char-1', loadoutId: '', referenceImageHash: 'foreign-hash' }],
+    });
+
+    expect(() => resolveEntityRefsAndImages(db, node)).toThrow(
+      /selected image hash "foreign-hash" is not assigned to this entity/i,
+    );
   });
 });
 

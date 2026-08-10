@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { listBuiltinLLMProviderPresets } from '@lucid-fin/contracts';
+import { listBuiltinLLMProviderPresets, listBuiltinMediaProviders } from '@lucid-fin/contracts';
 import { enUSMessages } from '../../i18n.messages.en-US.js';
 import { zhCNMessages } from '../../i18n.messages.zh-CN.js';
 import {
@@ -20,6 +20,34 @@ function toDefaultStateSummary(group: keyof typeof PROVIDER_REGISTRY) {
 }
 
 describe('provider registry metadata', () => {
+  it('exposes independent OAuth slots for ChatGPT and every Gemini media capability', () => {
+    const targets = [
+      PROVIDER_REGISTRY.llm.find((provider) => provider.id === 'chatgpt-oauth')?.oauthTarget,
+      PROVIDER_REGISTRY.image.find((provider) => provider.id === 'codex-imagegen')?.oauthTarget,
+      PROVIDER_REGISTRY.llm.find((provider) => provider.id === 'gemini-oauth')?.oauthTarget,
+      PROVIDER_REGISTRY.image.find((provider) => provider.id === 'google-image-oauth')?.oauthTarget,
+      PROVIDER_REGISTRY.video.find((provider) => provider.id === 'google-video-oauth')?.oauthTarget,
+      PROVIDER_REGISTRY.vision.find((provider) => provider.id === 'gemini-vision-oauth')
+        ?.oauthTarget,
+    ];
+
+    expect(targets).toEqual([
+      { provider: 'chatgpt', capability: 'llm' },
+      { provider: 'chatgpt', capability: 'image' },
+      { provider: 'gemini', capability: 'llm' },
+      { provider: 'gemini', capability: 'image' },
+      { provider: 'gemini', capability: 'video' },
+      { provider: 'gemini', capability: 'vision' },
+    ]);
+    expect(
+      PROVIDER_REGISTRY.llm
+        .filter((provider) =>
+          ['chatgpt-oauth', 'openai', 'claude', 'gemini', 'gemini-oauth'].includes(provider.id),
+        )
+        .every((provider) => provider.capabilities.includes('image-understanding')),
+    ).toBe(true);
+  });
+
   it('defines provider metadata with docs, key links, and hub model guidance', () => {
     expect(PROVIDER_REGISTRY.llm.map(({ id }) => id)).toEqual(
       expect.arrayContaining(['openai', 'claude', 'gemini', 'openrouter', 'ollama-local']),
@@ -88,7 +116,7 @@ describe('provider registry metadata', () => {
     });
 
     expect(getProviderMetadata('image', 'openai-image')).toMatchObject({
-      capabilities: ['text-to-image'],
+      capabilities: ['text-to-image', 'image-to-image'],
       defaultResolution: '1024x1024',
       outputFormats: ['png', 'jpeg', 'webp'],
     });
@@ -128,13 +156,31 @@ describe('provider registry metadata', () => {
         model: provider.model,
         protocol: provider.protocol,
         authStyle: provider.authStyle,
+        contextWindow: provider.contextWindow,
       }).toEqual({
         id: preset!.id,
         baseUrl: preset!.baseUrl,
         model: preset!.model,
         protocol: preset!.protocol,
         authStyle: preset!.authStyle,
+        contextWindow: preset!.contextWindow,
       });
+    }
+  });
+
+  it('keeps image and video settings aligned with the shared media catalog', () => {
+    for (const group of ['image', 'video'] as const) {
+      const expected = listBuiltinMediaProviders(group).map((entry) => ({
+        id: entry.providerId,
+        baseUrl: entry.baseUrl,
+        model: entry.model,
+      }));
+      const actual = PROVIDER_REGISTRY[group].map((entry) => ({
+        id: entry.id,
+        baseUrl: entry.baseUrl,
+        model: entry.model,
+      }));
+      expect(actual).toEqual(expected);
     }
   });
 });
@@ -319,7 +365,10 @@ describe('settings defaults', () => {
       'custom-llm-1',
     ]);
     expect(restored.llm.providers.find((provider) => provider.id === 'openai')?.model).toBe(
-      'gpt-5.4',
+      'gpt-5.6-sol',
+    );
+    expect(restored.llm.providers.find((provider) => provider.id === 'qwen')?.model).toBe(
+      'qwen3.7-max',
     );
     expect(restored.llm.providers.find((provider) => provider.id === 'custom-llm-1')).toMatchObject(
       {
@@ -400,8 +449,8 @@ describe('settings defaults', () => {
       id: 'openai',
       name: 'OpenAI',
       baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-5.4',
-      protocol: 'openai-compatible',
+      model: 'gpt-5.6-sol',
+      protocol: 'openai-responses',
       authStyle: 'bearer',
     });
   });
@@ -565,6 +614,47 @@ describe('buildSparseSettings', () => {
 
     const sparse = buildSparseSettings(state);
     expect(sparse.llm.providers[0]).toHaveProperty('hasKey', true);
+  });
+
+  it('does not persist OAuth readiness as an API-key fact', () => {
+    let state = settingsSlice.reducer(undefined, { type: '@@INIT' });
+    state = settingsSlice.reducer(
+      state,
+      settingsSlice.actions.setProviderHasKey({
+        group: 'llm',
+        provider: 'chatgpt-oauth',
+        hasKey: true,
+      }),
+    );
+
+    const sparse = buildSparseSettings(state);
+    expect(
+      sparse.llm.providers.find((provider) => provider.id === 'chatgpt-oauth'),
+    ).toBeUndefined();
+  });
+
+  it('clears stale persisted OAuth readiness during settings restore', () => {
+    const restored = settingsSlice.reducer(undefined, {
+      type: settingsSlice.actions.restore.type,
+      payload: {
+        llm: {
+          providers: [
+            {
+              id: 'chatgpt-oauth',
+              name: 'ChatGPT (OAuth)',
+              baseUrl: 'https://chatgpt.com',
+              model: 'codex',
+              hasKey: true,
+              isCustom: false,
+            },
+          ],
+        },
+      },
+    });
+
+    expect(restored.llm.providers.find((provider) => provider.id === 'chatgpt-oauth')?.hasKey).toBe(
+      false,
+    );
   });
 
   it('preserves renderPreset', () => {
@@ -806,6 +896,39 @@ describe('provider merge on restore', () => {
     });
     const provider = state.llm.providers.find((p) => p.id === 'openai');
     expect(provider!.model).toBe(defaultProvider!.model);
+  });
+
+  it('migrates retired built-in defaults without overwriting local model choices', () => {
+    const state = restoreWith({
+      llm: {
+        providers: [
+          {
+            id: 'moonshot',
+            name: 'Moonshot / Kimi',
+            baseUrl: 'https://api.moonshot.cn/v1',
+            model: 'kimi-k2.5',
+            hasKey: true,
+            isCustom: false,
+          },
+          {
+            id: 'ollama-local',
+            name: 'Ollama',
+            baseUrl: 'http://localhost:11434/v1',
+            model: 'llama3.1',
+            hasKey: false,
+            isCustom: false,
+          },
+        ],
+      },
+    });
+
+    expect(state.llm.providers.find((provider) => provider.id === 'moonshot')).toMatchObject({
+      baseUrl: 'https://api.moonshot.ai/v1',
+      model: 'kimi-k3',
+    });
+    expect(state.llm.providers.find((provider) => provider.id === 'ollama-local')?.model).toBe(
+      'llama3.1',
+    );
   });
 
   it('restores custom providers alongside built-in ones', () => {

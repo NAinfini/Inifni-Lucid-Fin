@@ -3,6 +3,8 @@ import type { CharacterRef } from './character.js';
 import type { EquipmentRef } from './equipment.js';
 import type { LocationRef } from './location.js';
 import type { NodeKind } from '../types/node-kinds.js';
+import type { ResolutionAudit, ResolutionIntent, ResolutionPolicy } from './resolution.js';
+import type { CanvasVisualStylePolicy } from './visual-style.js';
 
 // ---------------------------------------------------------------------------
 // Canvas DTOs — shared between main and renderer
@@ -38,6 +40,8 @@ export interface GenerationHistoryEntry {
   scheduler?: string;
   img2imgStrength?: number;
   model?: string;
+  /** Unified requested/resolved/actual output facts for this generation. */
+  resolution?: ResolutionAudit;
 }
 
 // --- Node annotation --------------------------------------------------------
@@ -67,6 +71,8 @@ export interface ImageNodeData {
   sourceImageHash?: string;
   width?: number;
   height?: number;
+  /** Explicit node override. Missing means inherit the Canvas policy. */
+  resolutionIntent?: ResolutionIntent;
   seed?: number;
   seedLocked?: boolean;
   variants: string[];
@@ -99,6 +105,8 @@ export interface VideoNodeData {
   status: MediaNodeStatus;
   width?: number;
   height?: number;
+  /** Explicit node override. Missing means inherit the Canvas policy. */
+  resolutionIntent?: ResolutionIntent;
   duration?: number;
   fps?: number;
   prompt?: string;
@@ -289,16 +297,15 @@ export interface CanvasResolution {
  * final effective value by layering canvas fields over global defaults.
  */
 export interface CanvasSettings {
+  /** Canonical manual/pre-approval visual style. Approved workflows ignore it. */
+  visualStylePolicy?: CanvasVisualStylePolicy;
   /**
-   * Free-form style prompt describing the visual look of this canvas/video.
-   * Prepended to every ref-image prompt as the leading style anchor. Both
-   * the user and Commander AI can edit this.
+   * Legacy compatibility mirror for visualStylePolicy.summary. New writers
+   * persist both until old clients are retired.
    */
   stylePlate?: string;
   /**
-   * Free-form negative prompt. Appended to every ref-image prompt as an
-   * "Avoid: …" trailing segment. Typical content: "text, watermark,
-   * blurry, low-quality, extra limbs".
+   * Legacy compatibility mirror for visualStylePolicy.negativeConstraints.
    */
   negativePrompt?: string;
   /**
@@ -322,6 +329,8 @@ export interface CanvasSettings {
    * 4K output).
    */
   publishVideoResolution?: CanvasResolution;
+  /** Canonical media resolution policy. Legacy pixel fields remain readable. */
+  resolutionPolicy?: ResolutionPolicy;
   /** Publishing aspect ratio. Does NOT govern ref-image layout (those are layout-driven). */
   aspectRatio?: CanvasAspectRatio;
   /** Provider id for LLM calls in this canvas (Commander). */

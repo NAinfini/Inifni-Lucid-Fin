@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Canvas } from '@lucid-fin/contracts';
+import type { Canvas, ImageNodeData } from '@lucid-fin/contracts';
 import { deriveNodeStatus } from '@lucid-fin/contracts';
 import {
   addNode,
@@ -298,12 +298,14 @@ describe('canvas generation reducers', () => {
       expect.objectContaining({
         width: 2048,
         height: 2048,
+        resolutionIntent: { mode: 'exact', width: 2048, height: 2048 },
       }),
     );
     expect(videoNode?.data).toEqual(
       expect.objectContaining({
         width: 1920,
         height: 1080,
+        resolutionIntent: { mode: 'exact', width: 1920, height: 1080 },
         duration: 8,
         fps: 60,
       }),
@@ -326,6 +328,38 @@ describe('canvas generation reducers', () => {
         fps: 30,
       }),
     );
+  });
+
+  it('distinguishes provider defaults from Canvas inheritance and clears legacy pixels', () => {
+    let state = setup();
+    state = canvasSlice.reducer(
+      state,
+      setNodeResolution({
+        id: 'img-1',
+        intent: { mode: 'provider-default', aspectRatio: '16:9' },
+      }),
+    );
+
+    let data = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1')!
+      .data as ImageNodeData;
+    expect(data.resolutionIntent).toEqual({ mode: 'provider-default', aspectRatio: '16:9' });
+    expect(data.width).toBeUndefined();
+    expect(data.height).toBeUndefined();
+
+    state = canvasSlice.reducer(
+      state,
+      setNodeResolution({ id: 'img-1', intent: { mode: 'tier', tier: '2K' } }),
+    );
+    data = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1')!
+      .data as ImageNodeData;
+    expect(data.resolutionIntent).toEqual({ mode: 'tier', tier: '2K' });
+
+    state = canvasSlice.reducer(state, setNodeResolution({ id: 'img-1', intent: null }));
+    data = state.canvases.entities['canvas-1']!.nodes.find((n) => n.id === 'img-1')!
+      .data as ImageNodeData;
+    expect(data.resolutionIntent).toBeUndefined();
+    expect(data.width).toBeUndefined();
+    expect(data.height).toBeUndefined();
   });
 
   it('is a no-op for generation actions on text nodes', () => {

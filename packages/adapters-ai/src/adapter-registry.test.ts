@@ -33,6 +33,28 @@ describe('AdapterRegistry', () => {
     expect(reg.get('nope')).toBeUndefined();
   });
 
+  it('resolves a built-in provider alias to its registered canonical adapter', () => {
+    const reg = new AdapterRegistry();
+    const adapter = mockAdapter('seedance-2', 'video');
+    reg.register(adapter);
+    expect(reg.get('seedance')).toBe(adapter);
+  });
+
+  it('resolves built-in providers with image/video-aware transport mappings', () => {
+    const reg = new AdapterRegistry();
+    const imageAdapter = mockAdapter('openai-dalle', 'image');
+    const sharedHub = {
+      ...mockAdapter('together-ai', 'image'),
+      type: ['image', 'video'] as AdapterType[],
+    };
+    reg.register(imageAdapter);
+    reg.register(sharedHub);
+
+    expect(reg.resolve('openai-image', 'image')).toBe(imageAdapter);
+    expect(reg.resolve('together', 'image')).toBe(sharedHub);
+    expect(reg.resolve('together', 'video')).toBe(sharedHub);
+  });
+
   it('lists all adapters', () => {
     const reg = new AdapterRegistry();
     reg.register(mockAdapter('a', 'image'));

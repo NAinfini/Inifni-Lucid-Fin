@@ -12,6 +12,7 @@ import {
   createConfiguredLLMAdapter,
   getLLMProviderLogFields,
   resolveLLMProviderRuntimeConfig,
+  requiresLLMProviderApiKey,
 } from '../../llm-provider-runtime.js';
 import { isStoredKeyAllowedForBaseUrl } from './provider-host-allowlist.js';
 
@@ -59,11 +60,13 @@ export async function selectConfiguredAdapter(
         `Provider "${runtimeConfig.name}" base URL is not permitted for its stored key.`,
       );
     }
-    const apiKey = await keychain.getKey(runtimeConfig.id);
+    const apiKey = requiresLLMProviderApiKey(runtimeConfig)
+      ? await keychain.getKey(runtimeConfig.id)
+      : null;
     const configuredAdapter = createConfiguredLLMAdapter(llmRegistry, runtimeConfig, apiKey);
     const source = isRegistered ? 'selected-registered-provider' : 'selected-custom-provider';
 
-    if (!apiKey && runtimeConfig.authStyle !== 'none') {
+    if (!apiKey && requiresLLMProviderApiKey(runtimeConfig)) {
       logAttempt('warn', 'Selected LLM provider has no stored API key', {
         ...getLLMProviderLogFields(runtimeConfig),
         source,

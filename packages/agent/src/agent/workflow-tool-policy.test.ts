@@ -21,31 +21,50 @@ describe('workflow tool policy', () => {
     expect(getWorkflowToolDenial(policy('production_plan_pending'), 'canvas.createNodes')).toMatch(
       /Production Plan/i,
     );
-    expect(getWorkflowToolDenial(policy('production_plan_pending'), 'canvas.generation')).toMatch(
-      /Production Plan/i,
-    );
+    expect(
+      getWorkflowToolDenial(policy('production_plan_pending'), 'canvas.generation', {
+        action: 'start',
+      }),
+    ).toMatch(/Production Plan/i);
     expect(getWorkflowToolDenial(policy('production_plan_pending'), 'canvas.listNodes')).toBeNull();
   });
 
   it('allows planning changes but blocks general media generation during style exploration', () => {
     expect(getWorkflowToolDenial(policy('style_exploration'), 'canvas.createNodes')).toBeNull();
-    expect(getWorkflowToolDenial(policy('style_exploration'), 'canvas.generation')).toMatch(
-      /Visual Constitution/i,
-    );
+    expect(
+      getWorkflowToolDenial(policy('style_exploration'), 'canvas.generation', {
+        action: 'start',
+      }),
+    ).toMatch(/Visual Constitution/i);
     expect(getWorkflowToolDenial(policy('style_exploration'), 'entity.generateRefImage')).toMatch(
       /Visual Constitution/i,
     );
   });
 
   it('allows media generation after Visual Constitution but blocks final export', () => {
-    expect(getWorkflowToolDenial(policy('media_generation'), 'canvas.generation')).toMatch(
-      /workflow\.media/i,
-    );
+    expect(
+      getWorkflowToolDenial(policy('media_generation'), 'canvas.generation', { action: 'start' }),
+    ).toMatch(/workflow\.media/i);
     expect(getWorkflowToolDenial(policy('media_generation'), 'entity.generateRefImage')).toMatch(
       /reference sheets|workflow\.media/i,
     );
     expect(getWorkflowToolDenial(policy('media_generation'), 'workflow.media')).toBeNull();
-    expect(getWorkflowToolDenial(policy('media_generation'), 'workflow.finalExport')).toBeNull();
+    expect(getWorkflowToolDenial(policy('media_generation'), 'workflow.mediaFeedback')).toBeNull();
+    expect(
+      getWorkflowToolDenial(policy('media_generation'), 'canvas.updateNodes', {
+        nodeId: 'shot-1',
+        set: { prompt: 'replace everything' },
+      }),
+    ).toMatch(/workflow\.mediaFeedback/i);
+    expect(
+      getWorkflowToolDenial(policy('media_generation'), 'canvas.updateNodes', {
+        nodeId: 'shot-1',
+        set: { title: 'Shot 1' },
+      }),
+    ).toBeNull();
+    expect(getWorkflowToolDenial(policy('media_generation'), 'workflow.finalExport')).toMatch(
+      /only after.*assembly/i,
+    );
     expect(getWorkflowToolDenial(policy('media_generation'), 'render.start')).toMatch(
       /final export/i,
     );
@@ -72,23 +91,91 @@ describe('workflow tool policy', () => {
     expect(
       getWorkflowToolDenial(policy('final_export_approved'), 'render.exportBundle'),
     ).toBeNull();
+    expect(
+      getWorkflowToolDenial(policy('final_export_approved'), 'canvas.generation', {
+        action: 'refine',
+      }),
+    ).toMatch(/frozen|workflow revision/i);
   });
 
-  it('does not expose Final Export preparation outside media generation', () => {
+  it('hides the composite Canvas generation schema while retaining direct safe actions', () => {
+    for (const phase of [
+      'production_plan_pending',
+      'style_exploration',
+      'media_generation',
+      'final_export_pending',
+      'final_export_approved',
+      'blocked',
+    ] as const) {
+      expect(getWorkflowToolDenial(policy(phase), 'canvas.generation')).not.toBeNull();
+      expect(
+        getWorkflowToolDenial(policy(phase), 'canvas.generation', { action: 'estimate' }),
+      ).toBeNull();
+      expect(
+        getWorkflowToolDenial(policy(phase), 'canvas.generation', { action: 'cancel' }),
+      ).toBeNull();
+    }
+    expect(
+      getWorkflowToolDenial(policy('media_generation'), 'canvas.generation', { action: 'start' }),
+    ).toMatch(/workflow\.media/i);
+    expect(
+      getWorkflowToolDenial(policy('media_generation'), 'canvas.generation', { action: 'refine' }),
+    ).toMatch(/workflow\.media/i);
+    expect(
+      getWorkflowToolDenial(policy('media_generation'), 'tool.get', {
+        names: ['canvas.generation'],
+      }),
+    ).toMatch(/unavailable/i);
+  });
+
+  it('keeps the approved Visual Constitution authoritative over Canvas draft edits', () => {
+    expect(
+      getWorkflowToolDenial(policy('media_generation'), 'canvas.setSettings', {
+        visualStylePolicy: { version: 1, summary: 'replace the whole look' },
+      }),
+    ).toMatch(/Visual Constitution/i);
+    expect(
+      getWorkflowToolDenial(policy('final_export_approved'), 'canvas.updateNodes', {
+        nodeId: 'shot-1',
+        set: { prompt: 'replace the approved style' },
+      }),
+    ).toMatch(/workflow\.mediaFeedback/i);
+  });
+
+  it('exposes Final Export preparation only during its dedicated phase', () => {
     expect(getWorkflowToolDenial(undefined, 'workflow.finalExport')).toMatch(/persistent video/i);
     expect(getWorkflowToolDenial(policy('style_exploration'), 'workflow.finalExport')).toMatch(
       /only after media generation/i,
     );
+    expect(
+      getWorkflowToolDenial(policy('final_export_preparation'), 'workflow.finalExport'),
+    ).toBeNull();
   });
 
-  it('exposes persistent production media only during media generation', () => {
+  it('exposes task-bound production media only for reference and shot generation', () => {
     expect(getWorkflowToolDenial(undefined, 'workflow.media')).toMatch(/persistent video/i);
     expect(getWorkflowToolDenial(policy('style_exploration'), 'workflow.media')).toMatch(
-      /only after/i,
+      /reference-assets|production-shot/i,
     );
+    expect(
+      getWorkflowToolDenial(
+        { ...policy('preproduction'), currentTaskRole: 'references' },
+        'workflow.media',
+      ),
+    ).toBeNull();
     expect(getWorkflowToolDenial(policy('media_generation'), 'workflow.media')).toBeNull();
     expect(getWorkflowToolDenial(policy('final_export_pending'), 'workflow.media')).toMatch(
-      /only after|before Final Export/i,
+      /reference-assets|production-shot/i,
+    );
+  });
+
+  it('allows exact media feedback through assembly preparation but freezes it at export', () => {
+    expect(getWorkflowToolDenial(policy('assembly'), 'workflow.mediaFeedback')).toBeNull();
+    expect(
+      getWorkflowToolDenial(policy('final_export_preparation'), 'workflow.mediaFeedback'),
+    ).toMatch(/before assembly/i);
+    expect(getWorkflowToolDenial(policy('final_export_pending'), 'workflow.mediaFeedback')).toMatch(
+      /before assembly/i,
     );
   });
 

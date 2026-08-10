@@ -1,4 +1,8 @@
-import type { LLMProviderProtocol, LLMProviderAuthStyle } from '@lucid-fin/contracts';
+import type {
+  LLMProviderProtocol,
+  LLMProviderAuthStyle,
+  OAuthProviderTarget,
+} from '@lucid-fin/contracts';
 import { setCrashReportEnabled } from '../crash-reporter.js';
 
 interface ProviderInfo {
@@ -10,6 +14,9 @@ interface ProviderInfo {
   hasKey: boolean;
   protocol?: LLMProviderProtocol;
   authStyle?: LLMProviderAuthStyle;
+  credentialMode?: 'api-key' | 'oauth' | 'none';
+  oauthTarget?: OAuthProviderTarget;
+  supportsVision?: boolean;
 }
 
 interface SettingsCache {
@@ -71,6 +78,13 @@ function extractProviderGroup(
         typeof p.authStyle === 'string' && VALID_AUTH_STYLES.has(p.authStyle)
           ? (p.authStyle as LLMProviderAuthStyle)
           : undefined,
+      credentialMode:
+        p.credentialMode === 'oauth' || p.credentialMode === 'none' ? p.credentialMode : 'api-key',
+      oauthTarget:
+        typeof p.oauthTarget === 'object' && p.oauthTarget !== null
+          ? (p.oauthTarget as OAuthProviderTarget)
+          : undefined,
+      supportsVision: Boolean(p.supportsVision),
     })),
   };
 }

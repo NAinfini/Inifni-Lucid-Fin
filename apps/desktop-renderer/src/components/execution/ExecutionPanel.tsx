@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import {
   AlertTriangle,
@@ -14,10 +14,12 @@ import {
   cancelWorkflow,
   loadWorkflowStages,
   loadWorkflowTasks,
+  loadWorkflows,
   pauseWorkflow,
   resumeWorkflow,
 } from '../../store/slices/workflows.js';
 import { t } from '../../i18n.js';
+import { QuestionCard } from '../canvas/commander/QuestionCard.js';
 import { WorkflowDetailDrawer } from './WorkflowDetailDrawer.js';
 
 const STATUS_BADGE: Record<string, string> = {
@@ -83,27 +85,216 @@ function statusLabel(status: string): string {
   }
 }
 
-export function ExecutionPanel() {
+type ExecutionPanelProps = {
+  entityId?: string;
+};
+
+type WorkflowDecisionOption = {
+  id: string;
+  label: string;
+  description?: string;
+};
+
+type PendingWorkflowDecision = {
+  id: string;
+  workflowRunId: string;
+  canvasId: string;
+  questionId: string;
+  question: string;
+  options: WorkflowDecisionOption[];
+  allowFreeText: boolean;
+  status: 'pending' | 'recovery_required';
+};
+
+type WorkflowDecisionListApi = {
+  listPendingDecisions: (filter: { canvasId: string }) => Promise<unknown>;
+};
+
+type CommanderQuestionApi = {
+  answerQuestion: (canvasId: string, questionId: string, answer: string) => Promise<void>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isWorkflowDecisionOption(value: unknown): value is WorkflowDecisionOption {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.label === 'string' &&
+    (value.description === undefined || typeof value.description === 'string')
+  );
+}
+
+function isPendingWorkflowDecision(value: unknown): value is PendingWorkflowDecision {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.workflowRunId === 'string' &&
+    typeof value.canvasId === 'string' &&
+    typeof value.questionId === 'string' &&
+    typeof value.question === 'string' &&
+    Array.isArray(value.options) &&
+    value.options.every(isWorkflowDecisionOption) &&
+    typeof value.allowFreeText === 'boolean' &&
+    (value.status === 'pending' || value.status === 'recovery_required')
+  );
+}
+
+function hasWorkflowDecisionList(value: unknown): value is WorkflowDecisionListApi {
+  return (
+    isRecord(value) &&
+    'listPendingDecisions' in value &&
+    typeof value.listPendingDecisions === 'function'
+  );
+}
+
+function hasCommanderQuestionApi(value: unknown): value is CommanderQuestionApi {
+  return isRecord(value) && 'answerQuestion' in value && typeof value.answerQuestion === 'function';
+}
+
+function pendingWorkflowDecisions(value: unknown, canvasId: string): PendingWorkflowDecision[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.filter(
+    (decision): decision is PendingWorkflowDecision =>
+      isPendingWorkflowDecision(decision) && decision.canvasId === canvasId,
+  );
+}
+
+export function ExecutionPanel({ entityId }: ExecutionPanelProps) {
   const dispatch = useDispatch();
   const { allIds, summariesById, stagesByWorkflowId, tasksByWorkflowId } = useSelector(
     (state: RootState) => state.workflows,
   );
   const [expandedWorkflowId, setExpandedWorkflowId] = useState<string | null>(null);
   const [reviewWorkflowId, setReviewWorkflowId] = useState<string | null>(null);
+  const [decisions, setDecisions] = useState<PendingWorkflowDecision[]>([]);
+  const [decisionsLoading, setDecisionsLoading] = useState(false);
+  const [decisionLoadError, setDecisionLoadError] = useState<string | null>(null);
+  const [answeringDecisionId, setAnsweringDecisionId] = useState<string | null>(null);
+  const [decisionAnswerError, setDecisionAnswerError] = useState<{
+    decisionId: string;
+    message: string;
+  } | null>(null);
+  const [decisionRefreshVersion, setDecisionRefreshVersion] = useState(0);
 
   const workflows = useMemo(() => {
     return allIds
       .map((id) => summariesById[id])
       .filter((workflow): workflow is NonNullable<typeof workflow> => !!workflow)
+      .filter((workflow) => !entityId || workflow.entityId === entityId)
       .filter((workflow) => VISIBLE_STATUSES.has(workflow.status));
-  }, [allIds, summariesById]);
+  }, [allIds, entityId, summariesById]);
+
+  const workflowRefreshKey = useMemo(
+    () =>
+      workflows
+        .map((workflow) => `${workflow.id}:${workflow.status}:${workflow.updatedAt}`)
+        .join('|'),
+    [workflows],
+  );
+
+  const refreshWorkflowDetails = useCallback(
+    (workflowRunIds: Iterable<string>) => {
+      for (const workflowRunId of new Set(workflowRunIds)) {
+        if (!workflowRunId) continue;
+        dispatch(loadWorkflowStages(workflowRunId));
+        dispatch(loadWorkflowTasks(workflowRunId));
+      }
+    },
+    [dispatch],
+  );
+
+  useEffect(() => {
+    if (!entityId) return;
+    refreshWorkflowDetails(workflows.map((workflow) => workflow.id));
+  }, [entityId, refreshWorkflowDetails, workflows]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!entityId) {
+      setDecisions([]);
+      setDecisionLoadError(null);
+      setDecisionsLoading(false);
+      return;
+    }
+
+    const workflowApi: unknown = window.lucidAPI?.workflow;
+    if (!hasWorkflowDecisionList(workflowApi)) {
+      setDecisions([]);
+      setDecisionLoadError(null);
+      setDecisionsLoading(false);
+      return;
+    }
+
+    setDecisionsLoading(true);
+    setDecisionLoadError(null);
+    void workflowApi
+      .listPendingDecisions({ canvasId: entityId })
+      .then((result) => {
+        if (cancelled) return;
+
+        const loadedDecisions = pendingWorkflowDecisions(result, entityId);
+        setDecisions(loadedDecisions);
+        refreshWorkflowDetails(loadedDecisions.map((decision) => decision.workflowRunId));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setDecisionLoadError(error instanceof Error ? error.message : String(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDecisionsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [decisionRefreshVersion, entityId, refreshWorkflowDetails, workflowRefreshKey]);
+
+  const answerDecision = useCallback(
+    async (decision: PendingWorkflowDecision, answer: string) => {
+      if (!entityId || !answer.trim()) return;
+
+      const commanderApi: unknown = window.lucidAPI?.commander;
+      if (!hasCommanderQuestionApi(commanderApi)) {
+        setDecisionAnswerError({
+          decisionId: decision.id,
+          message: t('execution.decisions.answerUnavailable'),
+        });
+        return;
+      }
+
+      setAnsweringDecisionId(decision.id);
+      setDecisionAnswerError(null);
+      try {
+        await commanderApi.answerQuestion(entityId, decision.questionId, answer.trim());
+        refreshWorkflowDetails([decision.workflowRunId]);
+        dispatch(loadWorkflows({ entityType: 'canvas' }));
+        setDecisionRefreshVersion((version) => version + 1);
+      } catch (error) {
+        setDecisionAnswerError({
+          decisionId: decision.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        setAnsweringDecisionId(null);
+      }
+    },
+    [dispatch, entityId, refreshWorkflowDetails],
+  );
 
   const activeCount = workflows.filter((workflow) => ACTIVE_STATUSES.has(workflow.status)).length;
   const attentionCount = workflows.filter((workflow) =>
     ATTENTION_STATUSES.has(workflow.status),
   ).length;
+  const hasPanelContent =
+    workflows.length > 0 || decisions.length > 0 || decisionsLoading || decisionLoadError !== null;
 
-  if (workflows.length === 0) {
+  if (!hasPanelContent) {
     return (
       <div className="p-3 text-xs text-muted-foreground">{t('layout.noWorkflowActivity')}</div>
     );
@@ -128,6 +319,73 @@ export function ExecutionPanel() {
       </div>
 
       <div className="divide-y divide-border/70">
+        {(decisionsLoading || decisionLoadError || decisions.length > 0) && (
+          <section aria-labelledby="workflow-decisions-title" className="space-y-2 px-3 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <h2
+                id="workflow-decisions-title"
+                className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground"
+              >
+                {t('execution.decisions.title')}
+              </h2>
+              {decisionsLoading && (
+                <span role="status" className="text-[10px] text-muted-foreground">
+                  {t('execution.decisions.loading')}
+                </span>
+              )}
+            </div>
+
+            {decisionLoadError && (
+              <p
+                role="alert"
+                className="rounded-md border border-red-400/30 bg-red-500/10 px-2.5 py-2 text-xs text-red-200"
+              >
+                {decisionLoadError}
+              </p>
+            )}
+
+            {decisions.map((decision) =>
+              decision.status === 'pending' ? (
+                <div
+                  key={decision.id}
+                  className="rounded-lg border border-blue-400/25 bg-blue-500/[0.03] py-1"
+                >
+                  <QuestionCard
+                    question={decision.question}
+                    options={decision.options}
+                    allowFreeText={decision.allowFreeText}
+                    disabled={answeringDecisionId !== null}
+                    onAnswer={(answer) => {
+                      void answerDecision(decision, answer);
+                    }}
+                    t={t}
+                  />
+                  {decisionAnswerError?.decisionId === decision.id && (
+                    <p role="alert" className="mx-3 mb-2 text-xs text-red-300">
+                      {t('execution.decisions.answerFailed')}: {decisionAnswerError.message}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <section
+                  key={decision.id}
+                  aria-label={t('execution.decisions.recoveryRequired')}
+                  className="flex gap-2 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2.5 text-amber-100"
+                >
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                  <div>
+                    <h3 className="text-xs font-medium">
+                      {t('execution.decisions.recoveryRequired')}
+                    </h3>
+                    <p className="mt-1 text-xs text-amber-100/85">
+                      {t('execution.decisions.recoveryDescription')}
+                    </p>
+                  </div>
+                </section>
+              ),
+            )}
+          </section>
+        )}
         {workflows.map((workflow) => {
           const expanded = expandedWorkflowId === workflow.id;
           const tasks = tasksByWorkflowId[workflow.id] ?? [];

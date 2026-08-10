@@ -1,6 +1,7 @@
 import { test as base, type ElectronApplication, type Page, _electron } from '@playwright/test';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 /** Repo root — two levels up from tests/e2e/ */
@@ -33,7 +34,9 @@ function resolveElectronBinary(): string {
     }
   }
 
-  throw new Error('Could not find Electron binary. Run `npm install` in the repo root first.');
+  throw new Error(
+    'Could not find Electron binary. Run `pnpm install --frozen-lockfile` in the repo root first.',
+  );
 }
 
 /** Check whether the Electron build output exists. */
@@ -42,8 +45,11 @@ export function isBuildAvailable(): boolean {
 }
 
 export type TestFixtures = {
-  electronApp: ElectronApplication;
   mainWindow: Page;
+};
+
+export type WorkerFixtures = {
+  electronApp: ElectronApplication;
 };
 
 /**
@@ -54,34 +60,46 @@ export type TestFixtures = {
  * - Provides both `electronApp` (for app-level APIs) and `mainWindow` (the
  *   first BrowserWindow's page object).
  */
-export const test = base.extend<TestFixtures>({
-  // eslint-disable-next-line no-empty-pattern
-  electronApp: async ({}, use) => {
-    const mainEntry = resolveMainEntry();
+export const test = base.extend<TestFixtures, WorkerFixtures>({
+  electronApp: [
+    // eslint-disable-next-line no-empty-pattern
+    async ({}, use) => {
+      const mainEntry = resolveMainEntry();
 
-    if (!fs.existsSync(mainEntry)) {
-      throw new Error(
-        `Electron build not found at ${mainEntry}. ` +
-          'Run `npm run build` from the repo root before running E2E tests.',
-      );
-    }
+      if (!fs.existsSync(mainEntry)) {
+        throw new Error(
+          `Electron build not found at ${mainEntry}. ` +
+            'Run `pnpm run build` from the repo root before running E2E tests.',
+        );
+      }
 
-    const electronBinary = resolveElectronBinary();
+      const electronBinary = resolveElectronBinary();
+      const appDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-fin-e2e-'));
 
-    const app = await _electron.launch({
-      executablePath: electronBinary,
-      args: [mainEntry],
-      env: {
-        ...process.env,
-        ELECTRON_IS_E2E: '1',
-        NODE_ENV: 'test',
-      },
-    });
+      const app = await _electron.launch({
+        executablePath: electronBinary,
+        args: [mainEntry],
+        env: {
+          ...process.env,
+          APPDATA: appDataDir,
+          ELECTRON_IS_E2E: '1',
+          LOCALAPPDATA: appDataDir,
+          NODE_ENV: 'test',
+        },
+      });
 
-    await use(app);
-
-    await app.close();
-  },
+      try {
+        await use(app);
+      } finally {
+        try {
+          await app.close();
+        } finally {
+          fs.rmSync(appDataDir, { recursive: true, force: true });
+        }
+      }
+    },
+    { scope: 'worker' },
+  ],
 
   mainWindow: async ({ electronApp }, use) => {
     // Wait for the first BrowserWindow to open

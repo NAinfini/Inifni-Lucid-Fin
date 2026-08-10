@@ -1,6 +1,7 @@
 {
   "name": "@lucid-fin/contracts",
   "version": "0.0.8",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "dist/index.js",

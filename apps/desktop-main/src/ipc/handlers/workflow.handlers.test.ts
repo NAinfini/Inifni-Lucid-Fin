@@ -39,8 +39,12 @@ describe('registerWorkflowHandlers', () => {
       retryTask: vi.fn(async () => undefined),
       retryStage: vi.fn(async () => undefined),
       retryWorkflow: vi.fn(async () => undefined),
+      pump: vi.fn(async () => 0),
       getPendingApprovalContext: vi.fn(() => undefined),
       approvePendingGateFromUser: vi.fn(),
+      requestChangesPendingGateFromUser: vi.fn(),
+      rejectPendingGateFromUser: vi.fn(),
+      listPendingDecisions: vi.fn(() => []),
     };
 
     registerWorkflowHandlers(
@@ -120,27 +124,37 @@ describe('registerWorkflowHandlers', () => {
   });
 
   it('logs a structured error when workflow:get misses', async () => {
+    const engine = {
+      list: vi.fn(),
+      get: vi.fn(() => undefined),
+      getStages: vi.fn(),
+      getTasks: vi.fn(),
+      start: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      cancel: vi.fn(),
+      retryTask: vi.fn(),
+      retryStage: vi.fn(),
+      retryWorkflow: vi.fn(),
+      pump: vi.fn(async () => 0),
+      getPendingApprovalContext: vi.fn(() => undefined),
+      getVisualAuditionContext: vi.fn(() => undefined),
+      getFinalExportContext: vi.fn(() => undefined),
+      approvePendingGateFromUser: vi.fn(),
+      requestChangesPendingGateFromUser: vi.fn(() => ({
+        ok: false,
+        code: 'stale_revision',
+      })),
+      rejectPendingGateFromUser: vi.fn(() => ({ ok: false, code: 'stale_revision' })),
+      listPendingDecisions: vi.fn(() => []),
+    };
     registerWorkflowHandlers(
       {
         handle(channel: string, handler: (...args: unknown[]) => unknown) {
           handlers.set(channel, handler);
         },
       } as never,
-      {
-        list: vi.fn(),
-        get: vi.fn(() => undefined),
-        getStages: vi.fn(),
-        getTasks: vi.fn(),
-        start: vi.fn(),
-        pause: vi.fn(),
-        resume: vi.fn(),
-        cancel: vi.fn(),
-        retryTask: vi.fn(),
-        retryStage: vi.fn(),
-        retryWorkflow: vi.fn(),
-        getPendingApprovalContext: vi.fn(),
-        approvePendingGateFromUser: vi.fn(),
-      } as never,
+      engine as never,
     );
 
     const get = handlers.get('workflow:get');
@@ -155,9 +169,36 @@ describe('registerWorkflowHandlers', () => {
         workflowRunId: 'missing-run',
       }),
     );
+
+    await expect(
+      handlers.get('workflow:getPendingApproval')?.({}, { workflowRunId: 'missing-run' }),
+    ).resolves.toBeNull();
+    await expect(
+      handlers.get('workflow:getVisualAuditions')?.({}, { workflowRunId: 'missing-run' }),
+    ).resolves.toBeNull();
+    await expect(
+      handlers.get('workflow:getFinalExport')?.({}, { workflowRunId: 'missing-run' }),
+    ).resolves.toBeNull();
+
+    const staleRevision = {
+      workflowRunId: 'missing-run',
+      gateKey: 'production_plan',
+      expectedRowVersion: 4,
+      expectedSubjectRevision: 2,
+      expectedSubjectHash: 'a'.repeat(64),
+      reason: 'Update the plan.',
+    };
+    await expect(
+      handlers.get('workflow:requestChanges')?.({}, staleRevision),
+    ).resolves.toMatchObject({ ok: false });
+    await expect(handlers.get('workflow:rejectGate')?.({}, staleRevision)).resolves.toMatchObject({
+      ok: false,
+    });
+    expect(engine.pump).not.toHaveBeenCalled();
   });
 
   it('exposes the exact pending revision and derives the approval actor in the main process', async () => {
+    const requestCommanderContinuation = vi.fn();
     const pending = {
       run: { id: 'wf-plan-1', rowVersion: 4, currentGate: 'production_plan' },
       approval: {
@@ -180,6 +221,8 @@ describe('registerWorkflowHandlers', () => {
       retryTask: vi.fn(),
       retryStage: vi.fn(),
       retryWorkflow: vi.fn(),
+      pump: vi.fn(async () => 0),
+      waitForAutoPump: vi.fn(async () => undefined),
       getPendingApprovalContext: vi.fn(() => pending),
       getVisualAuditionContext: vi.fn(() => ({
         run: { id: 'wf-plan-1', rowVersion: 3 },
@@ -194,7 +237,22 @@ describe('registerWorkflowHandlers', () => {
         context: pending,
         created: true,
       })),
-      approvePendingGateFromUser: vi.fn(() => ({ ok: true, code: 'approved' })),
+      approvePendingGateFromUser: vi.fn(() => ({
+        ok: true,
+        code: 'approved',
+        run: { id: 'wf-plan-1' },
+      })),
+      requestChangesPendingGateFromUser: vi.fn(() => ({
+        ok: true,
+        code: 'revision_requested',
+      })),
+      rejectPendingGateFromUser: vi.fn(() => ({
+        ok: true,
+        code: 'revision_requested',
+      })),
+      listPendingDecisions: vi.fn(() => [
+        { id: 'decision-1', workflowRunId: 'wf-plan-1', status: 'pending' },
+      ]),
     };
     registerWorkflowHandlers(
       {
@@ -203,6 +261,7 @@ describe('registerWorkflowHandlers', () => {
         },
       } as never,
       engine as never,
+      { requestCommanderContinuation },
     );
 
     await expect(
@@ -249,6 +308,7 @@ describe('registerWorkflowHandlers', () => {
     await expect(handlers.get('workflow:approveGate')?.({}, request)).resolves.toEqual({
       ok: true,
       code: 'approved',
+      run: { id: 'wf-plan-1' },
     });
     expect(engine.approvePendingGateFromUser).toHaveBeenCalledWith({
       workflowRunId: 'wf-plan-1',
@@ -256,6 +316,67 @@ describe('registerWorkflowHandlers', () => {
       expectedRowVersion: 4,
       expectedSubjectRevision: 2,
       expectedSubjectHash: 'a'.repeat(64),
+    });
+    expect(engine.waitForAutoPump).toHaveBeenCalledOnce();
+    expect(requestCommanderContinuation).toHaveBeenCalledWith(
+      'wf-plan-1',
+      'gate-approved:production_plan',
+    );
+
+    const revisionRequest = {
+      workflowRunId: 'wf-plan-1',
+      gateKey: 'production_plan',
+      expectedRowVersion: 4,
+      expectedSubjectRevision: 2,
+      expectedSubjectHash: 'a'.repeat(64),
+      reason: 'Make the second act clearer.',
+      actor: 'assistant',
+    };
+    await expect(
+      handlers.get('workflow:requestChanges')?.({}, revisionRequest),
+    ).resolves.toMatchObject({ ok: true, code: 'revision_requested' });
+    expect(engine.requestChangesPendingGateFromUser).toHaveBeenCalledWith({
+      workflowRunId: 'wf-plan-1',
+      gateKey: 'production_plan',
+      expectedRowVersion: 4,
+      expectedSubjectRevision: 2,
+      expectedSubjectHash: 'a'.repeat(64),
+      reason: 'Make the second act clearer.',
+    });
+
+    await expect(handlers.get('workflow:rejectGate')?.({}, revisionRequest)).resolves.toMatchObject(
+      { ok: true, code: 'revision_requested' },
+    );
+    expect(engine.rejectPendingGateFromUser).toHaveBeenCalledWith({
+      workflowRunId: 'wf-plan-1',
+      gateKey: 'production_plan',
+      expectedRowVersion: 4,
+      expectedSubjectRevision: 2,
+      expectedSubjectHash: 'a'.repeat(64),
+      reason: 'Make the second act clearer.',
+    });
+    expect(engine.pump).toHaveBeenNthCalledWith(1, 'wf-plan-1');
+    expect(engine.pump).toHaveBeenNthCalledWith(2, 'wf-plan-1');
+    expect(requestCommanderContinuation).toHaveBeenNthCalledWith(
+      2,
+      'wf-plan-1',
+      'gate-changes-requested:production_plan',
+    );
+    expect(requestCommanderContinuation).toHaveBeenNthCalledWith(
+      3,
+      'wf-plan-1',
+      'gate-rejected:production_plan',
+    );
+
+    await expect(
+      handlers.get('workflow:listPendingDecisions')?.(
+        {},
+        { workflowRunId: 'wf-plan-1', canvasId: 'canvas-1' },
+      ),
+    ).resolves.toEqual([{ id: 'decision-1', workflowRunId: 'wf-plan-1', status: 'pending' }]);
+    expect(engine.listPendingDecisions).toHaveBeenCalledWith({
+      workflowRunId: 'wf-plan-1',
+      canvasId: 'canvas-1',
     });
   });
 });

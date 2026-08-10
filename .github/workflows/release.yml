@@ -51,14 +51,18 @@ jobs:
     name: Build (${{ matrix.artifact }})
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+          cache: true
+
+      - uses: actions/setup-node@v6
         with:
           node-version: 26.5.1
-          cache: npm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Resolve the pinned FFmpeg artifact kind
         id: ffmpeg
@@ -84,13 +88,13 @@ jobs:
         run: bash scripts/build-ffmpeg-macos-lgpl.sh --output resources/bin/${{ matrix.platform_key }}
 
       - name: Rebuild native modules
-        run: npm rebuild better-sqlite3
+        run: pnpm exec electron-rebuild -f -w better-sqlite3 -v 43.2.0
 
       - name: Build all packages (ordered)
-        run: npm run build
+        run: pnpm run build
 
       - name: Package installer (local only, no publish)
-        run: npx electron-builder --config electron-builder.json --${{ matrix.platform }} --${{ matrix.arch }} --publish=never
+        run: pnpm exec electron-builder --config electron-builder.json --${{ matrix.platform }} --${{ matrix.arch }} --publish=never
         working-directory: apps/desktop-main
 
       - name: List built artifacts
@@ -98,7 +102,7 @@ jobs:
         shell: bash
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.artifact }}
           path: |
@@ -118,9 +122,9 @@ jobs:
     name: Publish Release
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
@@ -129,7 +133,7 @@ jobs:
         run: find artifacts -type f | sort || echo "No artifacts found"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           generate_release_notes: true

@@ -684,6 +684,29 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       return ipcRenderer.invoke('provider:health:get', parsed);
     },
   },
+  providerOAuth: {
+    cancelLogin: async (req: unknown) => {
+      const parsed = parseRequest('providerOAuth:cancelLogin', req);
+      return ipcRenderer.invoke('providerOAuth:cancelLogin', parsed);
+    },
+    onChanged: (cb: (payload: unknown) => void) => {
+      const listener = (_e: unknown, payload: unknown) => cb(payload);
+      ipcRenderer.on('providerOAuth:changed', listener);
+      return () => ipcRenderer.removeListener('providerOAuth:changed', listener);
+    },
+    login: async (req: unknown) => {
+      const parsed = parseRequest('providerOAuth:login', req);
+      return ipcRenderer.invoke('providerOAuth:login', parsed);
+    },
+    logout: async (req: unknown) => {
+      const parsed = parseRequest('providerOAuth:logout', req);
+      return ipcRenderer.invoke('providerOAuth:logout', parsed);
+    },
+    status: async (req: unknown) => {
+      const parsed = parseRequest('providerOAuth:status', req);
+      return ipcRenderer.invoke('providerOAuth:status', parsed);
+    },
+  },
   refimage: {
     onComplete: (cb: (payload: unknown) => void) => {
       const listener = (_e: unknown, payload: unknown) => cb(payload);
@@ -966,9 +989,21 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       const parsed = parseRequest('workflow:list', req);
       return ipcRenderer.invoke('workflow:list', parsed);
     },
+    listPendingDecisions: async (req: unknown) => {
+      const parsed = parseRequest('workflow:listPendingDecisions', req);
+      return ipcRenderer.invoke('workflow:listPendingDecisions', parsed);
+    },
     pause: async (req: unknown) => {
       const parsed = parseRequest('workflow:pause', req);
       return ipcRenderer.invoke('workflow:pause', parsed);
+    },
+    rejectGate: async (req: unknown) => {
+      const parsed = parseRequest('workflow:rejectGate', req);
+      return ipcRenderer.invoke('workflow:rejectGate', parsed);
+    },
+    requestChanges: async (req: unknown) => {
+      const parsed = parseRequest('workflow:requestChanges', req);
+      return ipcRenderer.invoke('workflow:requestChanges', parsed);
     },
     resume: async (req: unknown) => {
       const parsed = parseRequest('workflow:resume', req);

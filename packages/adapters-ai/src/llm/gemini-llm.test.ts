@@ -41,10 +41,47 @@ describe('GeminiLLMAdapter', () => {
     }
   });
 
+  it('uses main-process OAuth headers without an API key', async () => {
+    const authorizationHeaders = vi.fn(async () => ({
+      Authorization: 'Bearer access-token',
+      'x-goog-user-project': 'quota-project',
+    }));
+    const fetchMock = vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({
+        Authorization: 'Bearer access-token',
+        'x-goog-user-project': 'quota-project',
+      });
+      expect(init?.headers).not.toHaveProperty('x-goog-api-key');
+      return new Response(
+        JSON.stringify({ candidates: [{ content: { parts: [{ text: 'OAuth works' }] } }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const adapter = new GeminiLLMAdapter({
+        id: 'gemini-oauth',
+        credentialMode: 'oauth',
+        oauthTarget: { provider: 'gemini', capability: 'llm' },
+        authorizationHeaders,
+      });
+      adapter.configure('');
+
+      await expect(adapter.complete([{ role: 'user', content: 'hello' }])).resolves.toBe(
+        'OAuth works',
+      );
+      expect(authorizationHeaders).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  });
+
   it('builds Gemini request bodies and parses text plus function calls', async () => {
     const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
       expect(String(input)).toBe(
-        'https://gemini.example/v1beta/models/gemini-2.5-pro:generateContent',
+        'https://gemini.example/v1beta/models/gemini-3.6-flash:generateContent',
       );
       expect((init?.headers as Record<string, string> | undefined)?.['x-goog-api-key']).toBe(
         'sk-gemini',
@@ -56,9 +93,7 @@ describe('GeminiLLMAdapter', () => {
           parts: [{ text: 'system rule' }],
         },
         generationConfig: {
-          temperature: 0.2,
           maxOutputTokens: 128,
-          topP: 0.9,
           stopSequences: ['halt'],
         },
         tools: [
@@ -72,13 +107,22 @@ describe('GeminiLLMAdapter', () => {
           },
         ],
       });
+      const generationConfig = body.generationConfig as Record<string, unknown>;
+      expect(generationConfig).not.toHaveProperty('temperature');
+      expect(generationConfig).not.toHaveProperty('topP');
       expect(body.contents).toEqual([
-        { role: 'user', parts: [{ text: 'hello' }] },
+        {
+          role: 'user',
+          parts: [{ inlineData: { mimeType: 'image/png', data: 'aGVsbG8=' } }, { text: 'hello' }],
+        },
         {
           role: 'model',
           parts: [
             { text: 'working' },
-            { functionCall: { name: 'lookup', args: { query: 'moon' } } },
+            {
+              functionCall: { name: 'lookup', args: { query: 'moon' } },
+              thoughtSignature: 'signature-in',
+            },
           ],
         },
         {
@@ -86,7 +130,7 @@ describe('GeminiLLMAdapter', () => {
           parts: [
             {
               functionResponse: {
-                name: 'gemini-call-1',
+                name: 'lookup',
                 response: { content: '{"answer":"moon"}' },
               },
             },
@@ -101,7 +145,14 @@ describe('GeminiLLMAdapter', () => {
               content: {
                 parts: [
                   { text: 'summary' },
-                  { functionCall: { name: 'lookup', args: { followup: 'stars' } } },
+                  {
+                    thoughtSignature: 'signature-out',
+                    functionCall: {
+                      id: 'gemini-call-2',
+                      name: 'lookup',
+                      args: { followup: 'stars' },
+                    },
+                  },
                 ],
               },
               finishReason: 'STOP',
@@ -119,7 +170,7 @@ describe('GeminiLLMAdapter', () => {
     try {
       const adapter = new GeminiLLMAdapter({
         defaultBaseUrl: 'https://gemini.example/v1beta',
-        defaultModel: 'gemini-2.5-pro',
+        defaultModel: 'gemini-3.6-flash',
       });
       adapter.configure('sk-gemini');
 
@@ -128,11 +179,22 @@ describe('GeminiLLMAdapter', () => {
           adapter,
           [
             { role: 'system', content: 'system rule' },
-            { role: 'user', content: 'hello' },
+            {
+              role: 'user',
+              content: 'hello',
+              images: [{ mimeType: 'image/png', data: 'aGVsbG8=' }],
+            },
             {
               role: 'assistant',
               content: 'working',
-              toolCalls: [{ id: 'gemini-call-1', name: 'lookup', arguments: { query: 'moon' } }],
+              toolCalls: [
+                {
+                  id: 'gemini-call-1',
+                  name: 'lookup',
+                  arguments: { query: 'moon' },
+                  thoughtSignature: 'signature-in',
+                },
+              ],
             },
             { role: 'tool', toolCallId: 'gemini-call-1', content: '{"answer":"moon"}' },
           ],
@@ -155,9 +217,10 @@ describe('GeminiLLMAdapter', () => {
         finishReason: 'tool_calls',
         toolCalls: [
           {
-            id: 'gemini-tc-0',
+            id: 'gemini-call-2',
             name: 'lookup',
             arguments: { followup: 'stars' },
+            thoughtSignature: 'signature-out',
           },
         ],
       });
@@ -230,6 +293,28 @@ describe('GeminiLLMAdapter', () => {
         message: testCase.message,
       });
 
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('identifies an OAuth authentication failure without mentioning an API key', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{}', { status: 401 })),
+    );
+
+    try {
+      const adapter = new GeminiLLMAdapter({
+        credentialMode: 'oauth',
+        authorizationHeaders: async () => ({ Authorization: 'Bearer expired' }),
+      });
+
+      await expect(adapter.complete([{ role: 'user', content: 'hello' }])).rejects.toMatchObject({
+        code: ErrorCode.AuthFailed,
+        message: 'Gemini OAuth authentication failed',
+      });
+    } finally {
       vi.unstubAllGlobals();
       vi.restoreAllMocks();
     }

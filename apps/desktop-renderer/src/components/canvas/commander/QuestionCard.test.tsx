@@ -33,6 +33,21 @@ describe('QuestionCard', () => {
     expect(screen.getByRole('button', { name: 'Submit' })).toBeTruthy();
   });
 
+  it('only exposes a custom answer control when free text is allowed', () => {
+    render(
+      <QuestionCard
+        question="Pick one"
+        options={[{ label: 'Yes' }]}
+        allowFreeText={false}
+        onAnswer={() => {}}
+        t={t}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Yes' })).toBeTruthy();
+    expect(screen.queryByText('Other answer...')).toBeNull();
+  });
+
   it('renders option buttons and filters blank labels', () => {
     render(
       <QuestionCard

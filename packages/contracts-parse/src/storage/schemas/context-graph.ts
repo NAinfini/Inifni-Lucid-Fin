@@ -23,6 +23,7 @@ const ToolCallSchema = z.object({
   id: z.string(),
   name: z.string(),
   arguments: z.record(z.string(), z.unknown()),
+  thoughtSignature: z.string().optional(),
 });
 
 // ── Variant schemas ────────────────────────────────────────────

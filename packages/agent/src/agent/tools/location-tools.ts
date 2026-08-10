@@ -354,7 +354,7 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
       'Default view kind "bible" produces ONE five-frame composite (wide establish + detail + atmosphere + two key angles). ' +
       'Use view={kind:"fake-360"} for an 8-panel pseudo-panorama when you need full-perimeter coverage. ' +
       'Use view={kind:"extra-angle", angle:"<free form>"} for custom perspectives. ' +
-      'Always pass canvasId so the canvas-scoped stylePlate is prepended to the prompt.',
+      'Always pass canvasId so the canonical Canvas visual-style draft is compiled into the prompt.',
     getEntity: async (id) => {
       const locations = await deps.listLocations();
       return locations.find((l) => l.id === id) ?? null;

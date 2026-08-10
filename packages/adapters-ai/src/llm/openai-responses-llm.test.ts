@@ -59,11 +59,9 @@ describe('OpenAIResponsesLLM', () => {
     const fetchMock = vi.fn(async (_input: string | URL, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
       expect(body).toMatchObject({
-        model: 'gpt-5.4',
+        model: 'gpt-5.6-sol',
         instructions: 'system rule',
         max_output_tokens: 128,
-        temperature: 0.2,
-        top_p: 0.9,
         tools: [
           {
             type: 'function',
@@ -76,8 +74,16 @@ describe('OpenAIResponsesLLM', () => {
           name: 'tool_search',
         },
       });
+      expect(body).not.toHaveProperty('temperature');
+      expect(body).not.toHaveProperty('top_p');
       expect(body.input).toEqual([
-        { role: 'user', content: 'hello' },
+        {
+          role: 'user',
+          content: [
+            { type: 'input_text', text: 'hello' },
+            { type: 'input_image', image_url: 'data:image/png;base64,aGVsbG8=' },
+          ],
+        },
         { role: 'assistant', content: 'working' },
         {
           type: 'function_call',
@@ -120,7 +126,7 @@ describe('OpenAIResponsesLLM', () => {
         id: 'openai-responses',
         name: 'OpenAI Responses',
         defaultBaseUrl: 'https://responses.example/v1',
-        defaultModel: 'gpt-5.4',
+        defaultModel: 'gpt-5.6-sol',
       });
       adapter.configure('sk-responses');
 
@@ -129,7 +135,11 @@ describe('OpenAIResponsesLLM', () => {
           adapter,
           [
             { role: 'system', content: 'system rule' },
-            { role: 'user', content: 'hello' },
+            {
+              role: 'user',
+              content: 'hello',
+              images: [{ mimeType: 'image/png', data: 'aGVsbG8=' }],
+            },
             {
               role: 'assistant',
               content: 'working',

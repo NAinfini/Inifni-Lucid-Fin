@@ -6,6 +6,7 @@ import type {
   LLMToolCall,
   Capability,
   ProviderProfile,
+  OAuthProviderTarget,
 } from '@lucid-fin/contracts';
 import { LucidError, ErrorCode } from '@lucid-fin/contracts';
 import { parseSseStream } from './sse-parser.js';
@@ -17,18 +18,42 @@ type GeminiAdapterConfig = {
   name?: string;
   defaultBaseUrl?: string;
   defaultModel?: string;
+  credentialMode?: 'api-key' | 'oauth';
+  oauthTarget?: OAuthProviderTarget;
+  authorizationHeaders?: () => Promise<Record<string, string>>;
 };
+
+function geminiParts(message: LLMMessage): Array<Record<string, unknown>> {
+  const parts: Array<Record<string, unknown>> = [];
+  for (const image of message.images ?? []) {
+    parts.push({
+      inlineData: {
+        mimeType: image.mimeType,
+        data: image.data.replace(/^data:[^;]+;base64,/, ''),
+      },
+    });
+  }
+  if (message.content) parts.push({ text: message.content });
+  return parts;
+}
+
+function omitsGeminiSamplingParameters(model: string): boolean {
+  return /^gemini-(?:3\.[5-9]|[4-9])/i.test(model.trim());
+}
 
 export class GeminiLLMAdapter implements LLMAdapter {
   readonly id: string;
   readonly name: string;
   readonly capabilities: Capability[] = [
     'text-generation',
+    'image-understanding',
     'script-expand',
     'scene-breakdown',
     'character-extract',
     'prompt-enhance',
   ];
+  readonly credentialMode: 'api-key' | 'oauth';
+  readonly oauthTarget?: OAuthProviderTarget;
   readonly profile: ProviderProfile;
   contextWindow?: number;
   userContextWindow?: number;
@@ -39,12 +64,16 @@ export class GeminiLLMAdapter implements LLMAdapter {
   private apiKey = '';
   private baseUrl: string;
   private model: string;
+  private readonly authorizationHeaders?: () => Promise<Record<string, string>>;
 
   constructor(cfg: GeminiAdapterConfig = {}) {
     this.id = cfg.id ?? 'gemini';
     this.name = cfg.name ?? 'Google Gemini';
     this.baseUrl = cfg.defaultBaseUrl ?? 'https://generativelanguage.googleapis.com/v1beta';
-    this.model = cfg.defaultModel ?? 'gemini-2.5-flash';
+    this.model = cfg.defaultModel ?? 'gemini-3.6-flash';
+    this.credentialMode = cfg.credentialMode ?? 'api-key';
+    this.oauthTarget = cfg.oauthTarget;
+    this.authorizationHeaders = cfg.authorizationHeaders;
     this.profile = {
       providerId: this.id,
       charsPerToken: 4.0,
@@ -69,7 +98,7 @@ export class GeminiLLMAdapter implements LLMAdapter {
   async validate(): Promise<boolean> {
     try {
       const res = await fetch(`${this.baseUrl}/models`, {
-        headers: { 'x-goog-api-key': this.apiKey },
+        headers: await this.authHeaders(),
       });
       return res.ok;
     } catch {
@@ -82,21 +111,26 @@ export class GeminiLLMAdapter implements LLMAdapter {
     const body = this.buildBody(messages, opts);
     const res = await fetch(`${this.baseUrl}/models/${this.model}:generateContent`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },
+      headers: { 'Content-Type': 'application/json', ...(await this.authHeaders()) },
       body: JSON.stringify(body),
     });
     if (!res.ok) this.throwError(res.status);
     const data = (await res.json()) as {
-      candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
+      candidates: Array<{ content: { parts: Array<{ text?: string; thought?: boolean }> } }>;
     };
-    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    return (
+      data.candidates?.[0]?.content?.parts
+        ?.filter((part) => !('thought' in part) || !part.thought)
+        .map((part) => part.text ?? '')
+        .join('') ?? ''
+    );
   }
 
   async *stream(messages: LLMMessage[], opts?: LLMRequestOptions): AsyncIterable<string> {
     const body = this.buildBody(messages, opts);
     const res = await fetch(`${this.baseUrl}/models/${this.model}:streamGenerateContent?alt=sse`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },
+      headers: { 'Content-Type': 'application/json', ...(await this.authHeaders()) },
       body: JSON.stringify(body),
     });
     if (!res.ok) this.throwError(res.status);
@@ -112,6 +146,11 @@ export class GeminiLLMAdapter implements LLMAdapter {
 
   private buildBody(messages: LLMMessage[], opts?: LLMRequestOptions): Record<string, unknown> {
     const systemMsgs = messages.filter((m) => m.role === 'system');
+    const toolNamesById = new Map(
+      messages.flatMap((message) =>
+        (message.toolCalls ?? []).map((toolCall) => [toolCall.id, toolCall.name] as const),
+      ),
+    );
     const contents = messages
       .filter((m) => m.role !== 'system')
       .map((m) => {
@@ -119,7 +158,12 @@ export class GeminiLLMAdapter implements LLMAdapter {
           return {
             role: 'user',
             parts: [
-              { functionResponse: { name: m.toolCallId ?? '', response: { content: m.content } } },
+              {
+                functionResponse: {
+                  name: toolNamesById.get(m.toolCallId ?? '') ?? m.toolCallId ?? '',
+                  response: { content: m.content },
+                },
+              },
             ],
           };
         }
@@ -127,13 +171,16 @@ export class GeminiLLMAdapter implements LLMAdapter {
           const parts: unknown[] = [];
           if (m.content) parts.push({ text: m.content });
           for (const tc of m.toolCalls) {
-            parts.push({ functionCall: { name: tc.name, args: tc.arguments } });
+            parts.push({
+              functionCall: { name: tc.name, args: tc.arguments },
+              ...(tc.thoughtSignature && { thoughtSignature: tc.thoughtSignature }),
+            });
           }
           return { role: 'model', parts };
         }
         return {
           role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }],
+          parts: geminiParts(m),
         };
       });
 
@@ -143,10 +190,12 @@ export class GeminiLLMAdapter implements LLMAdapter {
       }),
       contents,
       generationConfig: {
-        temperature: opts?.temperature ?? 0.7,
         maxOutputTokens: opts?.maxTokens ?? 4096,
-        topP: opts?.topP,
-        stopSequences: opts?.stop,
+        ...(!omitsGeminiSamplingParameters(this.model) &&
+          opts?.temperature !== undefined && { temperature: opts.temperature }),
+        ...(!omitsGeminiSamplingParameters(this.model) &&
+          opts?.topP !== undefined && { topP: opts.topP }),
+        ...(opts?.stop !== undefined && { stopSequences: opts.stop }),
       },
     };
 
@@ -172,7 +221,7 @@ export class GeminiLLMAdapter implements LLMAdapter {
     const body = this.buildBody(messages, opts);
     const res = await fetch(`${this.baseUrl}/models/${this.model}:generateContent`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },
+      headers: { 'Content-Type': 'application/json', ...(await this.authHeaders()) },
       body: JSON.stringify(body),
       signal: opts?.signal,
     });
@@ -184,7 +233,8 @@ export class GeminiLLMAdapter implements LLMAdapter {
           parts: Array<{
             text?: string;
             thought?: boolean;
-            functionCall?: { name: string; args: Record<string, unknown> };
+            thoughtSignature?: string;
+            functionCall?: { id?: string; name: string; args: Record<string, unknown> };
           }>;
         };
         finishReason: string;
@@ -205,9 +255,10 @@ export class GeminiLLMAdapter implements LLMAdapter {
       }
       if (part.functionCall) {
         toolCalls.push({
-          id: `gemini-tc-${callIdx++}`,
+          id: part.functionCall.id ?? `gemini-tc-${callIdx++}`,
           name: part.functionCall.name,
           arguments: part.functionCall.args ?? {},
+          thoughtSignature: part.thoughtSignature,
         });
       }
     }
@@ -229,8 +280,18 @@ export class GeminiLLMAdapter implements LLMAdapter {
 
   private throwError(status: number): never {
     if (status === 401 || status === 403)
-      throw new LucidError(ErrorCode.AuthFailed, 'Invalid Gemini API key');
+      throw new LucidError(
+        ErrorCode.AuthFailed,
+        this.credentialMode === 'oauth'
+          ? 'Gemini OAuth authentication failed'
+          : 'Invalid Gemini API key',
+      );
     if (status === 429) throw new LucidError(ErrorCode.RateLimited, 'Gemini rate limited');
     throw new LucidError(ErrorCode.ServiceUnavailable, `Gemini error: ${status}`);
+  }
+
+  private authHeaders(): Promise<Record<string, string>> {
+    if (this.authorizationHeaders) return this.authorizationHeaders();
+    return Promise.resolve({ 'x-goog-api-key': this.apiKey });
   }
 }

@@ -5,9 +5,9 @@
  * packages that could create legal risk when distributing the Electron app.
  *
  * Usage:
- *   npx tsx scripts/license-audit.ts          # Run audit, write report
- *   npx tsx scripts/license-audit.ts --json   # Print report to stdout as JSON
- *   npx tsx scripts/license-audit.ts --ci     # Exit non-zero if flagged deps found
+ *   pnpm exec tsx scripts/license-audit.ts          # Run audit, write report
+ *   pnpm exec tsx scripts/license-audit.ts --json   # Print report to stdout as JSON
+ *   pnpm exec tsx scripts/license-audit.ts --ci     # Exit non-zero if flagged deps found
  *
  * Output:
  *   license-audit-report.json  (written to repo root unless --json)
@@ -19,7 +19,7 @@
  *
  * CI integration:
  *   Add to your CI pipeline:
- *     npx tsx scripts/license-audit.ts --ci
+ *     pnpm exec tsx scripts/license-audit.ts --ci
  *   This will fail the build if any flagged licenses are found in production deps.
  *
  * DISCLAIMER: This tool is provided for informational purposes only and does
@@ -88,15 +88,15 @@ interface AuditReport {
   allDependencies: DepEntry[];
 }
 
-interface NpmLsDep {
+interface PnpmListDep {
   version?: string;
-  resolved?: string;
-  dependencies?: Record<string, NpmLsDep>;
+  path?: string;
+  dependencies?: Record<string, PnpmListDep>;
+  devDependencies?: Record<string, PnpmListDep>;
+  optionalDependencies?: Record<string, PnpmListDep>;
 }
 
-interface NpmLsOutput {
-  dependencies?: Record<string, NpmLsDep>;
-}
+type PnpmListOutput = PnpmListDep[];
 
 interface PackageJsonLicense {
   license?: string | { type?: string };
@@ -123,26 +123,25 @@ function run(cmd: string): string | null {
   }
 }
 
-/** Collect all package names (flattened) from an npm ls --json output. */
-function collectDeps(node: NpmLsOutput | NpmLsDep, out: Map<string, string>): void {
-  const deps = node.dependencies;
-  if (!deps) return;
-  for (const [name, info] of Object.entries(deps)) {
-    if (info.version && !out.has(name)) {
-      out.set(name, info.version);
+/** Collect all package names (flattened) from pnpm list --json output. */
+function collectDeps(node: PnpmListDep, out: Map<string, string>): void {
+  const groups = [node.dependencies, node.devDependencies, node.optionalDependencies];
+  for (const deps of groups) {
+    if (!deps) continue;
+    for (const [name, info] of Object.entries(deps)) {
+      if (info.version && !out.has(name)) {
+        out.set(name, info.version);
+      }
+      collectDeps(info, out);
     }
-    collectDeps(info, out);
   }
 }
 
 /** Attempt to resolve the installed location of a package in the monorepo. */
 function findPackageJson(pkgName: string): string | null {
-  // In npm workspaces, packages are hoisted to root node_modules
+  // pnpm's explicit hoisted linker keeps the Electron distribution tree here.
   const rootPath = join(REPO_ROOT, 'node_modules', pkgName, 'package.json');
   if (existsSync(rootPath)) return rootPath;
-
-  // Scoped packages nested in .pnpm (pnpm-style, just in case)
-  // Not expected in this project but defensive
   return null;
 }
 
@@ -190,15 +189,17 @@ function checkLicense(license: string): { flagged: boolean; reason: string | nul
 // Dep collection per boundary
 // ---------------------------------------------------------------------------
 
-/** Parse JSON from potentially noisy npm output (warnings before JSON). */
-function parseNpmJson(raw: string): NpmLsOutput | null {
+/** Parse JSON from potentially noisy pnpm output (warnings before JSON). */
+function parsePnpmJson(raw: string): PnpmListOutput | null {
   try {
-    return JSON.parse(raw) as NpmLsOutput;
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? (parsed as PnpmListOutput) : null;
   } catch {
-    const jsonStart = raw.indexOf('{');
+    const jsonStart = raw.indexOf('[');
     if (jsonStart >= 0) {
       try {
-        return JSON.parse(raw.slice(jsonStart)) as NpmLsOutput;
+        const parsed = JSON.parse(raw.slice(jsonStart)) as unknown;
+        return Array.isArray(parsed) ? (parsed as PnpmListOutput) : null;
       } catch {
         return null;
       }
@@ -209,8 +210,8 @@ function parseNpmJson(raw: string): NpmLsOutput | null {
 
 /**
  * Read a workspace's package.json to get its direct production dependencies,
- * then resolve each from node_modules. This is more reliable than npm ls in
- * hoisted monorepos where workspace filtering can miss deps.
+ * then resolve each from node_modules. This also verifies the flat Electron
+ * distribution boundary independently of pnpm's reporting output.
  */
 function getWorkspaceProdDepsFromPackageJson(workspacePath: string): Map<string, string> {
   const out = new Map<string, string>();
@@ -271,18 +272,18 @@ function resolveTransitiveDeps(
   }
 }
 
-/** Get production deps for a workspace using npm ls, with fallback. */
-function getWorkspaceProdDeps(workspace: string): Map<string, string> {
+/** Get production deps for a workspace using pnpm list, with manifest verification. */
+function getWorkspaceProdDeps(workspaceName: string, workspacePath: string): Map<string, string> {
   const out = new Map<string, string>();
-  const raw = run(`npm ls --json --omit=dev --workspace=${workspace} --all`);
+  const raw = run(`pnpm --filter "${workspaceName}" list --json --prod --depth Infinity`);
   if (raw) {
-    const parsed = parseNpmJson(raw);
-    if (parsed) collectDeps(parsed, out);
+    const parsed = parsePnpmJson(raw);
+    if (parsed) {
+      for (const project of parsed) collectDeps(project, out);
+    }
   }
 
-  // If npm ls returned few results, augment with direct package.json reading.
-  // This handles the hoisted-monorepo case where npm ls misses deps.
-  const fromPkg = getWorkspaceProdDepsFromPackageJson(workspace);
+  const fromPkg = getWorkspaceProdDepsFromPackageJson(workspacePath);
   for (const [name, ver] of fromPkg) {
     if (!out.has(name)) out.set(name, ver);
   }
@@ -291,16 +292,18 @@ function getWorkspaceProdDeps(workspace: string): Map<string, string> {
 }
 
 /** Get all deps (including dev) for computing the dev-only set. */
-function getWorkspaceAllDeps(workspace: string): Map<string, string> {
+function getWorkspaceAllDeps(workspaceName: string, workspacePath: string): Map<string, string> {
   const out = new Map<string, string>();
-  const raw = run(`npm ls --json --workspace=${workspace} --all`);
+  const raw = run(`pnpm --filter "${workspaceName}" list --json --depth Infinity`);
   if (raw) {
-    const parsed = parseNpmJson(raw);
-    if (parsed) collectDeps(parsed, out);
+    const parsed = parsePnpmJson(raw);
+    if (parsed) {
+      for (const project of parsed) collectDeps(project, out);
+    }
   }
 
   // Augment with package.json reading for both deps and devDeps
-  const pkgPath = join(REPO_ROOT, workspace, 'package.json');
+  const pkgPath = join(REPO_ROOT, workspacePath, 'package.json');
   if (existsSync(pkgPath)) {
     const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8')) as {
       dependencies?: Record<string, string>;
@@ -334,6 +337,7 @@ function getWorkspaceAllDeps(workspace: string): Map<string, string> {
 
 const INTERNAL_PACKAGES = new Set([
   '@lucid-fin/adapters-ai',
+  '@lucid-fin/agent',
   '@lucid-fin/application',
   '@lucid-fin/contracts',
   '@lucid-fin/contracts-parse',
@@ -343,6 +347,7 @@ const INTERNAL_PACKAGES = new Set([
   '@lucid-fin/media-engine',
   '@lucid-fin/shared-utils',
   '@lucid-fin/storage',
+  '@lucid-fin/workflows',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -359,7 +364,7 @@ async function main(): Promise<void> {
   }
 
   // 1. Collect production deps for Electron main process (bundled in asar)
-  const mainProdDeps = getWorkspaceProdDeps('apps/desktop-main');
+  const mainProdDeps = getWorkspaceProdDeps('@lucid-fin/desktop-main', 'apps/desktop-main');
 
   if (!jsonMode) {
     console.log(`  desktop-main production deps: ${mainProdDeps.size}`);
@@ -367,7 +372,10 @@ async function main(): Promise<void> {
   }
 
   // 2. Collect production deps for renderer (bundled by Vite into renderer)
-  const rendererProdDeps = getWorkspaceProdDeps('apps/desktop-renderer');
+  const rendererProdDeps = getWorkspaceProdDeps(
+    '@lucid-fin/desktop-renderer',
+    'apps/desktop-renderer',
+  );
 
   if (!jsonMode) {
     console.log(`  desktop-renderer production deps: ${rendererProdDeps.size}`);
@@ -375,8 +383,11 @@ async function main(): Promise<void> {
   }
 
   // 3. Collect all deps across both workspaces to find dev-only
-  const mainAllDeps = getWorkspaceAllDeps('apps/desktop-main');
-  const rendererAllDeps = getWorkspaceAllDeps('apps/desktop-renderer');
+  const mainAllDeps = getWorkspaceAllDeps('@lucid-fin/desktop-main', 'apps/desktop-main');
+  const rendererAllDeps = getWorkspaceAllDeps(
+    '@lucid-fin/desktop-renderer',
+    'apps/desktop-renderer',
+  );
 
   // Merge all deps
   const allDeps = new Map<string, string>();

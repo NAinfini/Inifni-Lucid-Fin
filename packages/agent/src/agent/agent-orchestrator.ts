@@ -6,6 +6,8 @@ import type {
   LLMFinishReason,
   ProviderProfile,
   TimelineExitDecisionMeta,
+  ContextRecoveryReport,
+  ContextRecoveryReportResult,
 } from '@lucid-fin/contracts';
 import { LucidError, DEFAULT_PROVIDER_PROFILE, parseCanonicalToolName } from '@lucid-fin/contracts';
 import { providerHealth } from '@lucid-fin/adapters-ai';
@@ -15,7 +17,6 @@ import {
   type AgentContext,
   type HistoryEntry,
   type ToolSelectionInput,
-  ALWAYS_LOADED_TOOLS,
   ContextManager,
   pruneHistory,
   measureMessageChars,
@@ -24,7 +25,11 @@ import {
   safeStringify,
   selectContextualToolSet,
 } from './context-manager.js';
-import { ToolExecutor } from './tool-executor.js';
+import {
+  ToolExecutor,
+  type WorkflowAskUserPersistenceRequest,
+  type WorkflowAskUserPersistenceResult,
+} from './tool-executor.js';
 import { ToolCallDeduplicator } from './tool-call-deduplicator.js';
 import { detectOptionListMarkdown } from './detect-option-list-markdown.js';
 import { TranscriptIndex } from './transcript-index.js';
@@ -63,6 +68,10 @@ export type { StampedStreamEvent, StreamEmit };
 // handlers that plug directly into the orchestrator's emit surface.
 export type AgentStreamEvent = StampedStreamEvent;
 
+function isTransientToolAvailabilityFailure(content: string): boolean {
+  return content.includes('exists but is not loaded') && content.includes('Call tool.get');
+}
+
 export interface AgentOptions {
   maxSteps?: number;
   temperature?: number;
@@ -82,14 +91,14 @@ export interface AgentOptions {
    */
   resolveCanvasNodeType?: (canvasId: string, nodeId: string) => 'image' | 'video' | 'audio' | null;
   /**
-   * Optional canvas settings lookup used to pre-flight `style-plate-lock`
-   * when the model is about to invoke a generation tool on a canvas whose
-   * `stylePlate` is empty. Side-effect free, synchronous. Returns `null` if
-   * the canvas isn't found; returns `{ stylePlate: null }` (or empty string)
-   * when the plate isn't locked yet. When omitted, the pre-flight path is
-   * simply skipped — existing consumers keep their current behaviour.
+   * Optional Canvas style lookup used by the legacy-named
+   * `style-plate-lock` pre-flight. The canonical structured policy counts as
+   * present even when it has no summary; `stylePlate` remains a compatibility
+   * mirror. Side-effect free and synchronous.
    */
-  resolveCanvasSettings?: (canvasId: string) => { stylePlate?: string | null } | null;
+  resolveCanvasSettings?: (
+    canvasId: string,
+  ) => { hasVisualStylePolicy?: boolean; stylePlate?: string | null } | null;
   qualityGateBehavior?: QualityGateBehavior;
   requireStylePlateBeforeRefImage?: boolean;
   todoStore?: TodoRunStore;
@@ -100,6 +109,14 @@ export interface AgentOptions {
   onBeforeCompact?: () => boolean;
   /** Rebuild host-owned workflow facts and tool authorization from SQLite. */
   resolvePersistentContext?: () => AgentPersistentContextProjection;
+  /** Persist workflow-bound AskUser questions before exposing them to the UI. */
+  onWorkflowAskUser?: (
+    request: WorkflowAskUserPersistenceRequest,
+  ) => Promise<WorkflowAskUserPersistenceResult> | WorkflowAskUserPersistenceResult;
+  /** Persist context recovery health on the bound workflow aggregate. */
+  onContextRecoveryReport?: (
+    report: ContextRecoveryReport,
+  ) => Promise<ContextRecoveryReportResult> | ContextRecoveryReportResult;
 }
 
 export interface AgentPersistentContextProjection {
@@ -147,6 +164,9 @@ export class AgentOrchestrator {
   private maxOutputTokens: number;
   private contextWindowTokens?: number;
   private profile: ProviderProfile;
+  private readonly onWorkflowAskUser?: AgentOptions['onWorkflowAskUser'];
+  private readonly onContextRecoveryReport?: AgentOptions['onContextRecoveryReport'];
+  private activeWorkflowRunId: string | undefined;
   private pendingResolvers = new Map<string, (approved: boolean) => void>();
   private pendingQuestionResolvers = new Map<string, (answer: string) => void>();
   private activeMessages: LLMMessage[] | null = null;
@@ -202,7 +222,7 @@ export class AgentOrchestrator {
   ) => 'image' | 'video' | 'audio' | null;
   private readonly resolveCanvasSettings?: (
     canvasId: string,
-  ) => { stylePlate?: string | null } | null;
+  ) => { hasVisualStylePolicy?: boolean; stylePlate?: string | null } | null;
   private readonly qualityGateBehavior: QualityGateBehavior;
   private readonly requireStylePlateBeforeRefImage: boolean;
   private readonly todoStore?: TodoRunStore;
@@ -273,6 +293,8 @@ export class AgentOrchestrator {
     this.maxSteps = opts?.maxSteps ?? 50;
     this.temperature = opts?.temperature ?? 0.7;
     this.profile = opts?.profile ?? DEFAULT_PROVIDER_PROFILE;
+    this.onWorkflowAskUser = opts?.onWorkflowAskUser;
+    this.onContextRecoveryReport = opts?.onContextRecoveryReport;
     const profileOutputCap = Math.max(1, this.profile.outputReserveTokens ?? 4096);
     this.maxOutputTokens = Math.min(
       Math.max(1, Math.floor(opts?.maxOutputTokens ?? profileOutputCap)),
@@ -323,10 +345,9 @@ export class AgentOrchestrator {
   /**
    * G2-5: seed the orchestrator with a persisted ContextGraph before
    * `execute()` runs. Call this on session resume with the items returned
-   * by `SessionRepository.getContextGraph(sessionId)`. Items are merged
-   * into the freshly rebuilt graph each step (only kinds that aren't
-   * derivable from the messages array survive the merge — see
-   * `rebuildGraphFromMessages`).
+   * by `SessionRepository.getContextGraph(sessionId)`. Graph-only items are
+   * merged directly; assistant turns restore reasoning and opaque provider
+   * continuation metadata that plain renderer history cannot derive.
    *
    * Safe to call with an empty array (no-op) or before the first
    * `execute()` (stored until the next run begins).
@@ -386,12 +407,22 @@ export class AgentOrchestrator {
   async compactNow(
     instructions?: string,
   ): Promise<{ freedChars: number; messageCount: number; toolCount: number }> {
-    return this.contextManager.compactNow(this.activeMessages, instructions);
+    const hadMessages = Boolean(this.activeMessages && this.activeMessages.length > 0);
+    const result = await this.contextManager.compactNow(this.activeMessages, instructions);
+    if (hadMessages && this.activeWorkflowRunId) {
+      await this.reportContextRecovery(
+        result.freedChars > 0 ? 'recovered' : 'failed',
+        result.freedChars > 0 ? 'persistent_context_reloaded' : 'compaction_failed',
+      );
+    }
+    return result;
   }
 
   private refreshPersistentContext(context: AgentContext): WorkflowToolPolicy | undefined {
     if (!this.resolvePersistentContext) {
-      return context.extra?.workflowToolPolicy as WorkflowToolPolicy | undefined;
+      const policy = context.extra?.workflowToolPolicy as WorkflowToolPolicy | undefined;
+      this.activeWorkflowRunId = policy?.workflowRunId;
+      return policy;
     }
     if (!context.extra) context.extra = {};
     try {
@@ -415,7 +446,23 @@ export class AgentOrchestrator {
           'Persistent workflow state could not be refreshed from SQLite. Mutating tools are fail-closed.',
       } satisfies WorkflowToolPolicy;
     }
-    return context.extra.workflowToolPolicy as WorkflowToolPolicy | undefined;
+    const policy = context.extra.workflowToolPolicy as WorkflowToolPolicy | undefined;
+    this.activeWorkflowRunId = policy?.workflowRunId;
+    return policy;
+  }
+
+  private async reportContextRecovery(
+    outcome: ContextRecoveryReport['outcome'],
+    reason: ContextRecoveryReport['reason'],
+    forcePause?: boolean,
+  ): Promise<ContextRecoveryReportResult | undefined> {
+    if (!this.onContextRecoveryReport || !this.activeWorkflowRunId) return undefined;
+    return this.onContextRecoveryReport({
+      workflowRunId: this.activeWorkflowRunId,
+      outcome,
+      reason,
+      ...(forcePause ? { forcePause: true } : {}),
+    });
   }
 
   /** Current step counter. */
@@ -434,7 +481,8 @@ export class AgentOrchestrator {
     emit: (event: StampedStreamEvent) => void,
     options?: AgentExecutionOptions,
   ): Promise<OrchestratorCompletion> {
-    const loadedToolNames = new Set<string>(ALWAYS_LOADED_TOOLS);
+    // The host-selected phase bundle is the only initial tool surface.
+    const loadedToolNames = new Set<string>();
     const discoveredToolNames = new Set<string>(options?.discoveredTools ?? []);
     this.contextManager.noteUserInput();
     let workflowToolPolicy = this.refreshPersistentContext(context);
@@ -472,6 +520,9 @@ export class AgentOrchestrator {
           return { role: 'tool', content: entry.content, toolCallId: entry.toolCallId };
         }
         const msg: LLMMessage = { role: entry.role, content: entry.content };
+        if (entry.role === 'assistant' && entry.reasoning) {
+          msg.reasoning = entry.reasoning;
+        }
         if (
           entry.role === 'assistant' &&
           Array.isArray(entry.toolCalls) &&
@@ -481,6 +532,7 @@ export class AgentOrchestrator {
             id: tc.id,
             name: tc.name,
             arguments: tc.arguments,
+            thoughtSignature: tc.thoughtSignature,
           }));
         }
         return msg;
@@ -491,15 +543,30 @@ export class AgentOrchestrator {
     let steps = 0;
     let lastResult: OrchestratorCompletion = { content: '', toolCalls: [], finishReason: 'stop' };
     const toolLastUsedStep = new Map<string, number>();
-    for (const name of ALWAYS_LOADED_TOOLS) {
-      toolLastUsedStep.set(name, 0);
-    }
 
     const runId = freshRunId();
     // `steps` is captured by closure so every emit reads the current step.
     // This stamped wrapper is the only emit surface used — raw `emit` is
     // intentionally never touched directly after this point.
     const wrappedEmit: StreamEmit = makeStampedEmit(runId, () => steps, emit);
+    const finishForContextPause = (content: string): OrchestratorCompletion => {
+      this.lastAssistantText = content;
+      this.appendEvidence({ kind: 'budget_exhausted', metric: 'tokens', at: Date.now() });
+      const { decision, intent } = this.computeExitDecision();
+      wrappedEmit({ kind: 'assistant_text', content, isDelta: false });
+      wrappedEmit({
+        kind: 'run_end',
+        status: 'failed',
+        exitDecision: this.toTimelineExitDecisionMeta(decision),
+      });
+      return {
+        content,
+        toolCalls: [],
+        finishReason: 'stop',
+        exitDecision: decision,
+        exitIntent: intent,
+      };
+    };
 
     // Phase G — per-run tool-call deduplicator. Fresh instance per
     // `execute()` so dedup state can't leak across runs.
@@ -560,6 +627,7 @@ export class AgentOrchestrator {
     // the current workspace state and user intent instead of all registered
     // tools. Non-selected tools are still discoverable via `tool.get` and
     // show up as name-only stubs in the adaptive-compaction tier-0 path.
+    let toolSelectionInput: ToolSelectionInput;
     {
       const extra = context.extra as Record<string, unknown>;
       const nodeCount = typeof extra.nodeCount === 'number' ? extra.nodeCount : 0;
@@ -593,7 +661,7 @@ export class AgentOrchestrator {
         }
       }
 
-      const selectionInput: ToolSelectionInput = {
+      toolSelectionInput = {
         nodeCount,
         entityCount,
         hasStylePlate,
@@ -601,8 +669,9 @@ export class AgentOrchestrator {
         userMessage,
         intentKind: this.currentIntent.kind,
         intentWorkflow,
+        workflowPhase: workflowToolPolicy?.phase,
       };
-      const contextualTools = selectContextualToolSet(selectionInput);
+      const contextualTools = selectContextualToolSet(toolSelectionInput);
       for (const name of contextualTools) {
         loadedToolNames.add(name);
         // Seed in toolLastUsedStep so adaptive compaction treats these as
@@ -611,6 +680,22 @@ export class AgentOrchestrator {
         toolLastUsedStep.set(name, 0);
       }
     }
+
+    const syncLoadedPhaseBundle = (
+      policy: WorkflowToolPolicy | undefined,
+      currentStep: number,
+    ): boolean => {
+      const nextPhase = policy?.phase;
+      if (toolSelectionInput.workflowPhase === nextPhase) return false;
+
+      toolSelectionInput = { ...toolSelectionInput, workflowPhase: nextPhase };
+      loadedToolNames.clear();
+      for (const name of selectContextualToolSet(toolSelectionInput)) {
+        loadedToolNames.add(name);
+        toolLastUsedStep.set(name, currentStep);
+      }
+      return true;
+    };
 
     this.activeMessages = messages;
 
@@ -647,6 +732,7 @@ export class AgentOrchestrator {
     this.invalidatedToolCallKeys = new Set<string>();
     this.snapshotPreRestoreToolCallKeys = new Set<string>();
     this.toolCallKeyToOriginStep = new Map<string, number>();
+    let reportedHealthyContext = false;
 
     // Create tool executor with graph reference (read-through cache comes
     // from the graph's tool-result index; mutation invalidation is driven
@@ -655,6 +741,7 @@ export class AgentOrchestrator {
       permissionMode: options?.permissionMode,
       contextGraph: this.contextGraph,
       canvasId,
+      onWorkflowAskUser: this.onWorkflowAskUser,
     });
 
     try {
@@ -682,6 +769,7 @@ export class AgentOrchestrator {
         // every step. An approval clicked while this run is waiting therefore
         // takes effect on the next turn, while stale chat text never does.
         workflowToolPolicy = this.refreshPersistentContext(context);
+        syncLoadedPhaseBundle(workflowToolPolicy, steps);
         systemPrompt = this.contextManager.buildSystemPrompt(context, steps);
         if (messages.length > 0 && messages[0].role === 'system') {
           messages[0] = { ...messages[0], content: systemPrompt };
@@ -750,6 +838,7 @@ export class AgentOrchestrator {
         let serialized = serializeCurrentView();
         let utilizationRatio = serialized.estimatedTokensUsed / effectiveCtx;
         let didCompact = false;
+        let compactionAttempted = false;
         let compactPhase: 'phase1' | 'llm' | undefined;
 
         if (utilizationRatio >= CONTEXT_HARD_STOP_UTILIZATION) {
@@ -760,7 +849,13 @@ export class AgentOrchestrator {
             compactPhase = didCompact ? 'phase1' : undefined;
           }
         } else if (utilizationRatio >= CONTEXT_CHECKPOINT_UTILIZATION) {
-          didCompact = await this.contextManager.compactWithLLM(messages, inLoopCharBudget, steps);
+          const compaction = await this.contextManager.compactWithLLMResult(
+            messages,
+            inLoopCharBudget,
+            steps,
+          );
+          didCompact = compaction.changed;
+          compactionAttempted = compaction.attempted;
           compactPhase = didCompact ? 'llm' : undefined;
         } else if (utilizationRatio >= CONTEXT_REFERENCE_PRUNE_UTILIZATION) {
           didCompact = this.contextManager.compactPhase1(messages, steps);
@@ -769,6 +864,7 @@ export class AgentOrchestrator {
 
         if (didCompact) {
           workflowToolPolicy = this.refreshPersistentContext(context);
+          const phaseBundleChanged = syncLoadedPhaseBundle(workflowToolPolicy, steps);
           this.toolExecutor.opts.workflowPolicy = workflowToolPolicy;
           systemPrompt = this.contextManager.buildSystemPrompt(context, steps);
           if (messages[0]?.role === 'system') {
@@ -784,31 +880,47 @@ export class AgentOrchestrator {
               reloaded: compactPhase === 'llm' ? this._hasPostCompactHook : true,
             },
           });
+          if (phaseBundleChanged) {
+            // The serialized tool view was built before the durable phase
+            // transition. Re-enter the loop so the next provider request is
+            // rebuilt from the newly authorized phase bundle.
+            continue;
+          }
         }
 
         if (utilizationRatio >= CONTEXT_HARD_STOP_UTILIZATION) {
+          await this.reportContextRecovery('failed', 'hard_stop', true);
           const contextLimitMessage =
             'Context safety pause: the protected workflow facts, tool schemas, and recent complete exchanges still exceed 92% of the verified model context window. No further model call was made. Start a fresh chat projection or reduce the configured tool/guide set; the persistent workflow and approval state remain intact.';
-          this.lastAssistantText = contextLimitMessage;
-          this.appendEvidence({ kind: 'budget_exhausted', metric: 'tokens', at: Date.now() });
-          const { decision, intent } = this.computeExitDecision();
-          wrappedEmit({
-            kind: 'assistant_text',
-            content: contextLimitMessage,
-            isDelta: false,
-          });
-          wrappedEmit({
-            kind: 'run_end',
-            status: 'failed',
-            exitDecision: this.toTimelineExitDecisionMeta(decision),
-          });
-          return {
-            content: contextLimitMessage,
-            toolCalls: [],
-            finishReason: 'stop',
-            exitDecision: decision,
-            exitIntent: intent,
-          };
+          return finishForContextPause(contextLimitMessage);
+        }
+
+        if (compactionAttempted && !didCompact) {
+          reportedHealthyContext = false;
+          const recovery = await this.reportContextRecovery('failed', 'compaction_failed');
+          if (recovery?.state === 'recovery_required') {
+            return finishForContextPause(
+              'Context recovery failed three times for this workflow. The durable workflow is paused in recovery-required state; no provider call was made. Start a fresh chat projection or reduce the configured tool/guide set before continuing.',
+            );
+          }
+        } else if (
+          !reportedHealthyContext &&
+          (didCompact || utilizationRatio < CONTEXT_CHECKPOINT_UTILIZATION)
+        ) {
+          const wasBlocked = workflowToolPolicy?.phase === 'blocked';
+          const recovery = await this.reportContextRecovery(
+            'recovered',
+            'persistent_context_reloaded',
+          );
+          reportedHealthyContext = true;
+          if (wasBlocked && recovery?.changed && recovery.state === 'active') {
+            // The host restored a workflow that was paused specifically for
+            // context recovery. Rebuild authorization before exposing tools.
+            workflowToolPolicy = this.refreshPersistentContext(context);
+            syncLoadedPhaseBundle(workflowToolPolicy, steps);
+            this.toolExecutor.opts.workflowPolicy = workflowToolPolicy;
+            continue;
+          }
         }
 
         const {
@@ -843,8 +955,18 @@ export class AgentOrchestrator {
           messageCount: wireMessages.length,
           messageChars: measureMessageChars(messages),
           systemPromptChars: systemPrompt.length,
-          promptGuideChars:
-            typeof context.extra?.promptGuides === 'string' ? context.extra.promptGuides.length : 0,
+          promptGuideChars: Array.isArray(context.extra?.autoInjectGuides)
+            ? context.extra.autoInjectGuides.reduce(
+                (total, guide) =>
+                  total +
+                  (guide &&
+                  typeof guide === 'object' &&
+                  typeof (guide as { content?: unknown }).content === 'string'
+                    ? (guide as { content: string }).content.length
+                    : 0),
+                0,
+              )
+            : 0,
           estimatedTokensUsed: estimatedTokensUsed,
           contextWindowTokens: ctxWindow,
           cacheChars: entityCacheBlock.length,
@@ -858,6 +980,154 @@ export class AgentOrchestrator {
         // at the start of a fresh step.
         wrappedEmit({ kind: 'thinking', content: '', isDelta: true });
 
+        const activeContextGraph = this.contextGraph;
+        if (!activeContextGraph) {
+          throw new Error('ContextGraph missing before provider tool execution.');
+        }
+        const providerToolBridge =
+          this.adapter.toolLoopMode === 'provider-managed'
+            ? {
+                execute: async (wireCall: LLMToolCall) => {
+                  const tc: LLMToolCall = {
+                    ...wireCall,
+                    name: graphReverseMap.get(wireCall.name) ?? wireCall.name,
+                  };
+                  const toolRef = parseCanonicalToolName(tc.name);
+                  const args = (tc.arguments as Record<string, unknown>) ?? {};
+                  const prior = toolCallDeduplicator.check(toolRef, args, steps);
+                  if (prior) {
+                    const content = prior.wasError
+                      ? `[skipped] identical call failed at this host step; change the arguments or approach.`
+                      : `[skipped] identical call already ran at this host step.`;
+                    wrappedEmit({
+                      kind: 'tool_result',
+                      toolCallId: tc.id,
+                      result: { skipped: true, reason: 'duplicate_call_within_window' },
+                      durationMs: 0,
+                      skipped: true,
+                      synthetic: true,
+                    });
+                    return { toolCallId: tc.id, content, success: !prior.wasError };
+                  }
+
+                  messages.push({ role: 'assistant', content: '', toolCalls: [tc] });
+                  this.transcriptIndex.registerAssistantToolCalls(messages.length - 1, [tc]);
+                  toolLastUsedStep.set(tc.name, steps);
+                  let content = '';
+                  let success = false;
+
+                  if (tc.name === 'todo.manage' && this.todoStore) {
+                    const startedAt = Date.now();
+                    wrappedEmit({
+                      kind: 'tool_call',
+                      toolCallId: tc.id,
+                      toolRef,
+                      args,
+                    });
+                    try {
+                      let result: unknown;
+                      if (args.action === 'set') {
+                        const snapshot = this.todoStore.set({
+                          items: (Array.isArray(args.items) ? args.items : []) as Array<{
+                            label: string;
+                          }>,
+                        });
+                        result = {
+                          success: true,
+                          data: { ...this.todoStore.toStreamPayload(), items: snapshot.items },
+                        };
+                      } else {
+                        const { snapshot, applied } = this.todoStore.update({
+                          todoId: typeof args.todoId === 'string' ? args.todoId : '',
+                          updates: (Array.isArray(args.updates) ? args.updates : []) as Array<{
+                            id: string;
+                            status: 'pending' | 'in_progress' | 'done';
+                          }>,
+                        });
+                        result = {
+                          success: true,
+                          data: {
+                            ...this.todoStore.toStreamPayload(),
+                            applied,
+                            items: snapshot.items,
+                          },
+                        };
+                      }
+                      content = safeStringify(result);
+                      success = true;
+                      wrappedEmit({
+                        kind: 'tool_result',
+                        toolCallId: tc.id,
+                        result: result as import('./tool-registry.js').ToolResult,
+                        durationMs: Math.max(0, Date.now() - startedAt),
+                      });
+                    } catch (error) {
+                      const message = error instanceof Error ? error.message : String(error);
+                      content = safeStringify({ success: false, error: message });
+                      wrappedEmit({
+                        kind: 'tool_result',
+                        toolCallId: tc.id,
+                        error: { code: 'TOOL_RUNTIME', params: { message } },
+                        durationMs: Math.max(0, Date.now() - startedAt),
+                      });
+                    }
+                    messages.push({ role: 'tool', content, toolCallId: tc.id });
+                  } else {
+                    this.toolExecutor.opts.currentStep = steps;
+                    const discoveredBeforeExecution = new Set(discoveredToolNames);
+                    const result = await this.toolExecutor.executeToolCalls(
+                      [tc],
+                      activeToolNames,
+                      discoveredToolNames,
+                      wrappedEmit,
+                      messages,
+                      () => this._cancelled || (options?.isAborted?.() ?? false),
+                      this.pendingResolvers,
+                      this.pendingQuestionResolvers,
+                    );
+                    if (result.cancelled) throw new Error('Commander tool execution was cancelled');
+                    for (const discoveredName of discoveredToolNames) {
+                      if (!discoveredBeforeExecution.has(discoveredName)) {
+                        toolLastUsedStep.set(discoveredName, steps);
+                      }
+                    }
+                    const toolMessage = [...messages]
+                      .reverse()
+                      .find((message) => message.role === 'tool' && message.toolCallId === tc.id);
+                    content =
+                      toolMessage?.content ??
+                      safeStringify({ success: false, error: 'Tool returned no result' });
+                    success = !content.includes('"success":false');
+                  }
+
+                  if (!isTransientToolAvailabilityFailure(content)) {
+                    toolCallDeduplicator.register(toolRef, args, {
+                      toolCallId: tc.id,
+                      step: steps,
+                      wasError: !success,
+                    });
+                  }
+                  this.recordEvidenceForStep(messages, [tc]);
+                  this.updateScratchpad(messages, [tc]);
+                  if (tc.name === 'commander.askUser') {
+                    this.lastAskUserAnsweredStep = steps;
+                    this.reevaluateIntentFromAskUser(messages, [tc], context, wrappedEmit);
+                  }
+                  if (getToolCompactionCategory(tc.name) === 'mutation') {
+                    activeContextGraph.invalidateForMutation(tc.name, args);
+                    this.recordMutationWatermark(messages, tc.name, args);
+                  }
+                  this.shrinkCoveredToolMessages(messages);
+                  return { toolCallId: tc.id, content, success };
+                },
+              }
+            : undefined;
+
+        const forcedAskUserWireName =
+          [...graphReverseMap.entries()].find(
+            ([, original]) => original === 'commander.askUser',
+          )?.[0] ?? 'commander.askUser';
+
         const rawResult = await this.completeWithRetry(
           wireMessages,
           {
@@ -865,20 +1135,33 @@ export class AgentOrchestrator {
             toolChoice:
               wireTools.length > 0
                 ? forceAskUserNextTurn
-                  ? { name: 'commander.askUser' }
+                  ? { name: forcedAskUserWireName }
                   : 'auto'
                 : undefined,
             temperature: this.temperature,
             maxTokens: providerMaxOutputTokens,
             signal: this._abortController?.signal,
+            providerToolBridge,
           },
           wrappedEmit,
           () => this._cancelled || (options?.isAborted?.() ?? false),
+          this.adapter.toolLoopMode === 'provider-managed' ? 0 : 2,
         );
 
         // Un-sanitize tool names and dedup tool call IDs using the graph
         // serializer's reverse map.
         lastResult = destructResponse(rawResult, graphReverseMap);
+
+        if (
+          lastResult.toolCalls.length > 0 &&
+          lastResult.toolCalls.every((call) => call.handledByProviderLoop === true)
+        ) {
+          // The provider stayed inside its own turn while the host bridge ran
+          // each call through ToolExecutor. Rebuild context and authorization
+          // before exposing the next dynamic-tool set; never execute twice.
+          forceAskUserNextTurn = false;
+          continue;
+        }
 
         // Phase I — force_ask_user was consumed this turn (whether or not
         // the model complied). Clear the flag so we don't keep forcing
@@ -953,6 +1236,7 @@ export class AgentOrchestrator {
         messages.push({
           role: 'assistant',
           content: lastResult.content,
+          reasoning: lastResult.reasoning,
           toolCalls: lastResult.toolCalls,
         });
 
@@ -1138,14 +1422,16 @@ export class AgentOrchestrator {
 
         // Phase G — register just-executed calls in the deduplicator so
         // a subsequent identical `(toolRef, args)` within `windowSteps`
-        // is short-circuited. Errors are still registered — the model
-        // sees `priorWasError: true` on the skip feedback and learns not
-        // to blindly retry (S9 pathology).
+        // is short-circuited. An unloaded-but-known tool is deliberately
+        // omitted: it is a transient discovery-state failure, not a failed
+        // action, and registering it would lock a just-discovered retry out
+        // for the next three steps.
         for (const tc of callsToExecute) {
           const toolRef = parseCanonicalToolName(tc.name);
           const args = (tc.arguments as Record<string, unknown>) ?? {};
           const resultMsg = messages.find((m) => m.role === 'tool' && m.toolCallId === tc.id);
           const content = resultMsg?.content ?? '';
+          if (isTransientToolAvailabilityFailure(content)) continue;
           const wasError = content.includes('"success":false');
           toolCallDeduplicator.register(toolRef, args, {
             toolCallId: tc.id,
@@ -1507,20 +1793,26 @@ export class AgentOrchestrator {
             if (existing) {
               existing.name = resolvedName || existing.name;
               existing.arguments = event.arguments;
+              existing.thoughtSignature = event.thoughtSignature;
+              existing.handledByProviderLoop = event.handledByProviderLoop;
             } else {
               toolOrder.push(event.id);
               toolCallsById.set(event.id, {
                 id: event.id,
                 name: resolvedName,
                 arguments: event.arguments,
+                thoughtSignature: event.thoughtSignature,
+                handledByProviderLoop: event.handledByProviderLoop,
               });
             }
-            wrappedEmit({
-              kind: 'tool_call',
-              toolCallId: event.id,
-              toolRef: parseCanonicalToolName(resolvedName),
-              args: event.arguments,
-            });
+            if (!event.handledByProviderLoop) {
+              wrappedEmit({
+                kind: 'tool_call',
+                toolCallId: event.id,
+                toolRef: parseCanonicalToolName(resolvedName),
+                args: event.arguments,
+              });
+            }
             break;
           }
           case 'usage':
@@ -1595,12 +1887,9 @@ export class AgentOrchestrator {
   private rebuildGraphFromMessages(messages: LLMMessage[], step: number): void {
     if (!this.contextGraph) return;
     this.contextGraph = new ContextGraph();
-    // G2-5: re-merge graph-only persisted items (seeded on resume). Only
-    // kinds that are NOT reconstructable from the `messages` array are
-    // merged — other kinds would duplicate what the loop below rebuilds.
-    // Today that means `entity-snapshot` + `session-summary` + `scratchpad`.
-    // Guide, user, assistant, tool-result, system-message, and reference
-    // items are all re-derived from messages so they stay authoritative.
+    // G2-5: re-merge graph-only persisted items (seeded on resume). Message
+    // items are rebuilt below, but persisted assistant turns also provide
+    // opaque continuation metadata that the renderer history cannot recreate.
     for (const seed of this.pendingGraphSeed) {
       if (
         seed.kind === 'entity-snapshot' ||
@@ -1610,6 +1899,31 @@ export class AgentOrchestrator {
         this.contextGraph.add(seed);
       }
     }
+    const seededAssistantTurns = this.pendingGraphSeed.filter(
+      (seed): seed is Extract<ContextItem, { kind: 'assistant-turn' }> =>
+        seed.kind === 'assistant-turn',
+    );
+    let seededAssistantCursor = 0;
+    const takeMatchingSeededAssistant = (
+      message: LLMMessage,
+    ): Extract<ContextItem, { kind: 'assistant-turn' }> | undefined => {
+      for (let index = seededAssistantCursor; index < seededAssistantTurns.length; index += 1) {
+        const candidate = seededAssistantTurns[index]!;
+        const messageCalls = message.toolCalls ?? [];
+        const candidateCalls = candidate.toolCalls ?? [];
+        const sameCalls =
+          messageCalls.length === candidateCalls.length &&
+          messageCalls.every(
+            (call, callIndex) =>
+              call.id === candidateCalls[callIndex]?.id &&
+              call.name === candidateCalls[callIndex]?.name,
+          );
+        if (candidate.content !== message.content || !sameCalls) continue;
+        seededAssistantCursor = index + 1;
+        return candidate;
+      }
+      return undefined;
+    };
     // Counter of how many times each `(callId, toolKey, paramsHash)` has
     // been seen so far in this pass — lets us disambiguate adapter
     // fallback ids (`tool-call-0`) that repeat across turns with the
@@ -1649,15 +1963,21 @@ export class AgentOrchestrator {
           content: m.content,
         } satisfies ContextItem);
       } else if (m.role === 'assistant') {
+        const seededAssistant = takeMatchingSeededAssistant(m);
         this.contextGraph.add({
           kind: 'assistant-turn',
           itemId: freshContextItemId(),
           producedAtStep: step,
           content: m.content,
+          reasoning: m.reasoning ?? seededAssistant?.reasoning,
           toolCalls: m.toolCalls?.map((tc) => ({
             id: tc.id,
             name: tc.name,
             arguments: tc.arguments,
+            thoughtSignature:
+              tc.thoughtSignature ??
+              seededAssistant?.toolCalls?.find((seededCall) => seededCall.id === tc.id)
+                ?.thoughtSignature,
           })),
         } satisfies ContextItem);
       } else if (m.role === 'tool') {
@@ -2135,8 +2455,7 @@ export class AgentOrchestrator {
       // evidence so contracts can write more expressive success signals
       // later.
       if (ok && tc.name === 'guide.get') {
-        const guideId = this.extractGuideId(parsed);
-        if (guideId) {
+        for (const guideId of this.extractGuideIds(parsed)) {
           this.appendEvidence({ kind: 'guide_loaded', guideId, at: now });
         }
       }
@@ -2218,19 +2537,28 @@ export class AgentOrchestrator {
     return typeof obj.error === 'string' ? obj.error : null;
   }
 
-  private extractGuideId(parsed: unknown): string | null {
-    if (parsed === null || typeof parsed !== 'object') return null;
+  private extractGuideIds(parsed: unknown): string[] {
+    if (parsed === null || typeof parsed !== 'object') return [];
     const obj = parsed as { data?: unknown };
     const data = obj.data;
-    if (Array.isArray(data)) {
-      const first = data[0] as { id?: unknown } | undefined;
-      return typeof first?.id === 'string' ? first.id : null;
-    }
-    if (data && typeof data === 'object') {
-      const d = data as { id?: unknown };
-      return typeof d.id === 'string' ? d.id : null;
-    }
-    return null;
+    const entries = Array.isArray(data)
+      ? data
+      : data && typeof data === 'object' && Array.isArray((data as { guides?: unknown }).guides)
+        ? ((data as { guides: unknown[] }).guides ?? [])
+        : data && typeof data === 'object'
+          ? [data]
+          : [];
+    return [
+      ...new Set(
+        entries.flatMap((entry) => {
+          if (!entry || typeof entry !== 'object') return [];
+          const { id, content } = entry as { id?: unknown; content?: unknown };
+          return typeof id === 'string' && id.trim().length > 0 && typeof content === 'string'
+            ? [id]
+            : [];
+        }),
+      ),
+    ];
   }
 
   private isReadOnlyTool(name: string): boolean {

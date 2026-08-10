@@ -5,6 +5,7 @@ import type {
   LLMToolParameter,
 } from '@lucid-fin/contracts';
 import type { AgentToolRegistry } from './tool-registry.js';
+import type { WorkflowToolPolicy } from './workflow-tool-policy.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -22,12 +23,13 @@ const COMPACT_RESULT_THRESHOLD = 300;
 const COMPACT_KEEP_RECENT_GROUPS = 4;
 
 const QUERY_TOOL_PATTERN =
-  /\.(list|get|getNode|listNodes|listEdges|describe|getInfo|previewPrompt)/;
+  /\.(list|get|getNode|listNodes|listEdges|describe|getInfo|previewPrompt|resolveResolution)/;
 
 /**
- * Tier A: Tools always loaded regardless of discovery or context.
- * All core read + write tools the AI needs for canvas/entity/generation work.
- * Remaining tools are discoverable via `tool.get`.
+ * Protected phase-core tool catalog. A run loads only the subset returned by
+ * `selectContextualToolSet`; tools in this catalog are protected from
+ * adaptive eviction once loaded. Remaining tools stay discoverable through
+ * `tool.get`.
  */
 export const TIER_A_TOOLS = [
   // ── Meta (3) ──────────────────────────────────────────────────
@@ -50,9 +52,10 @@ export const TIER_A_TOOLS = [
   'canvas.setNodeRefs',
   'canvas.configureNode',
 
-  // ── Canvas generation (4) ─────────────────────────────────────
+  // ── Canvas generation (5) ─────────────────────────────────────
   'canvas.generation',
   'canvas.setMediaParams',
+  'provider.resolveResolution',
   'canvas.previewPrompt',
   'canvas.presetTracks',
 
@@ -62,6 +65,7 @@ export const TIER_A_TOOLS = [
   'entity.update',
   'entity.delete',
   'entity.generateRefImage',
+  'entity.setRefImageFromNode',
 
   // ── Domain manage (3) ─────────────────────────────────────────
   'preset.manage',
@@ -72,7 +76,10 @@ export const TIER_A_TOOLS = [
   // Filtered by the host-derived workflow phase before every model request.
   'workflow.visual',
   'workflow.media',
+  'workflow.mediaFeedback',
   'workflow.finalExport',
+  'render.start',
+  'render.cancel',
 ] as const;
 
 /** @deprecated Use TIER_A_TOOLS instead. Alias kept for backward compatibility during migration. */
@@ -157,7 +164,13 @@ export type HistoryEntry =
   | {
       role: 'user' | 'assistant';
       content: string;
-      toolCalls?: Array<{ id: string; name: string; arguments: Record<string, unknown> }>;
+      reasoning?: string;
+      toolCalls?: Array<{
+        id: string;
+        name: string;
+        arguments: Record<string, unknown>;
+        thoughtSignature?: string;
+      }>;
     }
   | { role: 'tool'; content: string; toolCallId: string };
 
@@ -168,7 +181,7 @@ export function pruneHistory(
   if (!history || history.length === 0) return [];
 
   const entrySize = (e: HistoryEntry): number => {
-    let n = e.content.length;
+    let n = e.content.length + ('reasoning' in e ? (e.reasoning?.length ?? 0) : 0);
     if ('toolCalls' in e && Array.isArray(e.toolCalls)) {
       for (const tc of e.toolCalls) n += safeStringify(tc.arguments).length;
     }
@@ -521,11 +534,7 @@ export interface AgentContext {
 // Context-aware tool set selection  (1B)
 // ---------------------------------------------------------------------------
 
-/**
- * Workspace-state + user-intent inputs for context-aware tool loading.
- * Kept for API compatibility — the function now returns TIER_A for all
- * inputs (no regex keyword matching, no intent-based filtering).
- */
+/** Workspace, intent, and host-authoritative workflow inputs for tool loading. */
 export interface ToolSelectionInput {
   /** Number of canvas nodes (0 = empty canvas). */
   nodeCount: number;
@@ -541,18 +550,98 @@ export interface ToolSelectionInput {
   intentKind: string;
   /** Optional detected workflow hint. */
   intentWorkflow?: string;
+  /** Host-derived persistent workflow phase. Omitted when the canvas is unbound. */
+  workflowPhase?: WorkflowToolPolicy['phase'];
 }
 
 /**
- * Return the set of tool names that should be fully loaded on step 1.
- * All core tools live in TIER_A and are always loaded — no regex keyword
- * matching, no intent-based filtering. Remaining tools (series, render,
- * job, asset, admin providers, etc.) are discoverable via `tool.get`.
+ * Return the exact phase-core tools that should be loaded on step 1.
+ * SQLite-derived workflow phase, rather than prompt wording, controls which
+ * paid or mutating workflow tools the model can see. Non-core tools remain
+ * discoverable via `tool.get` and are still checked again at execution time.
  *
  * Pure function — no side-effects, no registry mutation.
  */
-export function selectContextualToolSet(_input: ToolSelectionInput): Set<string> {
-  return new Set<string>(TIER_A_TOOLS);
+export function selectContextualToolSet(input: ToolSelectionInput): Set<string> {
+  const selected = new Set<string>([
+    'tool.get',
+    'commander.askUser',
+    'guide.get',
+    'canvas.getInfo',
+    'canvas.listNodes',
+    'canvas.getNode',
+    'canvas.listEdges',
+    'workflow.manage',
+  ]);
+  const add = (names: readonly string[]): void => {
+    for (const name of names) selected.add(name);
+  };
+
+  const canvasMutations = [
+    'canvas.createNodes',
+    'canvas.updateNodes',
+    'canvas.deleteNode',
+    'canvas.connectNodes',
+    'canvas.manage',
+    'canvas.setNodeRefs',
+    'canvas.configureNode',
+  ] as const;
+  const mediaConfiguration = [
+    'canvas.setMediaParams',
+    'provider.resolveResolution',
+    'canvas.previewPrompt',
+    'canvas.presetTracks',
+  ] as const;
+
+  const phase = input.workflowPhase ?? 'unbound';
+  if (phase === 'unbound') {
+    add(canvasMutations);
+    add(mediaConfiguration);
+    add([
+      'canvas.generation',
+      'entity.list',
+      'entity.create',
+      'entity.update',
+      'entity.delete',
+      'entity.generateRefImage',
+      'preset.manage',
+      'provider.manage',
+    ]);
+    return selected;
+  }
+
+  if (phase === 'style_exploration') {
+    selected.add('workflow.visual');
+    return selected;
+  }
+
+  if (phase === 'preproduction' || phase === 'media_generation') {
+    add(canvasMutations);
+    add(mediaConfiguration);
+    add(['entity.list', 'entity.create', 'entity.update', 'entity.setRefImageFromNode']);
+    add(['workflow.media', 'workflow.mediaFeedback']);
+    return selected;
+  }
+
+  if (phase === 'assembly') {
+    add(canvasMutations);
+    selected.add('canvas.presetTracks');
+    selected.add('workflow.mediaFeedback');
+    return selected;
+  }
+
+  if (phase === 'final_export_preparation') {
+    selected.add('workflow.finalExport');
+    return selected;
+  }
+
+  if (phase === 'final_export_approved') {
+    add(['render.start', 'render.cancel']);
+    return selected;
+  }
+
+  if (phase === 'blocked') selected.add('render.cancel');
+  return selected;
 }
 
 // ---------------------------------------------------------------------------
@@ -569,6 +658,13 @@ export interface ContextManagerOptions {
    *  into the compacted message (e.g. fresh workspace snapshot). Empty/null
    *  strings are silently skipped. */
   onPostCompact?: () => string | null;
+}
+
+export interface ContextCompactionResult {
+  changed: boolean;
+  truncated: number;
+  /** False when no attempt ran (already under budget or auto-throttled). */
+  attempted: boolean;
 }
 
 export class ContextManager {
@@ -674,9 +770,19 @@ export class ContextManager {
     }
 
     // ── Layer 4: User guides (auto-injected, budget-limited) ────────
-    // Strip guides after step 5 to free tokens for history.
+    // After the opening steps retain only workflow-critical guides. Selection
+    // and the hard character budget are enforced by the host context builder.
     const stripGuides = step != null && step > 5;
-    const autoInjectGuides = stripGuides ? undefined : context.extra?.autoInjectGuides;
+    const rawAutoInjectGuides = context.extra?.autoInjectGuides;
+    const autoInjectGuides =
+      stripGuides && Array.isArray(rawAutoInjectGuides)
+        ? rawAutoInjectGuides.filter(
+            (guide) =>
+              guide &&
+              typeof guide === 'object' &&
+              (guide as { retention?: unknown }).retention === 'workflow',
+          )
+        : rawAutoInjectGuides;
     if (Array.isArray(autoInjectGuides) && autoInjectGuides.length > 0) {
       prompt += '\n\n## User Guides';
       for (const guide of autoInjectGuides) {
@@ -697,7 +803,7 @@ export class ContextManager {
 
   /**
    * Phase 1 only: fast rule-based compaction (truncate old tool results).
-   * No LLM call. Used proactively at 80% utilization.
+   * No LLM call. Used proactively at 75% utilization.
    * Returns true if any changes were made.
    */
   compactPhase1(messages: LLMMessage[], currentTurn?: number): boolean {
@@ -727,8 +833,18 @@ export class ContextManager {
     charBudget: number,
     currentTurn?: number,
   ): Promise<boolean> {
-    const result = await this._compactWithLLM(messages, charBudget, currentTurn, false);
+    const result = await this.compactWithLLMResult(messages, charBudget, currentTurn);
     return result.changed;
+  }
+
+  /** Detailed variant used by the orchestrator to distinguish a real failed
+   * recovery attempt from an automatic-compaction throttle no-op. */
+  async compactWithLLMResult(
+    messages: LLMMessage[],
+    charBudget: number,
+    currentTurn?: number,
+  ): Promise<ContextCompactionResult> {
+    return this._compactWithLLM(messages, charBudget, currentTurn, false);
   }
 
   private async _compactWithLLM(
@@ -736,14 +852,14 @@ export class ContextManager {
     charBudget: number,
     currentTurn: number | undefined,
     explicit: boolean,
-  ): Promise<{ changed: boolean; truncated: number }> {
+  ): Promise<ContextCompactionResult> {
     const totalChars = measureMessageChars(messages);
-    if (totalChars <= charBudget) return { changed: false, truncated: 0 };
+    if (totalChars <= charBudget) return { changed: false, truncated: 0, attempted: false };
     if (!explicit && !this._beginAutoCompaction(currentTurn)) {
-      return { changed: false, truncated: 0 };
+      return { changed: false, truncated: 0, attempted: false };
     }
     if (!this._checkpointDurableFacts()) {
-      return { changed: false, truncated: 0 };
+      return { changed: false, truncated: 0, attempted: true };
     }
 
     const snapshot = cloneMessages(messages);
@@ -964,7 +1080,7 @@ export class ContextManager {
     truncated: number,
     llmAttempted: boolean,
     explicit: boolean,
-  ): { changed: boolean; truncated: number } {
+  ): ContextCompactionResult {
     const afterChars = measureMessageChars(messages);
     const yieldRatio = beforeChars > 0 ? (beforeChars - afterChars) / beforeChars : 0;
     const meaningful = yieldRatio >= ContextManager.MIN_COMPACTION_YIELD;
@@ -975,11 +1091,11 @@ export class ContextManager {
         this._lowYieldLlmCompactions += 1;
         if (this._lowYieldLlmCompactions >= 2) this._llmCompactionDisabled = true;
       }
-      return { changed: false, truncated: 0 };
+      return { changed: false, truncated: 0, attempted: true };
     }
 
     if (meaningful && llmAttempted) this._lowYieldLlmCompactions = 0;
-    return { changed: afterChars < beforeChars, truncated };
+    return { changed: afterChars < beforeChars, truncated, attempted: true };
   }
 
   /**

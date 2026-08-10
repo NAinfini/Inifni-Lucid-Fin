@@ -13,6 +13,7 @@
  * Folder channels use a programmatic helper to avoid 80 lines of boilerplate.
  */
 import { z } from 'zod';
+import { COMMANDER_GUIDE_LIMITS } from '@lucid-fin/contracts';
 import { defineInvokeChannel } from '../../channels.js';
 import type { InvokeChannelDef } from '../../channels.js';
 
@@ -184,7 +185,7 @@ export type ProcessPromptGetResponse = z.infer<typeof ProcessPromptGetResponse>;
 // -- processPrompt:setCustom ----------------------------------------------
 const ProcessPromptSetCustomRequest = z.object({
   processKey: z.string(),
-  value: z.string(),
+  value: z.string().max(COMMANDER_GUIDE_LIMITS.maxProcessPromptChars),
 });
 const ProcessPromptSetCustomResponse = z.void();
 export const processPromptSetCustomChannel = defineInvokeChannel({

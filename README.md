@@ -15,6 +15,7 @@ _Turn scripts into shots, shots into scenes, scenes into films — all driven by
   <a href="#-screenshots">Screenshots</a> &nbsp;&bull;&nbsp;
   <a href="#-supported-ai-providers">Providers</a> &nbsp;&bull;&nbsp;
   <a href="#-architecture">Architecture</a> &nbsp;&bull;&nbsp;
+  <a href="docs/TECH_STACK.md">Tech Stack</a> &nbsp;&bull;&nbsp;
   <a href="#-quick-start">Quick Start</a> &nbsp;&bull;&nbsp;
   <a href="README.zh-CN.md">中文</a>
 </p>
@@ -28,13 +29,13 @@ _Turn scripts into shots, shots into scenes, scenes into films — all driven by
 </p>
 
 <p>
-  <img src="https://img.shields.io/badge/Electron-41-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron">
+  <img src="https://img.shields.io/badge/Electron-43.2.0-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron">
   <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React">
   <img src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
   <img src="https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white" alt="Vite">
   <img src="https://img.shields.io/badge/SQLite-3-003B57?style=flat-square&logo=sqlite&logoColor=white" alt="SQLite">
-  <img src="https://img.shields.io/badge/FFmpeg-7-007808?style=flat-square&logo=ffmpeg&logoColor=white" alt="FFmpeg">
-  <img src="https://img.shields.io/badge/Node-%E2%89%A522-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node">
+  <img src="https://img.shields.io/badge/FFmpeg-8.1.2-007808?style=flat-square&logo=ffmpeg&logoColor=white" alt="FFmpeg">
+  <img src="https://img.shields.io/badge/Node-%E2%89%A526.5.1-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node">
 </p>
 
 </div>
@@ -183,11 +184,11 @@ _Turn scripts into shots, shots into scenes, scenes into films — all driven by
   </tr>
   <tr>
     <td><strong>Image</strong></td>
-    <td>OpenAI GPT Image, Google Imagen 4, Recraft, Ideogram, Replicate, fal, Stability, Together AI, SiliconFlow, Zhipu CogView, Tongyi Wanxiang, Kolors (Kuaishou), StepFun, Volcengine Seedream</td>
+    <td>ChatGPT Image Generation (OAuth), OpenAI GPT Image 2, Google Gemini 3.1 Image, Recraft, Ideogram, Leonardo, Zhipu GLM Image, StepFun, Volcengine Seedream, Tongyi Wanxiang, xAI Imagine, BFL FLUX, Stability, Bria, Baidu Qianfan, Replicate, fal, Together AI, SiliconFlow, Krea, Higgsfield, Segmind, Freepik</td>
   </tr>
   <tr>
     <td><strong>Video</strong></td>
-    <td>Google Veo 2, Runway Gen-4, Luma Dream Machine, Pika, Kling, MiniMax Hailuo, Vidu (Shengshu), Replicate, fal, SiliconFlow, Zhipu CogVideoX, Tongyi (Alibaba), Volcengine Doubao Video</td>
+    <td>Google Gemini Omni Flash, Runway Gen-4.5, LTX 2.3, Luma Dream Machine, MiniMax H3, Kling, Zhipu CogVideoX-3, Vidu, Volcengine Seedance, Alibaba Wan 2.7, Baidu Qianfan, xAI Imagine, PixVerse V6, Replicate, fal, Together AI, SiliconFlow, Krea, Higgsfield, Segmind, Freepik, Seedance, HunyuanVideo</td>
   </tr>
   <tr>
     <td><strong>Audio</strong></td>
@@ -195,9 +196,14 @@ _Turn scripts into shots, shots into scenes, scenes into films — all driven by
   </tr>
   <tr>
     <td><strong>Vision</strong></td>
-    <td>15+ providers — same as LLM list (OpenAI, Gemini, Claude, Qwen, Grok, Mistral, DeepSeek, etc.)</td>
+    <td>14 providers with verified image input — OpenAI, Gemini, Claude, Qwen, Grok, Mistral, Zhipu, Kimi, StepFun, and configurable hubs/local models</td>
   </tr>
 </table>
+
+See the verified [media provider and API matrix](docs/MEDIA_PROVIDER_MATRIX.md) for default models,
+transport mappings, official references, and deliberate exclusions.
+See the [LLM and vision provider matrix](docs/LLM_PROVIDER_MATRIX.md) for current default models,
+context windows, protocol requirements, and migration behavior.
 
 ---
 
@@ -205,7 +211,7 @@ _Turn scripts into shots, shots into scenes, scenes into films — all driven by
 
 ```mermaid
 graph TB
-    subgraph Desktop["Desktop App (Electron 41)"]
+    subgraph Desktop["Desktop App (Electron 43)"]
         subgraph Renderer["Renderer — React 19 + Vite 8"]
             UI["Canvas Workspace<br/>Inspector &middot; Commander AI"]
             Store["Redux Store<br/>18 slices"]
@@ -240,10 +246,10 @@ graph TB
 
     subgraph Providers["AI Providers"]
         LLM["LLM<br/>19 providers"]
-        IMG["Image<br/>14 providers"]
-        VID["Video<br/>13 providers"]
+        IMG["Image<br/>verified catalog"]
+        VID["Video<br/>verified catalog"]
         AUD["Audio<br/>6 providers"]
-        VIS["Vision<br/>15 providers"]
+        VIS["Vision<br/>14 providers"]
     end
 
     Adapters --> LLM
@@ -288,16 +294,16 @@ git clone https://github.com/NAinfini/Inifni-Lucid-Fin.git
 cd Inifni-Lucid-Fin
 
 # Install
-npm install
+pnpm install --frozen-lockfile
 
 # Dev
-npm run dev
+pnpm run dev
 
 # Test
-npm test
+pnpm test
 
 # Build
-npm run build
+pnpm run build
 ```
 
 <details>
@@ -305,21 +311,31 @@ npm run build
 
 | Requirement | Version                     |
 | ----------- | --------------------------- |
-| Node.js     | >= 22.12.0                  |
-| npm         | >= 10                       |
-| FFmpeg      | >= 7 (for video processing) |
+| Node.js     | >= 26.5.1                   |
+| pnpm        | 11.21.0                     |
+| FFmpeg      | 8.1.2 LGPL runtime (pinned) |
 | OS          | Windows / macOS / Linux     |
 
 </details>
+
+See the canonical [technology stack and upgrade policy](docs/TECH_STACK.md), including the intentional TypeScript 6.0.2 hold.
 
 <details>
 <summary><strong>AI Provider Setup</strong></summary>
 
 1. Open **Settings** (gear icon)
 2. Select a provider tab: **LLM**, **Image**, **Video**, **Audio**, or **Vision**
-3. Enter your API key and click **Save**
+3. For an API provider, enter its API key and click **Save**. For an OAuth provider, expand its card
+   and choose **Sign in**; OAuth cards never ask for an API key or password.
 4. Set the provider as active
 5. For custom providers, click **+ Add Custom**, enter name, base URL, and model
+
+ChatGPT OAuth is available separately for Commander LLM, image generation, and fallback vision.
+Gemini OAuth is available separately for LLM, image, video, and fallback vision, so each capability
+may use a different account. OAuth cards display remaining usage when the provider exposes it; Gemini
+links to the Cloud quota dashboard when it does not. If the active LLM supports image understanding,
+Lucid Fin reuses it and does not call the fallback vision provider. See the
+[OAuth security and routing contract](docs/PROVIDER_OAUTH.md).
 
 </details>
 
@@ -327,7 +343,7 @@ npm run build
 
 ## CI / CD
 
-Every push and pull request runs the full CI pipeline via GitHub Actions:
+Every push and pull request runs the full CI pipeline on Node 26.5.1 and pnpm 11.21.0 via GitHub Actions:
 
 | Job            | What it does                                                    |
 | -------------- | --------------------------------------------------------------- |

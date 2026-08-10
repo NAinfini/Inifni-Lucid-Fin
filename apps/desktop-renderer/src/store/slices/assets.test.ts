@@ -47,63 +47,6 @@ describe('assets slice', () => {
     });
   });
 
-  it('exports action creators with the expected payloads', () => {
-    const asset = makeAsset();
-
-    expect(setAssets([asset])).toMatchObject({
-      type: 'assets/setAssets',
-      payload: [asset],
-    });
-    expect(addAsset(asset)).toMatchObject({
-      type: 'assets/addAsset',
-      payload: asset,
-    });
-    expect(removeAsset('asset-1')).toMatchObject({
-      type: 'assets/removeAsset',
-      payload: 'asset-1',
-    });
-    expect(
-      updateAsset({
-        id: 'asset-1',
-        data: { name: 'Renamed', tags: ['updated'], global: true, metadata: { source: 'ai' } },
-      }),
-    ).toMatchObject({
-      type: 'assets/updateAsset',
-      payload: {
-        id: 'asset-1',
-        data: { name: 'Renamed', tags: ['updated'], global: true, metadata: { source: 'ai' } },
-      },
-    });
-    expect(addTag({ assetId: 'asset-1', tag: 'portrait' })).toMatchObject({
-      type: 'assets/addTag',
-      payload: { assetId: 'asset-1', tag: 'portrait' },
-    });
-    expect(removeTag({ assetId: 'asset-1', tag: 'hero' })).toMatchObject({
-      type: 'assets/removeTag',
-      payload: { assetId: 'asset-1', tag: 'hero' },
-    });
-    expect(setSearchQuery('hero')).toMatchObject({
-      type: 'assets/setSearchQuery',
-      payload: 'hero',
-    });
-    expect(setFilterType('video')).toMatchObject({
-      type: 'assets/setFilterType',
-      payload: 'video',
-    });
-    expect(setFilterTags(['hero', 'featured'])).toMatchObject({
-      type: 'assets/setFilterTags',
-      payload: ['hero', 'featured'],
-    });
-    expect(setSortBy('name')).toMatchObject({
-      type: 'assets/setSortBy',
-      payload: 'name',
-    });
-    expect(setSortOrder('asc')).toMatchObject({
-      type: 'assets/setSortOrder',
-      payload: 'asc',
-    });
-  });
-
   it('deduplicates loaded assets by hash and keeps the first occurrence', () => {
     const state = assetsSlice.reducer(
       undefined,

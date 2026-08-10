@@ -47,6 +47,13 @@ const MUTATION_ACTION_PREFIXES = [
   'update',
 ];
 
+const WORKFLOW_GATE_AUTHORIZED_TOOLS = new Set([
+  'workflow.visual',
+  'workflow.media',
+  'workflow.finalExport',
+  'render.start',
+]);
+
 // ---------------------------------------------------------------------------
 // Pre-execution argument validation
 // ---------------------------------------------------------------------------
@@ -139,8 +146,8 @@ function formatArgValidationErrors(toolName: string, errors: ArgValidationError[
  *            batch. Deletes are also tier 3 because the snapshot system
  *            provides rollback (see snapshot-tools.ts).
  * - tier 4 = expensive one-shot OR irreversible project-scope action
- *            (render.start, provider.removeCustom, workflow.manage,
- *            canvas.deleteCanvas, job.create). Confirmed in every mode
+ *            (render.start, provider.removeCustom, canvas.deleteCanvas,
+ *            job.create). Confirmed in every mode
  *            except `danger`.
  *            Rationale: these burn significant money or destroy the
  *            top-level artifact; always worth one click.
@@ -150,6 +157,43 @@ export function needsConfirmation(tier: number, mode: string): boolean {
   if (mode === 'auto') return tier === 4;
   if (mode === 'strict') return tier >= 1;
   return tier >= 3;
+}
+
+/**
+ * Resolve the confirmation tier for tools whose risk depends on `action`.
+ *
+ * Tool registrations retain their declared tier as the default; this narrow
+ * overlay keeps a harmless read-style action from inheriting a costly action's
+ * confirmation, and prevents destructive sub-actions from inheriting a safe
+ * management tool's tier.
+ */
+export function resolveEffectiveToolTier(
+  toolName: string,
+  args: Record<string, unknown> | undefined,
+  declaredTier: number,
+): number {
+  const action = typeof args?.action === 'string' ? args.action : undefined;
+
+  if (toolName === 'workflow.manage' && action === 'control') {
+    return args?.controlAction === 'cancel' ? 4 : 2;
+  }
+
+  if (toolName === 'canvas.generation') {
+    if (action === 'start' || action === 'refine') return 3;
+    if (action === 'estimate') return 1;
+    if (action === 'cancel') return 2;
+  }
+
+  if (toolName === 'preset.manage' && (action === 'delete' || action === 'reset')) return 3;
+  if (toolName === 'shotTemplate.manage' && action === 'delete') return 3;
+
+  return declaredTier;
+}
+
+/** Only deterministic read/query tools may execute concurrently. */
+function isPureReadTool(toolName: string): boolean {
+  const category = getToolCompactionCategory(toolName);
+  return category === 'get' || category === 'list' || category === 'log' || category === 'query';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -404,6 +448,23 @@ export interface ToolExecutionEntry {
   };
 }
 
+export interface WorkflowAskUserPersistenceRequest {
+  workflowRunId: string;
+  questionId: string;
+  decisionKey: string;
+  question: string;
+  options: Array<{ id: string; label: string; description?: string }>;
+  allowFreeText: boolean;
+  policy: WorkflowToolPolicy;
+}
+
+export interface WorkflowAskUserPersistenceResult {
+  questionId: string;
+  status: 'pending' | 'answered' | 'recovery_required';
+  answer?: string;
+  selectedOptionId?: string;
+}
+
 export interface ToolExecutorOptions {
   permissionMode?: 'danger' | 'auto' | 'normal' | 'strict';
   /**
@@ -418,6 +479,10 @@ export interface ToolExecutorOptions {
   canvasId?: string;
   /** Host-derived workflow authorization, refreshed from SQLite each step. */
   workflowPolicy?: WorkflowToolPolicy;
+  /** Host callback that durably reserves workflow-bound AskUser decisions. */
+  onWorkflowAskUser?: (
+    request: WorkflowAskUserPersistenceRequest,
+  ) => Promise<WorkflowAskUserPersistenceResult> | WorkflowAskUserPersistenceResult;
 }
 
 /**
@@ -515,6 +580,16 @@ export class ToolExecutor {
     // (from stale examples or hallucination), the auto-injected value wins.
     const contextArgs: Record<string, unknown> = {};
     if (this.opts.canvasId) contextArgs.canvasId = this.opts.canvasId;
+    const workflowRunId = this.opts.workflowPolicy?.workflowRunId;
+    if ((tc.name.startsWith('workflow.') || tc.name === 'render.start') && workflowRunId) {
+      contextArgs.workflowRunId = workflowRunId;
+      if (tc.name.startsWith('workflow.') && this.opts.workflowPolicy?.rowVersion !== undefined) {
+        contextArgs.expectedRowVersion = this.opts.workflowPolicy.rowVersion;
+      }
+      if (tc.name.startsWith('workflow.') && this.opts.workflowPolicy?.currentTaskRunId) {
+        contextArgs.taskRunId = this.opts.workflowPolicy.currentTaskRunId;
+      }
+    }
     const mergedArgs = { ...tc.arguments, ...contextArgs };
 
     // Pre-execution argument validation against the tool's JSON Schema.
@@ -671,7 +746,11 @@ export class ToolExecutor {
               : [data];
           for (const item of items) {
             if (isRecord(item) && typeof item.name === 'string' && this.tools.get(item.name)) {
+              // Keep discovery state and the current turn's active set in
+              // lockstep. `tool.get` is scheduled before all other calls, so
+              // a later call in this same assistant turn can now execute.
               discoveredToolNames.add(item.name);
+              activeToolNames.add(item.name);
             }
           }
         }
@@ -761,12 +840,21 @@ export class ToolExecutor {
       }
     }
 
-    // Partition into interactive and parallel runs
-    type Run = { kind: 'parallel' | 'interactive'; calls: LLMToolCall[] };
+    // Run discovery first so schemas loaded by `tool.get` are active for the
+    // remaining calls in this assistant turn. Then parallelize only pure reads;
+    // mutations and other meta tools stay serial to avoid stale write races.
+    type Run = {
+      kind: 'parallel' | 'serial' | 'interactive';
+      calls: LLMToolCall[];
+    };
     const runs: Run[] = [];
-    for (const tc of uniqueToolCalls) {
+    const discoveryCalls = uniqueToolCalls.filter((tc) => tc.name === 'tool.get');
+    const remainingCalls = uniqueToolCalls.filter((tc) => tc.name !== 'tool.get');
+    for (const tc of [...discoveryCalls, ...remainingCalls]) {
       if (this.isInteractive(tc, mode)) {
         runs.push({ kind: 'interactive', calls: [tc] });
+      } else if (!isPureReadTool(tc.name)) {
+        runs.push({ kind: 'serial', calls: [tc] });
       } else {
         const last = runs[runs.length - 1];
         if (last && last.kind === 'parallel') {
@@ -787,32 +875,134 @@ export class ToolExecutor {
         if (tc.name === 'commander.askUser') {
           const question = typeof tc.arguments.question === 'string' ? tc.arguments.question : '';
           const rawOptions = Array.isArray(tc.arguments.options) ? tc.arguments.options : [];
+          const allowFreeText =
+            typeof tc.arguments.allowFreeText === 'boolean' ? tc.arguments.allowFreeText : true;
           const mapped = rawOptions
             .map((opt: unknown) => {
-              const option = opt as { label?: string };
-              return { label: option.label ?? '' };
+              const option = opt as { label?: string; description?: string };
+              return {
+                label: typeof option.label === 'string' ? option.label.trim() : '',
+                ...(typeof option.description === 'string' && option.description.trim()
+                  ? { description: option.description.trim() }
+                  : {}),
+              };
             })
             .filter((o) => o.label.length > 0)
-            .map((o, idx) => ({ id: `opt-${idx}`, label: o.label }));
-          emit({
-            kind: 'question_prompt',
-            questionId: tc.id,
-            prompt: question,
-            options: mapped.length > 0 ? mapped : undefined,
-            allowFreeText: false,
-          });
-          const answer = await new Promise<string>((resolve) => {
-            pendingQuestionResolvers.set(tc.id, resolve);
-          });
+            .map((o, idx) => ({
+              id: `opt-${idx}`,
+              label: o.label,
+              ...('description' in o ? { description: o.description } : {}),
+            }));
+          if (
+            mapped.length < 2 ||
+            mapped.length > 6 ||
+            new Set(mapped.map((option) => option.label)).size !== mapped.length
+          ) {
+            const error =
+              'commander.askUser requires between 2 and 6 non-empty options with unique labels.';
+            const payload = {
+              success: false,
+              error,
+              _recovery: 'Provide 2 to 6 clickable options, then call commander.askUser again.',
+            };
+            emit({
+              kind: 'tool_result',
+              toolCallId: tc.id,
+              error: commanderErrorFromMessage(error),
+              durationMs: 0,
+            });
+            messages.push({ role: 'tool', content: safeStringify(payload), toolCallId: tc.id });
+            continue;
+          }
+          const workflowRunId = this.opts.workflowPolicy?.workflowRunId;
+          const decisionKey =
+            typeof tc.arguments.decisionKey === 'string' ? tc.arguments.decisionKey.trim() : '';
+          let questionId = tc.id;
+          let persistedAnswer: string | undefined;
+          let persistedSelectedOptionId: string | undefined;
+          if (workflowRunId) {
+            if (!decisionKey || !this.opts.onWorkflowAskUser) {
+              const error =
+                'Workflow-bound commander.askUser requires a stable decisionKey and durable host persistence.';
+              const payload = { success: false, error };
+              emit({
+                kind: 'tool_result',
+                toolCallId: tc.id,
+                error: commanderErrorFromMessage(error),
+                durationMs: 0,
+              });
+              messages.push({ role: 'tool', content: safeStringify(payload), toolCallId: tc.id });
+              continue;
+            }
+            const persisted = await this.opts.onWorkflowAskUser({
+              workflowRunId,
+              questionId: tc.id,
+              decisionKey,
+              question,
+              options: mapped,
+              allowFreeText,
+              policy: this.opts.workflowPolicy!,
+            });
+            questionId = persisted.questionId;
+            if (persisted.status !== 'pending') {
+              persistedAnswer = persisted.answer;
+              persistedSelectedOptionId = persisted.selectedOptionId;
+            }
+          }
+          if (persistedAnswer === undefined) {
+            emit({
+              kind: 'question_prompt',
+              questionId,
+              prompt: question,
+              options: mapped.length > 0 ? mapped : undefined,
+              allowFreeText,
+            });
+          }
+          const answer =
+            persistedAnswer ??
+            (await new Promise<string>((resolve) => {
+              const receiveAnswer = (candidate: string): void => {
+                const normalized = candidate.trim();
+                if (
+                  !normalized ||
+                  (!allowFreeText && !mapped.some((option) => option.label === normalized))
+                ) {
+                  // The host removes the resolver before invoking it. Restore
+                  // the same guarded resolver so an invalid IPC answer cannot
+                  // close or bypass a closed-choice question.
+                  pendingQuestionResolvers.set(questionId, receiveAnswer);
+                  return;
+                }
+                resolve(normalized);
+              };
+              pendingQuestionResolvers.set(questionId, receiveAnswer);
+            }));
           // Close the pending-question card on the UI before the tool_result
           // lands. The timeline selector clears `pendingQuestion` when it
           // sees `user_answer` with a matching `questionId`.
           const selectedOption = mapped.find((o) => o.label === answer);
+          if (
+            !allowFreeText &&
+            (!selectedOption ||
+              (persistedSelectedOptionId !== undefined &&
+                persistedSelectedOptionId !== selectedOption.id))
+          ) {
+            const error = 'commander.askUser requires one of the listed options.';
+            const payload = { success: false, error };
+            emit({
+              kind: 'tool_result',
+              toolCallId: tc.id,
+              error: commanderErrorFromMessage(error),
+              durationMs: 0,
+            });
+            messages.push({ role: 'tool', content: safeStringify(payload), toolCallId: tc.id });
+            continue;
+          }
           emit({
             kind: 'user_answer',
-            questionId: tc.id,
+            questionId,
             answer,
-            selectedOptionId: selectedOption?.id,
+            selectedOptionId: persistedSelectedOptionId ?? selectedOption?.id,
           });
           const answerPayload = { success: true, data: { answer } };
           emit({
@@ -825,11 +1015,10 @@ export class ToolExecutor {
         } else {
           // needs-confirmation path
           const tool = this.tools.get(tc.name);
-          // If the tool is registered, trust its declared tier (register()
-          // rejects any tool without one). Unknown tools are edge-of-map
-          // — show the highest stakes so the user can't be surprised by a
-          // misleadingly safe label.
-          const tier = tool?.tier ?? 4;
+          // Composite tools can have an action-specific effective tier.
+          // Unknown tools remain highest-stakes so the user cannot be
+          // surprised by a misleadingly safe label.
+          const tier = resolveEffectiveToolTier(tc.name, tc.arguments, tool?.tier ?? 4);
           emit({
             kind: 'tool_confirm_prompt',
             toolCallId: tc.id,
@@ -869,7 +1058,8 @@ export class ToolExecutor {
         continue;
       }
 
-      // Parallel run with adaptive window
+      // Pure reads use the adaptive window. Serial runs reuse the same result
+      // and duplicate-mirroring path with a fixed window of one.
       const queue = [...run.calls];
       const ordered = new Map<string, string>();
       let idx = 0;
@@ -877,7 +1067,8 @@ export class ToolExecutor {
       while (idx < queue.length) {
         if (isCancelledOrAborted()) return { cancelled: true, dupMap };
 
-        const windowSize = Math.max(1, Math.min(concurrency, queue.length - idx));
+        const windowSize =
+          run.kind === 'serial' ? 1 : Math.max(1, Math.min(concurrency, queue.length - idx));
         const batch = queue.slice(idx, idx + windowSize);
         const results = await Promise.all(
           batch.map((tc) => this.executeSingle(tc, activeToolNames, discoveredToolNames, emit)),
@@ -920,11 +1111,14 @@ export class ToolExecutor {
           }
         }
 
-        // Adjust concurrency
-        if (failures === 0 && successes > 0) {
-          concurrency = Math.min(concurrency + 1, 8);
-        } else if (failures > 0) {
-          concurrency = Math.max(1, Math.floor(concurrency * 0.5));
+        // Only concurrent read batches tune the read window. Serial writes
+        // should not make a later read batch more aggressive.
+        if (run.kind === 'parallel') {
+          if (failures === 0 && successes > 0) {
+            concurrency = Math.min(concurrency + 1, 8);
+          } else if (failures > 0) {
+            concurrency = Math.max(1, Math.floor(concurrency * 0.5));
+          }
         }
 
         idx += windowSize;
@@ -945,10 +1139,26 @@ export class ToolExecutor {
 
   private isInteractive(tc: LLMToolCall, mode: string): boolean {
     if (tc.name === 'commander.askUser') return true;
+    // A stale or forged workflow call cannot become authorized through a
+    // confirmation click. Let executeSingle reject it immediately instead of
+    // blocking an unattended continuation on a confirmation that can never
+    // succeed.
+    if (getWorkflowToolDenial(this.opts.workflowPolicy, tc.name, tc.arguments)) return false;
+
+    // An exact host-derived workflow gate is the authorization for its bounded
+    // phase tool. Strict mode deliberately keeps its per-call confirmation
+    // contract; normal and auto may continue the approved workflow.
+    if (
+      (mode === 'normal' || mode === 'auto') &&
+      this.opts.workflowPolicy?.workflowRunId &&
+      WORKFLOW_GATE_AUTHORIZED_TOOLS.has(tc.name)
+    ) {
+      return false;
+    }
     const tool = this.tools.get(tc.name);
     // Unknown tool → treat as tier 4 so the highest-stakes confirmation
     // gate triggers. Registered tools always have tier (register() guard).
-    const tier = tool?.tier ?? 4;
+    const tier = resolveEffectiveToolTier(tc.name, tc.arguments, tool?.tier ?? 4);
     return needsConfirmation(tier, mode);
   }
 }

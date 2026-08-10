@@ -12,14 +12,18 @@ import type {
   VisualPreviewAttempt,
   VisualPreviewGrade,
   WorkflowDocument,
+  LLMAdapter,
 } from '@lucid-fin/contracts';
-import type { CAS, Keychain } from '@lucid-fin/storage';
+import { compileVisualStylePolicy } from '@lucid-fin/shared-utils';
 import {
   CommanderImageGenerationError,
   type CommanderImageGenerationOptions,
   type CommanderImageGenerationResult,
 } from './commander-image-gen.js';
-import { analyzeImageAsset, type AnalyzeImageAssetResult } from './vision.handlers.js';
+import type {
+  VisualAnalysisResult,
+  VisualAnalyzer,
+} from '../../services/visual-analyzer.service.js';
 
 type GenerateImage = (
   prompt: string,
@@ -121,9 +125,25 @@ export function createStyleAuditionService(deps: StyleAuditionServiceDeps) {
           }
           const attemptNumber = candidate.attempts.length + 1;
           const repairDirective = previousAttempt?.grade?.repairPrompt;
-          const prompt = repairDirective
-            ? `${candidate.prompt}\n\nRepair directives for this new attempt: ${repairDirective}`
-            : candidate.prompt;
+          const compiledStyle = compileVisualStylePolicy(
+            {
+              version: 1,
+              summary: candidate.summary,
+              locked: candidate.constitution,
+              negativeConstraints: candidate.negativePrompt
+                ? [candidate.negativePrompt]
+                : undefined,
+            },
+            'text-to-image',
+          );
+          const prompt = [
+            candidate.prompt,
+            repairDirective ? `Repair directives for this new attempt: ${repairDirective}` : '',
+            compiledStyle.prompt,
+          ]
+            .filter(Boolean)
+            .join('\n\n');
+          const negativePrompt = compiledStyle.negativePrompt;
           const startedAt = now();
           const budgetConsumed = Math.max(
             state.budget.estimatedCommittedUsd,
@@ -167,7 +187,7 @@ export function createStyleAuditionService(deps: StyleAuditionServiceDeps) {
               width: state.width,
               height: state.height,
               seed: candidate.seed,
-              ...(candidate.negativePrompt ? { negativePrompt: candidate.negativePrompt } : {}),
+              ...(negativePrompt ? { negativePrompt } : {}),
               maxEstimatedCostUsd: remainingBudget,
             });
           } catch (error) {
@@ -284,7 +304,10 @@ export function createStyleAuditionService(deps: StyleAuditionServiceDeps) {
   };
 }
 
-export function createVisualPreviewGrader(deps: { cas: CAS; keychain: Keychain }): GradeImage {
+export function createVisualPreviewGrader(deps: {
+  visualAnalyzer: VisualAnalyzer;
+  preferredLLMAdapter?: LLMAdapter;
+}): GradeImage {
   return async ({ assetHash, candidate, productionPlan }) => {
     const systemPrompt = `You are the evidence-producing visual evaluator in an AI filmmaking workflow.
 Evaluate the attached style preview against the approved story and the candidate's stated Visual Constitution.
@@ -301,15 +324,16 @@ Evidence must cite visible details. Never claim a detail that is not visible.`;
       },
       candidate,
     });
-    const analyzed = await analyzeImageAsset(deps.cas, deps.keychain, assetHash, {
+    const analyzed = await deps.visualAnalyzer.analyzeImageAsset(assetHash, {
       systemPrompt,
       userPrompt,
+      preferredLLMAdapter: deps.preferredLLMAdapter,
     });
     return parseGrade(analyzed);
   };
 }
 
-function parseGrade(result: AnalyzeImageAssetResult): VisualPreviewGrade {
+function parseGrade(result: VisualAnalysisResult): VisualPreviewGrade {
   const start = result.text.indexOf('{');
   const end = result.text.lastIndexOf('}');
   if (start < 0 || end <= start) throw new Error('Vision grader did not return a JSON object');

@@ -2,11 +2,14 @@ import React, { useState } from 'react';
 import { CheckCircle2, LoaderCircle, ShieldCheck } from 'lucide-react';
 import type { ApproveWorkflowGateResult, WorkflowApprovalContext } from '@lucid-fin/contracts';
 import { t } from '../../i18n.js';
+import { WorkflowRequestChangesForm } from './WorkflowRequestChangesForm.js';
 
 type ProductionPlanApprovalCardProps = {
   context: WorkflowApprovalContext;
   onApprove: () => Promise<ApproveWorkflowGateResult>;
   onApproved?: () => void;
+  onRequestChanges?: (reason: string) => Promise<unknown>;
+  onRequested?: () => void;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -25,17 +28,25 @@ function stringList(value: unknown): string[] {
     : [];
 }
 
+function recordList(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value)
+    ? value.map((entry) => asRecord(entry)).filter((entry) => Object.keys(entry).length > 0)
+    : [];
+}
+
 export function ProductionPlanApprovalCard({
   context,
   onApprove,
   onApproved,
+  onRequestChanges,
+  onRequested,
 }: ProductionPlanApprovalCardProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const plan = context.document.content;
   const format = asRecord(plan.format);
   const story = asRecord(plan.story);
-  const acts = Array.isArray(story.acts) ? story.acts : [];
+  const acts = recordList(story.acts);
   const budget = asRecord(plan.budget);
   const assumptions = stringList(plan.assumptions);
   const visualDirections = stringList(plan.visualDirections);
@@ -110,6 +121,80 @@ export function ProductionPlanApprovalCard({
           </div>
         </div>
 
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border bg-background/70 p-3">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+              {t('workflowApproval.genre')}
+            </div>
+            <div className="mt-1.5 font-medium">{text(plan.genre)}</div>
+          </div>
+          <div className="rounded-lg border bg-background/70 p-3">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+              {t('workflowApproval.tone')}
+            </div>
+            <div className="mt-1.5 font-medium">{text(plan.tone)}</div>
+          </div>
+          <div className="rounded-lg border bg-background/70 p-3">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+              {t('workflowApproval.targetAudience')}
+            </div>
+            <div className="mt-1.5 font-medium">{text(plan.targetAudience)}</div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border bg-background/70 p-3">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+            {t('workflowApproval.scenePlan')}
+          </div>
+          <div className="mt-3 space-y-3">
+            {acts.map((act, actIndex) => {
+              const scenes = recordList(act.scenes);
+              const actName = text(act.name, `${t('workflowApproval.act')} ${actIndex + 1}`);
+              return (
+                <details
+                  key={`${actName}-${actIndex}`}
+                  open
+                  className="rounded-md border bg-card/60 px-3 py-2"
+                >
+                  <summary className="cursor-pointer text-xs font-medium">
+                    {actName} · {scenes.length} {t('workflowApproval.scenes')}
+                  </summary>
+                  <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
+                    {text(act.purpose)}
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {scenes.map((scene, sceneIndex) => (
+                      <article
+                        key={`${actIndex}-${sceneIndex}-${text(scene.title)}`}
+                        className="rounded-md border border-border/70 bg-background/70 p-2.5 text-xs"
+                      >
+                        <div className="font-medium">
+                          {t('workflowApproval.scene')} {sceneIndex + 1}: {text(scene.title)}
+                        </div>
+                        <p className="mt-1 text-muted-foreground">{text(scene.summary)}</p>
+                        <dl className="mt-2 grid gap-x-3 gap-y-1 sm:grid-cols-2">
+                          <div>
+                            <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                              {t('workflowApproval.storyBeat')}
+                            </dt>
+                            <dd className="mt-0.5">{text(scene.storyBeat)}</dd>
+                          </div>
+                          <div>
+                            <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                              {t('workflowApproval.dialogueIntent')}
+                            </dt>
+                            <dd className="mt-0.5">{text(scene.dialogueIntent)}</dd>
+                          </div>
+                        </dl>
+                      </article>
+                    ))}
+                  </div>
+                </details>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
@@ -168,6 +253,8 @@ export function ProductionPlanApprovalCard({
             {error}
           </div>
         )}
+
+        <WorkflowRequestChangesForm onRequestChanges={onRequestChanges} onRequested={onRequested} />
 
         <button
           type="button"

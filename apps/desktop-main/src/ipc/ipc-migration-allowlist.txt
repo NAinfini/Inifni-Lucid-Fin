@@ -1,6 +1,6 @@
 # Raw ipcMain.handle registrations that still need typed registrar migration.
 # Format: <repo-relative path> :: <channel literal or reviewed dynamic expression>
-# Generated with: npx tsx scripts/check-ipc-migration-allowlist.ts --write
+# Generated with: pnpm exec tsx scripts/check-ipc-migration-allowlist.ts --write
 
 apps/desktop-main/src/features/ipc/registrar.ts :: channelName
 apps/desktop-main/src/features/ipc/registrar.ts :: channelName

@@ -40,12 +40,14 @@ import {
   capitalizeUpdateStatus,
   mergeVariants,
   materializeAsset,
+  probeGeneratedAsset,
   materializeGenerationRequest,
   requireGenerateArgs,
   requireEstimateArgs,
   requireCancelArgs,
 } from './generation-helpers.js';
 import { buildGenerationContext, mapGenerationTypeToAssetType } from './generation-context.js';
+import { assertManualCanvasGenerationAllowed } from './persistent-workflow-guard.js';
 import { autoChainVideoFrame } from './video-chain.js';
 import { runLipSyncPostProcess } from './lipsync.handlers.js';
 
@@ -151,6 +153,8 @@ export async function startCanvasGeneration(
     throw new Error(`Generation already running for node ${nodeId}`);
   }
 
+  assertManualCanvasGenerationAllowed(deps.db, canvasId);
+
   const context = await buildGenerationContext(deps, {
     canvasId,
     nodeId,
@@ -159,6 +163,7 @@ export async function startCanvasGeneration(
     requestedVariantCount: args.variantCount,
     requestedSeed: args.seed,
     finalPrompt: normalizeOptionalString(args.finalPrompt),
+    promptInputMode: args.promptInputMode,
   });
 
   log.info('Canvas generation requested', {
@@ -269,6 +274,11 @@ async function executeGeneration(args: {
         const assetType = mapGenerationTypeToAssetType(generationType);
         const fileExists = fs.existsSync(materialized.filePath);
         const fileStats = fileExists ? fs.statSync(materialized.filePath) : undefined;
+        const actualMedia = await probeGeneratedAsset(
+          materialized.filePath,
+          assetType,
+          deps.probeMedia,
+        );
         log.info('[canvas:generation] materialized asset ready for import', {
           canvasId: runningJob.canvasId,
           nodeId: runningJob.nodeId,
@@ -318,6 +328,7 @@ async function executeGeneration(args: {
         });
         deps.db.repos.assets.insert({
           ...meta,
+          ...actualMedia,
           prompt: requestBase.prompt,
           provider: adapter.id,
           tags: [
@@ -330,6 +341,7 @@ async function executeGeneration(args: {
             prompt: requestBase.prompt,
             negativePrompt: requestBase.negativePrompt ?? undefined,
             provider: adapter.id,
+            visualStyle: context.visualStyle,
             seed: variantSeed,
             width: requestBase.width,
             height: requestBase.height,
@@ -347,6 +359,17 @@ async function executeGeneration(args: {
               (generated.metadata?.model as string | undefined) ??
               undefined,
             cost: generated.cost ?? undefined,
+            resolution:
+              requestBase.resolution && actualMedia.width && actualMedia.height
+                ? {
+                    requested: requestBase.resolution.requested,
+                    resolved: requestBase.resolution,
+                    actual: { width: actualMedia.width, height: actualMedia.height },
+                    estimatedCostUsd:
+                      context.resolutionPreflight?.estimatedCostUsd ?? initialEstimatedCost,
+                    reportedActualCostUsd: generated.cost ?? undefined,
+                  }
+                : undefined,
           },
         });
 

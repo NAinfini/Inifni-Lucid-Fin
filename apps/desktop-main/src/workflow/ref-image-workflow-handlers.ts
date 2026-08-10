@@ -6,6 +6,7 @@ import {
   locationViewToSlot,
   type CharacterRefImageView,
   type LocationRefImageView,
+  type ResolutionIntent,
 } from '@lucid-fin/contracts';
 import type { WorkflowTaskHandler } from '@lucid-fin/application';
 import type { AdapterRegistry } from '@lucid-fin/adapters-ai';
@@ -18,13 +19,15 @@ import {
 } from '@lucid-fin/contracts-parse';
 import { makeGenerateImage } from '../ipc/handlers/commander-image-gen.js';
 import { buildCharacterRefImagePrompt, buildLocationRefImagePrompt } from '@lucid-fin/application';
+import { compileVisualStylePolicy, resolveCanvasVisualStylePolicy } from '@lucid-fin/shared-utils';
 
 /**
  * Workflow-handler input contract for ref-image generation (Phase 2b):
  *   input.view     — CharacterRefImageView | LocationRefImageView
- *   input.canvasId — optional; when present, canvas.settings.stylePlate
- *                    leads the prompt, negativePrompt trails it, and
- *                    refResolution overrides the hardcoded size.
+ *   input.canvasId — optional; when present, the canonical Canvas visual-style
+ *                    draft (or legacy wrapper) leads the prompt, and
+ *                    resolutionPolicy.referenceImage controls provider-native,
+ *                    exact, or provider-tier output (legacy refResolution is read).
  *
  * The old `slot: string` input is gone; callers MUST pass a structured view.
  */
@@ -77,9 +80,20 @@ function readCanvasSettings(
   }
 }
 
-function applyNegativePrompt(prompt: string, negativePrompt: string | undefined): string {
-  const trimmed = negativePrompt?.trim();
-  return trimmed ? `${prompt}\n\nAvoid: ${trimmed}` : prompt;
+function resolveReferenceImageIntent(
+  settings: import('@lucid-fin/contracts').CanvasSettings | undefined,
+): ResolutionIntent {
+  if (settings?.resolutionPolicy?.referenceImage) {
+    return settings.resolutionPolicy.referenceImage;
+  }
+  if (settings?.refResolution) {
+    return {
+      mode: 'exact',
+      width: settings.refResolution.width,
+      height: settings.refResolution.height,
+    };
+  }
+  return { mode: 'provider-default' };
 }
 
 export function createRefImageWorkflowHandlers(options: {
@@ -152,18 +166,16 @@ export function createRefImageWorkflowHandlers(options: {
         }
 
         const canvasSettings = readCanvasSettings(context.db, validated.canvasId);
-        const stylePlate = canvasSettings?.stylePlate;
-        const prompt = applyNegativePrompt(
-          buildCharacterRefImagePrompt(character, view, stylePlate),
-          canvasSettings?.negativePrompt,
-        );
-        const width = canvasSettings?.refResolution?.width;
-        const height = canvasSettings?.refResolution?.height;
+        const visualStyle = resolveCanvasVisualStylePolicy(canvasSettings);
+        const compiledStyle = compileVisualStylePolicy(visualStyle?.policy, 'character-sheet');
+        const prompt = buildCharacterRefImagePrompt(character, view, compiledStyle.prompt);
+        const negativePrompt = compiledStyle.negativePrompt?.trim();
         const providerId = canvasSettings?.imageProviderId ?? undefined;
         const result = await generateImage(prompt, {
-          ...(width !== undefined && { width }),
-          ...(height !== undefined && { height }),
+          resolution: resolveReferenceImageIntent(canvasSettings),
+          resolutionSource: canvasSettings ? 'canvas' : 'provider',
           ...(providerId !== undefined && { providerId }),
+          ...(negativePrompt ? { negativePrompt } : {}),
         });
 
         return {
@@ -307,18 +319,16 @@ export function createRefImageWorkflowHandlers(options: {
         }
 
         const canvasSettings = readCanvasSettings(context.db, validated.canvasId);
-        const stylePlate = canvasSettings?.stylePlate;
-        const prompt = applyNegativePrompt(
-          buildLocationRefImagePrompt(location, view, stylePlate),
-          canvasSettings?.negativePrompt,
-        );
-        const width = canvasSettings?.refResolution?.width;
-        const height = canvasSettings?.refResolution?.height;
+        const visualStyle = resolveCanvasVisualStylePolicy(canvasSettings);
+        const compiledStyle = compileVisualStylePolicy(visualStyle?.policy, 'character-sheet');
+        const prompt = buildLocationRefImagePrompt(location, view, compiledStyle.prompt);
+        const negativePrompt = compiledStyle.negativePrompt?.trim();
         const providerId = canvasSettings?.imageProviderId ?? undefined;
         const result = await generateImage(prompt, {
-          ...(width !== undefined && { width }),
-          ...(height !== undefined && { height }),
+          resolution: resolveReferenceImageIntent(canvasSettings),
+          resolutionSource: canvasSettings ? 'canvas' : 'provider',
           ...(providerId !== undefined && { providerId }),
+          ...(negativePrompt ? { negativePrompt } : {}),
         });
 
         return {

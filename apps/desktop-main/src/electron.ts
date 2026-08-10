@@ -19,7 +19,12 @@ import { createStyleWorkflowHandlers } from './workflow/style-workflow-handlers.
 import { createRefImageWorkflowHandlers } from './workflow/ref-image-workflow-handlers.js';
 import { initDb } from './bootstrap/init-db.js';
 import { initIpc } from './bootstrap/init-ipc.js';
-import { initApp, restoreAdapterKeys, selectConfiguredLLMAdapter } from './bootstrap/init-app.js';
+import {
+  initApp,
+  registerOAuthAdapters,
+  restoreAdapterKeys,
+  selectConfiguredLLMAdapter,
+} from './bootstrap/init-app.js';
 import { startApiServer, stopApiServer } from './api-server.js';
 import log, { getBufferedLogs, initLogger, setLogForwarder } from './logger.js';
 import { initCrashReporter } from './crash-reporter.js';
@@ -46,6 +51,7 @@ import {
 import { initUpdateSafety, stopUpdateSafety } from './update-safety.js';
 import { startSessionCleanup, stopSessionCleanup } from './ipc/handlers/commander-registry.js';
 import { registerSettingsHandlers } from './ipc/handlers/settings.handlers.js';
+import { ProviderOAuthManager } from './oauth/provider-oauth-manager.js';
 
 const { app, BrowserWindow: BrowserWindowCtor, ipcMain, Menu, protocol, net, shell } = electron;
 
@@ -63,6 +69,9 @@ let mainWindow: BrowserWindow | null = null;
 let earlyIpcRegistered = false;
 let appDb: import('@lucid-fin/storage').SqliteIndex | null = null;
 let appJobQueue: import('@lucid-fin/application').JobQueue | null = null;
+let appOAuthManager: ProviderOAuthManager | null = null;
+let oauthShutdownComplete = false;
+let oauthShutdownPromise: Promise<void> | null = null;
 
 // Module-scope gateway bound to the current `mainWindow`. Used for the
 // app-level push channels (`app:ready`, `app:init-error`) that fire during
@@ -256,6 +265,12 @@ app.whenReady().then(async () => {
       processPromptStore,
       toolRegistry,
     } = initApp();
+    const oauthManager = new ProviderOAuthManager({
+      userDataPath: app.getPath('userData'),
+      keychain,
+    });
+    appOAuthManager = oauthManager;
+    registerOAuthAdapters(oauthManager, adapterRegistry, llmRegistry);
     initDb(db);
 
     // Register custom protocol to serve assets from CAS
@@ -396,6 +411,7 @@ app.whenReady().then(async () => {
       agent,
       promptStore,
       processPromptStore,
+      oauthManager,
     });
 
     startSessionCleanup();
@@ -459,7 +475,27 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
+  if (appOAuthManager && !oauthShutdownComplete) {
+    event.preventDefault();
+    if (!oauthShutdownPromise) {
+      const manager = appOAuthManager;
+      oauthShutdownPromise = manager
+        .stop()
+        .catch((error: unknown) => {
+          log.warn('Codex App Server shutdown failed', {
+            category: 'provider',
+            providerId: 'oauth',
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          appOAuthManager = null;
+          oauthShutdownComplete = true;
+          app.quit();
+        });
+    }
+  }
   stopUpdateSafety();
   if (appJobQueue) {
     appJobQueue.stop();

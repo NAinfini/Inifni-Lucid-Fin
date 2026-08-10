@@ -224,6 +224,7 @@ describe('new agent tool groups', () => {
         candidates: [],
       })),
       produceMedia: vi.fn(async () => ({ status: 'accepted' })),
+      refineMedia: vi.fn(async () => ({ status: 'accepted' })),
       prepareFinalExport: vi.fn(async () => ({}) as never),
     });
 
@@ -285,6 +286,7 @@ describe('new agent tool groups', () => {
         candidates: [],
       })),
       produceMedia: vi.fn(async () => ({ status: 'accepted' })),
+      refineMedia: vi.fn(async () => ({ status: 'accepted' })),
       prepareFinalExport: vi.fn(async () => ({}) as never),
     });
 

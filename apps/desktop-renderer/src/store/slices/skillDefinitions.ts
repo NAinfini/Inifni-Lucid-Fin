@@ -1,3 +1,4 @@
+import { COMMANDER_GUIDE_LIMITS } from '@lucid-fin/contracts';
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
 // Bundled at build time via Vite ?raw imports (former promptTemplates defaults).
@@ -68,6 +69,23 @@ export interface SkillDefinition {
   source: SkillSource;
   createdAt: number;
   autoInject?: boolean;
+  autoInjectContent?: string;
+  priority?: number;
+  retention?: 'turn' | 'workflow' | 'discovery';
+  phases?: Array<
+    | 'unbound'
+    | 'production_plan_pending'
+    | 'production_plan_revision'
+    | 'style_exploration'
+    | 'visual_constitution_pending'
+    | 'preproduction'
+    | 'media_generation'
+    | 'assembly'
+    | 'final_export_preparation'
+    | 'final_export_pending'
+    | 'final_export_approved'
+    | 'blocked'
+  >;
 }
 
 interface BuiltInSeed {
@@ -77,6 +95,10 @@ interface BuiltInSeed {
   defaultContent: string;
   source: SkillSource;
   autoInject?: boolean;
+  autoInjectContent?: string;
+  priority?: number;
+  retention?: SkillDefinition['retention'];
+  phases?: SkillDefinition['phases'];
 }
 
 const BUILT_IN_SEEDS: BuiltInSeed[] = [
@@ -95,6 +117,12 @@ const BUILT_IN_SEEDS: BuiltInSeed[] = [
     defaultContent: promptStructure,
     source: 'promptTemplate',
     autoInject: true,
+    autoInjectContent: `Prompt construction kernel:
+- Describe one shot or action at a time. State the subject, visible action, environment, camera/composition, lighting, and intended aesthetic in concrete language.
+- Prefer active verbs, observable motion, spatial relationships, and a clear visual hierarchy. Remove contradictions, duplicated constraints, and abstract filler.
+- Treat reference images, Canvas visual-style policy, preset tracks, provider adaptation, and negative constraints as host-compiled inputs. Do not repeat or attempt to replace them in the creative body.
+- Use guide.get with id "prompt-structure" when detailed provider examples or a full prompt rewrite procedure are needed.`,
+    priority: 30,
   },
   {
     id: 'camera-composition',
@@ -322,14 +350,38 @@ const BUILT_IN_SEEDS: BuiltInSeed[] = [
     defaultContent: wfgStoryToVideo,
     source: 'workflowGuide',
     autoInject: true,
+    autoInjectContent: `Story-to-video workflow kernel:
+- The durable SQLite workflow aggregate is the source of truth. Chat acknowledgements never approve a gate.
+- Respect the three approval gates in order: Production Plan, Visual Constitution, Final Export. Do not generate media before the exact approved plan and constitution revisions exist.
+- Between gates, act autonomously only inside the persisted budget, provider policy, retry limits, and current workflow task binding. Resume from persisted stage/task state after interruption.
+- If state is inconsistent, recovery is required, or a creative decision is missing, stop the affected mutations and ask one concise question.
+- Use guide.get with id "workflow-story-to-video" for full planning, recovery, and export procedures.`,
+    priority: 100,
+    retention: 'workflow',
+    phases: [
+      'production_plan_pending',
+      'style_exploration',
+      'visual_constitution_pending',
+      'media_generation',
+      'final_export_pending',
+      'final_export_approved',
+    ],
   },
   {
     id: 'workflow-style-plate',
-    name: 'Style Plate Lock (Commander)',
+    name: 'Visual Style Draft (Commander)',
     category: 'workflow',
     defaultContent: wfgStylePlate,
     source: 'workflowGuide',
     autoInject: true,
+    autoInjectContent: `Visual-style draft kernel:
+- This guide applies only to manual or pre-approval Canvas media. An approved persistent-workflow Visual Constitution always supersedes the Canvas draft.
+- Read canvas.settings.visualStylePolicy before manual generation. If absent, ask one concise, project-specific style question or offer visible auditions; then store a structured draft through canvas.setSettings.
+- Keep style separate from scene, character, and action content. The host compiles the draft, references, presets, and negative constraints, so do not duplicate them in creative prompts.
+- Use guide.get with id "workflow-style-plate" for the complete drafting and verification workflow.`,
+    priority: 90,
+    retention: 'workflow',
+    phases: ['style_exploration', 'visual_constitution_pending', 'media_generation'],
   },
 ];
 
@@ -424,6 +476,10 @@ function buildInitialSkills(): SkillDefinition[] {
     source: seed.source,
     createdAt: 0,
     ...(seed.autoInject ? { autoInject: true } : {}),
+    ...(seed.autoInjectContent ? { autoInjectContent: seed.autoInjectContent } : {}),
+    ...(seed.priority !== undefined ? { priority: seed.priority } : {}),
+    ...(seed.retention ? { retention: seed.retention } : {}),
+    ...(seed.phases ? { phases: seed.phases } : {}),
   }));
 
   const custom: SkillDefinition[] = storage.customSkills
@@ -457,6 +513,7 @@ export const skillDefinitionsSlice = createSlice({
     setCustomContent(state, action: PayloadAction<{ id: string; content: string }>) {
       const s = state.skills.find((t) => t.id === action.payload.id);
       if (!s) return;
+      if (action.payload.content.length > getSkillContentLimit(s.source)) return;
       s.customContent = action.payload.content;
       saveSkills(state.skills);
     },
@@ -489,6 +546,7 @@ export const skillDefinitionsSlice = createSlice({
     ) {
       const id = action.payload.id ?? `custom-${Date.now()}`;
       if (state.skills.some((s) => s.id === id)) return;
+      if (action.payload.content.length > getSkillContentLimit('user')) return;
       state.skills.push({
         id,
         name: action.payload.name,
@@ -527,17 +585,42 @@ export function isBuiltInSkillId(id: string): boolean {
   return BUILT_IN_ID_SET.has(id);
 }
 
+export function getSkillContentLimit(source: SkillSource): number {
+  switch (source) {
+    case 'promptTemplate':
+      return COMMANDER_GUIDE_LIMITS.maxPromptTemplateChars;
+    case 'workflowSkill':
+      return COMMANDER_GUIDE_LIMITS.maxWorkflowSkillChars;
+    case 'workflowGuide':
+      return COMMANDER_GUIDE_LIMITS.maxWorkflowGuideChars;
+    case 'user':
+      return COMMANDER_GUIDE_LIMITS.maxUserGuideChars;
+    default:
+      return COMMANDER_GUIDE_LIMITS.maxUserGuideChars;
+  }
+}
+
 /**
  * Project a flat `{id, name, content}[]` for Commander's `promptGuides` IPC.
  * Active content = custom override when present, otherwise the built-in default.
  */
 export function selectActiveSkills(
   skills: SkillDefinition[],
-): Array<{ id: string; name: string; content: string; autoInject?: boolean }> {
-  return skills.map((s) => ({
-    id: s.id,
-    name: s.name,
-    content: s.customContent ?? s.defaultContent,
-    ...(s.autoInject ? { autoInject: true } : {}),
-  }));
+): import('@lucid-fin/contracts').CommanderPromptGuide[] {
+  return skills.flatMap((s) => {
+    const content = s.customContent ?? s.defaultContent;
+    if (content.length > getSkillContentLimit(s.source)) return [];
+    return [
+      {
+        id: s.id,
+        name: s.name,
+        content,
+        ...(s.autoInject ? { autoInject: true } : {}),
+        ...(s.autoInjectContent ? { autoInjectContent: s.autoInjectContent } : {}),
+        ...(s.priority !== undefined ? { priority: s.priority } : {}),
+        ...(s.retention ? { retention: s.retention } : {}),
+        ...(s.phases ? { phases: s.phases } : {}),
+      },
+    ];
+  });
 }

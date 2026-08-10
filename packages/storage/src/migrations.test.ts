@@ -30,7 +30,7 @@ describe('schema migrations', () => {
   });
 
   it('CURRENT_SCHEMA_VERSION is a positive integer', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(4);
+    expect(CURRENT_SCHEMA_VERSION).toBe(7);
     expect(Number.isInteger(CURRENT_SCHEMA_VERSION)).toBe(true);
   });
 
@@ -45,7 +45,7 @@ describe('schema migrations', () => {
     `);
     db.pragma('user_version = 1');
 
-    expect(runMigrations(db)).toBe(3);
+    expect(runMigrations(db)).toBe(6);
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION);
 
     const runColumns = db.pragma('table_info(workflow_runs)') as Array<{ name: string }>;
@@ -60,11 +60,12 @@ describe('schema migrations', () => {
 
     const tables = db
       .prepare(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('workflow_documents', 'workflow_approvals', 'workflow_events', 'workflow_export_executions', 'workflow_media_attempts', 'workflow_media_evaluations') ORDER BY name",
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('workflow_documents', 'workflow_approvals', 'workflow_events', 'workflow_decisions', 'workflow_export_executions', 'workflow_media_attempts', 'workflow_media_evaluations') ORDER BY name",
       )
       .all() as Array<{ name: string }>;
     expect(tables.map(({ name }) => name)).toEqual([
       'workflow_approvals',
+      'workflow_decisions',
       'workflow_documents',
       'workflow_events',
       'workflow_export_executions',
@@ -95,6 +96,58 @@ describe('schema migrations', () => {
         ),
     ).toThrow();
 
+    db.close();
+  });
+
+  it('adds the Canvas resolution policy column without rewriting legacy rows', () => {
+    const db = createTestDb();
+    db.exec(`
+      CREATE TABLE canvases (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        viewport TEXT NOT NULL,
+        notes TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO canvases (id, name, viewport, notes, created_at, updated_at)
+      VALUES ('canvas-legacy', 'Legacy', '{}', '[]', 1, 1);
+    `);
+    db.pragma('user_version = 5');
+
+    expect(runMigrations(db)).toBe(2);
+    const columns = db.pragma('table_info(canvases)') as Array<{ name: string }>;
+    expect(columns.map(({ name }) => name)).toContain('resolution_policy_json');
+    expect(columns.map(({ name }) => name)).toContain('visual_style_policy_json');
+    expect(db.prepare('SELECT name FROM canvases WHERE id = ?').get('canvas-legacy')).toEqual({
+      name: 'Legacy',
+    });
+    db.close();
+  });
+
+  it('adds the canonical Canvas visual-style policy column without rewriting rows', () => {
+    const db = createTestDb();
+    db.exec(`
+      CREATE TABLE canvases (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        viewport TEXT NOT NULL,
+        notes TEXT NOT NULL,
+        resolution_policy_json TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      INSERT INTO canvases (id, name, viewport, notes, created_at, updated_at)
+      VALUES ('canvas-v6', 'Version 6', '{}', '[]', 1, 1);
+    `);
+    db.pragma('user_version = 6');
+
+    expect(runMigrations(db)).toBe(1);
+    const columns = db.pragma('table_info(canvases)') as Array<{ name: string }>;
+    expect(columns.map(({ name }) => name)).toContain('visual_style_policy_json');
+    expect(db.prepare('SELECT name FROM canvases WHERE id = ?').get('canvas-v6')).toEqual({
+      name: 'Version 6',
+    });
     db.close();
   });
 });

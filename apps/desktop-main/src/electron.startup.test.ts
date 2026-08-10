@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 const { ipcHandleMock, getBufferedLogsMock, setLogForwarderMock, logger, markMock } = vi.hoisted(
   () => ({
@@ -117,14 +117,15 @@ async function loadModule() {
   return import('./electron.js');
 }
 
-beforeEach(() => {
+let startupModule: Awaited<ReturnType<typeof loadModule>>;
+
+beforeAll(async () => {
   vi.clearAllMocks();
+  startupModule = await loadModule();
 });
 
 describe('electron startup observability', () => {
-  it('registers logger:getRecent as an early IPC handler on module load', async () => {
-    await loadModule();
-
+  it('registers logger:getRecent as an early IPC handler on module load', () => {
     expect(ipcHandleMock).toHaveBeenCalledWith('logger:getRecent', expect.any(Function));
     expect(logger.debug).toHaveBeenCalledWith(
       'Registered early IPC handlers',
@@ -142,16 +143,12 @@ describe('electron startup observability', () => {
     );
   });
 
-  it('initializes update safety on module load for production update health tracking', async () => {
-    await loadModule();
-
+  it('initializes update safety on module load for production update health tracking', () => {
     expect(updateSafetyMock.initUpdateSafety).toHaveBeenCalledOnce();
   });
 
-  it('logs and marks when the main window is created', async () => {
-    const module = await loadModule();
-
-    module.logWindowCreated();
+  it('logs and marks when the main window is created', () => {
+    startupModule.logWindowCreated();
 
     expect(markMock).toHaveBeenCalledWith('window-created');
     expect(logger.debug).toHaveBeenCalledWith(
@@ -162,11 +159,10 @@ describe('electron startup observability', () => {
     );
   });
 
-  it('attaches a logger forwarder that streams entries to the current window', async () => {
-    const module = await loadModule();
+  it('attaches a logger forwarder that streams entries to the current window', () => {
     const send = vi.fn();
 
-    module.attachWindowLogForwarder({
+    startupModule.attachWindowLogForwarder({
       isDestroyed: () => false,
       webContents: { send },
     } as never);
@@ -193,11 +189,9 @@ describe('electron startup observability', () => {
     expect(send).toHaveBeenCalledWith('logger:entry', expect.objectContaining({ id: 'log-1' }));
   });
 
-  it('logs startup recovery milestones for the job queue and workflow engine', async () => {
-    const module = await loadModule();
-
-    module.logJobQueueRecovered();
-    module.logWorkflowEngineRecovered();
+  it('logs startup recovery milestones for the job queue and workflow engine', () => {
+    startupModule.logJobQueueRecovered();
+    startupModule.logWorkflowEngineRecovered();
 
     expect(logger.info).toHaveBeenCalledWith(
       'Job queue recovered and started',

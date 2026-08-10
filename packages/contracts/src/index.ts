@@ -6,16 +6,20 @@ export * from './dto/location.js';
 export * from './dto/asset.js';
 export * from './dto/folder.js';
 export * from './dto/job.js';
+export * from './dto/resolution.js';
 export * from './dto/adapter.js';
 export * from './dto/provider-profile.js';
 export * from './dto/timeline.js';
 export * from './dto/script.js';
 export * from './dto/color-style.js';
+export * from './dto/visual-style.js';
 export * from './dto/workflow.js';
 export * from './dto/canvas.js';
 export * from './dto/presets/index.js';
 export * from './llm-provider.js';
 export * from './provider-media.js';
+export * from './media-provider-catalog.js';
+export * from './oauth-provider.js';
 
 // Events
 export * from './events/index.js';
@@ -28,14 +32,19 @@ export * from './error.js';
 export type { IpcChannelMap, IpcStoredSession, IpcSnapshotMeta, IpcProcessPrompt } from './ipc.js';
 export type { IpcChannel, IpcRequest, IpcResponse } from './ipc-helpers.js';
 export type {
+  CommanderChatRequest,
   CommanderStreamPayload,
   CommanderIntentPayload,
   CommanderEvidencePayload,
   CommanderBlockerPayload,
   CommanderExitDecisionPayload,
   CommanderProcessBehaviorSettings,
+  CommanderPromptGuide,
+  CommanderPromptGuideRetention,
   CommanderQualityGateBehavior,
+  CommanderWorkflowGuidePhase,
 } from './ipc/channels/batch-09.js';
+export { COMMANDER_GUIDE_LIMITS } from './ipc/channels/batch-09.js';
 
 // ── Phase A: Type Foundation ───────────────────────────────────
 

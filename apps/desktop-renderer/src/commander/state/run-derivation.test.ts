@@ -190,6 +190,32 @@ describe('deriveActiveRunView', () => {
     const view = deriveActiveRunView(events, ['tc-2'], []);
     expect(view.pendingConfirmation).toBeNull();
   });
+
+  it('preserves question option descriptions and the free-text policy', () => {
+    const events: TimelineEvent[] = [
+      runStart(),
+      {
+        kind: 'question_prompt',
+        runId: RUN,
+        step: 1,
+        seq: 1,
+        emittedAt: 1500,
+        questionId: 'question-1',
+        prompt: 'Choose a visual direction',
+        options: [{ id: 'opt-0', label: 'Gothic', description: 'Candlelit stone and deep shadow' }],
+        allowFreeText: false,
+      },
+    ];
+
+    const view = deriveActiveRunView(events, [], []);
+
+    expect(view.pendingQuestion).toEqual({
+      toolCallId: 'question-1',
+      question: 'Choose a visual direction',
+      options: [{ label: 'Gothic', description: 'Candlelit stone and deep shadow' }],
+      allowFreeText: false,
+    });
+  });
 });
 
 describe('buildFinalizedAssistantMessage', () => {

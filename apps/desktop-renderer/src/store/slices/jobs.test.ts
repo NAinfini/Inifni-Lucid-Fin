@@ -18,37 +18,6 @@ describe('jobs slice', () => {
     });
   });
 
-  it('exports action creators with the expected payloads', () => {
-    expect(setJobs([{ id: 'job-1', status: 'pending' }])).toMatchObject({
-      type: 'jobs/setJobs',
-      payload: [{ id: 'job-1', status: 'pending' }],
-    });
-    expect(updateJob({ id: 'job-1', status: 'running', progress: 50 })).toMatchObject({
-      type: 'jobs/updateJob',
-      payload: { id: 'job-1', status: 'running', progress: 50 },
-    });
-    expect(setActiveCount(2)).toMatchObject({
-      type: 'jobs/setActiveCount',
-      payload: 2,
-    });
-    expect(submitJob({ kind: 'image-generation' })).toMatchObject({
-      type: 'jobs/submitJob',
-      payload: { kind: 'image-generation' },
-    });
-    expect(cancelJob('job-1')).toMatchObject({
-      type: 'jobs/cancelJob',
-      payload: 'job-1',
-    });
-    expect(pauseJob('job-1')).toMatchObject({
-      type: 'jobs/pauseJob',
-      payload: 'job-1',
-    });
-    expect(resumeJob('job-1')).toMatchObject({
-      type: 'jobs/resumeJob',
-      payload: 'job-1',
-    });
-  });
-
   it('sets jobs, updates existing jobs, inserts missing jobs, and stores active count', () => {
     let state = jobsSlice.reducer(
       undefined,

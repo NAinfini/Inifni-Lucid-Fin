@@ -26,6 +26,7 @@ type ClaudeAdapterConfig = {
   name?: string;
   defaultBaseUrl?: string;
   defaultModel?: string;
+  supportsVision?: boolean;
 };
 
 interface ClaudeRequestResult {
@@ -83,16 +84,25 @@ function buildClaudeMessagesEndpoint(baseUrl: string): string {
   }
 }
 
+function claudeMessageContent(message: LLMMessage): unknown {
+  if (!message.images?.length) return message.content;
+
+  const content: Array<Record<string, unknown>> = message.images.map((image) => ({
+    type: 'image',
+    source: {
+      type: 'base64',
+      media_type: image.mimeType,
+      data: image.data.replace(/^data:[^;]+;base64,/, ''),
+    },
+  }));
+  if (message.content) content.push({ type: 'text', text: message.content });
+  return content;
+}
+
 export class ClaudeLLMAdapter implements LLMAdapter {
   readonly id: string;
   readonly name: string;
-  readonly capabilities: Capability[] = [
-    'text-generation',
-    'script-expand',
-    'scene-breakdown',
-    'character-extract',
-    'prompt-enhance',
-  ];
+  readonly capabilities: Capability[];
   readonly profile: ProviderProfile;
   contextWindow?: number;
   userContextWindow?: number;
@@ -108,7 +118,15 @@ export class ClaudeLLMAdapter implements LLMAdapter {
     this.id = cfg.id ?? 'claude';
     this.name = cfg.name ?? 'Anthropic Claude';
     this.baseUrl = normalizeClaudeBaseUrl(cfg.defaultBaseUrl ?? 'https://api.anthropic.com');
-    this.model = cfg.defaultModel ?? 'claude-sonnet-4-20250514';
+    this.model = cfg.defaultModel ?? 'claude-sonnet-5';
+    this.capabilities = [
+      'text-generation',
+      ...(cfg.supportsVision ? (['image-understanding'] as const) : []),
+      'script-expand',
+      'scene-breakdown',
+      'character-extract',
+      'prompt-enhance',
+    ];
     this.profile = {
       providerId: this.id,
       charsPerToken: 3.5,
@@ -155,9 +173,9 @@ export class ClaudeLLMAdapter implements LLMAdapter {
       {
         model: this.model,
         max_tokens: opts?.maxTokens ?? 4096,
-        temperature: opts?.temperature ?? 0.7,
-        top_p: opts?.topP,
-        stop_sequences: opts?.stop,
+        ...(opts?.temperature !== undefined && { temperature: opts.temperature }),
+        ...(opts?.topP !== undefined && { top_p: opts.topP }),
+        ...(opts?.stop !== undefined && { stop_sequences: opts.stop }),
         system,
         messages: msgs,
       },
@@ -166,9 +184,13 @@ export class ClaudeLLMAdapter implements LLMAdapter {
         streaming: false,
       },
     );
-    const data = await this.parseJsonResponse<{ content: Array<{ type?: string; text?: string }> }>(
-      result,
-    );
+    const data = await this.parseJsonResponse<{
+      content: Array<{ type?: string; text?: string }>;
+      stop_reason?: string;
+    }>(result);
+    if (data.stop_reason === 'refusal') {
+      throw new LucidError(ErrorCode.InvalidRequest, 'Claude refused this request');
+    }
     return (
       data.content
         ?.filter((block) => block.type === 'text')
@@ -183,9 +205,9 @@ export class ClaudeLLMAdapter implements LLMAdapter {
       {
         model: this.model,
         max_tokens: opts?.maxTokens ?? 4096,
-        temperature: opts?.temperature ?? 0.7,
-        top_p: opts?.topP,
-        stop_sequences: opts?.stop,
+        ...(opts?.temperature !== undefined && { temperature: opts.temperature }),
+        ...(opts?.topP !== undefined && { top_p: opts.topP }),
+        ...(opts?.stop !== undefined && { stop_sequences: opts.stop }),
         system,
         messages: msgs,
         stream: true,
@@ -285,7 +307,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
           }
           return { role: 'assistant', content };
         }
-        return { role: m.role, content: m.content };
+        return { role: m.role, content: claudeMessageContent(m) };
       });
 
     const joinedSystem = systemMsgs.map((m) => m.content).join('\n');
@@ -362,9 +384,9 @@ export class ClaudeLLMAdapter implements LLMAdapter {
     const body: Record<string, unknown> = {
       model: this.model,
       max_tokens: opts?.maxTokens ?? 4096,
-      temperature: opts?.temperature ?? 0.7,
-      top_p: opts?.topP,
-      stop_sequences: opts?.stop,
+      ...(opts?.temperature !== undefined && { temperature: opts.temperature }),
+      ...(opts?.topP !== undefined && { top_p: opts.topP }),
+      ...(opts?.stop !== undefined && { stop_sequences: opts.stop }),
       system,
       messages: msgs,
     };
@@ -404,6 +426,10 @@ export class ClaudeLLMAdapter implements LLMAdapter {
       stop_reason: string;
       usage?: { input_tokens?: number; output_tokens?: number };
     }>(result);
+
+    if (data.stop_reason === 'refusal') {
+      throw new LucidError(ErrorCode.InvalidRequest, 'Claude refused this request');
+    }
 
     let content = '';
     let reasoning = '';

@@ -6,6 +6,7 @@ import type {
   GenerationEntityRef,
   GenerationHistoryEntry,
   NodeAnnotation,
+  ResolutionIntent,
 } from '@lucid-fin/contracts';
 import type { CanvasSliceState } from './canvas.js';
 import { findActiveCanvas, findCanvasById, getGenerationNodeData } from './canvas-helpers.js';
@@ -283,15 +284,57 @@ export function setNodeSeed(
 
 export function setNodeResolution(
   state: CanvasSliceState,
-  action: PayloadAction<{ id: string; width: number; height: number }>,
+  action: PayloadAction<{
+    id: string;
+    width?: number;
+    height?: number;
+    /** null removes the node override so the Canvas policy is inherited. */
+    intent?: ResolutionIntent | null;
+  }>,
 ): void {
   const canvas = findActiveCanvas(state);
   if (!canvas) return;
   const node = canvas.nodes.find((n) => n.id === action.payload.id);
   if (!node || (node.type !== 'image' && node.type !== 'video')) return;
   const data = node.data as ImageNodeData | VideoNodeData;
-  data.width = action.payload.width;
-  data.height = action.payload.height;
+  const { intent, width, height } = action.payload;
+
+  if (intent === null) {
+    delete data.resolutionIntent;
+    delete data.width;
+    delete data.height;
+  } else if (intent?.mode === 'provider-default') {
+    data.resolutionIntent = { ...intent };
+    delete data.width;
+    delete data.height;
+  } else if (intent?.mode === 'tier') {
+    data.resolutionIntent = { ...intent };
+    delete data.width;
+    delete data.height;
+  } else {
+    const exactWidth = intent?.mode === 'exact' ? intent.width : width;
+    const exactHeight = intent?.mode === 'exact' ? intent.height : height;
+    if (
+      typeof exactWidth !== 'number' ||
+      !Number.isFinite(exactWidth) ||
+      exactWidth < 1 ||
+      typeof exactHeight !== 'number' ||
+      !Number.isFinite(exactHeight) ||
+      exactHeight < 1
+    ) {
+      return;
+    }
+    const normalizedWidth = Math.round(exactWidth);
+    const normalizedHeight = Math.round(exactHeight);
+    data.resolutionIntent = {
+      mode: 'exact',
+      width: normalizedWidth,
+      height: normalizedHeight,
+    };
+    // Keep the legacy fields mirrored for old persisted canvases and renderers.
+    data.width = normalizedWidth;
+    data.height = normalizedHeight;
+  }
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }

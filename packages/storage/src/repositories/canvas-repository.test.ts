@@ -18,6 +18,8 @@ CREATE TABLE canvases (
   publish_height       INTEGER,
   publish_video_width  INTEGER,
   publish_video_height INTEGER,
+  resolution_policy_json TEXT,
+  visual_style_policy_json TEXT,
   aspect_ratio         TEXT,
   llm_provider_id      TEXT,
   image_provider_id    TEXT,
@@ -180,6 +182,24 @@ describe('CanvasRepository', () => {
     });
   });
 
+  it('round-trips and clears the canonical Canvas visual-style policy', () => {
+    const visualStylePolicy = {
+      version: 1 as const,
+      summary: 'hand-painted neo-noir animation',
+      locked: { palette: 'muted teal and ochre', lighting: 'soft chiaroscuro' },
+      allowedVariations: ['shot scale', 'weather intensity'],
+      negativeConstraints: ['watermark', 'style drift'],
+    };
+    repo.upsert(mkCanvas('style-policy', { settings: { visualStylePolicy } }));
+
+    expect(repo.get('style-policy' as CanvasId)?.settings?.visualStylePolicy).toEqual(
+      visualStylePolicy,
+    );
+
+    repo.patchSettings('style-policy' as CanvasId, { visualStylePolicy: null } as never);
+    expect(repo.get('style-policy' as CanvasId)?.settings?.visualStylePolicy).toBeUndefined();
+  });
+
   it('patchSettings updates selected columns and ignores absent keys', () => {
     repo.upsert(
       mkCanvas('cs2', {
@@ -288,5 +308,28 @@ describe('CanvasRepository', () => {
     const got = repo.get('cs9' as CanvasId);
     expect(got?.settings?.publishImageResolution).toEqual({ width: 3840, height: 2160 });
     expect(got?.settings?.publishVideoResolution).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it('round-trips and clears the canonical resolution policy JSON', () => {
+    repo.upsert(
+      mkCanvas('cs10', {
+        settings: {
+          resolutionPolicy: {
+            referenceImage: { mode: 'provider-default' },
+            image: { mode: 'exact', width: 2048, height: 2048 },
+            video: { mode: 'tier', tier: '1080P', aspectRatio: '16:9' },
+          },
+        },
+      }),
+    );
+
+    expect(repo.get('cs10' as CanvasId)?.settings?.resolutionPolicy).toEqual({
+      referenceImage: { mode: 'provider-default' },
+      image: { mode: 'exact', width: 2048, height: 2048 },
+      video: { mode: 'tier', tier: '1080P', aspectRatio: '16:9' },
+    });
+
+    repo.patchSettings('cs10' as CanvasId, { resolutionPolicy: null } as never);
+    expect(repo.get('cs10' as CanvasId)?.settings?.resolutionPolicy).toBeUndefined();
   });
 });

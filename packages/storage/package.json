@@ -1,6 +1,7 @@
 {
   "name": "@lucid-fin/storage",
   "version": "0.0.8",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -11,17 +12,16 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@lucid-fin/contracts": "*",
-    "@lucid-fin/contracts-parse": "*",
+    "@lucid-fin/contracts": "workspace:*",
+    "@lucid-fin/contracts-parse": "workspace:*",
     "better-sqlite3": "^13.0.2",
     "keytar": "^7.9.0",
     "uuid": "^14.0.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^25.6.0",
-    "@types/uuid": "^11.0.0",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.1.2",
     "typescript": "^6.0.2"
   }
 }

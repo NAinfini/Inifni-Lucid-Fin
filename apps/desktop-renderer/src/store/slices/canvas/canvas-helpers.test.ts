@@ -7,6 +7,7 @@ import {
   buildCanvasClipboardPayload,
   cloneDeep,
   createEntityId,
+  createNodeRecord,
   findActiveCanvas,
   findCanvasById,
   getAutoEdgeLabel,
@@ -83,6 +84,20 @@ describe('getDefaultNodeFrame', () => {
 
   it('returns undefined for unknown type', () => {
     expect(getDefaultNodeFrame('unknown' as never)).toBeUndefined();
+  });
+});
+
+describe('createNodeRecord', () => {
+  it('leaves new visual nodes without a resolution override', () => {
+    const image = createNodeRecord({ id: 'image-new', type: 'image', position: { x: 0, y: 0 } });
+    const video = createNodeRecord({ id: 'video-new', type: 'video', position: { x: 0, y: 0 } });
+
+    expect(image.data).not.toHaveProperty('width');
+    expect(image.data).not.toHaveProperty('height');
+    expect(image.data).not.toHaveProperty('resolutionIntent');
+    expect(video.data).not.toHaveProperty('width');
+    expect(video.data).not.toHaveProperty('height');
+    expect(video.data).not.toHaveProperty('resolutionIntent');
   });
 });
 

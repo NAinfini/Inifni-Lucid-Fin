@@ -19,6 +19,9 @@ export function resolveLLMProviderRuntimeConfig(
     model: config.model ?? preset?.model ?? '',
     protocol: config.protocol ?? preset?.protocol,
     authStyle: config.authStyle ?? preset?.authStyle,
+    credentialMode: config.credentialMode ?? preset?.credentialMode,
+    oauthTarget: config.oauthTarget ?? preset?.oauthTarget,
+    supportsVision: config.supportsVision ?? preset?.supportsVision,
     contextWindow: config.contextWindow,
   });
 }
@@ -28,7 +31,7 @@ export function hasLLMProviderConnectionFields(config: LLMProviderRuntimeConfig)
 }
 
 export function requiresLLMProviderApiKey(config: LLMProviderRuntimeConfig): boolean {
-  return config.authStyle !== 'none';
+  return config.credentialMode !== 'oauth' && config.authStyle !== 'none';
 }
 
 export function getLLMProviderLogFields(
@@ -45,6 +48,8 @@ export function getLLMProviderLogFields(
     model: config.model,
     protocol: config.protocol,
     authStyle: config.authStyle,
+    credentialMode: config.credentialMode,
+    oauthTarget: config.oauthTarget,
   };
 }
 

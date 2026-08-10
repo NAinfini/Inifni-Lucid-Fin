@@ -1,6 +1,7 @@
 {
   "name": "@lucid-fin/contracts-parse",
   "version": "0.0.8",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -12,8 +13,8 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@lucid-fin/contracts": "*",
-    "@lucid-fin/shared-utils": "*",
+    "@lucid-fin/contracts": "workspace:*",
+    "@lucid-fin/shared-utils": "workspace:*",
     "zod": "^4.4.3"
   },
   "devDependencies": {

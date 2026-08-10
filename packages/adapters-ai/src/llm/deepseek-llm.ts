@@ -6,7 +6,7 @@ export class DeepSeekLLMAdapter extends OpenAICompatibleLLM {
       id: 'deepseek',
       name: 'DeepSeek',
       defaultBaseUrl: 'https://api.deepseek.com',
-      defaultModel: 'deepseek-chat',
+      defaultModel: 'deepseek-v4-pro',
     });
   }
 }

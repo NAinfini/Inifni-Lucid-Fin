@@ -24,6 +24,7 @@ const EXPECTED_EXPORTS: readonly string[] = [
   'WorkflowPlanner',
   'WorkflowEngine',
   'WorkflowRecovery',
+  'MAX_PERSISTED_PRODUCTION_SHOTS',
   'VISUAL_PREVIEW_RUBRIC_VERSION',
   'registerDefaultWorkflows',
   'styleExtractWorkflow',
@@ -32,6 +33,7 @@ const EXPECTED_EXPORTS: readonly string[] = [
   'buildCharacterAppearancePrompt',
   'buildCharacterRefImagePrompt',
   'buildLocationRefImagePrompt',
+  'getMovieProductionTaskContract',
   // Agent orchestration
   'AgentToolRegistry',
   'registerToolModule',

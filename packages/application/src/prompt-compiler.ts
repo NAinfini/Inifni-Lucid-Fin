@@ -13,6 +13,7 @@ import type {
   PresetParamMap,
 } from '@lucid-fin/contracts';
 import { createEmptyPresetTrackSet } from '@lucid-fin/contracts';
+import { compileVisualStylePolicy } from '@lucid-fin/shared-utils';
 
 export type {
   PromptMode,
@@ -20,6 +21,7 @@ export type {
   CameraShot,
   ResolvedCharacter,
   PromptCompilerInput,
+  PromptReferenceBinding,
   PromptDiagnostic,
   PromptSegment,
   CompiledPrompt,
@@ -36,6 +38,7 @@ import type {
   PromptDiagnostic,
   PromptMode,
   PromptSegment,
+  PromptReferenceBinding,
   ResolvedCharacter,
   StyleGuideDefaults,
 } from './prompt-compiler-types.js';
@@ -603,67 +606,51 @@ function getEntryParams(entry: PresetTrackEntry): Record<string, unknown> {
 function collectReferenceImages(input: PromptCompilerInput): string[] {
   const hashes = new Set<string>();
 
+  // Reference selection belongs to the host resolver. The compiler must never
+  // rescan entity records because doing so reintroduces unselected angles and
+  // silently changes provider ordering/capacity semantics.
   for (const hash of input.referenceImages ?? []) {
     if (typeof hash === 'string' && hash.trim()) {
       hashes.add(hash.trim());
     }
   }
 
-  for (const ref of input.characterRefs ?? []) {
-    const withHashes = ref as CharacterRef & {
-      referenceImages?: string[];
-      referenceImageHash?: string;
-      imageHash?: string;
-    };
-    if (Array.isArray(withHashes.referenceImages)) {
-      for (const hash of withHashes.referenceImages) {
-        if (typeof hash === 'string' && hash.trim()) hashes.add(hash.trim());
-      }
-    }
-    if (typeof withHashes.referenceImageHash === 'string' && withHashes.referenceImageHash.trim()) {
-      hashes.add(withHashes.referenceImageHash.trim());
-    }
-    if (typeof withHashes.imageHash === 'string' && withHashes.imageHash.trim()) {
-      hashes.add(withHashes.imageHash.trim());
-    }
-  }
-
-  for (const ref of input.locationRefs ?? []) {
-    if (typeof ref.referenceImageHash === 'string' && ref.referenceImageHash.trim()) {
-      hashes.add(ref.referenceImageHash.trim());
-    }
-  }
-
-  // Collect reference images from resolved character entities
-  for (const resolved of input.characters ?? []) {
-    for (const img of resolved.character.referenceImages ?? []) {
-      if (typeof img.assetHash === 'string' && img.assetHash.trim()) {
-        hashes.add(img.assetHash.trim());
-      }
-    }
-  }
-
-  // Collect reference images from resolved location entities
-  for (const location of input.locations ?? []) {
-    for (const img of (location as { referenceImages?: Array<{ assetHash: string }> })
-      .referenceImages ?? []) {
-      if (typeof img.assetHash === 'string' && img.assetHash.trim()) {
-        hashes.add(img.assetHash.trim());
-      }
-    }
-  }
-
-  // Collect reference images from standalone equipment entities
-  for (const item of input.equipmentItems ?? []) {
-    for (const img of (item as { referenceImages?: Array<{ assetHash: string }> })
-      .referenceImages ?? []) {
-      if (typeof img.assetHash === 'string' && img.assetHash.trim()) {
-        hashes.add(img.assetHash.trim());
-      }
-    }
-  }
-
   return Array.from(hashes);
+}
+
+function describeReferenceBindings(
+  bindings: PromptReferenceBinding[] | undefined,
+  referenceImages: string[],
+  input: PromptCompilerInput,
+): string {
+  if (!bindings?.length || referenceImages.length === 0) return '';
+  const characterNames = new Map(
+    (input.characters ?? []).map((resolved) => [resolved.character.id, resolved.character.name]),
+  );
+  const locationNames = new Map(
+    (input.locations ?? []).map((location) => [location.id, location.name]),
+  );
+  const equipmentNames = new Map(
+    (input.equipmentItems ?? []).map((equipment) => [equipment.id, equipment.name]),
+  );
+  const seen = new Set<string>();
+  const labels = bindings.flatMap((binding) => {
+    const referenceIndex = referenceImages.indexOf(binding.imageHash);
+    const key = `${binding.entityType}:${binding.entityId}:${referenceIndex}`;
+    if (referenceIndex < 0 || seen.has(key)) return [];
+    seen.add(key);
+    const name =
+      binding.entityType === 'character'
+        ? characterNames.get(binding.entityId)
+        : binding.entityType === 'location'
+          ? locationNames.get(binding.entityId)
+          : equipmentNames.get(binding.entityId);
+    const identity = name ? `"${name}"` : `ID ${binding.entityId}`;
+    return [`identity reference ${referenceIndex + 1} = ${binding.entityType} ${identity}`];
+  });
+  return labels.length > 0
+    ? `Ordered identity-reference bindings: ${labels.join('; ')}. Treat each binding as locked continuity; preserve that exact identity and do not blend characters, equipment, or locations`
+    : '';
 }
 
 function pushVisualPart(target: string[], value: string | undefined): void {
@@ -1511,6 +1498,9 @@ function compileCharacterSheet(
 
   const resolved = input.characters![0];
   const sections: string[] = [];
+  const visualStyle = compileVisualStylePolicy(input.visualStylePolicy, input.mode);
+
+  if (visualStyle.prompt) sections.push(visualStyle.prompt);
 
   // 1. Header
   sections.push('Create a professional character turnaround and expression sheet.');
@@ -1648,8 +1638,12 @@ Sharp focus, ultra-detailed textures, consistent color grading
 Production-ready, animation/model sheet quality`);
 
   // 10. NEGATIVE
-  const negativePrompt =
-    'No style variation, no redesign, no extra limbs, no distorted anatomy, no inconsistent face, no changing outfit, no blur, no noise, no text, no watermark';
+  const negativePrompt = [
+    'No style variation, no redesign, no extra limbs, no distorted anatomy, no inconsistent face, no changing outfit, no blur, no noise, no text, no watermark',
+    visualStyle.negativePrompt,
+  ]
+    .filter(Boolean)
+    .join(', ');
 
   // 11. TECHNICAL
   sections.push(`\nTECHNICAL:
@@ -1705,6 +1699,18 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   // stripped (Debug-First).
   const i2vStaticClauses: string[] = [];
 
+  // 0. Canonical Canvas style authority. It is deterministic host input and
+  // cannot be omitted by a Commander-authored scene body.
+  const visualStyle = compileVisualStylePolicy(input.visualStylePolicy, input.mode);
+  if (visualStyle.prompt) {
+    trackedSegments.push({
+      source: 'visual-style-policy',
+      text: visualStyle.prompt,
+      trimmed: false,
+    });
+  }
+  if (visualStyle.negativePrompt) negativeSegments.push(visualStyle.negativePrompt);
+
   // 1. User text (scene prompt)
   if (input.prompt?.trim()) {
     const normalized = normalizeTextSegment(input.prompt);
@@ -1730,6 +1736,18 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
 
   // 3. Inject visible entity context so provider-facing prompts carry the same
   // continuity-critical identity details that node refs encode structurally.
+  const referenceBindingText = describeReferenceBindings(
+    input.referenceBindings,
+    referenceImages,
+    input,
+  );
+  if (referenceBindingText) {
+    trackedSegments.push({
+      source: 'reference-bindings',
+      text: referenceBindingText,
+      trimmed: false,
+    });
+  }
 
   for (const resolved of input.characters ?? []) {
     const text = describeCharacterIdentity(resolved, input.mode);

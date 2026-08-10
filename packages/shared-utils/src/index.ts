@@ -14,3 +14,12 @@ export {
   getClassifiedToolNames,
   type ToolCompactionCategory,
 } from './tool-compaction.js';
+export {
+  resolveCanvasVisualStylePolicy,
+  compileVisualStylePolicy,
+  normalizeVisualStylePolicy,
+  fingerprintVisualStylePolicy,
+  type VisualStylePromptMode,
+  type ResolvedCanvasVisualStyle,
+  type CompiledVisualStylePolicy,
+} from './visual-style-policy.js';

@@ -32,6 +32,7 @@ export class RunwayAdapter implements AIProviderAdapter {
   private apiKey = '';
   private baseUrl = 'https://api.dev.runwayml.com/v1';
   private pollIntervalMs = 2_000;
+  private maxPollAttempts = 180;
 
   configure(apiKey: string, options?: Record<string, unknown>): void {
     this.apiKey = apiKey;
@@ -41,6 +42,9 @@ export class RunwayAdapter implements AIProviderAdapter {
     }
     if (typeof options?.pollIntervalMs === 'number') {
       this.pollIntervalMs = Math.max(0, options.pollIntervalMs);
+    }
+    if (typeof options?.maxPollAttempts === 'number' && Number.isFinite(options.maxPollAttempts)) {
+      this.maxPollAttempts = Math.max(1, Math.floor(options.maxPollAttempts));
     }
   }
 
@@ -114,7 +118,7 @@ export class RunwayAdapter implements AIProviderAdapter {
       jobId: taskId,
     });
 
-    for (;;) {
+    for (let attempt = 0; attempt < this.maxPollAttempts; attempt += 1) {
       const res = await fetchWithTimeout(`${this.baseUrl}/tasks/${taskId}`, {
         headers: { Authorization: `Bearer ${this.apiKey}` },
       });
@@ -186,8 +190,9 @@ export class RunwayAdapter implements AIProviderAdapter {
         throw new Error(`Runway task ${taskId} was cancelled`);
       }
 
-      await this.sleep(this.pollIntervalMs);
+      if (attempt + 1 < this.maxPollAttempts) await this.sleep(this.pollIntervalMs);
     }
+    throw new Error(`Runway task ${taskId} did not finish after ${this.maxPollAttempts} checks`);
   }
 
   estimateCost(req: GenerationRequest): CostEstimate {

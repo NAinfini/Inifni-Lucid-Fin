@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { ResolutionPolicySchema } from '../dto/resolution.js';
+import { CanvasVisualStylePolicySchema } from '../dto/visual-style.js';
 
 const PositionSchema = z
   .object({
@@ -71,11 +73,13 @@ const CanvasResolutionSchema = z
 
 const CanvasSettingsSchema = z
   .object({
+    visualStylePolicy: CanvasVisualStylePolicySchema.optional(),
     stylePlate: z.string().min(1).optional(),
     negativePrompt: z.string().min(1).optional(),
     refResolution: CanvasResolutionSchema.optional(),
     publishImageResolution: CanvasResolutionSchema.optional(),
     publishVideoResolution: CanvasResolutionSchema.optional(),
+    resolutionPolicy: ResolutionPolicySchema.optional(),
     aspectRatio: z.enum(['16:9', '9:16', '1:1', '2.39:1']).optional(),
     llmProviderId: z.string().min(1).optional(),
     imageProviderId: z.string().min(1).optional(),

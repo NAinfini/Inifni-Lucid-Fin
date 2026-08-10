@@ -1,0 +1,29 @@
+* text=auto eol=lf
+
+# Windows command scripts require CRLF for broad compatibility.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Preserve binary payloads byte-for-byte.
+*.gif binary
+*.ico binary
+*.7z binary
+*.bin binary
+*.dll binary
+*.dylib binary
+*.exe binary
+*.gz binary
+*.jpeg binary
+*.jpg binary
+*.mp3 binary
+*.mp4 binary
+*.pdf binary
+*.png binary
+*.so binary
+*.sqlite binary
+*.ttf binary
+*.wav binary
+*.webm binary
+*.woff binary
+*.woff2 binary
+*.zip binary

@@ -81,7 +81,10 @@ function renderEntityBrief(snapshot: unknown): string {
 }
 
 function messageChars(m: LLMMessage): number {
-  let c = m.content.length;
+  let c = m.content.length + (m.reasoning?.length ?? 0);
+  // Image tokenization varies by provider and dimensions; reserve a bounded
+  // approximation without counting the raw base64 payload as text tokens.
+  c += (m.images?.length ?? 0) * 4096;
   if (m.toolCalls) {
     for (const tc of m.toolCalls) {
       c += JSON.stringify(tc.arguments).length;
@@ -115,8 +118,10 @@ function itemToMessages(
           id: tc.id,
           name: sanitizeToolName(tc.name),
           arguments: tc.arguments,
+          thoughtSignature: tc.thoughtSignature,
         }));
       }
+      if (item.reasoning) msg.reasoning = item.reasoning;
       return [msg];
     }
 

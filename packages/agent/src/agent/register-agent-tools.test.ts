@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AgentToolRegistry } from './tool-registry.js';
-import { registerAgentTools, type AllToolDeps } from './register-agent-tools.js';
+import { EXCLUDED_TOOLS, registerAgentTools, type AllToolDeps } from './register-agent-tools.js';
 import { ToolCatalog } from './tool-catalog.js';
 import { ENTITY_REFRESH_TOOL_ENTITY } from '@lucid-fin/contracts';
 import type { AssetRef, Equipment, PresetDefinition } from '@lucid-fin/contracts';
@@ -172,6 +172,7 @@ function createMockDeps(): AllToolDeps {
       candidates: [],
     })),
     produceMedia: vi.fn(async () => ({ status: 'accepted' })),
+    refineMedia: vi.fn(async () => ({ status: 'accepted' })),
     // LocationToolDeps
     listLocations: vi.fn(async () => []),
     saveLocation: vi.fn(async () => undefined),
@@ -198,6 +199,8 @@ describe('registerAgentTools', () => {
     expect(registry.get('script.import')).toBeUndefined();
     expect(registry.get('provider.setKey')).toBeUndefined();
     expect(registry.get('provider.addCustom')).toBeUndefined();
+    expect(EXCLUDED_TOOLS.has('prompt.setCustom')).toBe(true);
+    expect(EXCLUDED_TOOLS.has('video.clone')).toBe(true);
   });
 
   it('registers at least one script. tool', () => {

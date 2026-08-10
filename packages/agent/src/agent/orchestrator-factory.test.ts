@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createAgentOrchestratorForRun } from './orchestrator-factory.js';
 import { AgentToolRegistry } from './tool-registry.js';
-import type { LLMAdapter } from '@lucid-fin/contracts';
+import type { CanvasVisualStylePolicy, LLMAdapter } from '@lucid-fin/contracts';
 
 function mockAdapter(): LLMAdapter {
   return {
@@ -23,7 +23,10 @@ function mockAdapter(): LLMAdapter {
 function mockCanvasStore(
   canvas: {
     nodes?: Array<{ id: string; type: string }>;
-    settings?: { stylePlate?: string | null } | null;
+    settings?: {
+      visualStylePolicy?: CanvasVisualStylePolicy;
+      stylePlate?: string | null;
+    } | null;
   } | null = null,
 ) {
   return {

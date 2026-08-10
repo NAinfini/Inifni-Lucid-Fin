@@ -11,6 +11,7 @@ import type {
   WorkflowVisualAuditionContext,
 } from '@lucid-fin/contracts';
 import { t } from '../../i18n.js';
+import { WorkflowRequestChangesForm } from './WorkflowRequestChangesForm.js';
 
 type VisualConstitutionApprovalCardProps = {
   auditionContext: WorkflowVisualAuditionContext;
@@ -18,6 +19,8 @@ type VisualConstitutionApprovalCardProps = {
   onSelect: (candidateId: string) => Promise<VisualConstitutionSelectionResult>;
   onApprove: () => Promise<ApproveWorkflowGateResult>;
   onApproved?: () => void;
+  onRequestChanges?: (reason: string) => Promise<unknown>;
+  onRequested?: () => void;
 };
 
 function selectedAttempt(candidate: VisualAuditionCandidate): VisualPreviewAttempt | undefined {
@@ -40,6 +43,8 @@ export function VisualConstitutionApprovalCard({
   onSelect,
   onApprove,
   onApproved,
+  onRequestChanges,
+  onRequested,
 }: VisualConstitutionApprovalCardProps) {
   const audition = auditionContext.document.content as VisualAuditionDocumentContent;
   const visualApproval =
@@ -337,21 +342,27 @@ export function VisualConstitutionApprovalCard({
         )}
 
         {selectionIsLocked && visualApproval && (
-          <button
-            type="button"
-            onClick={approve}
-            disabled={approving}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:cursor-wait disabled:opacity-60"
-          >
-            {approving ? (
-              <LoaderCircle className="h-4 w-4 animate-spin" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4" />
-            )}
-            {approving
-              ? t('visualConstitutionApproval.approving')
-              : t('visualConstitutionApproval.approve')}
-          </button>
+          <>
+            <WorkflowRequestChangesForm
+              onRequestChanges={onRequestChanges}
+              onRequested={onRequested}
+            />
+            <button
+              type="button"
+              onClick={approve}
+              disabled={approving}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:cursor-wait disabled:opacity-60"
+            >
+              {approving ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
+              {approving
+                ? t('visualConstitutionApproval.approving')
+                : t('visualConstitutionApproval.approve')}
+            </button>
+          </>
         )}
       </div>
     </section>

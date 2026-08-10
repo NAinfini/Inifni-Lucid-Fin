@@ -1,4 +1,5 @@
 import type { GenerationRequest } from './dto/job.js';
+import { getBuiltinMediaProvider, listBuiltinMediaProviders } from './media-provider-catalog.js';
 
 export type BuiltinMediaProviderType = 'image' | 'video';
 export type BuiltinAudioGenerationType = 'voice' | 'music' | 'sfx';
@@ -50,13 +51,6 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
     durationRange: [5, 10],
     notes: 'Image-to-video supports more aspect ratios than text-to-video.',
   },
-  'pika-v2': {
-    type: 'video',
-    aliases: ['pika'],
-    resolutions: ['1280x720', '1920x1080'],
-    durationRange: [5, 10],
-    notes: 'Sound effects available on web platform only, not via API.',
-  },
   'luma-ray2': {
     type: 'video',
     aliases: ['luma'],
@@ -68,8 +62,11 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
     type: 'video',
     aliases: ['seedance'],
     aspectRatios: ['16:9', '9:16', '21:9', '4:3', '3:4', '1:1'],
-    durationRange: [4, 15],
-    notes: 'Supports multi-reference images. Up to 720p.',
+    durationRange: [5, 15],
+    supportsAudio: true,
+    qualityTiers: ['720p', '1080p', '4K'],
+    notes:
+      'Replicate Seedance 2.0 supports up to nine ordered reference images, native audio, and up to 4K output. Generic references cannot be combined with first/last-frame inputs.',
   },
   'kling-v1': {
     type: 'video',
@@ -85,40 +82,76 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
     type: 'video',
     aliases: ['google-video'],
     supportsAudio: true,
-    aspectRatios: ['16:9'],
-    durationRange: [5, 8],
-    notes:
-      'Audio via generateAudio parameter. Supports ambient, dialogue, and music layers in prompt.',
-  },
-  'wan-2.1': {
-    type: 'video',
-    aliases: ['wan'],
-    resolutions: ['854x480', '1280x720', '1920x1080'],
+    aspectRatios: ['16:9', '9:16'],
     durationRange: [3, 10],
-    notes: 'Frame-based duration (num_frames). Supports first and last frame images.',
+    notes: 'Gemini Omni Flash produces 720p video with native audio through the Interactions API.',
   },
   'minimax-video01': {
     type: 'video',
     aliases: ['minimax'],
-    resolutions: ['1280x720'],
-    durationRange: [5, 10],
-    notes: 'Fixed 720p output. Has prompt_optimizer for automatic prompt enhancement.',
+    supportsAudio: true,
+    qualityTiers: ['768P', '2K'],
+    resolutions: ['1366x768', '2048x1152'],
+    aspectRatios: ['21:9', '16:9', '4:3', '1:1', '3:4', '9:16'],
+    durationRange: [4, 15],
+    notes:
+      'MiniMax H3 supports 768P/2K output, native stereo audio, up to nine image references, first/last frames, and 4–15 second generation. The adapter retains legacy Hailuo 2.3 compatibility.',
   },
-  'hunyuan-video': {
+  pixverse: {
     type: 'video',
-    aliases: ['hunyuan'],
-    resolutions: ['854x480', '1280x720'],
-    durationRange: [3, 8],
-    notes: 'Frame-based duration with 4-frame alignment. Good for Asian faces and CJK text.',
+    supportsAudio: true,
+    qualityTiers: ['360p', '540p', '720p', '1080p'],
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
+    durationRange: [1, 15],
+    notes:
+      'PixVerse V6 supports text and first-frame image generation. Unverified last-frame transition payloads are rejected explicitly.',
+  },
+  'alibaba-wan-video': {
+    type: 'video',
+    supportsAudio: true,
+    qualityTiers: ['720P', '1080P'],
+    aspectRatios: ['16:9', '9:16', '1:1', '4:3', '3:4'],
+    durationRange: [2, 15],
+    notes:
+      'Wan 2.7 supports text-to-video, first/last frames, reference images, native audio, and region-specific Model Studio endpoints.',
+  },
+  ltx: {
+    type: 'video',
+    resolutions: ['1920x1080', '1080x1920', '2560x1440', '1440x2560', '3840x2160', '2160x3840'],
+    aspectRatios: ['16:9', '9:16'],
+    durationRange: [1, 20],
+    supportsAudio: true,
+    notes: 'LTX 2.3 accepts only its declared landscape and portrait resolution set.',
   },
   'openai-dalle': {
     type: 'image',
     aliases: ['openai-image'],
-    qualityTiers: ['standard', 'hd'],
-    resolutions: ['1024x1024', '1024x1792', '1792x1024'],
-    maxDimension: 4096,
+    qualityTiers: ['low', 'medium', 'high', 'auto'],
+    resolutions: [
+      '1024x1024',
+      '1536x1024',
+      '1024x1536',
+      '2048x2048',
+      '2048x1152',
+      '3840x2160',
+      '2160x3840',
+    ],
+    maxDimension: 3840,
     notes:
-      'gpt-image-1: flexible sizes 256-4096 (multiples of 64). DALL-E 3 was limited to fixed sizes.',
+      'gpt-image-2 supports ordered high-fidelity image references through the Image API edits endpoint.',
+  },
+  bria: {
+    type: 'image',
+    qualityTiers: ['1MP', '4MP'],
+    maxDimension: 4096,
+    notes: 'Bria V2 supports commercially safe text generation and one reference image.',
+  },
+  'codex-imagegen': {
+    type: 'image',
+    resolutions: ['1024x1024'],
+    maxDimension: 1024,
+    notes:
+      'Uses Codex App Server image generation with ChatGPT plan quota. Dimensions and quality are best-effort.',
   },
   ideogram: {
     type: 'image',
@@ -144,7 +177,8 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
     aliases: ['google-image'],
     aspectRatios: ['1:1', '3:4', '4:3', '9:16', '16:9'],
     maxDimension: 2048,
-    notes: 'Imagen 4 supports up to 2048. Predefined aspect ratios.',
+    notes:
+      'Gemini 3.1 Flash Image supports image generation/editing, up to 14 references, and 1K/2K/4K output.',
   },
   flux: {
     type: 'image',
@@ -195,12 +229,6 @@ const BUILTIN_PROVIDER_CAPABILITY_PROFILES: Record<
     maxDimension: 1024,
     notes: 'Wanx v1: 1024px. Wanx v2: 2048px.',
   },
-  kolors: {
-    type: 'image',
-    aliases: ['kuaishou'],
-    maxDimension: 1024,
-    notes: 'SDXL-based. Native 1024x1024 max.',
-  },
   seedream: {
     type: 'image',
     aliases: ['volcengine-image'],
@@ -248,16 +276,41 @@ export function getBuiltinProviderCapabilityProfile(
 ): BuiltinProviderCapabilityProfile | undefined {
   const canonicalProviderId = BUILTIN_PROVIDER_CAPABILITY_PROFILE_ALIASES[providerId];
   if (!canonicalProviderId) {
-    return undefined;
+    const catalogEntry = listBuiltinMediaProviders().find(
+      (entry) => entry.providerId === providerId.trim().toLowerCase(),
+    );
+    if (!catalogEntry) return undefined;
+    return {
+      type: catalogEntry.group,
+      supportsAudio: catalogEntry.supportsAudio,
+      qualityTiers: catalogEntry.qualityTiers ? [...catalogEntry.qualityTiers] : undefined,
+      resolutions: catalogEntry.defaultResolution ? [catalogEntry.defaultResolution] : undefined,
+      notes: catalogEntry.notes,
+      maxDimension:
+        catalogEntry.group === 'image'
+          ? maxDimensionFromResolution(catalogEntry.defaultResolution)
+          : undefined,
+    };
   }
 
   return cloneCapabilityProfile(BUILTIN_PROVIDER_CAPABILITY_PROFILES[canonicalProviderId]);
 }
 
+export function resolveBuiltinProviderId(providerId: string): string | undefined {
+  return BUILTIN_PROVIDER_CAPABILITY_PROFILE_ALIASES[providerId.trim().toLowerCase()];
+}
+
 export function listBuiltinVideoProvidersWithAudio(): string[] {
-  return Object.entries(BUILTIN_PROVIDER_CAPABILITY_PROFILES)
-    .filter(([, profile]) => profile.type === 'video' && profile.supportsAudio)
-    .map(([providerId]) => providerId);
+  return [
+    ...new Set([
+      ...Object.entries(BUILTIN_PROVIDER_CAPABILITY_PROFILES)
+        .filter(([, profile]) => profile.type === 'video' && profile.supportsAudio)
+        .map(([providerId]) => providerId),
+      ...listBuiltinMediaProviders('video')
+        .filter((provider) => provider.supportsAudio)
+        .map((provider) => provider.providerId),
+    ]),
+  ];
 }
 
 export function listBuiltinAudioGenerationProviders(
@@ -272,17 +325,20 @@ export function getBuiltinVideoProviderRuntimeMetadata(
   providerId: string,
 ): VideoProviderRuntimeMetadata | undefined {
   const profile = getBuiltinProviderCapabilityProfile(providerId);
-  if (!profile || profile.type !== 'video') {
-    return undefined;
-  }
+  const catalogProfile = getBuiltinMediaProvider('video', providerId);
+  if ((!profile || profile.type !== 'video') && !catalogProfile) return undefined;
 
-  if (!profile.supportsAudio && (!profile.qualityTiers || profile.qualityTiers.length === 0)) {
+  const supportsAudio =
+    profile?.type === 'video' ? profile.supportsAudio : catalogProfile?.supportsAudio;
+  const qualityTiers =
+    profile?.type === 'video' ? profile.qualityTiers : catalogProfile?.qualityTiers;
+  if (!supportsAudio && (!qualityTiers || qualityTiers.length === 0)) {
     return undefined;
   }
 
   return {
-    supportsAudio: profile.supportsAudio,
-    qualityTiers: profile.qualityTiers ? [...profile.qualityTiers] : undefined,
+    supportsAudio,
+    qualityTiers: qualityTiers ? [...qualityTiers] : undefined,
   };
 }
 
@@ -329,4 +385,10 @@ export function resolveLastVideoConditioningImage(
   request: Pick<GenerationRequest, 'frameReferenceImages'>,
 ): string | undefined {
   return normalizeReferenceValue(request.frameReferenceImages?.last);
+}
+
+function maxDimensionFromResolution(resolution: string | undefined): number | undefined {
+  const match = resolution?.match(/^(\d+)x(\d+)$/i);
+  if (!match) return undefined;
+  return Math.max(Number(match[1]), Number(match[2]));
 }

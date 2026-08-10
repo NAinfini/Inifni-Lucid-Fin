@@ -28,6 +28,8 @@ export const CanvasesTable = defineTable('canvases', {
   publishImageHeight: col<number | null>('publish_height'),
   publishVideoWidth: col<number | null>('publish_video_width'),
   publishVideoHeight: col<number | null>('publish_video_height'),
+  resolutionPolicyJson: col<string | null>('resolution_policy_json'),
+  visualStylePolicyJson: col<string | null>('visual_style_policy_json'),
   aspectRatio: col<string | null>('aspect_ratio'),
   llmProviderId: col<string | null>('llm_provider_id'),
   imageProviderId: col<string | null>('image_provider_id'),

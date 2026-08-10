@@ -8,7 +8,7 @@ import { defineConfig, type Plugin } from 'vitest/config';
  * `.cjs` test imports to a virtual `.ts` ID so rolldown's parser
  * treats the source as TypeScript.
  */
-function ctsPlugin(): Plugin {
+export function ctsPlugin(): Plugin {
   const CTS_SUFFIX = '?cts-source.ts';
 
   return {
@@ -41,7 +41,13 @@ export default defineConfig({
       ['apps/desktop-main/src/ipc/__tests__/integration/**', 'forks'],
       ['apps/desktop-main/src/workflow/**', 'forks'],
     ],
-    exclude: ['**/dist/**', '**/node_modules/**', 'tests/e2e/**'],
+    exclude: [
+      '**/dist/**',
+      '**/node_modules/**',
+      '**/*.perf.test.ts',
+      'tests/e2e/**',
+      'tests/types/**',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],

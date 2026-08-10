@@ -20,7 +20,7 @@
  * invokes that hook.
  */
 
-import type { LLMAdapter, ProviderProfile } from '@lucid-fin/contracts';
+import type { CanvasVisualStylePolicy, LLMAdapter, ProviderProfile } from '@lucid-fin/contracts';
 import { AgentOrchestrator, type AgentOptions } from './agent-orchestrator.js';
 import type { AgentToolRegistry } from './tool-registry.js';
 import { TodoRunStore } from './tools/todo-run-store.js';
@@ -34,7 +34,10 @@ export interface CanvasLookup {
   get: (canvasId: string) =>
     | {
         nodes: ReadonlyArray<{ id: string; type: string }>;
-        settings?: { stylePlate?: string | null } | null | undefined;
+        settings?: {
+          visualStylePolicy?: CanvasVisualStylePolicy;
+          stylePlate?: string | null;
+        } | null;
       }
     | null
     | undefined;
@@ -74,6 +77,8 @@ export interface OrchestratorFactoryInput {
     | 'onBeforeCompact'
     | 'onPostCompact'
     | 'resolvePersistentContext'
+    | 'onWorkflowAskUser'
+    | 'onContextRecoveryReport'
   >;
 
   /**
@@ -117,7 +122,11 @@ export function createAgentOrchestratorForRun(input: OrchestratorFactoryInput): 
       ? (canvasId: string) => {
           const canvas = canvasStore.get(canvasId);
           if (!canvas) return null;
-          return { stylePlate: canvas.settings?.stylePlate ?? null };
+          return {
+            hasVisualStylePolicy: Boolean(canvas.settings?.visualStylePolicy),
+            stylePlate:
+              canvas.settings?.visualStylePolicy?.summary ?? canvas.settings?.stylePlate ?? null,
+          };
         }
       : undefined,
   };

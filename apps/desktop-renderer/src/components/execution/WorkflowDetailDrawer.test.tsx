@@ -19,6 +19,12 @@ function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function setTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+  setter?.call(textarea, value);
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 describe('WorkflowDetailDrawer', () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -149,6 +155,135 @@ describe('WorkflowDetailDrawer', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it('forwards a request for changes with the exact pending gate revision when supported', async () => {
+    const store = configureStore({ reducer: { workflows: workflowsSlice.reducer } });
+    store.dispatch(
+      setWorkflowSummaries([
+        {
+          id: 'wf-plan-1',
+          workflowType: 'movie.production.v2',
+          entityType: 'canvas',
+          entityId: 'canvas-1',
+          triggerSource: 'commander',
+          status: 'awaiting_approval',
+          summary: 'Production Plan awaiting approval',
+          progress: 0,
+          completedStages: 0,
+          totalStages: 4,
+          completedTasks: 0,
+          totalTasks: 12,
+          displayCategory: 'Production',
+          displayLabel: 'The Last Signal',
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ]),
+    );
+
+    const context: WorkflowApprovalContext = {
+      run: {
+        id: 'wf-plan-1',
+        workflowType: 'movie.production.v2',
+        entityType: 'canvas',
+        entityId: 'canvas-1',
+        triggerSource: 'commander',
+        status: 'awaiting_approval',
+        summary: 'Production Plan awaiting approval',
+        progress: 0,
+        completedStages: 0,
+        totalStages: 4,
+        completedTasks: 0,
+        totalTasks: 12,
+        input: {},
+        output: {},
+        metadata: {},
+        createdAt: 1,
+        updatedAt: 2,
+        rowVersion: 9,
+        currentGate: 'production_plan',
+      },
+      approval: {
+        id: 'approval-plan-1',
+        workflowRunId: 'wf-plan-1',
+        gateKey: 'production_plan',
+        subjectLogicalKey: 'production-plan',
+        subjectRevision: 4,
+        subjectHash: 'p'.repeat(64),
+        manifestHash: 'm'.repeat(64),
+        status: 'pending',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+      document: {
+        id: 'production-plan-4',
+        workflowRunId: 'wf-plan-1',
+        logicalKey: 'production-plan',
+        documentType: 'production_plan',
+        revision: 4,
+        schemaVersion: 1,
+        content: {
+          title: 'The Last Signal',
+          format: { targetDurationSeconds: 90, aspectRatio: '16:9' },
+          story: { acts: [] },
+          budget: {},
+          assumptions: [],
+          visualDirections: [],
+        },
+        contentHash: 'p'.repeat(64),
+        status: 'active',
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    };
+    const requestChanges = vi.fn(async () => ({ ok: true }));
+    window.lucidAPI = {
+      workflow: {
+        getPendingApproval: vi.fn(async () => context),
+        getVisualAuditions: vi.fn(async () => null),
+        requestChanges,
+      },
+    } as never;
+
+    await act(async () => {
+      root.render(
+        <Provider store={store}>
+          <WorkflowDetailDrawer workflowRunId="wf-plan-1" open onClose={vi.fn()} />
+        </Provider>,
+      );
+      await flushPromises();
+    });
+
+    const requestChangesButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes(t('workflowApproval.requestChanges')),
+    );
+    await act(async () => {
+      requestChangesButton?.click();
+      await flushPromises();
+    });
+    const reason = container.querySelector<HTMLTextAreaElement>('textarea');
+    if (!reason) throw new Error('Expected a request-changes reason field');
+    await act(async () => {
+      setTextareaValue(reason, 'Make the protagonist more hopeful.');
+      await flushPromises();
+    });
+    const submitChanges = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes(t('workflowApproval.submitRequestChanges')),
+    );
+    await act(async () => {
+      submitChanges?.click();
+      await flushPromises();
+    });
+
+    expect(requestChanges).toHaveBeenCalledWith({
+      workflowRunId: 'wf-plan-1',
+      gateKey: 'production_plan',
+      expectedRowVersion: 9,
+      expectedSubjectRevision: 4,
+      expectedSubjectHash: 'p'.repeat(64),
+      reason: 'Make the protagonist more hopeful.',
+    });
+  });
+
   it('keeps visual selection and Visual Constitution approval as separate user actions', async () => {
     const store = configureStore({ reducer: { workflows: workflowsSlice.reducer } });
     store.dispatch(
@@ -166,7 +301,7 @@ describe('WorkflowDetailDrawer', () => {
           totalStages: 6,
           completedTasks: 1,
           totalTasks: 6,
-          currentStageId: 'style-exploration',
+          currentStageId: 'stage-style-1',
           displayCategory: 'Movie',
           displayLabel: 'Produce Signal',
           createdAt: 1,
@@ -174,7 +309,26 @@ describe('WorkflowDetailDrawer', () => {
         },
       ]),
     );
-    store.dispatch(setWorkflowStages({ workflowRunId: 'wf-visual-1', stages: [] }));
+    store.dispatch(
+      setWorkflowStages({
+        workflowRunId: 'wf-visual-1',
+        stages: [
+          {
+            id: 'stage-style-1',
+            workflowRunId: 'wf-visual-1',
+            stageId: 'style-exploration',
+            name: 'Choose visual direction',
+            status: 'ready',
+            order: 1,
+            progress: 20,
+            completedTasks: 1,
+            totalTasks: 1,
+            metadata: {},
+            updatedAt: 2,
+          },
+        ],
+      }),
+    );
     store.dispatch(setWorkflowTasks({ workflowRunId: 'wf-visual-1', tasks: [] }));
 
     const run = {
@@ -190,7 +344,7 @@ describe('WorkflowDetailDrawer', () => {
       totalStages: 6,
       completedTasks: 1,
       totalTasks: 6,
-      currentStageId: 'style-exploration',
+      currentStageId: 'stage-style-1',
       input: {},
       output: {},
       metadata: {},

@@ -300,6 +300,11 @@ const canvasSetMediaParams = defineToolMeta({
   process: 'media-config',
   category: 'mutation',
 });
+const providerResolveResolution = defineToolMeta({
+  name: 'provider.resolveResolution' as const,
+  process: 'media-config',
+  category: 'query',
+});
 
 // ── Series (6) ────────────────────────────────────────────────────
 const seriesGet = defineToolMeta({
@@ -411,11 +416,16 @@ const workflowManage = defineToolMeta({
 });
 const workflowVisual = defineToolMeta({
   name: 'workflow.visual' as const,
-  process: 'workflow-style-audition',
+  process: 'workflow-orchestration',
   category: 'mutation',
 });
 const workflowMedia = defineToolMeta({
   name: 'workflow.media' as const,
+  process: 'workflow-orchestration',
+  category: 'mutation',
+});
+const workflowMediaFeedback = defineToolMeta({
+  name: 'workflow.mediaFeedback' as const,
   process: 'workflow-orchestration',
   category: 'mutation',
 });
@@ -531,6 +541,7 @@ export const ToolCatalog = createCatalog([
   // node provider/config
   canvasConfigureNode,
   canvasSetMediaParams,
+  providerResolveResolution,
   // series
   seriesGet,
   seriesUpdate,
@@ -555,6 +566,7 @@ export const ToolCatalog = createCatalog([
   workflowManage,
   workflowVisual,
   workflowMedia,
+  workflowMediaFeedback,
   workflowFinalExport,
   // vision / text / meta
   textAnalyze,

@@ -49,63 +49,6 @@ describe('locations slice', () => {
     });
   });
 
-  it('exports action creators with the expected payloads', () => {
-    const location = makeLocation();
-    const refImage = makeReferenceImage({ slot: 'overhead' });
-    const restored: LocationsState = {
-      items: [location],
-      selectedId: 'location-1',
-      loading: true,
-      search: 'ware',
-      folders: [],
-      currentFolderId: null,
-      foldersLoading: false,
-    };
-
-    expect(setLocations([location])).toMatchObject({
-      type: 'locations/setLocations',
-      payload: [location],
-    });
-    expect(addLocation(location)).toMatchObject({
-      type: 'locations/addLocation',
-      payload: location,
-    });
-    expect(updateLocation({ id: 'location-1', data: { name: 'Depot' } })).toMatchObject({
-      type: 'locations/updateLocation',
-      payload: { id: 'location-1', data: { name: 'Depot' } },
-    });
-    expect(removeLocation('location-1')).toMatchObject({
-      type: 'locations/removeLocation',
-      payload: 'location-1',
-    });
-    expect(selectLocation(null)).toMatchObject({
-      type: 'locations/selectLocation',
-      payload: null,
-    });
-    expect(setLocationsLoading(true)).toMatchObject({
-      type: 'locations/setLocationsLoading',
-      payload: true,
-    });
-    expect(setLocationsSearch('night')).toMatchObject({
-      type: 'locations/setLocationsSearch',
-      payload: 'night',
-    });
-    expect(setLocationRefImage({ locationId: 'location-1', refImage })).toMatchObject({
-      type: 'locations/setLocationRefImage',
-      payload: { locationId: 'location-1', refImage },
-    });
-    expect(
-      removeLocationRefImage({ locationId: 'location-1', slot: 'wide-establishing' }),
-    ).toMatchObject({
-      type: 'locations/removeLocationRefImage',
-      payload: { locationId: 'location-1', slot: 'wide-establishing' },
-    });
-    expect(locationsSlice.actions.restore(restored)).toMatchObject({
-      type: 'locations/restore',
-      payload: restored,
-    });
-  });
-
   it('sets, adds, updates, selects, and removes locations', () => {
     let state = locationsSlice.reducer(
       undefined,

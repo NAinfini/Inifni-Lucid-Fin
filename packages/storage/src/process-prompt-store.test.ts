@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { COMMANDER_GUIDE_LIMITS } from '@lucid-fin/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { PROCESS_PROMPT_DEFAULTS, ProcessPromptStore } from './process-prompt-store.js';
 
@@ -140,6 +141,41 @@ describe('ProcessPromptStore', () => {
     second.close();
 
     expect(secondCount).toBe(firstCount);
+  });
+
+  it('keeps legacy rows in storage while hiding them from the current catalog', () => {
+    const dbPath = createTempDbPath();
+    const first = new ProcessPromptStore(dbPath);
+    first.seedDefaults([
+      {
+        processKey: 'legacy-process',
+        name: 'Legacy Process',
+        description: 'Retained for compatibility',
+        defaultValue: 'Legacy rules',
+      },
+    ]);
+
+    expect(first.list().some((prompt) => prompt.processKey === 'legacy-process')).toBe(false);
+    expect(first.get('legacy-process')?.defaultValue).toBe('Legacy rules');
+    first.close();
+
+    const second = new ProcessPromptStore(dbPath);
+    expect(second.list().some((prompt) => prompt.processKey === 'legacy-process')).toBe(false);
+    expect(second.get('legacy-process')?.defaultValue).toBe('Legacy rules');
+    second.close();
+  });
+
+  it('rejects custom process prompts above the shared size limit', () => {
+    const store = new ProcessPromptStore(createTempDbPath());
+
+    expect(() =>
+      store.setCustom(
+        'provider-management',
+        'x'.repeat(COMMANDER_GUIDE_LIMITS.maxProcessPromptChars + 1),
+      ),
+    ).toThrow(`at most ${COMMANDER_GUIDE_LIMITS.maxProcessPromptChars} characters`);
+    expect(store.get('provider-management')?.customValue).toBeNull();
+    store.close();
   });
 
   it('throws for unknown process keys', () => {

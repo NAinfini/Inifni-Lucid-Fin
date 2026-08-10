@@ -109,7 +109,7 @@ describe('canvas.getInfo (scope: settings) / canvas.setSettings', () => {
     });
   });
 
-  it('forwards null to clear a field', async () => {
+  it('clears both the legacy style mirror and canonical draft', async () => {
     const canvas = createCanvas({ stylePlate: 'noir watercolor', aspectRatio: '16:9' });
     const deps = createDeps(canvas);
     const tool = findTool(deps, 'canvas.setSettings');
@@ -121,9 +121,10 @@ describe('canvas.getInfo (scope: settings) / canvas.setSettings', () => {
 
     expect(result.success).toBe(true);
     const patchCall = (deps.patchCanvasSettings as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(patchCall[1]).toEqual({ stylePlate: null });
+    expect(patchCall[1]).toEqual({ stylePlate: null, visualStylePolicy: null });
     const returned = (result as { data: { settings: CanvasSettings } }).data.settings;
     expect(returned.stylePlate).toBeUndefined();
+    expect(returned.visualStylePolicy).toBeUndefined();
     expect(returned.aspectRatio).toBe('16:9');
   });
 
@@ -165,7 +166,12 @@ describe('canvas.getInfo (scope: settings) / canvas.setSettings', () => {
 
     expect(result.success).toBe(true);
     const patchCall = (deps.patchCanvasSettings as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(patchCall[1]).toEqual({ refResolution: { width: 1536, height: 1024 } });
+    expect(patchCall[1]).toEqual({
+      refResolution: { width: 1536, height: 1024 },
+      resolutionPolicy: {
+        referenceImage: { mode: 'exact', width: 1536, height: 1024 },
+      },
+    });
   });
 
   it('rejects refResolution with non-positive dimensions', async () => {
@@ -194,7 +200,10 @@ describe('canvas.getInfo (scope: settings) / canvas.setSettings', () => {
 
     expect(result.success).toBe(true);
     const patchCall = (deps.patchCanvasSettings as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(patchCall[1]).toEqual({ publishImageResolution: { width: 1920, height: 1080 } });
+    expect(patchCall[1]).toEqual({
+      publishImageResolution: { width: 1920, height: 1080 },
+      resolutionPolicy: { image: { mode: 'exact', width: 1920, height: 1080 } },
+    });
   });
 
   it('patches publishVideoResolution via setSettings', async () => {
@@ -209,10 +218,57 @@ describe('canvas.getInfo (scope: settings) / canvas.setSettings', () => {
 
     expect(result.success).toBe(true);
     const patchCall = (deps.patchCanvasSettings as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(patchCall[1]).toEqual({ publishVideoResolution: { width: 1280, height: 720 } });
+    expect(patchCall[1]).toEqual({
+      publishVideoResolution: { width: 1280, height: 720 },
+      resolutionPolicy: { video: { mode: 'exact', width: 1280, height: 720 } },
+    });
   });
 
-  it('patches negativePrompt via setSettings', async () => {
+  it('patches canonical provider-default, exact, and tier intents', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+    const tool = findTool(deps, 'canvas.setSettings');
+
+    const result = await tool.execute({
+      canvasId: canvas.id,
+      resolutionPolicy: {
+        referenceImage: { mode: 'provider-default' },
+        image: { mode: 'exact', width: 1536, height: 864 },
+        video: { mode: 'tier', tier: '1080p', aspectRatio: '16:9' },
+      },
+    });
+
+    expect(result.success).toBe(true);
+    const patchCall = (deps.patchCanvasSettings as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(patchCall[1]).toEqual({
+      resolutionPolicy: {
+        referenceImage: { mode: 'provider-default' },
+        image: { mode: 'exact', width: 1536, height: 864 },
+        video: { mode: 'tier', tier: '1080p', aspectRatio: '16:9' },
+      },
+    });
+  });
+
+  it('rejects ambiguous canonical and legacy resolution updates', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+    const tool = findTool(deps, 'canvas.setSettings');
+
+    const result = await tool.execute({
+      canvasId: canvas.id,
+      publishImageResolution: { width: 1920, height: 1080 },
+      resolutionPolicy: { image: { mode: 'tier', tier: '2K' } },
+    });
+
+    expect(result).toEqual({
+      success: false,
+      error:
+        'resolutionPolicy cannot be combined with refResolution, publishImageResolution, or publishVideoResolution in the same call',
+    });
+    expect(deps.patchCanvasSettings).not.toHaveBeenCalled();
+  });
+
+  it('mirrors a legacy negativePrompt into the canonical draft', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
     const tool = findTool(deps, 'canvas.setSettings');
@@ -224,6 +280,12 @@ describe('canvas.getInfo (scope: settings) / canvas.setSettings', () => {
 
     expect(result.success).toBe(true);
     const patchCall = (deps.patchCanvasSettings as ReturnType<typeof vi.fn>).mock.calls[0];
-    expect(patchCall[1]).toEqual({ negativePrompt: 'text, watermark, blurry' });
+    expect(patchCall[1]).toEqual({
+      negativePrompt: 'text, watermark, blurry',
+      visualStylePolicy: {
+        version: 1,
+        negativeConstraints: ['text, watermark, blurry'],
+      },
+    });
   });
 });

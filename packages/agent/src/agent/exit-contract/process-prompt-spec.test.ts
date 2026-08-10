@@ -36,6 +36,13 @@ describe('stylePlateLockPredicate', () => {
     expect(stylePlateLockPredicate(a)).toBe(false);
   });
 
+  it('does not fire for a structured visual-style draft without a summary', () => {
+    const a = ctx({
+      canvasSettings: { hasVisualStylePolicy: true, stylePlate: null },
+    });
+    expect(stylePlateLockPredicate(a)).toBe(false);
+  });
+
   it('does not fire without a canvasId', () => {
     const a = ctx({
       canvasId: undefined,

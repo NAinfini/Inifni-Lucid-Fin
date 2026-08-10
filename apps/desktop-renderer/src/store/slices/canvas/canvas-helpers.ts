@@ -219,8 +219,6 @@ export function createNodeRecord(payload: {
     text: { content: '' },
     image: {
       status: 'empty',
-      width: 1024,
-      height: 1024,
       variants: [],
       selectedVariantIndex: 0,
       variantCount: 1,
@@ -229,8 +227,6 @@ export function createNodeRecord(payload: {
     },
     video: {
       status: 'empty',
-      width: 1280,
-      height: 720,
       duration: 5,
       fps: 24,
       variants: [],

@@ -21,6 +21,24 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
       expect(tools[0]).toMatchObject({
         name: 'tool_search',
       });
+      expect(body).not.toHaveProperty('temperature');
+      expect(body).not.toHaveProperty('top_p');
+      expect(body.messages).toEqual([
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/png',
+                data: 'aGVsbG8=',
+              },
+            },
+            { type: 'text', text: 'hello' },
+          ],
+        },
+      ]);
 
       return new Response(
         JSON.stringify({
@@ -51,19 +69,29 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
     adapter.configure('test-key');
 
     await expect(
-      complete(adapter, [{ role: 'user', content: 'hello' }], {
-        tools: [
+      complete(
+        adapter,
+        [
           {
-            name: 'tool.search',
-            description: 'Search tools',
-            parameters: {
-              type: 'object',
-              properties: {},
-            },
+            role: 'user',
+            content: 'hello',
+            images: [{ mimeType: 'image/png', data: 'aGVsbG8=' }],
           },
         ],
-        toolChoice: 'auto',
-      }),
+        {
+          tools: [
+            {
+              name: 'tool.search',
+              description: 'Search tools',
+              parameters: {
+                type: 'object',
+                properties: {},
+              },
+            },
+          ],
+          toolChoice: 'auto',
+        },
+      ),
     ).resolves.toMatchObject({
       content: '',
       finishReason: 'tool_calls',
@@ -74,6 +102,27 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
           arguments: { query: 'character' },
         },
       ],
+    });
+  });
+
+  it('surfaces model refusals as an explicit invalid request', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ content: [], stop_reason: 'refusal' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      ),
+    );
+
+    const adapter = new ClaudeLLMAdapter();
+    adapter.configure('test-key');
+
+    await expect(complete(adapter, [{ role: 'user', content: 'hello' }])).rejects.toMatchObject({
+      code: ErrorCode.InvalidRequest,
+      message: 'Claude refused this request',
     });
   });
 

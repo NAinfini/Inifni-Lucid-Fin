@@ -106,6 +106,13 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     setNodePresets: vi.fn(async () => undefined),
     layoutNodes: vi.fn(async () => undefined),
     triggerGeneration: vi.fn(async () => undefined),
+    preparePromptRefinement: vi.fn(async () => ({
+      sourceAssetHash: 'asset-existing',
+      basePrompt: 'Existing exact provider prompt',
+      basePromptHash: 'a'.repeat(64),
+      prompt: 'Existing exact provider prompt\nUSER QUALITY FEEDBACK (additive): Brighter eyes',
+      promptHash: 'b'.repeat(64),
+    })),
     cancelGeneration: vi.fn(async () => undefined),
     deleteNode: vi.fn(async (_canvasId, nodeId) => {
       canvas.nodes = canvas.nodes.filter((node) => node.id !== nodeId);
@@ -121,6 +128,26 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
       if (!node) throw new Error(`Node not found: ${nodeId}`);
       Object.assign(node.data as Record<string, unknown>, data);
     }),
+    clearNodeDataFields: vi.fn(async (_canvasId, nodeId, fields) => {
+      const node = canvas.nodes.find((entry) => entry.id === nodeId);
+      if (!node) throw new Error(`Node not found: ${nodeId}`);
+      const data = node.data as Record<string, unknown>;
+      for (const field of fields) delete data[field];
+    }),
+    preflightResolution: vi.fn(async () => ({
+      supported: true,
+      plan: {
+        providerId: 'test-image',
+        mediaType: 'image',
+        source: 'node',
+        requested: { mode: 'tier', tier: '2K' },
+        tier: '2K',
+        outputKnown: false,
+      },
+      currency: 'USD',
+      estimatedCostUsd: 0.04,
+      warnings: ['Provider does not guarantee exact output pixels'],
+    })),
     listPresets: vi.fn(async () => []),
     savePreset: vi.fn(async (preset) => preset),
     listShotTemplates: vi.fn(async () => []),
@@ -192,6 +219,7 @@ describe('createCanvasGenerationTools', () => {
       'canvas.setNodeLayout',
       'canvas.configureNode',
       'canvas.setMediaParams',
+      'provider.resolveResolution',
       'canvas.selectVariant',
       'canvas.previewPrompt',
       'canvas.addNote',
@@ -291,7 +319,7 @@ describe('createCanvasGenerationTools', () => {
     );
   });
 
-  it('forwards a Commander-authored prompt verbatim to triggerGeneration', async () => {
+  it('forwards a Commander-authored base prompt for host-side style compilation', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
 
@@ -310,6 +338,67 @@ describe('createCanvasGenerationTools', () => {
       undefined,
       'A woman in a red dress steps into golden afternoon light, 50mm, centered',
     );
+  });
+
+  it('refines the selected asset prompt additively instead of starting from zero', async () => {
+    const deps = createDeps();
+
+    await expect(
+      getTool('canvas.generation', deps).execute({
+        action: 'refine',
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        feedback: 'Brighter eyes',
+        wait: false,
+      }),
+    ).resolves.toEqual({
+      success: true,
+      data: {
+        nodeId: 'image-1',
+        status: 'generating',
+        lineage: {
+          sourceAssetHash: 'asset-existing',
+          basePromptHash: 'a'.repeat(64),
+          promptHash: 'b'.repeat(64),
+        },
+        steps: [
+          { id: 'load_existing_prompt', status: 'completed' },
+          { id: 'apply_feedback_delta', status: 'completed' },
+          { id: 'generate', status: 'in_progress' },
+          { id: 'grade', status: 'pending' },
+        ],
+      },
+    });
+    expect(deps.preparePromptRefinement).toHaveBeenCalledWith(
+      'canvas-1',
+      'image-1',
+      'Brighter eyes',
+    );
+    expect(deps.triggerGeneration).toHaveBeenCalledWith(
+      'canvas-1',
+      'image-1',
+      undefined,
+      undefined,
+      expect.stringContaining(
+        'Existing exact provider prompt\nUSER QUALITY FEEDBACK (additive): Brighter eyes',
+      ),
+      'precompiled',
+    );
+  });
+
+  it('requires feedback for an incremental refinement', async () => {
+    const deps = createDeps();
+
+    await expect(
+      getTool('canvas.generation', deps).execute({
+        action: 'refine',
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        feedback: '   ',
+      }),
+    ).resolves.toMatchObject({ success: false, errorClass: 'validation' });
+    expect(deps.preparePromptRefinement).not.toHaveBeenCalled();
+    expect(deps.triggerGeneration).not.toHaveBeenCalled();
   });
 
   it('accepts nodeType on canvas.generation without affecting execution', async () => {
@@ -597,6 +686,68 @@ describe('createCanvasGenerationTools', () => {
         data: expect.objectContaining({ nodeId: 'image-1' }),
       }),
     );
+    expect(canvas.nodes[1].data).toEqual(
+      expect.objectContaining({
+        width: 1920,
+        height: 1080,
+        resolutionIntent: { mode: 'exact', width: 1920, height: 1080 },
+      }),
+    );
+  });
+
+  it('sets provider tiers, clears legacy pixels, and restores Canvas inheritance', async () => {
+    const canvas = createCanvas();
+    const imageData = canvas.nodes[1].data as Record<string, unknown>;
+    Object.assign(imageData, { width: 1024, height: 1024 });
+    const deps = createDeps(canvas);
+    const tool = getTool('canvas.setMediaParams', deps);
+
+    await expect(
+      tool.execute({
+        mediaType: 'image',
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        set: { resolution: { mode: 'tier', tier: '2K', aspectRatio: '16:9' } },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ success: true }));
+    expect(imageData.resolutionIntent).toEqual({
+      mode: 'tier',
+      tier: '2K',
+      aspectRatio: '16:9',
+    });
+    expect(imageData).not.toHaveProperty('width');
+    expect(imageData).not.toHaveProperty('height');
+
+    await expect(
+      tool.execute({
+        mediaType: 'image',
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        set: { clearResolutionOverride: true },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ success: true }));
+    expect(imageData).not.toHaveProperty('resolutionIntent');
+  });
+
+  it('preflights a candidate resolution without triggering generation', async () => {
+    const deps = createDeps();
+    const result = await getTool('provider.resolveResolution', deps).execute({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      resolution: { mode: 'tier', tier: '2K' },
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({ supported: true, estimatedCostUsd: 0.04 }),
+      }),
+    );
+    expect(deps.preflightResolution).toHaveBeenCalledWith('canvas-1', 'image-1', {
+      mode: 'tier',
+      tier: '2K',
+    });
+    expect(deps.triggerGeneration).not.toHaveBeenCalled();
   });
 
   it('sets video frame references', async () => {

@@ -39,7 +39,54 @@ export function registerSystemTools(
   const createVisualAuditions = createStyleAuditionService({
     workflowEngine: deps.workflowEngine,
     generateImage,
-    gradeImage: createVisualPreviewGrader({ cas: deps.cas, keychain: deps.keychain }),
+    gradeImage: createVisualPreviewGrader({
+      visualAnalyzer: deps.visualAnalyzer,
+      preferredLLMAdapter: deps.activeLLMAdapter,
+    }),
+  });
+  const projectMediaResult = (
+    result: Awaited<ReturnType<typeof deps.productionMediaService.produce>>,
+    completion: unknown,
+  ) => ({
+    workflowRunId: result.workflowRunId,
+    canvasId: result.canvasId,
+    nodeId: result.nodeId,
+    status: result.status,
+    nextAction: result.nextAction,
+    message: result.message,
+    steps: result.steps,
+    attempt: result.attempt
+      ? {
+          id: result.attempt.id,
+          attempt: result.attempt.attempt,
+          status: result.attempt.status,
+          mediaType: result.attempt.mediaType,
+          specHash: result.attempt.specHash,
+          promptHash: result.attempt.promptHash,
+          providerId: result.attempt.providerId,
+          model: result.attempt.model,
+          seed: result.attempt.seed,
+          estimatedCostUsd: result.attempt.estimatedCostUsd,
+          reportedActualCostUsd: result.attempt.reportedActualCostUsd,
+          assetHash: result.attempt.assetHash,
+          repairDelta: result.attempt.repairDelta,
+          error: result.attempt.error,
+        }
+      : undefined,
+    evaluation: result.evaluation
+      ? {
+          rubricVersion: result.evaluation.rubricVersion,
+          total: result.evaluation.total,
+          verdict: result.evaluation.verdict,
+          scores: result.evaluation.scores,
+          strengths: result.evaluation.strengths,
+          risks: result.evaluation.risks,
+          evidence: result.evaluation.evidence,
+          repairDelta: result.evaluation.repairDelta,
+          frameEvidence: result.evaluation.frameEvidence,
+        }
+      : undefined,
+    completion,
   });
   // job.* tools are excluded from Commander AI (human/UI only)
   // registerToolModule(registry, jobToolModule, {...}) — skipped
@@ -131,7 +178,10 @@ export function registerSystemTools(
       });
     },
     setProviderApiKey: async (providerId: string, apiKey: string) => {
-      const mediaAdapter = deps.adapterRegistry.get(providerId);
+      const mediaAdapter =
+        deps.adapterRegistry.get(providerId) ??
+        deps.adapterRegistry.resolve?.(providerId, 'image') ??
+        deps.adapterRegistry.resolve?.(providerId, 'video');
       if (mediaAdapter) mediaAdapter.configure(apiKey);
       const llmProvider = deps.llmRegistry.list().find((a) => a.id === providerId);
       if (llmProvider) llmProvider.configure(apiKey);
@@ -178,49 +228,67 @@ export function registerSystemTools(
     retryWorkflow: async (id: string) => {
       await deps.workflowEngine.retryWorkflow(id);
     },
-    createProductionPlan: async (input) => deps.workflowEngine.createProductionPlan(input),
+    createProductionPlan: async (input) => {
+      if (!deps.commanderContinuation) {
+        throw new Error(
+          'Persistent production requires a stable Commander session and keyless provider binding',
+        );
+      }
+      return deps.workflowEngine.createProductionPlan({
+        ...input,
+        commanderContinuation: deps.commanderContinuation,
+      });
+    },
+    reviseProductionPlan: async (input) => deps.workflowEngine.reviseProductionPlan(input),
+    completeCreativeTask: async (input) => deps.workflowEngine.completeCreativeTask(input),
     createVisualAuditions,
     produceMedia: async (input) => {
-      const result = await deps.productionMediaService.produce(input);
-      return {
-        workflowRunId: result.workflowRunId,
-        canvasId: result.canvasId,
-        nodeId: result.nodeId,
-        status: result.status,
-        nextAction: result.nextAction,
-        message: result.message,
-        attempt: result.attempt
-          ? {
-              id: result.attempt.id,
-              attempt: result.attempt.attempt,
-              status: result.attempt.status,
-              mediaType: result.attempt.mediaType,
-              specHash: result.attempt.specHash,
-              promptHash: result.attempt.promptHash,
-              providerId: result.attempt.providerId,
-              model: result.attempt.model,
-              seed: result.attempt.seed,
-              estimatedCostUsd: result.attempt.estimatedCostUsd,
-              reportedActualCostUsd: result.attempt.reportedActualCostUsd,
-              assetHash: result.attempt.assetHash,
-              repairDelta: result.attempt.repairDelta,
-              error: result.attempt.error,
-            }
-          : undefined,
-        evaluation: result.evaluation
-          ? {
-              rubricVersion: result.evaluation.rubricVersion,
-              total: result.evaluation.total,
-              verdict: result.evaluation.verdict,
-              scores: result.evaluation.scores,
-              strengths: result.evaluation.strengths,
-              risks: result.evaluation.risks,
-              evidence: result.evaluation.evidence,
-              repairDelta: result.evaluation.repairDelta,
-              frameEvidence: result.evaluation.frameEvidence,
-            }
-          : undefined,
-      };
+      const result = await deps.productionMediaService.produce(input, {
+        preferredLLMAdapter: deps.activeLLMAdapter,
+      });
+      const task = deps.workflowEngine
+        .getTasks(input.workflowRunId)
+        .find((candidate) => candidate.id === input.taskRunId);
+      const completion =
+        result.status === 'accepted' &&
+        result.attempt &&
+        task?.input.workflowTaskRole === 'production_media'
+          ? await deps.workflowEngine.completeProductionMediaTask({
+              canvasId: input.canvasId,
+              workflowRunId: input.workflowRunId,
+              taskRunId: input.taskRunId,
+              expectedRowVersion: input.expectedRowVersion,
+              nodeId: input.nodeId,
+              attemptId: result.attempt.id,
+            })
+          : undefined;
+      return projectMediaResult(result, completion);
+    },
+    refineMedia: async (input) => {
+      const result = await deps.productionMediaService.refine(input, {
+        preferredLLMAdapter: deps.activeLLMAdapter,
+      });
+      const taskRunId = result.attempt?.generationSpec.workflowTask.taskRunId;
+      const task = taskRunId
+        ? deps.workflowEngine
+            .getTasks(input.workflowRunId)
+            .find((candidate) => candidate.id === taskRunId)
+        : undefined;
+      const completion =
+        result.status === 'accepted' &&
+        result.attempt &&
+        taskRunId &&
+        task?.input.workflowTaskRole === 'production_media'
+          ? await deps.workflowEngine.completeProductionMediaTask({
+              canvasId: input.canvasId,
+              workflowRunId: input.workflowRunId,
+              taskRunId,
+              expectedRowVersion: result.workflowRowVersion ?? input.expectedRowVersion,
+              nodeId: input.nodeId,
+              attemptId: result.attempt.id,
+            })
+          : undefined;
+      return projectMediaResult(result, completion);
     },
     prepareFinalExport: async (input) => deps.workflowEngine.prepareFinalExportManifest(input),
   })) {

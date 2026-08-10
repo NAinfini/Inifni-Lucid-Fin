@@ -9,6 +9,8 @@
  */
 
 import { z } from 'zod';
+import { ResolutionAuditSchema } from './resolution.js';
+import { VisualStyleProvenanceSchema } from './visual-style.js';
 
 const AssetTypeEnum = z.enum(['image', 'video', 'audio']);
 
@@ -39,6 +41,18 @@ const AssetGenerationMetadataSchema = z
     model: z.string().optional(),
     generationTimeMs: z.number().optional(),
     cost: z.number().optional(),
+    workflowRunId: z.string().optional(),
+    attemptId: z.string().optional(),
+    specHash: z.string().optional(),
+    promptHash: z.string().optional(),
+    referenceAssetHashes: z.array(z.string()).optional(),
+    estimatedCostUsd: z.number().nonnegative().optional(),
+    reportedActualCostUsd: z.number().nonnegative().optional(),
+    resolution: ResolutionAuditSchema.optional(),
+    visualStyle: VisualStyleProvenanceSchema.optional(),
+    sourceVideoHash: z.string().optional(),
+    timestampSeconds: z.number().nonnegative().optional(),
+    rubricVersion: z.string().optional(),
   })
   .optional();
 

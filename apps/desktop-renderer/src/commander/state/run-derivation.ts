@@ -224,7 +224,11 @@ function foldEvents(
           pendingQuestion = {
             toolCallId: e.questionId,
             question: e.prompt,
-            options: (e.options ?? []).map((o) => ({ label: o.label })),
+            options: (e.options ?? []).map((o) => ({
+              label: o.label,
+              ...(o.description ? { description: o.description } : {}),
+            })),
+            allowFreeText: e.allowFreeText,
           };
         }
         break;

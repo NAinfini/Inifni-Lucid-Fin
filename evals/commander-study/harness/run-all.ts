@@ -5,10 +5,10 @@
  * then drives N sessions end-to-end.
  *
  * Usage:
- *   npx tsx evals/commander-study/harness/run-all.ts              # default 50
- *   npx tsx evals/commander-study/harness/run-all.ts --count 2    # smoke
- *   npx tsx evals/commander-study/harness/run-all.ts --count 5 --persona 3
- *   npx tsx evals/commander-study/harness/run-all.ts --count 50 --concurrency 3
+ *   pnpm exec tsx evals/commander-study/harness/run-all.ts              # default 50
+ *   pnpm exec tsx evals/commander-study/harness/run-all.ts --count 2    # smoke
+ *   pnpm exec tsx evals/commander-study/harness/run-all.ts --count 5 --persona 3
+ *   pnpm exec tsx evals/commander-study/harness/run-all.ts --count 50 --concurrency 3
  */
 import './electron-shim.js';
 

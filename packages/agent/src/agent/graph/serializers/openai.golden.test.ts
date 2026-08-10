@@ -18,6 +18,57 @@ function mkId() {
 const EMPTY_TOOLS: LLMToolDefinition[] = [];
 
 describe('serializeForOpenAI', () => {
+  it('preserves reasoning and opaque tool-call continuation metadata', () => {
+    const graph = new ContextGraph();
+    graph.add({
+      kind: 'user-message',
+      itemId: mkId(),
+      producedAtStep: 1,
+      content: 'Inspect the frame.',
+    });
+    graph.add({
+      kind: 'assistant-turn',
+      itemId: mkId(),
+      producedAtStep: 1,
+      content: '',
+      reasoning: 'The frame needs inspection.',
+      toolCalls: [
+        {
+          id: 'call-1',
+          name: 'image.analyze',
+          arguments: { assetId: 'asset-1' },
+          thoughtSignature: 'opaque-signature',
+        },
+      ],
+    });
+    graph.add({
+      kind: 'tool-result',
+      itemId: mkId(),
+      producedAtStep: 1,
+      toolKey: 'image.analyze' as ToolKey,
+      paramsHash: '{"assetId":"asset-1"}',
+      content: { score: 0.9 },
+      schemaVersion: 1,
+      toolCallId: 'call-1',
+    });
+
+    const { wireMessages } = serializeForOpenAI({
+      graph,
+      contextWindowTokens: 100_000,
+      tools: EMPTY_TOOLS,
+    });
+
+    expect(wireMessages.find((message) => message.role === 'assistant')).toMatchObject({
+      reasoning: 'The frame needs inspection.',
+      toolCalls: [
+        {
+          id: 'call-1',
+          thoughtSignature: 'opaque-signature',
+        },
+      ],
+    });
+  });
+
   it('golden test: 1 guide + 1 user + 1 assistant + 2 tool-results + 1 entity-snapshot', () => {
     const graph = new ContextGraph();
 

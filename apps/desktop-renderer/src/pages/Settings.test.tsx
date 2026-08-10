@@ -5,6 +5,7 @@ import React from 'react';
 import { Provider } from 'react-redux';
 import { MemoryRouter } from 'react-router-dom';
 import { configureStore } from '@reduxjs/toolkit';
+import type { OAuthProviderStatus, OAuthProviderTarget } from '@lucid-fin/contracts';
 import { Settings } from './Settings.js';
 import { addCustomProvider, settingsSlice, type SettingsState } from '../store/slices/settings.js';
 import { skillDefinitionsSlice, setCustomContent } from '../store/slices/skillDefinitions.js';
@@ -54,7 +55,7 @@ function renderSettings(store = createStore()) {
 }
 
 function findProviderCard(title: string): HTMLElement {
-  const card = screen.getAllByText(new RegExp(`^${title}$`))[0]?.closest('div.rounded-md.border');
+  const card = screen.getAllByText(title, { exact: true })[0]?.closest('div.rounded-md.border');
   if (!(card instanceof HTMLElement)) {
     throw new Error(`Could not find provider card for ${title}`);
   }
@@ -184,10 +185,10 @@ describe('Settings updater UI', () => {
 
     renderSettings();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Process Injection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Run Guides' }));
 
     await waitFor(() => {
-      expect(screen.getAllByText('Process Injection').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Run Guides').length).toBeGreaterThan(0);
       expect(screen.getByText(t('settings.processGuides.subtitle'))).toBeTruthy();
     });
 
@@ -202,10 +203,10 @@ describe('Settings updater UI', () => {
       expect(screen.getByText('Node Preset Tracks')).toBeTruthy();
       expect(screen.getByText('Provider Management')).toBeTruthy();
       expect(screen.getAllByText(t('settings.processGuides.triggeredBy'))).toHaveLength(4);
-      expect(screen.getByText('entity.generateRefImage')).toBeTruthy();
-      expect(screen.getByText('entity.create')).toBeTruthy();
-      expect(screen.getByText('canvas.presetTracks')).toBeTruthy();
-      expect(screen.getByText('provider.manage')).toBeTruthy();
+      expect(screen.getByText('Generate Ref Image')).toBeTruthy();
+      expect(screen.getByText('Create Entity')).toBeTruthy();
+      expect(screen.getByText('Preset Tracks')).toBeTruthy();
+      expect(screen.getByText('Provider')).toBeTruthy();
     });
   });
 
@@ -242,7 +243,7 @@ describe('Settings updater UI', () => {
 
     renderSettings();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Process Injection' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Run Guides' }));
 
     // Wait for data to load, then expand the group
     await waitFor(() => {
@@ -254,93 +255,7 @@ describe('Settings updater UI', () => {
       expect(screen.getByText('Image Node Generation')).toBeTruthy();
     });
 
-    expect(screen.getAllByText('Process Injection')).toHaveLength(2);
-  });
-
-  it.skip('localizes workflow section title, subtitle, badges, and built-in workflow names in zh-CN', async () => {
-    setLocale('zh-CN');
-
-    vi.mocked(getAPI).mockReturnValue({
-      onReady: mockOnReady(),
-      keychain: {
-        isConfigured: vi.fn().mockResolvedValue(false),
-      },
-      updater: {
-        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
-        onProgress: vi.fn(() => () => {}),
-      },
-      app: {
-        version: vi.fn().mockResolvedValue('1.2.3'),
-      },
-    } as unknown as ReturnType<typeof getAPI>);
-
-    renderSettings();
-
-    fireEvent.click(screen.getByRole('button', { name: t('settings.nav.workflows') }));
-
-    await waitFor(() => {
-      expect(screen.getByText(t('workflowDefinitionNames.wf-video-clone'))).toBeTruthy();
-      expect(screen.getByText(t('workflowDefinitionNames.wf-style-transfer'))).toBeTruthy();
-      expect(screen.getByText(t('workflowDefinitionNames.sk-reverse-prompt'))).toBeTruthy();
-      expect(screen.getByText(t('workflowDefinitionNames.sk-lip-sync'))).toBeTruthy();
-      expect(screen.getByText(t('workflowDefinitionNames.sk-srt-import'))).toBeTruthy();
-      expect(screen.getByText(t('workflowDefinitionNames.sk-capcut-export'))).toBeTruthy();
-      expect(screen.getByText(t('workflowDefinitionNames.sk-semantic-search'))).toBeTruthy();
-      expect(screen.getByText(t('workflowDefinitionNames.sk-multi-view'))).toBeTruthy();
-      expect(screen.queryByText(t('promptTemplateNames.video-clone'))).toBeNull();
-      expect(screen.queryByText(t('promptTemplateNames.dual-prompt-strategy'))).toBeNull();
-      expect(screen.queryByText(t('promptTemplateNames.lip-sync-workflow'))).toBeNull();
-    });
-
-    const builtInSkillButton = screen
-      .getByText(t('workflowDefinitionNames.sk-reverse-prompt'))
-      .closest('button') as HTMLElement | null;
-    expect(builtInSkillButton).toBeTruthy();
-    expect(within(builtInSkillButton as HTMLElement).getByText(t('settings.builtIn'))).toBeTruthy();
-
-    await waitFor(() => {
-      expect(screen.getByText('工作流与技能')).toBeTruthy();
-      expect(screen.getByText('专门管理工作流和技能的空间。')).toBeTruthy();
-      expect(screen.getByText('小说/书籍 → 视频')).toBeTruthy();
-      expect(screen.getAllByText('工作流').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('内置').length).toBeGreaterThan(0);
-    });
-
-    fireEvent.click(
-      screen.getByText(t('workflowDefinitionNames.wf-video-clone')).closest('button')!,
-    );
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: t('action.close') })).toBeTruthy();
-    });
-  });
-
-  it.skip('does not render prompt-template skills inside the workflows settings tab', async () => {
-    vi.mocked(getAPI).mockReturnValue({
-      onReady: mockOnReady(),
-      keychain: {
-        isConfigured: vi.fn().mockResolvedValue(false),
-      },
-      updater: {
-        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
-        onProgress: vi.fn(() => () => {}),
-      },
-      app: {
-        version: vi.fn().mockResolvedValue('1.2.3'),
-      },
-    } as unknown as ReturnType<typeof getAPI>);
-
-    renderSettings();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Workflows' }));
-
-    await waitFor(() => {
-      expect(screen.getAllByText('Workflows & Skills').length).toBeGreaterThan(0);
-      expect(screen.getByText('Reverse Prompt Inference')).toBeTruthy();
-      expect(screen.queryByText('Style Transfer')).toBeNull();
-      expect(screen.queryByText('Shot List from Script')).toBeNull();
-      expect(screen.queryByText('Dual Prompt Strategy')).toBeNull();
-    });
+    expect(screen.getAllByText('Run Guides')).toHaveLength(2);
   });
 
   it('localizes the merged guides tab in zh-CN and shows both template and workflow guides', async () => {
@@ -555,7 +470,7 @@ describe('Settings updater UI', () => {
     fireEvent.click(within(openRouterCard).getByLabelText('Expand'));
 
     await waitFor(() => {
-      expect(screen.getByText('Example: openai/gpt-5.4')).toBeTruthy();
+      expect(screen.getByText('Example: openai/gpt-5.6-sol')).toBeTruthy();
       expect(screen.getByRole('button', { name: 'View Models' })).toBeTruthy();
     });
 
@@ -563,6 +478,178 @@ describe('Settings updater UI', () => {
     expect(openExternal).toHaveBeenCalledWith(
       'https://openrouter.ai/docs/api-reference/chat-completion',
     );
+  });
+
+  it('uses capability-scoped ChatGPT OAuth and renders remaining usage without querying the keychain', async () => {
+    const target: OAuthProviderTarget = { provider: 'chatgpt', capability: 'image' };
+    const signedOut: OAuthProviderStatus = {
+      target,
+      state: 'signedOut',
+      version: '0.145.0',
+    };
+    const signingIn: OAuthProviderStatus = {
+      target,
+      state: 'signingIn',
+      version: '0.145.0',
+    };
+    const ready: OAuthProviderStatus = {
+      target,
+      state: 'ready',
+      planType: 'Plus',
+      usage: {
+        state: 'available',
+        windows: [
+          {
+            id: 'primary',
+            label: '5 hour window',
+            usedPercent: 20,
+            remainingPercent: 80,
+          },
+        ],
+      },
+      version: '0.145.0',
+    };
+    const isConfigured = vi.fn().mockResolvedValue(false);
+    const login = vi.fn().mockResolvedValue(signingIn);
+    const logout = vi.fn().mockResolvedValue(signedOut);
+    const statusListeners: Array<(status: OAuthProviderStatus) => void> = [];
+
+    vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
+      keychain: {
+        isConfigured,
+        getMasked: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
+        test: vi.fn().mockResolvedValue({ ok: false }),
+      },
+      providerOAuth: {
+        status: vi.fn().mockResolvedValue(signedOut),
+        login,
+        cancelLogin: vi.fn().mockResolvedValue(signedOut),
+        logout,
+        onChanged: vi.fn((callback: (status: OAuthProviderStatus) => void) => {
+          statusListeners.push(callback);
+          return () => {};
+        }),
+      },
+      updater: {
+        status: vi.fn().mockResolvedValue({ state: 'idle' } satisfies UpdateStatus),
+        onProgress: vi.fn(() => () => {}),
+      },
+      app: {
+        version: vi.fn().mockResolvedValue('1.2.3'),
+      },
+      openExternal: vi.fn(),
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Providers/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Image Generation' }));
+
+    const codexCard = findProviderCard('ChatGPT Image Generation');
+    await waitFor(() => {
+      expect(within(codexCard).getByText('Signed out')).toBeTruthy();
+    });
+
+    expect(isConfigured).not.toHaveBeenCalledWith('codex-imagegen');
+    fireEvent.click(within(codexCard).getByRole('button', { name: 'Expand' }));
+
+    await waitFor(() => {
+      expect(within(codexCard).getByRole('button', { name: 'Sign in with OAuth' })).toBeTruthy();
+    });
+    expect(within(codexCard).queryByText('API Endpoint')).toBeNull();
+    expect(within(codexCard).queryByText('API Key')).toBeNull();
+    expect(within(codexCard).getByText(/never falls back/i)).toBeTruthy();
+
+    fireEvent.click(within(codexCard).getByRole('button', { name: 'Sign in with OAuth' }));
+    await waitFor(() => {
+      expect(login).toHaveBeenCalledWith({ target });
+      expect(within(codexCard).getByRole('button', { name: 'Cancel sign-in' })).toBeTruthy();
+    });
+
+    statusListeners.forEach((listener) => listener(ready));
+    await waitFor(() => {
+      expect(within(codexCard).getByText('Plus')).toBeTruthy();
+      expect(within(codexCard).getByText('80%')).toBeTruthy();
+      expect(within(codexCard).getByRole('button', { name: 'Sign out' })).toBeTruthy();
+    });
+
+    fireEvent.click(within(codexCard).getByRole('button', { name: 'Sign out' }));
+    await waitFor(() => {
+      expect(logout).toHaveBeenCalledTimes(1);
+      expect(within(codexCard).getByRole('button', { name: 'Sign in with OAuth' })).toBeTruthy();
+    });
+  });
+
+  it('offers Gemini OAuth in the LLM tab and links to quota details when usage is unavailable', async () => {
+    const target: OAuthProviderTarget = { provider: 'gemini', capability: 'llm' };
+    const dashboardUrl =
+      'https://console.cloud.google.com/apis/api/generativelanguage.googleapis.com/quotas';
+    const status: OAuthProviderStatus = {
+      target,
+      state: 'ready',
+      usage: {
+        state: 'unavailable',
+        reason: 'Gemini does not expose a reliable remaining-quota value to this OAuth scope.',
+        dashboardUrl,
+      },
+    };
+    const isConfigured = vi.fn().mockResolvedValue(false);
+    const openExternal = vi.fn().mockResolvedValue(undefined);
+
+    vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
+      openExternal,
+      keychain: { isConfigured },
+      providerOAuth: {
+        status: vi.fn(async ({ target: requested }) => {
+          return requested.provider === 'gemini' && requested.capability === 'llm'
+            ? status
+            : ({ target: requested, state: 'signedOut' } satisfies OAuthProviderStatus);
+        }),
+        login: vi.fn(),
+        cancelLogin: vi.fn(),
+        logout: vi.fn(),
+        onChanged: vi.fn(() => () => {}),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Providers/i }));
+    const card = findProviderCard('Google Gemini (OAuth)');
+    fireEvent.click(within(card).getByRole('button', { name: 'Expand' }));
+
+    await waitFor(() => {
+      expect(within(card).getByText(/does not expose a reliable remaining-quota/i)).toBeTruthy();
+      expect(within(card).getByRole('button', { name: 'Open quota dashboard' })).toBeTruthy();
+    });
+    expect(within(card).queryByText('API Key')).toBeNull();
+    expect(isConfigured).not.toHaveBeenCalledWith('gemini-oauth');
+
+    fireEvent.click(within(card).getByRole('button', { name: 'Open quota dashboard' }));
+    expect(openExternal).toHaveBeenCalledWith(dashboardUrl);
+  });
+
+  it('explains that the Vision tab is fallback-only for text-only LLMs', async () => {
+    vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
+      keychain: { isConfigured: vi.fn().mockResolvedValue(false) },
+      providerOAuth: {
+        status: vi.fn(async ({ target }) => ({ target, state: 'signedOut' })),
+        login: vi.fn(),
+        cancelLogin: vi.fn(),
+        logout: vi.fn(),
+        onChanged: vi.fn(() => () => {}),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Providers/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Vision (Image Understanding)' }));
+
+    expect(screen.getByText('Your selected LLM analyzes images first')).toBeTruthy();
+    expect(screen.getByText(/fallback only for LLMs without vision/i)).toBeTruthy();
   });
 
   it('loads, copies, updates, and clears an existing API key', async () => {
@@ -667,7 +754,7 @@ describe('Settings updater UI', () => {
     fireEvent.click(within(openAiCard).getByLabelText('Expand'));
 
     const endpointInput = await screen.findByDisplayValue('https://api.openai.com/v1');
-    const modelInput = await screen.findByDisplayValue('gpt-5.4');
+    const modelInput = await screen.findByDisplayValue('gpt-5.6-sol');
 
     fireEvent.change(endpointInput, { target: { value: 'https://proxy.example.com/v1' } });
     fireEvent.change(modelInput, { target: { value: 'gpt-5.4-mini' } });
@@ -690,7 +777,7 @@ describe('Settings updater UI', () => {
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('https://api.openai.com/v1')).toBeTruthy();
-      expect(screen.getByDisplayValue('gpt-5.4')).toBeTruthy();
+      expect(screen.getByDisplayValue('gpt-5.6-sol')).toBeTruthy();
     });
 
     expect(
@@ -698,7 +785,7 @@ describe('Settings updater UI', () => {
     ).toMatchObject({
       name: 'OpenAI',
       baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-5.4',
+      model: 'gpt-5.6-sol',
     });
   });
 
@@ -998,7 +1085,9 @@ describe('Settings updater UI', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Commander AI' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Block generation' }));
     fireEvent.click(
-      screen.getByRole('checkbox', { name: 'Require style plate before reference images' }),
+      screen.getByRole('checkbox', {
+        name: 'Require visual-style draft before reference images',
+      }),
     );
 
     expect(store.getState().commander.qualityGateBehavior).toBe('block-generation');
@@ -1035,7 +1124,7 @@ describe('Settings updater UI', () => {
     fireEvent.click(within(openRouterCard).getByLabelText(t('settings.providerCard.expand')));
 
     await waitFor(() => {
-      expect(screen.getByText(`示例: openai/gpt-5.4`)).toBeTruthy();
+      expect(screen.getByText(`示例: openai/gpt-5.6-sol`)).toBeTruthy();
       expect(screen.getByRole('button', { name: '查看模型' })).toBeTruthy();
     });
   });

@@ -938,8 +938,8 @@ export type LoggerEntryPayload = z.infer<typeof LoggerEntryPayload>;
 const RefimageStartPayload = z.object({
   jobId: z.string(),
   provider: z.string(),
-  width: z.number(),
-  height: z.number(),
+  width: z.number().positive().optional(),
+  height: z.number().positive().optional(),
 });
 export const refimageStartChannel = definePushChannel({
   channel: 'refimage:start',

@@ -1,3 +1,6 @@
+import type { FinalExportFitMode } from './resolution.js';
+import type { VisualStyleGrammar } from './visual-style.js';
+
 export const WorkflowRunStatus = {
   Pending: 'pending',
   AwaitingApproval: 'awaiting_approval',
@@ -152,6 +155,7 @@ export interface WorkflowRun {
   totalStages: number;
   completedTasks: number;
   totalTasks: number;
+  /** ID of a persisted WorkflowStageRun, never a logical WorkflowStageDefinition ID. */
   currentStageId?: string;
   currentTaskId?: string;
   input: Record<string, unknown>;
@@ -170,6 +174,21 @@ export interface WorkflowRun {
   engineVersion?: string;
   /** Persisted workflow-definition version. Defaults to `1`. */
   definitionVersion?: number;
+}
+
+/** Host-owned report used to persist Commander context recovery health. */
+export interface ContextRecoveryReport {
+  workflowRunId: string;
+  outcome: 'failed' | 'recovered';
+  reason: 'compaction_failed' | 'persistent_context_reloaded' | 'hard_stop';
+  /** The verified 92% ceiling pauses immediately instead of waiting for three failures. */
+  forcePause?: boolean;
+}
+
+export interface ContextRecoveryReportResult {
+  state: 'active' | 'recovering' | 'recovery_required';
+  consecutiveFailures: number;
+  changed: boolean;
 }
 
 /** Immutable, revisioned workflow artifact used as an approval subject. */
@@ -206,6 +225,16 @@ export interface WorkflowApproval {
   decidedAt?: number;
 }
 
+export type WorkflowGateRevisionAction = 'request_changes' | 'reject';
+
+/** Immutable user-authored instruction attached to a same-gate document revision. */
+export interface WorkflowGateRevisionRequest extends Record<string, unknown> {
+  action: WorkflowGateRevisionAction;
+  reason: string;
+  previousRevision: number;
+  requestedAt: number;
+}
+
 /** Approval metadata safe to expose outside the host process. */
 export type WorkflowApprovalView = Omit<WorkflowApproval, 'resumeTokenHash'>;
 
@@ -218,6 +247,76 @@ export interface WorkflowEvent {
   causationId?: string;
   payload: Record<string, unknown>;
   timestamp: number;
+}
+
+/** Durable state of one workflow-bound Commander question. */
+export type WorkflowDecisionStatus = 'pending' | 'answered' | 'recovery_required';
+
+export interface WorkflowDecisionOption {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+/**
+ * A persisted AskUser decision. `(workflowRunId, decisionKey, subjectRevision)`
+ * is the stable idempotency identity; `questionId` is the canonical UI handle.
+ */
+export interface WorkflowDecision {
+  id: string;
+  workflowRunId: string;
+  taskRunId: string;
+  canvasId: string;
+  questionId: string;
+  decisionKey: string;
+  subjectRevision: number;
+  question: string;
+  options: WorkflowDecisionOption[];
+  allowFreeText: boolean;
+  status: WorkflowDecisionStatus;
+  answer?: string;
+  selectedOptionId?: string;
+  rowVersion: number;
+  createdAt: number;
+  updatedAt: number;
+  answeredAt?: number;
+}
+
+export interface WorkflowDecisionFilter {
+  workflowRunId?: string;
+  canvasId?: string;
+}
+
+export interface ReserveWorkflowDecisionInput {
+  decision: WorkflowDecision;
+  expectedRunRowVersion: number;
+  event: Omit<WorkflowEvent, 'seq'>;
+}
+
+export interface ReserveWorkflowDecisionResult {
+  decision: WorkflowDecision;
+  run: WorkflowRun;
+  task: WorkflowTaskRun;
+  event?: WorkflowEvent;
+  created: boolean;
+}
+
+export interface AnswerWorkflowDecisionInput {
+  canvasId: string;
+  questionId: string;
+  answer: string;
+  selectedOptionId?: string;
+  status: Extract<WorkflowDecisionStatus, 'answered' | 'recovery_required'>;
+  answeredAt: number;
+  event: Omit<WorkflowEvent, 'seq'>;
+}
+
+export interface AnswerWorkflowDecisionResult {
+  decision: WorkflowDecision;
+  run: WorkflowRun;
+  task: WorkflowTaskRun;
+  event?: WorkflowEvent;
+  answered: boolean;
 }
 
 /** Host-facing view of the exact immutable revision awaiting human approval. */
@@ -234,23 +333,7 @@ export interface WorkflowVisualAuditionContext {
 }
 
 /** Creative grammar locked by the Visual Constitution approval. */
-export interface VisualConstitutionGrammar {
-  medium: string;
-  era: string;
-  rendering: string;
-  linework: string;
-  palette: string;
-  lighting: string;
-  texture: string;
-  mood: string;
-  cameraGrammar: string;
-  lensGrammar: string;
-  compositionGrammar: string;
-  motionGrammar: string;
-  characterAnchors: string[];
-  locationAnchors: string[];
-  negativeConstraints: string[];
-}
+export type VisualConstitutionGrammar = VisualStyleGrammar;
 
 /** Model-authored direction submitted to the bounded style-audition service. */
 export interface VisualDirectionCandidateProposal {
@@ -383,6 +466,21 @@ export interface FinalExportManifestSegment {
   sourceStartSeconds: number;
   durationSeconds: number;
   speed: number;
+  /** Verified dimensions recorded on the selected source asset (v2 manifests). */
+  sourceWidth?: number;
+  sourceHeight?: number;
+}
+
+export type FinalExportResolutionRiskCode =
+  'aspect_padding' | 'aspect_crop' | 'aspect_distortion' | 'upscale';
+
+export interface FinalExportResolutionRisk {
+  code: FinalExportResolutionRiskCode;
+  severity: 'info' | 'warning';
+  nodeId: string;
+  message: string;
+  source: { width: number; height: number };
+  output: { width: number; height: number };
 }
 
 export interface FinalExportOutputSettings {
@@ -396,11 +494,14 @@ export interface FinalExportOutputSettings {
   audioCodec: 'aac' | 'pcm_s24le';
   pixelFormat: 'yuv420p' | 'yuva444p10le';
   overwritePolicy: 'fail';
+  /** v1 omitted this and used stretch; v2 defaults to contain. */
+  fitMode?: FinalExportFitMode;
+  backgroundColor?: string;
 }
 
 /** Immutable subject of the third and final host approval gate. */
 export interface FinalExportManifestContent extends Record<string, unknown> {
-  manifestVersion: 1;
+  manifestVersion: 1 | 2;
   workflowRunId: string;
   productionPlan: { revision: number; contentHash: string };
   visualConstitution: { revision: number; contentHash: string };
@@ -413,6 +514,7 @@ export interface FinalExportManifestContent extends Record<string, unknown> {
   expectedDurationMs: number;
   estimatedDurationSeconds: number;
   maxRenderAttempts: number;
+  resolutionRisks?: FinalExportResolutionRisk[];
   capabilities: {
     embeddedClipAudio: true;
     separateAudioMix: false;
@@ -425,7 +527,10 @@ export interface PrepareFinalExportManifestInput {
   workflowRunId: string;
   canvasId: string;
   expectedRowVersion: number;
-  output: Pick<FinalExportOutputSettings, 'codec' | 'quality' | 'width' | 'height' | 'fps'>;
+  output: Pick<FinalExportOutputSettings, 'codec' | 'quality' | 'width' | 'height' | 'fps'> & {
+    fitMode?: FinalExportFitMode;
+    backgroundColor?: string;
+  };
 }
 
 export type FinalExportExecutionStatus =
@@ -525,15 +630,46 @@ export interface RepairDelta extends Record<string, unknown> {
   preserve: string[];
   seedStrategy: 'keep' | 'increment';
   parameterChanges?: Record<string, string | number | boolean>;
+  /** Durable lineage for an additive change; omitted on legacy evaluator deltas. */
+  source?: 'vision_evaluation' | 'user_feedback';
+  /** Exact immutable attempt whose provider prompt is the base for this delta. */
+  parentAttemptId?: string;
+  /** SHA-256 of the exact provider prompt used by the parent attempt. */
+  basePromptHash?: string;
+  /** Verbatim human comment when the Commander initiated the refinement. */
+  userFeedback?: string;
+}
+
+export type ProductionMediaReferenceRole =
+  | 'source_image'
+  | 'character'
+  | 'equipment'
+  | 'location'
+  | 'generic_reference'
+  | 'first_frame'
+  | 'last_frame';
+
+/** Ordered semantic labels for one reference image supplied to generation and grading. */
+export interface ProductionMediaReferenceEvidence {
+  order: number;
+  assetHash: string;
+  roles: Array<{ role: ProductionMediaReferenceRole; entityId?: string }>;
 }
 
 /** Immutable host-compiled request identity recorded before a provider call. */
 export interface ProductionMediaGenerationSpec extends Record<string, unknown> {
-  specVersion: 1;
+  specVersion: 1 | 2;
   workflowRunId: string;
   canvasId: string;
   nodeId: string;
   nodeUpdatedAt: number;
+  /** Host-derived durable task identity; the model cannot select this binding. */
+  workflowTask: {
+    taskRunId: string;
+    taskId: string;
+    role: string;
+    shotId?: string;
+  };
   mediaType: ProductionMediaType;
   generationType: 'image' | 'video';
   mode: 'text-to-image' | 'image-to-image' | 'text-to-video' | 'image-to-video';
@@ -542,8 +678,12 @@ export interface ProductionMediaGenerationSpec extends Record<string, unknown> {
   providerId: string;
   prompt: string;
   negativePrompt?: string;
+  /** Ordered exactly as the provider-conditioning request, with semantic roles retained. */
+  referenceEvidence?: ProductionMediaReferenceEvidence[];
   referenceAssetHashes: string[];
   frameReferenceHashes?: { first?: string; last?: string };
+  /** v2 immutable resolution plan; actual pixels are recorded on the Asset. */
+  resolution?: import('./resolution.js').ResolutionAudit;
   request: {
     width?: number;
     height?: number;
@@ -551,6 +691,7 @@ export interface ProductionMediaGenerationSpec extends Record<string, unknown> {
     fps?: number;
     seed?: number;
     sourceImageHash?: string;
+    referenceImages?: string[];
     audio?: boolean;
     quality?: string;
     steps?: number;
@@ -558,6 +699,7 @@ export interface ProductionMediaGenerationSpec extends Record<string, unknown> {
     scheduler?: string;
     img2imgStrength?: number;
     params?: Record<string, unknown>;
+    resolution?: import('./resolution.js').ResolvedResolution;
   };
   limits: {
     maxAttemptsPerShot: number;
@@ -661,6 +803,22 @@ export interface UserApproveWorkflowGateInput {
   expectedSubjectHash: string;
 }
 
+interface UserReviseWorkflowGateInput {
+  workflowRunId: string;
+  gateKey: WorkflowApprovalGateKey;
+  expectedRowVersion: number;
+  expectedSubjectRevision: number;
+  expectedSubjectHash: string;
+  /** Human-authored and required. Blank reasons are rejected by both engine and storage. */
+  reason: string;
+}
+
+/** Host-facing request to keep the same gate open and ask for a revised subject. */
+export type UserRequestWorkflowGateChangesInput = UserReviseWorkflowGateInput;
+
+/** Host-facing rejection that keeps the same gate open on a new immutable revision. */
+export type UserRejectWorkflowGateInput = UserReviseWorkflowGateInput;
+
 export interface ApproveWorkflowGateInput {
   workflowRunId: string;
   gateKey: WorkflowApprovalGateKey;
@@ -675,6 +833,13 @@ export interface ApproveWorkflowGateInput {
   approvedAt: number;
   /** Engine-owned stage transition; never accepted directly from renderer or AI tools. */
   nextStageId?: string;
+  /** Engine-owned task transition; never accepted directly from renderer or AI tools. */
+  nextTaskId?: string;
+  /**
+   * Engine-owned producer completion. Planning and visual direction become
+   * complete only when the user approves their exact immutable revision.
+   */
+  completedProducerTaskRunId?: string;
 }
 
 export type ApproveWorkflowGateResult =
@@ -702,6 +867,45 @@ export type ApproveWorkflowGateResult =
   | { ok: false; code: 'stale_subject_revision'; actualSubjectRevision: number }
   | { ok: false; code: 'subject_hash_mismatch' }
   | { ok: false; code: 'resume_token_mismatch' };
+
+/** Storage-facing atomic same-gate revision input. The engine derives replacement rows. */
+export interface ReviseWorkflowGateInput {
+  workflowRunId: string;
+  gateKey: WorkflowApprovalGateKey;
+  action: WorkflowGateRevisionAction;
+  reason: string;
+  expectedRowVersion: number;
+  expectedSubjectRevision: number;
+  expectedSubjectHash: string;
+  /** Existing external task that must produce a genuinely revised subject. */
+  producerTaskRunId: string;
+  eventId: string;
+  actor: string;
+  correlationId?: string;
+  causationId?: string;
+  revisedAt: number;
+}
+
+export type ReviseWorkflowGateResult =
+  | {
+      ok: true;
+      code: 'revision_requested';
+      run: WorkflowRun;
+      previousApproval: WorkflowApproval;
+      producerTask: WorkflowTaskRun;
+      event: WorkflowEvent;
+    }
+  | { ok: false; code: 'run_not_found' }
+  | { ok: false; code: 'no_approval' }
+  | {
+      ok: false;
+      code: 'approval_not_pending';
+      status: Exclude<WorkflowApprovalStatus, 'pending'>;
+    }
+  | { ok: false; code: 'gate_not_current'; actualGate?: WorkflowApprovalGateKey }
+  | { ok: false; code: 'stale_row_version'; actualRowVersion: number }
+  | { ok: false; code: 'stale_subject_revision'; actualSubjectRevision: number }
+  | { ok: false; code: 'subject_hash_mismatch' };
 
 export interface WorkflowStageRun {
   id: string;

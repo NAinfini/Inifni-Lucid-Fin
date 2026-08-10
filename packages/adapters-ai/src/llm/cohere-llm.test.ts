@@ -68,7 +68,16 @@ describe('CohereLLMAdapter', () => {
         ],
       });
       expect(body.messages).toEqual([
-        { role: 'user', content: 'hello' },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'hello' },
+            {
+              type: 'image_url',
+              image_url: { url: 'data:image/png;base64,aGVsbG8=' },
+            },
+          ],
+        },
         {
           role: 'assistant',
           content: 'working',
@@ -93,7 +102,10 @@ describe('CohereLLMAdapter', () => {
       return new Response(
         JSON.stringify({
           message: {
-            content: [{ text: 'summary' }],
+            content: [
+              { type: 'thinking', thinking: 'checked image' },
+              { type: 'text', text: 'summary' },
+            ],
             tool_calls: [
               {
                 id: 'cohere-call-1',
@@ -125,7 +137,11 @@ describe('CohereLLMAdapter', () => {
         complete(
           adapter,
           [
-            { role: 'user', content: 'hello' },
+            {
+              role: 'user',
+              content: 'hello',
+              images: [{ mimeType: 'image/png', data: 'aGVsbG8=' }],
+            },
             {
               role: 'assistant',
               content: 'working',
@@ -149,6 +165,7 @@ describe('CohereLLMAdapter', () => {
         ),
       ).resolves.toMatchObject({
         content: 'summary',
+        reasoning: 'checked image',
         finishReason: 'tool_calls',
         toolCalls: [
           {

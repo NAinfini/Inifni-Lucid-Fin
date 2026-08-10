@@ -78,6 +78,7 @@ interface InspectorContextTabProps {
   onAddLocation: (locationId: string) => void;
   onCharacterSlotChange: (characterId: string, angleSlot: string | undefined) => void;
   onEquipmentSlotChange: (equipmentId: string, angleSlot: string | undefined) => void;
+  onLocationSlotChange: (locationId: string, angleSlot: string | undefined) => void;
   onRemoveCharacter: (characterId: string) => void;
   onRemoveEquipment: (equipmentId: string) => void;
   onRemoveLocation: (locationId: string) => void;
@@ -105,8 +106,9 @@ export const InspectorContextTab = memo(function InspectorContextTab({
   onAddCharacter,
   onAddEquipment,
   onAddLocation,
-  onCharacterSlotChange: _onCharacterSlotChange,
-  onEquipmentSlotChange: _onEquipmentSlotChange,
+  onCharacterSlotChange,
+  onEquipmentSlotChange,
+  onLocationSlotChange,
   onRemoveCharacter,
   onRemoveEquipment,
   onRemoveLocation,
@@ -200,7 +202,13 @@ export const InspectorContextTab = memo(function InspectorContextTab({
         {characterItems.length === 0 ? (
           <div className="text-[11px] text-muted-foreground">{t('inspector.noCharacters')}</div>
         ) : (
-          <ReferenceItemList items={characterItems} icon={User} onRemove={onRemoveCharacter} />
+          <ReferenceItemList
+            items={characterItems}
+            icon={User}
+            t={t}
+            onSlotChange={onCharacterSlotChange}
+            onRemove={onRemoveCharacter}
+          />
         )}
       </div>
 
@@ -256,7 +264,13 @@ export const InspectorContextTab = memo(function InspectorContextTab({
         {equipmentItems.length === 0 ? (
           <div className="text-[11px] text-muted-foreground">{t('inspector.noEquipment')}</div>
         ) : (
-          <ReferenceItemList items={equipmentItems} icon={Package} onRemove={onRemoveEquipment} />
+          <ReferenceItemList
+            items={equipmentItems}
+            icon={Package}
+            t={t}
+            onSlotChange={onEquipmentSlotChange}
+            onRemove={onRemoveEquipment}
+          />
         )}
       </div>
 
@@ -312,7 +326,13 @@ export const InspectorContextTab = memo(function InspectorContextTab({
         {locationItems.length === 0 ? (
           <div className="text-[11px] text-muted-foreground">{t('inspector.noLocations')}</div>
         ) : (
-          <ReferenceItemList items={locationItems} icon={MapPin} onRemove={onRemoveLocation} />
+          <ReferenceItemList
+            items={locationItems}
+            icon={MapPin}
+            t={t}
+            onSlotChange={onLocationSlotChange}
+            onRemove={onRemoveLocation}
+          />
         )}
       </div>
     </>
@@ -322,10 +342,12 @@ export const InspectorContextTab = memo(function InspectorContextTab({
 interface ReferenceItemListProps {
   items: ReferenceItem[];
   icon: LucideIcon;
+  t: Translate;
+  onSlotChange: (id: string, angleSlot: string | undefined) => void;
   onRemove: (id: string) => void;
 }
 
-function ReferenceItemList({ items, icon, onRemove }: ReferenceItemListProps) {
+function ReferenceItemList({ items, icon, t, onSlotChange, onRemove }: ReferenceItemListProps) {
   return (
     <div className="space-y-1">
       {items.map((item) => (
@@ -333,6 +355,8 @@ function ReferenceItemList({ items, icon, onRemove }: ReferenceItemListProps) {
           key={item.id}
           item={item}
           icon={icon}
+          t={t}
+          onSlotChange={(angleSlot) => onSlotChange(item.id, angleSlot)}
           onRemove={() => onRemove(item.id)}
         />
       ))}
@@ -343,10 +367,12 @@ function ReferenceItemList({ items, icon, onRemove }: ReferenceItemListProps) {
 interface ReferenceItemRowProps {
   item: ReferenceItem;
   icon: LucideIcon;
+  t: Translate;
+  onSlotChange: (angleSlot: string | undefined) => void;
   onRemove: () => void;
 }
 
-function ReferenceItemRow({ item, icon: Icon, onRemove }: ReferenceItemRowProps) {
+function ReferenceItemRow({ item, icon: Icon, t, onSlotChange, onRemove }: ReferenceItemRowProps) {
   const { url, markFailed } = useAssetUrl(item.thumbnailAssetHash, 'image', 'png');
 
   return (
@@ -372,6 +398,21 @@ function ReferenceItemRow({ item, icon: Icon, onRemove }: ReferenceItemRowProps)
           <span className="block truncate text-[10px] text-muted-foreground">
             {item.description}
           </span>
+        ) : null}
+        {item.slotOptions && item.slotOptions.length > 0 ? (
+          <select
+            aria-label={`${item.label}: ${t('inspector.referenceImage')}`}
+            value={item.selectedSlot ?? ''}
+            onChange={(event) => onSlotChange(event.target.value || undefined)}
+            className="mt-1 w-full rounded-md border border-border/60 bg-background px-1.5 py-0.5 text-[10px] outline-none"
+          >
+            <option value="">{t('inspector.autoAngle')}</option>
+            {item.slotOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         ) : null}
       </div>
       <button

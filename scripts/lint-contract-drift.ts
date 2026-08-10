@@ -18,7 +18,7 @@
  *     "verify via `canvas.getInfo`" that shouldn't be terminals.)
  *  4. On mismatch: print a readable diff and exit non-zero.
  *
- * Invoke via `npm run lint:contracts`. CI wires this into the main lint
+ * Invoke via `pnpm run lint:contracts`. CI wires this into the main lint
  * pipeline; Phase D's commit also adds a pre-push hook note.
  */
 import { readFile } from 'node:fs/promises';

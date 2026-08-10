@@ -7,6 +7,8 @@ import type {
   WorkflowDocument,
   WorkflowRun,
   WorkflowRunId,
+  WorkflowStageRun,
+  WorkflowTaskRun,
 } from '@lucid-fin/contracts';
 import { SqliteIndex } from '../sqlite-index.js';
 
@@ -23,8 +25,9 @@ function run(): WorkflowRun {
     completedStages: 0,
     totalStages: 0,
     completedTasks: 0,
-    totalTasks: 0,
-    currentStageId: 'media-generation',
+    totalTasks: 1,
+    currentStageId: 'stage-final-export',
+    currentTaskId: 'task-final-export',
     input: {},
     output: {},
     metadata: {},
@@ -33,6 +36,41 @@ function run(): WorkflowRun {
     rowVersion: 0,
     engineVersion: 'persistent-hybrid-v1',
     definitionVersion: 1,
+  };
+}
+
+function finalStage(): WorkflowStageRun {
+  return {
+    id: 'stage-final-export',
+    workflowRunId: 'run-final',
+    stageId: 'final-export',
+    name: 'Final export',
+    status: 'ready',
+    order: 5,
+    progress: 0,
+    completedTasks: 0,
+    totalTasks: 1,
+    metadata: { dependsOnStageIds: [] },
+    updatedAt: 100,
+  };
+}
+
+function finalTask(): WorkflowTaskRun {
+  return {
+    id: 'task-final-export',
+    workflowRunId: 'run-final',
+    stageRunId: 'stage-final-export',
+    taskId: 'final-export',
+    name: 'Approve and render final export',
+    kind: 'export',
+    status: 'ready',
+    dependencyIds: [],
+    attempts: 0,
+    maxRetries: 0,
+    input: { executionMode: 'external', workflowTaskRole: 'final_export' },
+    output: {},
+    progress: 0,
+    updatedAt: 100,
   };
 }
 
@@ -81,6 +119,8 @@ describe('persistent Final Export execution ledger', () => {
   function approvedRepository(db: SqliteIndex) {
     const repo = db.repos.workflows;
     repo.insertRun(run());
+    repo.insertStageRun(finalStage());
+    repo.insertTaskRun(finalTask());
     repo.createDocument(manifest());
     repo.createPendingApproval(approval());
     const pendingRun = repo.getRun('run-final' as WorkflowRunId)!;
@@ -94,7 +134,8 @@ describe('persistent Final Export execution ledger', () => {
       eventId: 'approval-event',
       actor: 'user',
       approvedAt: 130,
-      nextStageId: 'final-export',
+      nextStageId: 'stage-final-export',
+      nextTaskId: 'task-final-export',
     });
     if (!approved.ok) throw new Error(`Approval failed: ${approved.code}`);
     return repo;

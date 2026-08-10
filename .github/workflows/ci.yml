@@ -15,28 +15,32 @@ jobs:
     name: Build, Type Check, Test, Lint
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          run_install: false
+          cache: true
+
+      - uses: actions/setup-node@v6
         with:
           node-version: 26.5.1
-          cache: npm
 
-      - run: npm ci
-      - run: npm rebuild better-sqlite3
+      - run: pnpm install --frozen-lockfile
 
       - name: 1/4 Build (ordered workspace deps)
-        run: npm run build
+        run: pnpm run build
 
       - name: 2/4 Type Check
         run: |
-          npx tsc --noEmit -p packages/contracts/tsconfig.json
-          npx tsc --noEmit -p packages/application/tsconfig.json
-          npx tsc --noEmit -p packages/adapters-ai/tsconfig.json
+          pnpm exec tsc --noEmit -p packages/contracts/tsconfig.json
+          pnpm exec tsc --noEmit -p packages/application/tsconfig.json
+          pnpm exec tsc --noEmit -p packages/adapters-ai/tsconfig.json
+          pnpm run test:types
 
       - name: 3/4 Test
-        run: npx vitest run --reporter=verbose
+        run: pnpm test -- --reporter=verbose
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
 
       - name: 4/4 Lint
-        run: npx eslint . --max-warnings=0
+        run: pnpm exec eslint . --max-warnings=0

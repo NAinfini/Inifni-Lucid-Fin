@@ -1,9 +1,7 @@
 import { test, expect, isBuildAvailable } from './fixtures.js';
 
 test.describe('Canvas workspace', () => {
-  test.beforeEach(() => {
-    test.skip(!isBuildAvailable(), 'Electron build not found; run `npm run build` first');
-  });
+  test.skip(!isBuildAvailable(), 'Electron build not found; run `pnpm run build` first');
 
   test('app starts and renders the main layout', async ({ mainWindow }) => {
     // Title bar should show the app name

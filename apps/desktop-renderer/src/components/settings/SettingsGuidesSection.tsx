@@ -1,8 +1,14 @@
 import { useMemo, useState } from 'react';
+import { COMMANDER_GUIDE_LIMITS } from '@lucid-fin/contracts';
 import { ChevronDown, ChevronUp, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { localizeSettingsCategory, localizeSkillName, t } from '../../i18n.js';
 import { cn } from '../../lib/utils.js';
-import { getDefaultSkillName, type SkillDefinition } from '../../store/slices/skillDefinitions.js';
+import {
+  getDefaultSkillName,
+  getSkillContentLimit,
+  type SkillDefinition,
+  type SkillSource,
+} from '../../store/slices/skillDefinitions.js';
 
 interface SettingsGuidesSectionProps {
   skills: SkillDefinition[];
@@ -17,15 +23,23 @@ interface SettingsGuidesSectionProps {
 type GuideDraft = { content: string; name: string };
 
 interface GuideItem {
+  autoInject: boolean;
+  autoInjectContent?: string;
   badgeLabel: string;
   builtIn: boolean;
   canDelete: boolean;
   category: string;
   content: string;
+  contentLimit: number;
   id: string;
   name: string;
+  source: SkillSource;
   resettable: boolean;
   customized: boolean;
+}
+
+function getGuideSourceLabel(source: SkillSource): string {
+  return t(`settings.guides.source.${source}`);
 }
 
 const categoryBadgeClasses: Record<string, string> = {
@@ -66,13 +80,17 @@ export function SettingsGuidesSection({
         const displayName =
           skill.builtIn && !userRenamed ? localizeSkillName(skill.id, skill.name) : skill.name;
         return {
+          autoInject: skill.autoInject === true,
+          ...(skill.autoInjectContent ? { autoInjectContent: skill.autoInjectContent } : {}),
           badgeLabel: localizeSettingsCategory(skill.category),
           builtIn: skill.builtIn,
           canDelete: !skill.builtIn,
           category: skill.category,
           content: skill.customContent ?? skill.defaultContent,
+          contentLimit: getSkillContentLimit(skill.source),
           id: skill.id,
           name: displayName,
+          source: skill.source,
           resettable: skill.builtIn && isSkillCustomized(skill),
           customized: isSkillCustomized(skill),
         };
@@ -120,6 +138,7 @@ export function SettingsGuidesSection({
         {guideItems.map((item) => {
           const isExpanded = expandedId === item.id;
           const draft = drafts[item.id] ?? { content: item.content, name: item.name };
+          const contentTooLarge = draft.content.length > item.contentLimit;
 
           return (
             <div
@@ -155,6 +174,23 @@ export function SettingsGuidesSection({
                     {t('settings.builtIn')}
                   </span>
                 )}
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  {getGuideSourceLabel(item.source)} ·{' '}
+                  {item.autoInject
+                    ? t('settings.guides.loadMode.auto')
+                    : t('settings.guides.loadMode.onDemand')}
+                </span>
+                <span
+                  className={cn(
+                    'shrink-0 text-[10px] tabular-nums',
+                    item.content.length > item.contentLimit
+                      ? 'text-destructive'
+                      : 'text-muted-foreground',
+                  )}
+                >
+                  {item.content.length.toLocaleString()} / {item.contentLimit.toLocaleString()}{' '}
+                  {t('settings.guides.characters')}
+                </span>
                 <span
                   className={cn(
                     'shrink-0 rounded px-1.5 py-0.5 text-[10px]',
@@ -191,9 +227,33 @@ export function SettingsGuidesSection({
                         [item.id]: { ...draft, content: event.target.value },
                       }))
                     }
+                    maxLength={item.contentLimit}
                     rows={12}
                     className="w-full resize-y rounded-md border border-border/60 bg-background px-2.5 py-1.5 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
                   />
+                  <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] text-muted-foreground">
+                    <span>{t('settings.guides.fullContent')}</span>
+                    <span className={cn('tabular-nums', contentTooLarge && 'text-destructive')}>
+                      {draft.content.length.toLocaleString()} / {item.contentLimit.toLocaleString()}{' '}
+                      {t('settings.guides.characters')}
+                    </span>
+                  </div>
+                  {item.autoInjectContent && (
+                    <div className="flex flex-wrap items-center justify-between gap-1 rounded-md bg-muted/50 px-2 py-1 text-[10px] text-muted-foreground">
+                      <span>{t('settings.guides.autoSummary')}</span>
+                      <span className="tabular-nums">
+                        {item.autoInjectContent.length.toLocaleString()} /{' '}
+                        {COMMANDER_GUIDE_LIMITS.maxAutoInjectCharsPerGuide.toLocaleString()}{' '}
+                        {t('settings.guides.characters')}
+                      </span>
+                    </div>
+                  )}
+                  {contentTooLarge && (
+                    <p role="alert" className="text-[11px] text-destructive">
+                      {t('settings.guides.contentLimitExceeded')}{' '}
+                      {item.contentLimit.toLocaleString()} {t('settings.guides.characters')}.
+                    </p>
+                  )}
                   <div className="flex items-center justify-end gap-1.5">
                     {item.canDelete && (
                       <button
@@ -238,7 +298,7 @@ export function SettingsGuidesSection({
                         onSetSkillContent({ id: item.id, content: draft.content });
                         setExpandedId(null);
                       }}
-                      disabled={!draft.name.trim() || !draft.content.trim()}
+                      disabled={!draft.name.trim() || !draft.content.trim() || contentTooLarge}
                       className="flex items-center gap-1 rounded bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50"
                     >
                       <Save className="h-3 w-3" />

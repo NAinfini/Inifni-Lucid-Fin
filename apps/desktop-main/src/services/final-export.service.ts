@@ -4,13 +4,20 @@ import os from 'node:os';
 import path from 'node:path';
 import type {
   FinalExportManifestContent,
+  ResolutionAudit,
   WorkflowExportExecution,
   WorkflowRun,
   WorkflowRunId,
 } from '@lucid-fin/contracts';
 import type { WorkflowEngine } from '@lucid-fin/application';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
-import { renderTimeline, resolveFfmpegBinary, type RenderSegment } from '@lucid-fin/media-engine';
+import {
+  probeMedia,
+  renderTimeline,
+  resolveFfmpegBinary,
+  type MediaProbeResult,
+  type RenderSegment,
+} from '@lucid-fin/media-engine';
 import log from '../logger.js';
 import { assertSafePath, getSafeRoots } from '../ipc/path-safety.js';
 
@@ -44,6 +51,7 @@ export interface FinalExportServiceOptions {
   cas: CAS;
   workflowEngine: WorkflowEngine;
   renderTimeline?: RenderTimeline;
+  probeMedia?: (filePath: string) => Promise<MediaProbeResult>;
   resolveFfmpegBinary?: typeof resolveFfmpegBinary;
   now?: () => number;
   idFactory?: () => string;
@@ -61,6 +69,7 @@ const FFMPEG_PACKAGED_VERSION = '8.1.2';
 
 export class FinalExportService {
   private readonly renderTimelineImpl: RenderTimeline;
+  private readonly probeMediaImpl: (filePath: string) => Promise<MediaProbeResult>;
   private readonly resolveFfmpegBinaryImpl: typeof resolveFfmpegBinary;
   private readonly now: () => number;
   private readonly idFactory: () => string;
@@ -70,6 +79,7 @@ export class FinalExportService {
 
   constructor(private readonly options: FinalExportServiceOptions) {
     this.renderTimelineImpl = options.renderTimeline ?? renderTimeline;
+    this.probeMediaImpl = options.probeMedia ?? probeMedia;
     this.resolveFfmpegBinaryImpl = options.resolveFfmpegBinary ?? resolveFfmpegBinary;
     this.now = options.now ?? (() => Date.now());
     this.idFactory = options.idFactory ?? randomUUID;
@@ -362,16 +372,67 @@ export class FinalExportService {
         width: manifest.output.width,
         height: manifest.output.height,
         fps: manifest.output.fps,
+        fitMode:
+          manifest.manifestVersion === 1 ? 'stretch' : (manifest.output.fitMode ?? 'contain'),
+        backgroundColor: manifest.output.backgroundColor,
         assetRoot: this.options.cas.getAssetsRoot(),
         signal: abortController.signal,
       });
       if (abortController.signal.aborted) throw new Error('Final Export cancelled');
+      const actualMedia = await this.probeMediaImpl(stagingPath);
+      if (!actualMedia.width || !actualMedia.height) {
+        throw new Error('Final Export output dimensions could not be verified');
+      }
+      if (
+        actualMedia.width !== manifest.output.width ||
+        actualMedia.height !== manifest.output.height
+      ) {
+        throw new Error(
+          `Final Export output resolution mismatch: approved ${manifest.output.width}x${manifest.output.height}, actual ${actualMedia.width}x${actualMedia.height}`,
+        );
+      }
+      const resolutionAudit: ResolutionAudit = {
+        requested: {
+          mode: 'exact',
+          width: manifest.output.width,
+          height: manifest.output.height,
+        },
+        resolved: {
+          source: 'provider',
+          requested: {
+            mode: 'exact',
+            width: manifest.output.width,
+            height: manifest.output.height,
+          },
+          providerId: 'local-ffmpeg',
+          mediaType: 'video',
+          width: manifest.output.width,
+          height: manifest.output.height,
+          outputKnown: true,
+        },
+        actual: { width: actualMedia.width, height: actualMedia.height },
+        estimatedCostUsd: 0,
+        reportedActualCostUsd: 0,
+      };
       const imported = await this.options.cas.importAsset(stagingPath, 'video');
       this.options.db.repos.assets.insert({
         ...imported.meta,
         hash: imported.ref.hash,
         type: 'video',
         format: imported.ref.format,
+        width: actualMedia.width,
+        height: actualMedia.height,
+        ...(actualMedia.durationSeconds > 0 ? { duration: actualMedia.durationSeconds } : {}),
+        generationMetadata: {
+          prompt: `Final Export manifest ${execution.manifestHash}`,
+          provider: 'local-ffmpeg',
+          width: manifest.output.width,
+          height: manifest.output.height,
+          model: FFMPEG_PACKAGED_VERSION,
+          estimatedCostUsd: 0,
+          reportedActualCostUsd: 0,
+          resolution: resolutionAudit,
+        },
       });
       const outputSize = fs.statSync(imported.ref.path).size;
       current = this.options.db.repos.workflows.transitionExportExecution({
@@ -610,7 +671,7 @@ function validateManifestForExecution(
   contentHash: string,
 ): void {
   if (
-    manifest.manifestVersion !== 1 ||
+    (manifest.manifestVersion !== 1 && manifest.manifestVersion !== 2) ||
     !Array.isArray(manifest.segments) ||
     manifest.segments.length === 0 ||
     !Array.isArray(manifest.audioTracks) ||
@@ -621,6 +682,13 @@ function validateManifestForExecution(
     throw new Error(
       'Approved Final Export manifest contains unsupported or incomplete assembly data',
     );
+  }
+  if (
+    manifest.manifestVersion === 2 &&
+    (manifest.output.fitMode === undefined ||
+      manifest.segments.some((segment) => !segment.sourceWidth || !segment.sourceHeight))
+  ) {
+    throw new Error('Final Export v2 manifest is missing its resolution fit plan');
   }
   const snapshotHash = createHash('sha256')
     .update(

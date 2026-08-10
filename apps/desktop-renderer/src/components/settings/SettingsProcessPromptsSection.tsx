@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { IpcProcessPrompt } from '@lucid-fin/contracts';
+import { COMMANDER_GUIDE_LIMITS, type IpcProcessPrompt } from '@lucid-fin/contracts';
 import { ChevronDown, ChevronRight, RotateCcw, Save, SquarePen } from 'lucide-react';
 import {
   localizeProcessPromptDescription,
@@ -168,6 +168,7 @@ export function SettingsProcessPromptsSection({
     if (!api || !editingPrompt) return;
     const nextValue =
       drafts[editingPrompt.processKey] ?? editingPrompt.customValue ?? editingPrompt.defaultValue;
+    if (nextValue.length > COMMANDER_GUIDE_LIMITS.maxProcessPromptChars) return;
     setSavingKey(editingPrompt.processKey);
     setError(null);
     try {
@@ -251,7 +252,9 @@ export function SettingsProcessPromptsSection({
   const renderPromptCard = (prompt: IpcProcessPrompt) => {
     const isEditing = editingKey === prompt.processKey;
     const isSaving = savingKey === prompt.processKey;
-    const currentValue = drafts[prompt.processKey] ?? prompt.customValue ?? prompt.defaultValue;
+    const effectiveValue = prompt.customValue ?? prompt.defaultValue;
+    const currentValue = isEditing ? (drafts[prompt.processKey] ?? effectiveValue) : effectiveValue;
+    const contentTooLarge = currentValue.length > COMMANDER_GUIDE_LIMITS.maxProcessPromptChars;
     const localizedName = localizeProcessPromptName(prompt.processKey, prompt.name);
     const localizedDescription = localizeProcessPromptDescription(
       prompt.processKey,
@@ -277,6 +280,9 @@ export function SettingsProcessPromptsSection({
                   {t('settings.customized')}
                 </span>
               )}
+              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+                {t('settings.processGuides.onDemand')}
+              </span>
             </div>
             <p className="text-[11px] leading-snug text-muted-foreground">{localizedDescription}</p>
             {triggerTools.length > 0 && (
@@ -302,6 +308,16 @@ export function SettingsProcessPromptsSection({
           </div>
 
           <div className="flex shrink-0 items-center gap-1">
+            <span
+              className={cn(
+                'mr-1 text-[10px] tabular-nums',
+                contentTooLarge ? 'text-destructive' : 'text-muted-foreground',
+              )}
+            >
+              {currentValue.length.toLocaleString()} /{' '}
+              {COMMANDER_GUIDE_LIMITS.maxProcessPromptChars.toLocaleString()}{' '}
+              {t('settings.guides.characters')}
+            </span>
             <button
               type="button"
               onClick={() => openEditor(prompt)}
@@ -332,26 +348,43 @@ export function SettingsProcessPromptsSection({
                   [prompt.processKey]: event.target.value,
                 }))
               }
+              maxLength={COMMANDER_GUIDE_LIMITS.maxProcessPromptChars}
               rows={12}
               className="w-full resize-y rounded-md border border-border/60 bg-background px-2.5 py-2 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
             />
-            <div className="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={closeEditor}
-                className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-              >
-                {t('action.cancel')}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSave()}
-                disabled={isSaving || !currentValue.trim()}
-                className="flex items-center gap-1 rounded bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50"
-              >
-                <Save className="h-3 w-3" />
-                {t('action.save')}
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[10px] text-muted-foreground">
+                <span className={cn('tabular-nums', contentTooLarge && 'text-destructive')}>
+                  {currentValue.length.toLocaleString()} /{' '}
+                  {COMMANDER_GUIDE_LIMITS.maxProcessPromptChars.toLocaleString()}{' '}
+                  {t('settings.guides.characters')}
+                </span>
+                {contentTooLarge && (
+                  <p role="alert" className="mt-1 text-[11px] text-destructive">
+                    {t('settings.processGuides.contentLimitExceeded')}{' '}
+                    {COMMANDER_GUIDE_LIMITS.maxProcessPromptChars.toLocaleString()}{' '}
+                    {t('settings.guides.characters')}.
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeEditor}
+                  className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+                >
+                  {t('action.cancel')}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleSave()}
+                  disabled={isSaving || !currentValue.trim() || contentTooLarge}
+                  className="flex items-center gap-1 rounded bg-primary px-2 py-1 text-xs text-primary-foreground disabled:opacity-50"
+                >
+                  <Save className="h-3 w-3" />
+                  {t('action.save')}
+                </button>
+              </div>
             </div>
           </div>
         )}

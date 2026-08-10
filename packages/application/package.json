@@ -1,6 +1,7 @@
 {
   "name": "@lucid-fin/application",
   "version": "0.0.8",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -11,19 +12,19 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@lucid-fin/contracts": "*",
-    "@lucid-fin/contracts-parse": "*",
-    "@lucid-fin/shared-utils": "*",
-    "@lucid-fin/storage": "*",
-    "@lucid-fin/adapters-ai": "*",
-    "@lucid-fin/workflows": "*",
-    "@lucid-fin/agent": "*"
+    "@lucid-fin/contracts": "workspace:*",
+    "@lucid-fin/contracts-parse": "workspace:*",
+    "@lucid-fin/shared-utils": "workspace:*",
+    "@lucid-fin/storage": "workspace:*",
+    "@lucid-fin/adapters-ai": "workspace:*",
+    "@lucid-fin/workflows": "workspace:*",
+    "@lucid-fin/agent": "workspace:*"
   },
   "optionalDependencies": {
     "js-tiktoken": "^1.0.18"
   },
   "devDependencies": {
-    "@types/node": "^25.6.0",
+    "@types/node": "^26.1.2",
     "typescript": "^6.0.2"
   }
 }

@@ -12,6 +12,8 @@ export type JobStatus = (typeof JobStatus)[keyof typeof JobStatus];
 
 export type GenerationType = 'text' | 'image' | 'video' | 'voice' | 'music' | 'sfx';
 
+import type { ResolvedResolution } from './resolution.js';
+
 export interface GenerationFrameReferenceImages {
   first?: string;
   last?: string;
@@ -28,6 +30,8 @@ export interface GenerationRequest {
   frameReferenceImages?: GenerationFrameReferenceImages;
   width?: number;
   height?: number;
+  /** Host-validated resolution plan. Adapters must not silently reinterpret it. */
+  resolution?: ResolvedResolution;
   duration?: number;
   seed?: number;
   audio?: boolean;

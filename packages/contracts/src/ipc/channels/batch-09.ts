@@ -29,10 +29,12 @@ export type HistoryEntry =
   | {
       role: 'user' | 'assistant';
       content: string;
+      reasoning?: string;
       toolCalls?: Array<{
         id: string;
         name: string;
         arguments: Record<string, unknown>;
+        thoughtSignature?: string;
       }>;
     }
   | { role: 'tool'; content: string; toolCallId: string };
@@ -46,6 +48,53 @@ import type { WireEnvelope } from '../../agent/wire-version.js';
 
 export type CommanderQualityGateBehavior = 'warn-only' | 'auto-expand' | 'block-generation';
 
+export type CommanderWorkflowGuidePhase =
+  | 'unbound'
+  | 'production_plan_pending'
+  | 'production_plan_revision'
+  | 'style_exploration'
+  | 'visual_constitution_pending'
+  | 'preproduction'
+  | 'media_generation'
+  | 'assembly'
+  | 'final_export_preparation'
+  | 'final_export_pending'
+  | 'final_export_approved'
+  | 'blocked';
+
+export type CommanderPromptGuideRetention = 'turn' | 'workflow' | 'discovery';
+
+/** Shared hard limits for guide transport, storage, and context injection. */
+export const COMMANDER_GUIDE_LIMITS = {
+  maxCatalogItems: 96,
+  maxCatalogChars: 300_000,
+  maxContentChars: 48_000,
+  maxPromptTemplateChars: 48_000,
+  maxWorkflowSkillChars: 8_000,
+  maxWorkflowGuideChars: 12_000,
+  maxUserGuideChars: 12_000,
+  maxProcessPromptChars: 12_000,
+  maxAutoInjectItems: 8,
+  maxAutoInjectCharsPerGuide: 2_000,
+  maxAutoInjectCharsTotal: 8_000,
+  maxGuideGetIds: 2,
+  maxGuideGetContentChars: 8_000,
+  defaultGuideListItems: 100,
+  maxGuideListItems: 100,
+} as const;
+
+/** Renderer-authored guide metadata used only for bounded context selection. */
+export interface CommanderPromptGuide {
+  id: string;
+  name: string;
+  content: string;
+  autoInject?: boolean;
+  autoInjectContent?: string;
+  priority?: number;
+  retention?: CommanderPromptGuideRetention;
+  phases?: CommanderWorkflowGuidePhase[];
+}
+
 export interface CommanderProcessBehaviorSettings {
   qualityGateBehavior?: CommanderQualityGateBehavior;
   requireStylePlateBeforeRefImage?: boolean;
@@ -58,7 +107,7 @@ export interface CommanderChatRequest {
   message: string;
   history: HistoryEntry[];
   selectedNodeIds: string[];
-  promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>;
+  promptGuides?: CommanderPromptGuide[];
   customLLMProvider?: LLMProviderRuntimeConfig;
   permissionMode?: 'danger' | 'auto' | 'normal' | 'strict';
   locale?: string;

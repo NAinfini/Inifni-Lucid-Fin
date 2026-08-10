@@ -3,51 +3,50 @@
   "version": "0.0.8",
   "description": "Lucid Fin – AI Movie Production Tool",
   "author": "Lucid Fin Team",
+  "license": "MIT",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.21.0",
   "engines": {
-    "node": ">=26.5.1"
+    "node": ">=26.5.1",
+    "pnpm": ">=11.21.0 <12"
   },
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
   "scripts": {
-    "dev": "npm run build && npm run build:dev --workspace=apps/desktop-renderer && npm run dev --workspace=apps/desktop-main",
-    "build": "npm run build --workspace=packages/contracts && npm run build --workspace=packages/shared-utils && npm run build --workspace=packages/contracts-parse && npm run build --workspace=packages/storage --workspace=packages/adapters-ai --workspace=packages/domain --workspace=packages/media-engine && npm run build --workspace=packages/workflows && npm run build --workspace=packages/agent && npm run build --workspace=packages/application && npm run build --workspace=apps/desktop-renderer && npm run build --workspace=apps/desktop-main",
-    "pretest": "npm rebuild better-sqlite3",
+    "dev": "pnpm run build && pnpm --filter @lucid-fin/desktop-renderer run build:dev && pnpm --filter @lucid-fin/desktop-main run dev",
+    "build": "pnpm --recursive run build",
+    "pretest": "node scripts/ensure-native-runtime.mjs node",
     "test": "vitest run",
-    "test:coverage:critical": "vitest run --root apps/desktop-main src/logger.test.ts src/startup-metrics.test.ts src/electron.startup.test.ts src/llm-provider-runtime.test.ts src/bootstrap/init-app.test.ts src/ipc/handlers/canvas-generation.handlers.test.ts src/ipc/handlers/commander.handlers.logging.test.ts src/ipc/handlers/commander-meta.handlers.test.ts src/ipc/handlers/workflow.handlers.test.ts src/ipc/handlers/job.handlers.test.ts --coverage",
-    "electron:install": "node node_modules/electron/install.js",
-    "predev": "npx @electron/rebuild -f -w better-sqlite3 -v 43.2.0",
-    "postinstall": "npx patch-package && npm run electron:install && node -e \"if(!process.env.CI)require('child_process').execSync('npx @electron/rebuild -f -w better-sqlite3 -v 43.2.0',{stdio:'inherit'})\"",
-    "lint": "eslint . && npm run lint:contracts",
+    "pretest:perf": "node scripts/ensure-native-runtime.mjs node",
+    "test:perf": "vitest run --config vitest.performance.config.ts",
+    "test:types": "tsc --noEmit -p tests/types/tsconfig.json",
+    "pretest:coverage:critical": "node scripts/ensure-native-runtime.mjs node",
+    "test:coverage:critical": "vitest run --config vitest.coverage-critical.config.ts src/logger.test.ts src/startup-metrics.test.ts src/electron.startup.test.ts src/llm-provider-runtime.test.ts src/bootstrap/init-app.test.ts src/ipc/handlers/canvas-generation.handlers.test.ts src/ipc/handlers/commander.handlers.logging.test.ts src/ipc/handlers/commander-meta.handlers.test.ts src/ipc/handlers/workflow.handlers.test.ts src/ipc/handlers/job.handlers.test.ts --coverage",
+    "electron:install": "node scripts/install-electron.mjs",
+    "predev": "node scripts/ensure-native-runtime.mjs electron",
+    "postinstall": "node scripts/install-electron.mjs && node -e \"if(!process.env.CI)require('child_process').execFileSync(process.execPath,['scripts/ensure-native-runtime.mjs','electron'],{stdio:'inherit'})\"",
+    "lint": "eslint . && pnpm run lint:contracts",
     "lint:contracts": "node scripts/lint-contract-drift.ts",
-    "format": "prettier . --write",
-    "format:check": "prettier . --check",
-    "license:audit": "npx tsx scripts/license-audit.ts",
-    "dist": "npm run build && npm run pack --workspace=apps/desktop-main",
-    "audit:uncommitted": "npx tsx scripts/audit-uncommitted.ts",
-    "pretest:e2e": "npx @electron/rebuild -f -w better-sqlite3 -v 43.2.0",
-    "test:e2e": "npx playwright test --config tests/e2e/playwright.config.ts"
+    "format": "prettier \"**/*\" --write --ignore-unknown",
+    "format:check": "prettier \"**/*\" --check --ignore-unknown",
+    "license:audit": "tsx scripts/license-audit.ts",
+    "dist": "pnpm run build && pnpm --filter @lucid-fin/desktop-main run pack",
+    "audit:uncommitted": "tsx scripts/audit-uncommitted.ts",
+    "pretest:e2e": "node scripts/ensure-native-runtime.mjs electron",
+    "test:e2e": "playwright test --config tests/e2e/playwright.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.62.1",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.8.0",
-    "eslint-plugin-react-hooks": "^7.1.0-canary-404b38c7-20260408",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.4.0",
     "jsdom": "^30.0.1",
-    "patch-package": "^8.0.1",
     "prettier": "^3.9.6",
     "rimraf": "^6.1.3",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.65.0",
+    "tsx": "^4.23.11",
     "vitest": "^4.1.10"
-  },
-  "overrides": {
-    "@radix-ui/react-slot": "1.2.4",
-    "@radix-ui/react-primitive": "2.1.4"
   }
 }

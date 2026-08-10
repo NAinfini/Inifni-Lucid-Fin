@@ -19,11 +19,19 @@
 
 import type BetterSqlite3 from 'better-sqlite3';
 import type {
+  AnswerWorkflowDecisionInput,
+  AnswerWorkflowDecisionResult,
   ApproveWorkflowGateInput,
   ApproveWorkflowGateResult,
+  ReviseWorkflowGateInput,
+  ReviseWorkflowGateResult,
+  ReserveWorkflowDecisionInput,
+  ReserveWorkflowDecisionResult,
   WorkflowApproval,
   WorkflowArtifact,
   WorkflowDocument,
+  WorkflowDecision,
+  WorkflowDecisionFilter,
   WorkflowEvent,
   WorkflowExportExecution,
   WorkflowMediaAttempt,
@@ -44,7 +52,11 @@ import {
   WorkflowTaskRunRecordSchema,
 } from '@lucid-fin/contracts-parse';
 import {
+  answerWorkflowDecision as _answerWorkflowDecision,
+  completeExternalWorkflowTask as _completeExternalWorkflowTask,
+  compareAndSetWorkflowRunMetadata as _compareAndSetWorkflowRunMetadata,
   approveWorkflowGate as _approveWorkflowGate,
+  reviseWorkflowGate as _reviseWorkflowGate,
   completeWorkflowExportExecution as _completeWorkflowExportExecution,
   getLatestWorkflowExportExecution as _getLatestWorkflowExportExecution,
   getLatestWorkflowMediaAttempt as _getLatestWorkflowMediaAttempt,
@@ -55,6 +67,7 @@ import {
   getLatestWorkflowDocument as _getLatestWorkflowDocument,
   getWorkflowDocumentRevision as _getWorkflowDocumentRevision,
   getLatestWorkflowApproval as _getLatestWorkflowApproval,
+  getWorkflowDecisionByQuestion as _getWorkflowDecisionByQuestion,
   getPendingWorkflowApproval as _getPendingWorkflowApproval,
   getWorkflowRun as _getWorkflowRun,
   getWorkflowStageRun as _getWorkflowStageRun,
@@ -78,6 +91,7 @@ import {
   listWorkflowArtifactsByTaskRun as _listWorkflowArtifactsByTaskRun,
   listWorkflowArtifactsByTaskRunBatch as _listWorkflowArtifactsByTaskRunBatch,
   listWorkflowEvents as _listWorkflowEvents,
+  listPendingWorkflowDecisions as _listPendingWorkflowDecisions,
   listRecoverableWorkflowExportExecutions as _listRecoverableWorkflowExportExecutions,
   listRecoverableWorkflowMediaAttempts as _listRecoverableWorkflowMediaAttempts,
   listWorkflowMediaAttempts as _listWorkflowMediaAttempts,
@@ -90,7 +104,9 @@ import {
   recomputeStageAggregate as _recomputeStageAggregate,
   recomputeWorkflowAggregate as _recomputeWorkflowAggregate,
   recordWorkflowMediaEvaluation as _recordWorkflowMediaEvaluation,
+  reserveProductionMediaFeedbackAttempt as _reserveProductionMediaFeedbackAttempt,
   reserveWorkflowExportExecution as _reserveWorkflowExportExecution,
+  reserveWorkflowDecision as _reserveWorkflowDecision,
   reserveWorkflowMediaAttempt as _reserveWorkflowMediaAttempt,
   retryWorkflowExportExecution as _retryWorkflowExportExecution,
   transitionWorkflowExportExecution as _transitionWorkflowExportExecution,
@@ -102,8 +118,12 @@ import {
   type WorkflowApprovalGateRevisionBundle,
   type WorkflowApprovalGateRevisionResult,
   type CompleteWorkflowExportExecutionInput,
+  type CompleteExternalWorkflowTaskInput,
+  type CompleteExternalWorkflowTaskResult,
   type RecordWorkflowMediaEvaluationInput,
   type RecordWorkflowMediaEvaluationResult,
+  type ReserveProductionMediaFeedbackAttemptInput,
+  type ReserveProductionMediaFeedbackAttemptResult,
   type ReserveWorkflowExportExecutionInput,
   type ReserveWorkflowExportExecutionResult,
   type ReserveWorkflowMediaAttemptInput,
@@ -176,6 +196,15 @@ export class WorkflowRepository {
     _updateWorkflowRun(this.db, id, updates);
   }
 
+  compareAndSetRunMetadata(
+    id: WorkflowRunId,
+    expectedRowVersion: number,
+    metadata: Record<string, unknown>,
+    updatedAt: number,
+  ): boolean {
+    return _compareAndSetWorkflowRunMetadata(this.db, id, expectedRowVersion, metadata, updatedAt);
+  }
+
   // ── Persistent documents, approvals, and events ───────────────
 
   createApprovalGateBundle(bundle: WorkflowApprovalGateBundle): void {
@@ -229,8 +258,40 @@ export class WorkflowRepository {
     return _approveWorkflowGate(this.db, input);
   }
 
+  reviseGate(input: ReviseWorkflowGateInput): ReviseWorkflowGateResult {
+    return _reviseWorkflowGate(this.db, input);
+  }
+
   listEvents(workflowRunId: WorkflowRunId): WorkflowEvent[] {
     return _listWorkflowEvents(this.db, workflowRunId);
+  }
+
+  reserveDecision(input: ReserveWorkflowDecisionInput): ReserveWorkflowDecisionResult {
+    return _reserveWorkflowDecision(this.db, input);
+  }
+
+  getDecisionByQuestion(canvasId: string, questionId: string): WorkflowDecision | undefined {
+    return _getWorkflowDecisionByQuestion(this.db, canvasId, questionId);
+  }
+
+  listPendingDecisions(filter: WorkflowDecisionFilter = {}): WorkflowDecision[] {
+    return _listPendingWorkflowDecisions(this.db, filter);
+  }
+
+  answerDecision(input: AnswerWorkflowDecisionInput): AnswerWorkflowDecisionResult | undefined {
+    return _answerWorkflowDecision(this.db, input);
+  }
+
+  completeExternalTask(
+    input: CompleteExternalWorkflowTaskInput,
+  ): CompleteExternalWorkflowTaskResult {
+    return _completeExternalWorkflowTask(this.db, input);
+  }
+
+  reserveMediaFeedbackAttempt(
+    input: ReserveProductionMediaFeedbackAttemptInput,
+  ): ReserveProductionMediaFeedbackAttemptResult {
+    return _reserveProductionMediaFeedbackAttempt(this.db, input);
   }
 
   reserveExportExecution(

@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { t, setLocale, getLocale, onLocaleChange, getAvailableLocales, messages } from './i18n.js';
+import {
+  t,
+  setLocale,
+  getLocale,
+  onLocaleChange,
+  getAvailableLocales,
+  localizeToolName,
+  messages,
+} from './i18n.js';
 import { zhCNMessages } from './i18n.messages.zh-CN.js';
 import { enUSMessages } from './i18n.messages.en-US.js';
 
@@ -70,6 +78,20 @@ describe('i18n', () => {
   describe('getAvailableLocales', () => {
     it('returns both locales', () => {
       expect(getAvailableLocales()).toEqual(['zh-CN', 'en-US']);
+    });
+  });
+
+  describe('flat tool-name localization', () => {
+    it('localizes tool ids that contain dots without falling back to raw ids', () => {
+      expect(localizeToolName('canvas.getInfo')).toBe('画布信息');
+      expect(localizeToolName('script.import')).toBe('导入脚本');
+      setLocale('en-US');
+      expect(localizeToolName('canvas.getInfo')).toBe('Canvas Info');
+      expect(localizeToolName('script.import')).toBe('Import Script');
+    });
+
+    it('keeps unknown tool ids readable', () => {
+      expect(localizeToolName('custom.unknown')).toBe('custom.unknown');
     });
   });
 

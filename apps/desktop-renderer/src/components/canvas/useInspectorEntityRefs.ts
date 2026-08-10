@@ -15,6 +15,7 @@ import {
   updateNodeEquipmentRef,
   addNodeLocationRef,
   removeNodeLocationRef,
+  updateNodeLocationRef,
 } from '../../store/slices/canvas/canvas.js';
 import type {
   CanvasNode,
@@ -211,6 +212,25 @@ export function useInspectorEntityRefs({
     [dispatch, selectedNode],
   );
 
+  const handleLocationAngleChange = useCallback(
+    (locationId: string, angleSlot: string | undefined) => {
+      if (!selectedNode) return;
+      const location = locationItems.find((entry) => entry.id === locationId);
+      const referenceImageHash = angleSlot
+        ? location?.referenceImages?.find((image: ReferenceImage) => image.slot === angleSlot)
+            ?.assetHash
+        : undefined;
+      dispatch(
+        updateNodeLocationRef({
+          id: selectedNode.id,
+          locationId,
+          changes: { angleSlot, referenceImageHash },
+        }),
+      );
+    },
+    [dispatch, selectedNode, locationItems],
+  );
+
   return {
     // Refs
     nodeCharacterRefs,
@@ -242,5 +262,6 @@ export function useInspectorEntityRefs({
     handleEquipmentAngleChange,
     handleAddLocationRef,
     handleRemoveLocationRef,
+    handleLocationAngleChange,
   };
 }

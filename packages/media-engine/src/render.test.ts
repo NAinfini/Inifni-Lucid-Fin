@@ -178,6 +178,31 @@ describe('renderTimeline', () => {
     ]);
   });
 
+  it('preserves aspect ratio with contain and pads using the approved background color', async () => {
+    const cmd = makeTimelineCommandChain();
+    createCommandMock.mockReturnValue(cmd);
+
+    await renderTimeline(
+      [{ inputPath: 'C:\\assets\\portrait.mp4', startTime: 0, duration: 5, speed: 1 }],
+      'C:\\exports\\timeline.mp4',
+      {
+        codec: 'h264',
+        preset: 'standard',
+        width: 1920,
+        height: 1080,
+        fps: 24,
+        fitMode: 'contain',
+        backgroundColor: '#112233',
+      },
+    );
+
+    expect(cmd.addOutputOptions).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        '-vf scale=trunc(1920/2)*2:trunc(1080/2)*2:force_original_aspect_ratio=decrease,pad=trunc(1920/2)*2:trunc(1080/2)*2:(ow-iw)/2:(oh-ih)/2:color=0x112233,setsar=1',
+      ]),
+    );
+  });
+
   it('cleans up the concat list file when ffmpeg rejects', async () => {
     const cmd = makeTimelineCommandChain();
     createCommandMock.mockReturnValue(cmd);
@@ -340,6 +365,29 @@ describe('renderSingleSegment', () => {
     ]);
     expect(cmd.output).toHaveBeenCalledWith('C:\\exports\\shot.mp4');
     expect(runCommandMock).toHaveBeenCalledWith(cmd, undefined);
+  });
+
+  it('fills the output frame with cover without stretching the source', async () => {
+    const cmd = makeSingleSegmentCommandChain();
+    createCommandMock.mockReturnValue(cmd);
+
+    await renderSingleSegment('C:\\assets\\clip.mp4', 'C:\\exports\\shot.mp4', {
+      codec: 'h264',
+      preset: 'standard',
+      width: 1920,
+      height: 1080,
+      fps: 24,
+      inPoint: 0,
+      outPoint: 4,
+      speed: 1,
+      fitMode: 'cover',
+    });
+
+    expect(cmd.addOutputOptions).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        '-vf setpts=1.0000*PTS,scale=trunc(1920/2)*2:trunc(1080/2)*2:force_original_aspect_ratio=increase,crop=trunc(1920/2)*2:trunc(1080/2)*2,setsar=1',
+      ]),
+    );
   });
 
   it('throws when the input path is outside the assetRoot', async () => {

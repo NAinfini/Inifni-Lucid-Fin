@@ -6,9 +6,9 @@
  * grouping changes into logical commit batches with proposed messages.
  *
  * Usage:
- *   npx tsx scripts/audit-uncommitted.ts            # Markdown report to stdout
- *   npx tsx scripts/audit-uncommitted.ts --json      # Machine-readable JSON
- *   npx tsx scripts/audit-uncommitted.ts > plan.md   # Save to file
+ *   pnpm exec tsx scripts/audit-uncommitted.ts            # Markdown report to stdout
+ *   pnpm exec tsx scripts/audit-uncommitted.ts --json      # Machine-readable JSON
+ *   pnpm exec tsx scripts/audit-uncommitted.ts > plan.md   # Save to file
  */
 
 import { execSync } from 'node:child_process';
@@ -154,7 +154,6 @@ function inferPackage(filePath: string): string {
   if (pkgMatch) return pkgMatch[1];
 
   if (filePath.startsWith('scripts/')) return 'scripts';
-  if (filePath.startsWith('.trellis/')) return 'trellis';
 
   // Root-level files
   return 'root';

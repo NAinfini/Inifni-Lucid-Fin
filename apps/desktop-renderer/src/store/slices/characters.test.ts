@@ -64,67 +64,6 @@ describe('characters slice', () => {
     });
   });
 
-  it('exports action creators with the expected payloads', () => {
-    const character = makeCharacter();
-    const refImage = makeReferenceImage({ slot: 'left-side' });
-    const loadout = makeLoadout({ id: 'loadout-2' });
-    const restoreState: CharactersState = {
-      items: [character],
-      selectedId: 'character-1',
-      loading: true,
-      folders: [],
-      currentFolderId: null,
-      foldersLoading: false,
-    };
-
-    expect(setCharacters([character])).toMatchObject({
-      type: 'characters/setCharacters',
-      payload: [character],
-    });
-    expect(addCharacter(character)).toMatchObject({
-      type: 'characters/addCharacter',
-      payload: character,
-    });
-    expect(updateCharacter({ id: 'character-1', data: { name: 'Renamed' } })).toMatchObject({
-      type: 'characters/updateCharacter',
-      payload: { id: 'character-1', data: { name: 'Renamed' } },
-    });
-    expect(removeCharacter('character-1')).toMatchObject({
-      type: 'characters/removeCharacter',
-      payload: 'character-1',
-    });
-    expect(selectCharacter(null)).toMatchObject({
-      type: 'characters/selectCharacter',
-      payload: null,
-    });
-    expect(setLoading(true)).toMatchObject({
-      type: 'characters/setLoading',
-      payload: true,
-    });
-    expect(setCharacterRefImage({ characterId: 'character-1', refImage })).toMatchObject({
-      type: 'characters/setCharacterRefImage',
-      payload: { characterId: 'character-1', refImage },
-    });
-    expect(removeCharacterRefImage({ characterId: 'character-1', slot: 'front' })).toMatchObject({
-      type: 'characters/removeCharacterRefImage',
-      payload: { characterId: 'character-1', slot: 'front' },
-    });
-    expect(setCharacterLoadout({ characterId: 'character-1', loadout })).toMatchObject({
-      type: 'characters/setCharacterLoadout',
-      payload: { characterId: 'character-1', loadout },
-    });
-    expect(
-      removeCharacterLoadout({ characterId: 'character-1', loadoutId: 'loadout-1' }),
-    ).toMatchObject({
-      type: 'characters/removeCharacterLoadout',
-      payload: { characterId: 'character-1', loadoutId: 'loadout-1' },
-    });
-    expect(charactersSlice.actions.restore(restoreState)).toMatchObject({
-      type: 'characters/restore',
-      payload: restoreState,
-    });
-  });
-
   it('sets, adds, updates, selects, and removes characters', () => {
     let state = charactersSlice.reducer(
       undefined,

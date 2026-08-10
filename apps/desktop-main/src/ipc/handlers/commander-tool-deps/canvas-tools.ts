@@ -27,6 +27,18 @@ import {
   type ShotTemplate,
   type AgentToolRegistry,
 } from './helpers.js';
+import { createHash } from 'node:crypto';
+import { resolveCanvasVisualStylePolicy } from '@lucid-fin/shared-utils';
+import {
+  preflightGenerationResolution,
+  resolveEffectiveResolutionIntent,
+} from '@lucid-fin/adapters-ai';
+import type {
+  GenerationRequest,
+  ImageNodeData,
+  ResolutionIntent,
+  VideoNodeData,
+} from '@lucid-fin/contracts';
 
 export function registerCanvasTools(
   registry: AgentToolRegistry,
@@ -107,12 +119,82 @@ export function registerCanvasTools(
       providerId?: string,
       variantCount?: number,
       finalPrompt?: string,
+      promptInputMode?: 'base' | 'precompiled',
     ) => {
       await startCanvasGeneration(
         gateway,
-        { canvasId, nodeId, providerId, variantCount, finalPrompt },
+        { canvasId, nodeId, providerId, variantCount, finalPrompt, promptInputMode },
         canvasGenerationDeps,
       );
+    },
+    preparePromptRefinement: async (canvasId: string, nodeId: string, feedback: string) => {
+      const { canvas, node } = requireNode(deps.canvasStore, canvasId, nodeId);
+      if (node.type !== 'image' && node.type !== 'video') {
+        throw new Error('Incremental prompt refinement supports image and video nodes only');
+      }
+      const data = node.data as {
+        assetHash?: string;
+        variants?: string[];
+        selectedVariantIndex?: number;
+      };
+      const selectedIndex = Number.isInteger(data.selectedVariantIndex)
+        ? Number(data.selectedVariantIndex)
+        : 0;
+      const sourceAssetHash = data.assetHash ?? data.variants?.[selectedIndex];
+      if (!sourceAssetHash) {
+        throw new Error('Generate and select an image or video before asking for a refinement');
+      }
+      const asset = deps.db.repos.assets.findByHash(sourceAssetHash as never);
+      const basePrompt = asset?.generationMetadata?.prompt ?? asset?.prompt;
+      if (!basePrompt?.trim()) {
+        throw new Error(
+          'The selected asset has no recorded provider prompt; refusing to reconstruct it from zero',
+        );
+      }
+      const recordedStyle = asset?.generationMetadata?.visualStyle;
+      if (recordedStyle?.source === 'visual-constitution') {
+        throw new Error(
+          'This asset belongs to an approved persistent workflow; use workflow media refinement so the exact Visual Constitution remains authoritative',
+        );
+      }
+      const currentStyle = resolveCanvasVisualStylePolicy(canvas.settings);
+      if (
+        recordedStyle &&
+        currentStyle &&
+        currentStyle.provenance.policyHash !== recordedStyle.policyHash
+      ) {
+        throw new Error(
+          'The Canvas visual-style policy changed after this asset was generated; regenerate under the current style before applying an incremental quality comment',
+        );
+      }
+      if (recordedStyle && !currentStyle) {
+        throw new Error(
+          'The Canvas visual-style policy used by this asset is no longer active; restore it or regenerate before refining',
+        );
+      }
+      if (
+        currentStyle &&
+        !recordedStyle &&
+        currentStyle.policy.summary &&
+        !basePrompt.includes(currentStyle.policy.summary)
+      ) {
+        throw new Error(
+          'The selected asset predates the current Canvas visual-style policy; regenerate once under the current style before applying incremental feedback',
+        );
+      }
+      const normalizedFeedback = feedback.trim();
+      if (!normalizedFeedback) throw new Error('feedback is required');
+      const styleBoundary = currentStyle
+        ? `CANVAS VISUAL STYLE REMAINS AUTHORITATIVE (${currentStyle.provenance.policyHash}); apply the feedback without redesigning or restyling unaffected details.`
+        : 'PRESERVE THE PRIOR VISUAL LANGUAGE; apply the feedback without redesigning or restyling unaffected details.';
+      const prompt = `${basePrompt.trim()}\nUSER QUALITY FEEDBACK (additive): ${normalizedFeedback}\n${styleBoundary}`;
+      return {
+        sourceAssetHash,
+        basePrompt: basePrompt.trim(),
+        basePromptHash: createHash('sha256').update(basePrompt.trim(), 'utf8').digest('hex'),
+        prompt,
+        promptHash: createHash('sha256').update(prompt, 'utf8').digest('hex'),
+      };
     },
     cancelGeneration: async (canvasId: string, nodeId: string) => {
       await cancelCanvasGeneration(gateway, { canvasId, nodeId }, canvasGenerationDeps);
@@ -137,6 +219,58 @@ export function registerCanvasTools(
       Object.assign(node.data, data);
       node.updatedAt = Date.now();
       touchCanvas(current, deps.canvasStore);
+    },
+    clearNodeDataFields: async (canvasId: string, nodeId: string, fields: string[]) => {
+      const { canvas: current, node } = requireNode(deps.canvasStore, canvasId, nodeId);
+      const nodeData = node.data as unknown as Record<string, unknown>;
+      for (const field of fields) delete nodeData[field];
+      node.updatedAt = Date.now();
+      touchCanvas(current, deps.canvasStore);
+    },
+    preflightResolution: async (canvasId: string, nodeId: string, candidate?: ResolutionIntent) => {
+      const { canvas: current, node } = requireNode(deps.canvasStore, canvasId, nodeId);
+      if (node.type !== 'image' && node.type !== 'video') {
+        throw new Error(`Node "${nodeId}" is not an image or video node`);
+      }
+      const nodeData = node.data as ImageNodeData | VideoNodeData;
+      const videoData = node.type === 'video' ? (nodeData as VideoNodeData) : undefined;
+      const providerId =
+        nodeData.providerId?.trim() ||
+        (node.type === 'video'
+          ? current.settings?.videoProviderId
+          : current.settings?.imageProviderId) ||
+        defaultProviders?.[node.type];
+      if (!providerId) {
+        throw new Error(`Node "${nodeId}" has no configured ${node.type} provider`);
+      }
+      const adapter =
+        deps.adapterRegistry.resolve?.(providerId, node.type) ??
+        deps.adapterRegistry.get(providerId);
+      if (!adapter) throw new Error(`Provider adapter not found: ${providerId}`);
+
+      const effective = candidate
+        ? { intent: candidate, source: 'node' as const }
+        : resolveEffectiveResolutionIntent({
+            mediaType: node.type,
+            canvasSettings: current.settings,
+            nodeData,
+          });
+      const request: GenerationRequest = {
+        type: node.type,
+        providerId: adapter.id,
+        prompt: nodeData.prompt?.trim() || node.title || 'resolution preflight',
+        negativePrompt: nodeData.negativePrompt,
+        duration: videoData?.duration,
+        quality: videoData?.quality,
+        audio: videoData?.audio,
+        params: typeof videoData?.fps === 'number' ? { fps: videoData.fps } : undefined,
+      };
+      return preflightGenerationResolution({
+        adapter,
+        request,
+        intent: effective.intent,
+        source: effective.source,
+      });
     },
     listPresets: listCommanderPresets,
     savePreset: persistCommanderPreset,

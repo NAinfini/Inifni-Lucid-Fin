@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Canvas, CanvasNode } from '@lucid-fin/contracts';
 import { createEmptyPresetTrackSet } from '@lucid-fin/contracts';
 
@@ -78,6 +81,7 @@ import {
   buildGenerationContext,
   determineGenerationType,
   determinePromptMode,
+  ensureAdapterConditioningSupports,
   ensureAdapterSupports,
   mapGenerationTypeToAdapterType,
   mapGenerationTypeToAssetType,
@@ -90,11 +94,24 @@ import {
 } from './generation-context.js';
 import {
   DEFAULT_AUDIO_DURATION,
-  DEFAULT_IMAGE_SIZE,
   DEFAULT_VIDEO_DURATION,
-  DEFAULT_VIDEO_SIZE,
   MAX_VARIANTS,
 } from './generation-helpers.js';
+
+let referenceAssetDirectory = '';
+let referenceAssetPath = '';
+
+beforeAll(() => {
+  referenceAssetDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-generation-context-'));
+  referenceAssetPath = path.join(referenceAssetDirectory, 'reference.png');
+  fs.writeFileSync(referenceAssetPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+});
+
+afterAll(() => {
+  if (referenceAssetDirectory) {
+    fs.rmSync(referenceAssetDirectory, { recursive: true, force: true });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -245,6 +262,29 @@ function makeAdapter(
     type: overrides.type ?? 'image',
     capabilities: overrides.capabilities ?? ['text-to-image'],
     maxConcurrent: 1,
+    resolutionController: {
+      capabilities: {
+        semantics: 'exact' as const,
+        nativeDefault: {
+          id: 'default',
+          label: 'Provider default',
+          mode: 'provider-default' as const,
+        },
+        options: [],
+      },
+      resolve: vi.fn((intent, context) => ({
+        supported: true as const,
+        plan: {
+          ...context,
+          requested: intent,
+          ...(intent.mode === 'exact' ? { width: intent.width, height: intent.height } : {}),
+          ...(intent.mode === 'tier' ? { tier: intent.tier } : {}),
+          outputKnown: intent.mode === 'exact',
+        },
+        currency: 'USD' as const,
+        warnings: [],
+      })),
+    },
     configure: vi.fn(),
     validate: vi.fn(async () => true),
     generate: vi.fn(async () => ({
@@ -293,7 +333,7 @@ function makeDepsWithNode(
             createdAt: Date.now(),
           },
         })),
-        getAssetPath: vi.fn(() => '/tmp/asset.png'),
+        getAssetPath: vi.fn(() => referenceAssetPath),
       },
       db: withEntityRepos({
         insertAsset: vi.fn(),
@@ -331,6 +371,12 @@ describe('determinePromptMode', () => {
     expect(determinePromptMode(canvas, node)).toBe('image-to-image');
   });
 
+  it('returns image-to-image when resolved entity reference images are present', () => {
+    const node = makeImageNode();
+    const canvas = makeCanvas([node]);
+    expect(determinePromptMode(canvas, node, true)).toBe('image-to-image');
+  });
+
   it('returns text-to-video when video node has no image source or connection', () => {
     const node = makeVideoNode();
     const canvas = makeCanvas([node]);
@@ -341,6 +387,12 @@ describe('determinePromptMode', () => {
     const node = makeVideoNode({ sourceImageHash: 'hash-frame' });
     const canvas = makeCanvas([node]);
     expect(determinePromptMode(canvas, node)).toBe('image-to-video');
+  });
+
+  it('returns image-to-video when resolved entity reference images are present', () => {
+    const node = makeVideoNode();
+    const canvas = makeCanvas([node]);
+    expect(determinePromptMode(canvas, node, true)).toBe('image-to-video');
   });
 
   it('returns image-to-video when a connected image node has an asset hash', () => {
@@ -460,6 +512,104 @@ describe('ensureAdapterSupports', () => {
 
     const sfxAdapter = makeAdapter({ type: 'sfx', capabilities: ['text-to-sfx'] });
     expect(() => ensureAdapterSupports(sfxAdapter as never, 'sfx', 'text-to-sfx')).not.toThrow();
+  });
+});
+
+describe('ensureAdapterConditioningSupports', () => {
+  it('rejects image references when the adapter has no explicit reference contract', () => {
+    const adapter = makeAdapter({ capabilities: ['text-to-image', 'image-to-image'] });
+    expect(() =>
+      ensureAdapterConditioningSupports(adapter as never, {
+        type: 'image',
+        providerId: adapter.id,
+        prompt: 'portrait',
+        referenceImages: ['character-a'],
+      }),
+    ).toThrow(/does not declare support for ordered reference images/);
+  });
+
+  it('accepts ordered references inside an explicit provider limit', () => {
+    const adapter = {
+      ...makeAdapter({ capabilities: ['text-to-image', 'image-to-image'] }),
+      conditioningCapabilities: {
+        referenceImages: { maxImages: 4, preservesOrder: true },
+      },
+    };
+    expect(() =>
+      ensureAdapterConditioningSupports(adapter as never, {
+        type: 'image',
+        providerId: adapter.id,
+        prompt: 'portrait',
+        referenceImages: ['character-a', 'wardrobe-b'],
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects reference overflow before an adapter can silently truncate it', () => {
+    const adapter = {
+      ...makeAdapter({ capabilities: ['text-to-image', 'image-to-image'] }),
+      conditioningCapabilities: {
+        referenceImages: { maxImages: 2, preservesOrder: true },
+      },
+    };
+    expect(() =>
+      ensureAdapterConditioningSupports(adapter as never, {
+        type: 'image',
+        providerId: adapter.id,
+        prompt: 'portrait',
+        referenceImages: ['a', 'b', 'c'],
+      }),
+    ).toThrow(/supports at most 2 reference images; received 3/);
+  });
+
+  it('rejects multiple video primary inputs for legacy single-image mappers', () => {
+    const adapter = makeAdapter({
+      type: 'video',
+      capabilities: ['text-to-video', 'image-to-video'],
+    });
+    expect(() =>
+      ensureAdapterConditioningSupports(adapter as never, {
+        type: 'video',
+        providerId: adapter.id,
+        prompt: 'tracking shot',
+        referenceImages: ['character-a', 'location-b'],
+      }),
+    ).toThrow(/accepts only one primary conditioning image/);
+  });
+
+  it('requires an explicit last-frame capability', () => {
+    const adapter = makeAdapter({
+      type: 'video',
+      capabilities: ['text-to-video', 'image-to-video'],
+    });
+    expect(() =>
+      ensureAdapterConditioningSupports(adapter as never, {
+        type: 'video',
+        providerId: adapter.id,
+        prompt: 'transition',
+        frameReferenceImages: { first: 'start', last: 'finish' },
+      }),
+    ).toThrow(/does not declare last-frame conditioning support/);
+  });
+
+  it('rejects generic video references combined with first/last-frame semantics by default', () => {
+    const adapter = {
+      ...makeAdapter({ type: 'video', capabilities: ['text-to-video', 'image-to-video'] }),
+      conditioningCapabilities: {
+        referenceImages: { maxImages: 9, preservesOrder: true },
+        firstFrame: true,
+        lastFrame: true,
+      },
+    };
+    expect(() =>
+      ensureAdapterConditioningSupports(adapter as never, {
+        type: 'video',
+        providerId: adapter.id,
+        prompt: 'tracking shot',
+        referenceImages: ['character-a'],
+        frameReferenceImages: { first: 'start', last: 'finish' },
+      }),
+    ).toThrow(/cannot combine ordered references with first, last, or source frame/i);
   });
 });
 
@@ -598,13 +748,10 @@ describe('resolveBaseSeed', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolveMediaDimensions', () => {
-  it('returns default image dimensions when image node has no explicit size', () => {
+  it('leaves image pixels unset when the provider owns the default', () => {
     const node = makeImageNode();
     const result = resolveMediaDimensions(node, 'image');
-    expect(result).toEqual({
-      width: DEFAULT_IMAGE_SIZE.width,
-      height: DEFAULT_IMAGE_SIZE.height,
-    });
+    expect(result).toEqual({});
   });
 
   it('uses explicit image node dimensions', () => {
@@ -613,7 +760,7 @@ describe('resolveMediaDimensions', () => {
     expect(result).toEqual({ width: 512, height: 768 });
   });
 
-  it('returns default video dimensions and duration when video node has minimal data', () => {
+  it('leaves video pixels unset while retaining non-resolution defaults', () => {
     const node = makeVideoNode({
       width: undefined,
       height: undefined,
@@ -621,12 +768,7 @@ describe('resolveMediaDimensions', () => {
       fps: undefined,
     });
     const result = resolveMediaDimensions(node, 'video');
-    expect(result).toEqual({
-      width: DEFAULT_VIDEO_SIZE.width,
-      height: DEFAULT_VIDEO_SIZE.height,
-      duration: DEFAULT_VIDEO_DURATION,
-      fps: 24,
-    });
+    expect(result).toEqual({ duration: DEFAULT_VIDEO_DURATION, fps: 24 });
   });
 
   it('uses explicit video node dimensions, duration, and fps', () => {
@@ -683,24 +825,18 @@ describe('resolveMediaDimensions', () => {
     expect(result).toEqual({ width: 1920, height: 1080, duration: 5, fps: 30 });
   });
 
-  it('falls back to hardcoded defaults when canvas has no resolution settings', () => {
+  it('uses provider-native defaults when Canvas has no resolution settings', () => {
     const node = makeImageNode();
     const canvas = makeCanvas([node]);
     canvas.settings = {};
     const result = resolveMediaDimensions(node, 'image', canvas);
-    expect(result).toEqual({
-      width: DEFAULT_IMAGE_SIZE.width,
-      height: DEFAULT_IMAGE_SIZE.height,
-    });
+    expect(result).toEqual({});
   });
 
-  it('works without canvas parameter (backward-compatible)', () => {
+  it('uses provider-native defaults without a Canvas parameter', () => {
     const node = makeImageNode();
     const result = resolveMediaDimensions(node, 'image');
-    expect(result).toEqual({
-      width: DEFAULT_IMAGE_SIZE.width,
-      height: DEFAULT_IMAGE_SIZE.height,
-    });
+    expect(result).toEqual({});
   });
 });
 
@@ -765,6 +901,30 @@ describe('resolveAdapter', () => {
       'sk-test',
       expect.objectContaining({ generationType: 'image' }),
     );
+  });
+
+  it('does not read or configure API-key credentials for an OAuth adapter', async () => {
+    const adapter = makeAdapter({
+      id: 'codex-imagegen',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
+    Object.assign(adapter, { credentialMode: 'oauth' });
+    const registry = makeRegistry(adapter);
+    const keychain = { getKey: vi.fn(async () => 'must-not-be-read') };
+
+    const result = await resolveAdapter(
+      registry as never,
+      'codex-imagegen',
+      'image',
+      'text-to-image',
+      undefined,
+      keychain as never,
+    );
+
+    expect(result).toBe(adapter);
+    expect(keychain.getKey).not.toHaveBeenCalled();
+    expect(adapter.configure).not.toHaveBeenCalled();
   });
 
   it('configures adapter with baseUrl and model from providerConfig', async () => {
@@ -932,6 +1092,111 @@ describe('buildGenerationContext', () => {
     expect(ctx.requestBase.type).toBe('image');
   });
 
+  it('compiles a Commander-authored base prompt instead of letting it bypass style locks', async () => {
+    const node = makeImageNode({ providerId: 'mock-provider' });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
+    compilePromptMock.mockReturnValue({
+      prompt: 'compiled Commander prompt with style authority',
+      negativePrompt: undefined,
+      referenceImages: [],
+      params: {},
+      wordCount: 6,
+      budget: 100,
+      segments: [],
+      diagnostics: [],
+    });
+
+    const ctx = await buildGenerationContext(deps as never, {
+      canvasId: 'canvas-1',
+      nodeId: 'node-image',
+      finalPrompt: 'Commander scene delta',
+    });
+
+    expect(compilePromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: 'Commander scene delta' }),
+    );
+    expect(ctx.requestBase.prompt).toBe('compiled Commander prompt with style authority');
+  });
+
+  it('keeps a host-loaded incremental prompt exact and does not compile it from zero', async () => {
+    const node = makeImageNode({ providerId: 'mock-provider' });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
+    const priorPrompt =
+      'Exact prior provider prompt\nUSER QUALITY FEEDBACK (additive): brighten the eyes';
+
+    const ctx = await buildGenerationContext(deps as never, {
+      canvasId: 'canvas-1',
+      nodeId: 'node-image',
+      finalPrompt: priorPrompt,
+      promptInputMode: 'precompiled',
+    });
+
+    expect(ctx.requestBase.prompt).toBe(priorPrompt);
+  });
+
+  it('passes the canonical Canvas visual-style policy into manual generation', async () => {
+    const node = makeImageNode({ providerId: 'mock-provider' });
+    const { deps, canvas } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
+    canvas.settings = {
+      visualStylePolicy: {
+        version: 1,
+        summary: 'ink-wash neo-noir',
+        locked: { palette: 'muted teal and ochre' },
+      },
+    };
+
+    const ctx = await buildGenerationContext(deps as never, {
+      canvasId: 'canvas-1',
+      nodeId: 'node-image',
+    });
+
+    expect(compilePromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visualStylePolicy: expect.objectContaining({ summary: 'ink-wash neo-noir' }),
+      }),
+    );
+    expect(ctx.visualStyle).toEqual(
+      expect.objectContaining({ source: 'canvas-draft', policyHash: expect.any(String) }),
+    );
+  });
+
+  it('does not mix Canvas draft or project style defaults into Visual Constitution generation', async () => {
+    const node = makeImageNode({ providerId: 'mock-provider' });
+    const { deps, canvas } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
+    canvas.settings = {
+      visualStylePolicy: { version: 1, summary: 'unapproved Canvas draft' },
+    };
+
+    await buildGenerationContext(deps as never, {
+      canvasId: 'canvas-1',
+      nodeId: 'node-image',
+      styleAuthority: 'visual-constitution',
+    });
+
+    expect(compilePromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        visualStylePolicy: undefined,
+        styleGuide: undefined,
+      }),
+    );
+  });
+
   it('builds a valid context for a video node', async () => {
     const node = makeVideoNode({
       providerId: 'mock-provider',
@@ -988,6 +1253,17 @@ describe('buildGenerationContext', () => {
       type: 'video',
       capabilities: ['text-to-video', 'image-to-video'],
     });
+    Object.assign(adapter, {
+      conditioningCapabilities: {
+        referenceImages: {
+          maxImages: 2,
+          preservesOrder: true,
+          canCombineWithFrameImages: true,
+        },
+        firstFrame: true,
+        lastFrame: true,
+      },
+    });
     const deps = {
       adapterRegistry: makeRegistry(adapter),
       cas: {
@@ -1002,7 +1278,7 @@ describe('buildGenerationContext', () => {
             createdAt: Date.now(),
           },
         })),
-        getAssetPath: vi.fn(() => '/tmp/asset.png'),
+        getAssetPath: vi.fn(() => referenceAssetPath),
       },
       db: withEntityRepos({
         insertAsset: vi.fn(),

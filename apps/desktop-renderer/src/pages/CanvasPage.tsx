@@ -1,5 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useRef } from 'react';
-import { Layers, Plus } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronDown, ChevronUp, Layers, ListChecks, Plus, ShieldCheck } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../store/index.js';
 import {
@@ -21,6 +21,8 @@ import { RightToolbar } from '../components/layout/RightToolbar.js';
 import { addLog } from '../store/slices/logger.js';
 import { enqueueToast } from '../store/slices/toast.js';
 import { useClipboardWatcher } from '../hooks/useClipboardWatcher.js';
+import { setWorkflowSummaries } from '../store/slices/workflows.js';
+import { ExecutionPanel } from '../components/execution/ExecutionPanel.js';
 
 const AddNodePanel = lazy(() =>
   import('../components/canvas/AddNodePanel.js').then((m) => ({ default: m.AddNodePanel })),
@@ -171,6 +173,23 @@ export function CanvasPage() {
   const bootstrapped = useSelector((state: RootState) => state.settings.bootstrapped);
 
   const activeCanvas = useSelector(selectActiveCanvas) ?? null;
+  const [executionOpen, setExecutionOpen] = useState(false);
+  const activeCanvasWorkflowStats = useSelector((state: RootState) => {
+    if (!activeCanvasId) return { total: 0, awaitingApproval: 0 };
+    const workflows = state.workflows.allIds
+      .map((id) => state.workflows.summariesById[id])
+      .filter(
+        (workflow): workflow is NonNullable<typeof workflow> =>
+          Boolean(workflow) &&
+          workflow.entityType === 'canvas' &&
+          workflow.entityId === activeCanvasId,
+      );
+    return {
+      total: workflows.length,
+      awaitingApproval: workflows.filter((workflow) => workflow.status === 'awaiting_approval')
+        .length,
+    };
+  });
 
   useEffect(() => {
     if (!bootstrapped) return;
@@ -241,6 +260,41 @@ export function CanvasPage() {
 
     void loadPresets();
   }, [dispatch, bootstrapped]);
+
+  useEffect(() => {
+    if (!bootstrapped || !activeCanvasId) return;
+    const api = getAPI();
+    if (!api?.workflow?.list) return;
+
+    let cancelled = false;
+    void api.workflow
+      .list({ entityType: 'canvas' })
+      .then((workflows) => {
+        if (!cancelled) dispatch(setWorkflowSummaries(workflows));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          dispatch(
+            addLog({
+              level: 'error',
+              category: 'workflow',
+              message: t('toast.error.workflowLoadFailed'),
+              detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
+            }),
+          );
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCanvasId, bootstrapped, dispatch]);
+
+  useEffect(() => {
+    if (activeCanvasWorkflowStats.awaitingApproval > 0) {
+      setExecutionOpen(true);
+    }
+  }, [activeCanvasWorkflowStats.awaitingApproval]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -471,10 +525,38 @@ export function CanvasPage() {
                 </>
               ) : null}
 
-              <div className="flex-1 min-w-0 h-full">
+              <div className="relative h-full min-w-0 flex-1">
                 <ErrorBoundary name="Canvas">
                   <CanvasWorkspace />
                 </ErrorBoundary>
+                <div className="pointer-events-none absolute bottom-4 right-4 z-20 flex max-w-[calc(100%-2rem)] flex-col items-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setExecutionOpen((open) => !open)}
+                    aria-label={t('layout.executionPanel')}
+                    aria-expanded={executionOpen}
+                    className="pointer-events-auto inline-flex items-center gap-2 rounded-lg border border-border bg-card/95 px-3 py-2 text-xs font-medium shadow-lg backdrop-blur hover:bg-muted"
+                  >
+                    <ListChecks className="h-4 w-4 text-primary" />
+                    {t('layout.executionPanel')}
+                    {activeCanvasWorkflowStats.awaitingApproval > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-100">
+                        <ShieldCheck className="h-3 w-3" />
+                        {activeCanvasWorkflowStats.awaitingApproval}
+                      </span>
+                    )}
+                    {executionOpen ? (
+                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                    ) : (
+                      <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
+                    )}
+                  </button>
+                  {executionOpen && (
+                    <div className="pointer-events-auto h-[min(28rem,calc(100vh-11rem))] w-[min(24rem,calc(100vw-3rem))] overflow-hidden rounded-xl border border-border bg-card/95 shadow-2xl backdrop-blur">
+                      <ExecutionPanel entityId={activeCanvas.id} />
+                    </div>
+                  )}
+                </div>
               </div>
 
               {rightPanel !== null ? (

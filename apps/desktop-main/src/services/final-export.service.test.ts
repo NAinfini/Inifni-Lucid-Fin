@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
+  AssetMeta,
   FinalExportManifestContent,
   WorkflowDocument,
   WorkflowExportExecution,
@@ -33,8 +34,8 @@ function sha(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
-function manifest(sourceHash: string): WorkflowDocument {
-  const segments = [
+function manifest(sourceHash: string, manifestVersion: 1 | 2 = 1): WorkflowDocument {
+  const segments: FinalExportManifestContent['segments'] = [
     {
       order: 0,
       nodeId: 'shot-1',
@@ -49,13 +50,14 @@ function manifest(sourceHash: string): WorkflowDocument {
       sourceStartSeconds: 0,
       durationSeconds: 5,
       speed: 1,
+      ...(manifestVersion === 2 ? { sourceWidth: 1280, sourceHeight: 720 } : {}),
     },
   ];
   const assemblySnapshotHash = sha(
     canonicalJson({ segments, audioTracks: [], subtitleTracks: [] }),
   );
   const content: FinalExportManifestContent = {
-    manifestVersion: 1,
+    manifestVersion,
     workflowRunId: 'run-1',
     productionPlan: { revision: 1, contentHash: '1'.repeat(64) },
     visualConstitution: { revision: 1, contentHash: '2'.repeat(64) },
@@ -75,6 +77,7 @@ function manifest(sourceHash: string): WorkflowDocument {
       audioCodec: 'aac',
       pixelFormat: 'yuv420p',
       overwritePolicy: 'fail',
+      ...(manifestVersion === 2 ? { fitMode: 'contain' as const, backgroundColor: '#000000' } : {}),
     },
     expectedDurationMs: 5000,
     estimatedDurationSeconds: 5,
@@ -100,13 +103,19 @@ function manifest(sourceHash: string): WorkflowDocument {
   };
 }
 
-function harness(root: string, approved = true, sourceExists = true) {
+function harness(
+  root: string,
+  approved = true,
+  sourceExists = true,
+  manifestVersion: 1 | 2 = 1,
+  actualResolution: { width: number; height: number } = { width: 1920, height: 1080 },
+) {
   const sourceHash = 'b'.repeat(64);
   const outputHash = 'c'.repeat(64);
   const sourcePath = path.join(root, `${sourceHash}.mp4`);
   const outputCasPath = path.join(root, `${outputHash}.mp4`);
   if (sourceExists) fs.writeFileSync(sourcePath, 'source-video');
-  const document = manifest(sourceHash);
+  const document = manifest(sourceHash, manifestVersion);
   const run: WorkflowRun = {
     id: 'run-1',
     workflowType: 'movie.production.v2',
@@ -131,10 +140,24 @@ function harness(root: string, approved = true, sourceExists = true) {
     definitionVersion: 1,
   };
   const executions = new Map<string, WorkflowExportExecution>();
-  const assets = new Map<
-    string,
-    { hash: string; type: 'video'; format: string; duration?: number }
-  >([[sourceHash, { hash: sourceHash, type: 'video', format: 'mp4', duration: 5 }]]);
+  type TestAsset = Partial<AssetMeta> & {
+    hash: string;
+    type: 'video';
+    format: string;
+  };
+  const assets = new Map<string, TestAsset>([
+    [
+      sourceHash,
+      {
+        hash: sourceHash,
+        type: 'video',
+        format: 'mp4',
+        duration: 5,
+        width: 1280,
+        height: 720,
+      },
+    ],
+  ]);
   const reserve = vi.fn(({ execution }: { execution: WorkflowExportExecution }) => {
     executions.set(execution.id, execution);
     return { execution, created: true };
@@ -181,28 +204,29 @@ function harness(root: string, approved = true, sourceExists = true) {
       workflows,
       assets: {
         findByHash: vi.fn((hash: string) => assets.get(hash)),
-        insert: vi.fn((asset: { hash: string; type: 'video'; format: string }) => {
+        insert: vi.fn((asset: TestAsset) => {
           assets.set(asset.hash, asset);
         }),
       },
     },
   } as unknown as SqliteIndex;
+  const importAsset = vi.fn(async (stagingPath: string) => {
+    fs.copyFileSync(stagingPath, outputCasPath);
+    return {
+      ref: { hash: outputHash, type: 'video' as const, format: 'mp4', path: outputCasPath },
+      meta: {
+        hash: outputHash,
+        type: 'video' as const,
+        format: 'mp4',
+        fileSize: 12,
+        createdAt: 1,
+      },
+    };
+  });
   const cas = {
     getAssetsRoot: () => root,
     getAssetPath: (hash: string) => (hash === sourceHash ? sourcePath : outputCasPath),
-    importAsset: vi.fn(async (stagingPath: string) => {
-      fs.copyFileSync(stagingPath, outputCasPath);
-      return {
-        ref: { hash: outputHash, type: 'video' as const, format: 'mp4', path: outputCasPath },
-        meta: {
-          hash: outputHash,
-          type: 'video' as const,
-          format: 'mp4',
-          fileSize: 12,
-          createdAt: 1,
-        },
-      };
-    }),
+    importAsset,
   } as unknown as CAS;
   const workflowEngine = {
     requireApprovedFinalExportManifest: vi.fn(() => {
@@ -214,11 +238,19 @@ function harness(root: string, approved = true, sourceExists = true) {
   const render = vi.fn(async (_segments: unknown, stagingPath: string) => {
     fs.writeFileSync(stagingPath, 'rendered-video');
   });
+  const probe = vi.fn(async () => ({
+    durationSeconds: 5,
+    width: actualResolution.width,
+    height: actualResolution.height,
+    fps: 24,
+    hasAudio: true,
+  }));
   const service = createFinalExportService({
     db,
     cas,
     workflowEngine,
     renderTimeline: render as never,
+    probeMedia: probe,
     resolveFfmpegBinary: () => path.join(root, 'ffmpeg.exe'),
     now: (() => {
       let now = 1_000;
@@ -240,6 +272,8 @@ function harness(root: string, approved = true, sourceExists = true) {
     assets,
     sourcePath,
     outputCasPath,
+    importAsset,
+    probe,
   };
 }
 
@@ -293,6 +327,7 @@ describe('FinalExportService', () => {
       { inputPath: sourcePath, startTime: 0, duration: 5, speed: 1 },
     ]);
     expect(fs.readFileSync(destination, 'utf8')).toBe('rendered-video');
+    expect(render.mock.calls[0]?.[2]).toMatchObject({ fitMode: 'stretch' });
     const repeated = await service.startApproved({
       workflowRunId: 'run-1',
       canvasId: 'canvas-1',
@@ -302,6 +337,63 @@ describe('FinalExportService', () => {
     });
     expect(repeated.jobId).toBe(first.jobId);
     expect(render).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the approved v2 fit policy and persists the probed output resolution', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-final-service-v2-'));
+    roots.push(root);
+    const destination = path.join(root, 'Signal.mp4');
+    const { service, render, probe, assets } = harness(root, true, true, 2);
+
+    const started = await service.startApproved({
+      workflowRunId: 'run-1',
+      canvasId: 'canvas-1',
+      expectedManifestRevision: 1,
+      expectedManifestHash: 'a'.repeat(64),
+      destinationPath: destination,
+    });
+    await vi.waitFor(() => expect(service.getStatus(started.jobId).stage).toBe('completed'));
+
+    expect(render.mock.calls[0]?.[2]).toMatchObject({
+      fitMode: 'contain',
+      backgroundColor: '#000000',
+    });
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(assets.get('c'.repeat(64))).toMatchObject({
+      width: 1920,
+      height: 1080,
+      duration: 5,
+      generationMetadata: {
+        provider: 'local-ffmpeg',
+        resolution: {
+          requested: { mode: 'exact', width: 1920, height: 1080 },
+          actual: { width: 1920, height: 1080 },
+        },
+      },
+    });
+  });
+
+  it('fails before CAS import when the rendered output does not match the approved resolution', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-final-service-mismatch-'));
+    roots.push(root);
+    const destination = path.join(root, 'Signal.mp4');
+    const { service, importAsset } = harness(root, true, true, 2, {
+      width: 1280,
+      height: 720,
+    });
+
+    const started = await service.startApproved({
+      workflowRunId: 'run-1',
+      canvasId: 'canvas-1',
+      expectedManifestRevision: 1,
+      expectedManifestHash: 'a'.repeat(64),
+      destinationPath: destination,
+    });
+    await vi.waitFor(() => expect(service.getStatus(started.jobId).stage).toBe('failed'));
+
+    expect(service.getStatus(started.jobId).error).toMatch(/approved 1920x1080, actual 1280x720/i);
+    expect(importAsset).not.toHaveBeenCalled();
+    expect(fs.existsSync(destination)).toBe(false);
   });
 
   it('persists a failed execution and never starts FFmpeg when a CAS source is missing', async () => {

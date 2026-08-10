@@ -1,8 +1,9 @@
 import type { AgentTool, AgentToolRegistry } from '../tool-registry.js';
+import { COMMANDER_GUIDE_LIMITS, type CommanderPromptGuide } from '@lucid-fin/contracts';
 import { ok, fail } from './tool-result-helpers.js';
 
 export interface MetaToolDeps {
-  promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>;
+  promptGuides?: CommanderPromptGuide[];
   context?: string;
   /** Callback to trigger mid-loop context compaction. Optional instructions guide the summary focus. */
   compactContext?: (
@@ -58,22 +59,6 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
           return ok(grouped);
         }
 
-        if (typeof rawNames === 'string') {
-          const name = rawNames.trim();
-          const tool = registry.get(name);
-          if (!tool) {
-            return {
-              success: false,
-              error: `Tool '${name}' not found. Call tool.get() with no arguments to see all available tools.`,
-            };
-          }
-          return ok({
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.parameters,
-          });
-        }
-
         if (Array.isArray(rawNames)) {
           const results: Array<{
             name: string;
@@ -107,7 +92,7 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
           return ok(response);
         }
 
-        return { success: false, error: 'names must be a string or array of strings' };
+        return { success: false, error: 'names must be an array of strings' };
       } catch (error) {
         return fail(error);
       }
@@ -118,7 +103,7 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
     name: 'guide.get',
     description: [
       'Two modes:',
-      '  If `ids` is provided: fetch prompt guide content by id (one or many).',
+      '  If `ids` is provided: fetch bounded prompt-guide content chunks for one or two ids. Continue from `nextOffset` until `truncated` is false.',
       '  If `ids` is omitted: list all available guides (id and name only, with offset/limit pagination). Use this when the user asks what workflows, skills, or guides are available.',
     ].join('\n'),
     tags: ['meta', 'guide', 'read'],
@@ -129,7 +114,7 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
         ids: {
           type: 'array',
           items: { type: 'string', description: 'Guide id.' },
-          description: 'Guide id or array of guide ids to fetch. Omit to list all guides.',
+          description: 'Array of one or two guide ids to fetch. Omit to list all guides.',
         },
         offset: {
           type: 'number',
@@ -139,7 +124,15 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
         limit: {
           type: 'number',
           description:
-            'Max items to return for listing. Default 50. Only used when ids is omitted.',
+            'Max items to return for listing. Default and maximum 100. Only used when ids is omitted.',
+        },
+        contentOffset: {
+          type: 'number',
+          description: 'Character offset for guide content chunks. Default 0.',
+        },
+        contentLimit: {
+          type: 'number',
+          description: 'Characters per guide content chunk. Default and maximum 8000.',
         },
       },
       required: [],
@@ -156,9 +149,14 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
         ) {
           const guides = promptGuides.map(({ id, name }) => ({ id, name }));
           const offset =
-            typeof args.offset === 'number' && args.offset >= 0 ? Math.floor(args.offset) : 0;
-          const limit =
-            typeof args.limit === 'number' && args.limit > 0 ? Math.floor(args.limit) : 50;
+            typeof args.offset === 'number' && Number.isFinite(args.offset) && args.offset >= 0
+              ? Math.floor(args.offset)
+              : 0;
+          const requestedLimit =
+            typeof args.limit === 'number' && Number.isFinite(args.limit) && args.limit > 0
+              ? Math.floor(args.limit)
+              : COMMANDER_GUIDE_LIMITS.defaultGuideListItems;
+          const limit = Math.min(requestedLimit, COMMANDER_GUIDE_LIMITS.maxGuideListItems);
           return ok({
             total: guides.length,
             offset,
@@ -167,44 +165,78 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
           });
         }
 
-        if (typeof rawIds === 'string') {
-          const id = rawIds.trim();
-          if (!id) {
-            throw new Error('ids is required');
-          }
+        if (!Array.isArray(rawIds) || rawIds.some((id) => typeof id !== 'string')) {
+          throw new Error('ids must be an array of strings');
+        }
+        if (rawIds.length > COMMANDER_GUIDE_LIMITS.maxGuideGetIds) {
+          throw new Error(`ids accepts at most ${COMMANDER_GUIDE_LIMITS.maxGuideGetIds} guide ids`);
+        }
+
+        const ids = rawIds.map((id) => id.trim());
+        if (ids.some((id) => id.length === 0)) {
+          throw new Error('ids must contain non-empty guide ids');
+        }
+        const requestedOffset =
+          typeof args.contentOffset === 'number' &&
+          Number.isFinite(args.contentOffset) &&
+          args.contentOffset >= 0
+            ? Math.floor(args.contentOffset)
+            : 0;
+        const requestedContentLimit =
+          typeof args.contentLimit === 'number' &&
+          Number.isFinite(args.contentLimit) &&
+          args.contentLimit > 0
+            ? Math.floor(args.contentLimit)
+            : COMMANDER_GUIDE_LIMITS.maxGuideGetContentChars;
+        const contentLimit = Math.min(
+          requestedContentLimit,
+          COMMANDER_GUIDE_LIMITS.maxGuideGetContentChars,
+        );
+
+        const results: Array<{
+          id: string;
+          name: string;
+          content: string;
+          totalChars: number;
+          contentOffset: number;
+          contentLength: number;
+          truncated: boolean;
+          nextOffset?: number;
+        }> = [];
+        const notFound: string[] = [];
+        for (const id of ids) {
           const guide = promptGuides.find((entry) => entry.id === id);
           if (!guide) {
-            throw new Error(`Guide not found: ${id}`);
+            notFound.push(id);
+            continue;
           }
-          return ok(guide);
+          const totalChars = guide.content.length;
+          const contentOffset = Math.min(requestedOffset, totalChars);
+          const content = guide.content.slice(contentOffset, contentOffset + contentLimit);
+          const nextOffset = contentOffset + content.length;
+          const truncated = nextOffset < totalChars;
+          results.push({
+            id: guide.id,
+            name: guide.name,
+            content,
+            totalChars,
+            contentOffset,
+            contentLength: content.length,
+            truncated,
+            ...(truncated ? { nextOffset } : {}),
+          });
         }
-
-        if (Array.isArray(rawIds)) {
-          const results: Array<{ id: string; name: string; content: string }> = [];
-          const notFound: string[] = [];
-          for (const entry of rawIds) {
-            const id = typeof entry === 'string' ? entry.trim() : String(entry);
-            const guide = promptGuides.find((g) => g.id === id);
-            if (!guide) {
-              notFound.push(id);
-              continue;
-            }
-            results.push({ id: guide.id, name: guide.name, content: guide.content });
-          }
-          if (results.length === 0 && notFound.length > 0) {
-            return {
-              success: false,
-              error: `None of the requested guides were found: [${notFound.join(', ')}]. Call guide.get() with no arguments to see all available guides.`,
-            };
-          }
-          const response: Record<string, unknown> = { guides: results };
-          if (notFound.length > 0) {
-            response.notFound = notFound;
-          }
-          return ok(response);
+        if (results.length === 0 && notFound.length > 0) {
+          return {
+            success: false,
+            error: `None of the requested guides were found: [${notFound.join(', ')}]. Call guide.get() with no arguments to see all available guides.`,
+          };
         }
-
-        throw new Error('ids must be a string or array of strings');
+        const response: Record<string, unknown> = { guides: results };
+        if (notFound.length > 0) {
+          response.notFound = notFound;
+        }
+        return ok(response);
       } catch (error) {
         return fail(error);
       }

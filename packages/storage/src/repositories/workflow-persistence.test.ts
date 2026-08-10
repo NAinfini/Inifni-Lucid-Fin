@@ -399,4 +399,164 @@ describe('persistent workflow documents and approvals', () => {
     expect(repo.getRun('run-1' as WorkflowRunId)?.rowVersion).toBe(6);
     index.close();
   });
+
+  it.each([
+    ['production_plan', 'production-plan'],
+    ['visual_constitution', 'visual-constitution'],
+    ['final_export', 'final-export'],
+  ] as const)(
+    'atomically rejects the %s gate and reopens its producer without cloning the subject',
+    (gateKey, logicalKey) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-workflow-revise-'));
+      roots.push(root);
+      const index = openIndex(path.join(root, 'project.db'));
+      const repo = index.repos.workflows;
+      repo.insertRun(makeRun('run-1'));
+      const original = makeDocument('doc-1', 'run-1', logicalKey, 1, 'sha-1');
+      repo.createDocument(original);
+      const originalApproval = makeApproval(
+        'approval-1',
+        'run-1',
+        gateKey,
+        logicalKey,
+        1,
+        'sha-1',
+        'token-1',
+      );
+      repo.createPendingApproval(originalApproval);
+      const producerTaskId =
+        gateKey === 'production_plan'
+          ? 'production-plan'
+          : gateKey === 'visual_constitution'
+            ? 'style-audition'
+            : 'final-export';
+      repo.insertStageRun({
+        id: 'producer-stage',
+        workflowRunId: 'run-1',
+        stageId: 'producer-stage',
+        name: 'Producer',
+        status: 'blocked',
+        order: 0,
+        progress: 100,
+        completedTasks: 1,
+        totalTasks: 1,
+        metadata: {},
+        updatedAt: 200,
+      });
+      repo.insertTaskRun({
+        id: 'producer-task',
+        workflowRunId: 'run-1',
+        stageRunId: 'producer-stage',
+        taskId: producerTaskId,
+        name: 'Producer',
+        kind: 'validation',
+        status: 'completed',
+        dependencyIds: [],
+        attempts: 0,
+        maxRetries: 0,
+        input: { executionMode: 'external' },
+        output: { old: true },
+        progress: 100,
+        completedAt: 200,
+        updatedAt: 200,
+      });
+      const revised = repo.reviseGate({
+        workflowRunId: 'run-1' as WorkflowRunId,
+        gateKey,
+        action: 'request_changes',
+        reason: 'Strengthen continuity.',
+        expectedRowVersion: 1,
+        expectedSubjectRevision: 1,
+        expectedSubjectHash: 'sha-1',
+        producerTaskRunId: 'producer-task',
+        eventId: 'event-revised',
+        actor: 'user',
+        revisedAt: 400,
+      });
+
+      expect(revised).toMatchObject({
+        ok: true,
+        code: 'revision_requested',
+        run: {
+          status: 'ready',
+          currentGate: undefined,
+          currentTaskId: 'producer-task',
+          rowVersion: 2,
+        },
+        previousApproval: { id: 'approval-1', status: 'rejected' },
+        producerTask: {
+          id: 'producer-task',
+          status: 'ready',
+          currentStep: 'revision_requested',
+          input: { revisionRequest: { reason: 'Strengthen continuity.' } },
+        },
+        event: { seq: 1 },
+      });
+      expect(repo.getPendingApproval('run-1' as WorkflowRunId, gateKey)).toBeUndefined();
+      expect(repo.getLatestDocument('run-1' as WorkflowRunId, logicalKey)).toMatchObject({
+        id: 'doc-1',
+        revision: 1,
+      });
+      expect(index.rawDb.prepare('SELECT COUNT(*) AS count FROM workflow_approvals').get()).toEqual(
+        { count: 1 },
+      );
+      expect(repo.listEvents('run-1' as WorkflowRunId)).toEqual([
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            type: 'workflow.gate.changes_requested',
+            gateKey,
+            reason: 'Strengthen continuity.',
+          }),
+        }),
+      ]);
+      index.close();
+    },
+  );
+
+  it('rolls back every gate-revision write when the run CAS is stale', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-workflow-revise-stale-'));
+    roots.push(root);
+    const index = openIndex(path.join(root, 'project.db'));
+    const repo = index.repos.workflows;
+    repo.insertRun(makeRun('run-1'));
+    const original = makeDocument('doc-1', 'run-1', 'production-plan', 1, 'sha-1');
+    repo.createDocument(original);
+    repo.createPendingApproval(
+      makeApproval(
+        'approval-1',
+        'run-1',
+        'production_plan',
+        'production-plan',
+        1,
+        'sha-1',
+        'token-1',
+      ),
+    );
+
+    const result = repo.reviseGate({
+      workflowRunId: 'run-1' as WorkflowRunId,
+      gateKey: 'production_plan',
+      action: 'reject',
+      reason: 'Stale rejection.',
+      expectedRowVersion: 0,
+      expectedSubjectRevision: 1,
+      expectedSubjectHash: 'sha-1',
+      producerTaskRunId: 'producer-task',
+      eventId: 'event-stale',
+      actor: 'user',
+      revisedAt: 400,
+    });
+
+    expect(result).toMatchObject({ ok: false, code: 'stale_row_version' });
+    expect(repo.getLatestDocument('run-1' as WorkflowRunId, 'production-plan')).toMatchObject({
+      id: 'doc-1',
+      revision: 1,
+    });
+    expect(repo.getPendingApproval('run-1' as WorkflowRunId, 'production_plan')).toMatchObject({
+      id: 'approval-1',
+      status: 'pending',
+    });
+    expect(repo.listEvents('run-1' as WorkflowRunId)).toEqual([]);
+    index.close();
+  });
 });

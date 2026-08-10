@@ -98,6 +98,7 @@ describe('detectProcess', () => {
     expect(detectProcess('canvas.configureNode')).toBe('node-provider-selection');
     expect(detectProcess('canvas.generation')).toBe('image-node-generation');
     expect(detectProcess('canvas.setMediaParams')).toBe('media-config');
+    expect(detectProcess('provider.resolveResolution')).toBe('media-config');
     expect(detectProcess('canvas.setMediaParams')).toBe('media-config');
     expect(detectProcess('canvas.setMediaParams')).toBe('media-config');
   });
@@ -120,7 +121,9 @@ describe('detectProcess', () => {
     expect(detectProcess('render.cancel')).toBe('render-and-export');
     expect(detectProcess('render.exportBundle')).toBe('render-and-export');
     expect(detectProcess('workflow.manage')).toBe('workflow-orchestration');
-    expect(detectProcess('workflow.manage')).toBe('workflow-orchestration');
+    expect(detectProcess('workflow.visual')).toBe('workflow-orchestration');
+    expect(detectProcess('workflow.media')).toBe('workflow-orchestration');
+    expect(detectProcess('workflow.finalExport')).toBe('workflow-orchestration');
   });
 
   it('returns null for unrelated or nonexistent tools', () => {

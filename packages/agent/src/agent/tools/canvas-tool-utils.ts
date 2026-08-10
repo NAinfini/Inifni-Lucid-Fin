@@ -10,6 +10,8 @@ import {
   type PresetTrack,
   type PresetTrackEntry,
   type PresetTrackSet,
+  type ResolutionIntent,
+  type ResolutionPreflightResult,
 } from '@lucid-fin/contracts';
 import { isGeneratableMedia, isVisualMedia } from '@lucid-fin/shared-utils';
 import type { AgentTool } from '../tool-registry.js';
@@ -41,7 +43,20 @@ export interface CanvasToolDeps {
     providerId?: string,
     variantCount?: number,
     finalPrompt?: string,
+    promptInputMode?: 'base' | 'precompiled',
   ) => Promise<void>;
+  /** Host-load the selected asset's exact provider prompt and append feedback. */
+  preparePromptRefinement?: (
+    canvasId: string,
+    nodeId: string,
+    feedback: string,
+  ) => Promise<{
+    sourceAssetHash: string;
+    basePrompt: string;
+    basePromptHash: string;
+    prompt: string;
+    promptHash: string;
+  }>;
   cancelGeneration: (canvasId: string, nodeId: string) => Promise<void>;
   deleteNode: (canvasId: string, nodeId: string) => Promise<void>;
   deleteEdge: (canvasId: string, edgeId: string) => Promise<void>;
@@ -50,6 +65,14 @@ export interface CanvasToolDeps {
     nodeId: string,
     data: Record<string, unknown>,
   ) => Promise<void>;
+  /** Delete fields instead of persisting undefined sentinels. */
+  clearNodeDataFields?: (canvasId: string, nodeId: string, fields: string[]) => Promise<void>;
+  /** Local-only resolution capability and cost preflight; never starts generation. */
+  preflightResolution?: (
+    canvasId: string,
+    nodeId: string,
+    intent?: ResolutionIntent,
+  ) => Promise<ResolutionPreflightResult>;
   listPresets: (
     category?: PresetCategory,
   ) => Promise<import('@lucid-fin/contracts').PresetDefinition[]>;
@@ -125,6 +148,41 @@ export function requireDirection(
     return value;
   }
   throw new Error('direction must be "horizontal", "vertical", or "auto"');
+}
+
+export function parseResolutionIntent(value: unknown, key = 'resolution'): ResolutionIntent {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`${key} must be a resolution intent object`);
+  }
+  const raw = value as Record<string, unknown>;
+  const aspectRatio =
+    typeof raw.aspectRatio === 'string' && raw.aspectRatio.trim()
+      ? raw.aspectRatio.trim()
+      : undefined;
+  if (raw.mode === 'provider-default') {
+    return aspectRatio ? { mode: 'provider-default', aspectRatio } : { mode: 'provider-default' };
+  }
+  if (raw.mode === 'tier') {
+    if (typeof raw.tier !== 'string' || !raw.tier.trim()) {
+      throw new Error(`${key}.tier must be a non-empty string`);
+    }
+    const tier = raw.tier.trim();
+    return aspectRatio ? { mode: 'tier', tier, aspectRatio } : { mode: 'tier', tier };
+  }
+  if (raw.mode === 'exact') {
+    if (
+      typeof raw.width !== 'number' ||
+      !Number.isFinite(raw.width) ||
+      raw.width < 1 ||
+      typeof raw.height !== 'number' ||
+      !Number.isFinite(raw.height) ||
+      raw.height < 1
+    ) {
+      throw new Error(`${key} exact mode requires positive numeric width and height`);
+    }
+    return { mode: 'exact', width: Math.floor(raw.width), height: Math.floor(raw.height) };
+  }
+  throw new Error(`${key}.mode must be provider-default, exact, or tier`);
 }
 
 export function requirePosition(args: Record<string, unknown>): { x: number; y: number } {

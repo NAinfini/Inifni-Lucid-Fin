@@ -3,6 +3,7 @@ import { getLgplVideoCodecConfig } from './codec-policy.js';
 import { writeFileSync, unlinkSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, isAbsolute, dirname, resolve, sep } from 'path';
+import type { FinalExportFitMode } from '@lucid-fin/contracts';
 
 /** Inline counting semaphore — avoids depending on @lucid-fin/application. */
 class Semaphore {
@@ -47,6 +48,9 @@ export interface RenderOptions {
   /** Optional root directory — all input paths must resolve within it */
   assetRoot?: string;
   signal?: AbortSignal;
+  /** Missing preserves the legacy v1 stretch behavior. */
+  fitMode?: FinalExportFitMode;
+  backgroundColor?: string;
 }
 
 export interface RenderSegment {
@@ -108,6 +112,21 @@ function validateOutputPath(outputPath: string): void {
     throw new Error(`Output directory does not exist: ${dirname(outputPath)}`);
 }
 
+function buildScaleFilter(options: RenderOptions): string {
+  const width = `trunc(${options.width}/2)*2`;
+  const height = `trunc(${options.height}/2)*2`;
+  const fitMode = options.fitMode ?? 'stretch';
+  if (fitMode === 'stretch') return `scale=${width}:${height}`;
+  if (fitMode === 'cover') {
+    return `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1`;
+  }
+  const backgroundColor = options.backgroundColor ?? '#000000';
+  if (!/^#[0-9a-f]{6}$/i.test(backgroundColor)) {
+    throw new Error('backgroundColor must be a six-digit hex color');
+  }
+  return `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=0x${backgroundColor.slice(1)},setsar=1`;
+}
+
 function renderTimelineInternal(
   segments: RenderSegment[],
   outputPath: string,
@@ -129,7 +148,7 @@ function renderTimelineInternal(
     .join('\n');
   writeFileSync(listPath, listContent, 'utf8');
 
-  const scaleFilter = `scale=trunc(${options.width}/2)*2:trunc(${options.height}/2)*2`;
+  const scaleFilter = buildScaleFilter(options);
 
   const cmd = createCommand()
     .input(listPath)
@@ -171,7 +190,7 @@ function renderSingleSegmentInternal(
     .duration(duration)
     .videoCodec(renderCodec.encoder)
     .addOutputOptions([
-      `-vf setpts=${(1 / options.speed).toFixed(4)}*PTS,scale=trunc(${options.width}/2)*2:trunc(${options.height}/2)*2`,
+      `-vf setpts=${(1 / options.speed).toFixed(4)}*PTS,${buildScaleFilter(options)}`,
       `-r ${options.fps}`,
       ...codecCfg.opts,
       ...renderCodec.outputOptions,

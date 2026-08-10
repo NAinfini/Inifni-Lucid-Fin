@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LLMAdapter } from '@lucid-fin/contracts';
+import {
+  listBuiltinMediaProviders,
+  listBuiltinVisionProviderPresets,
+  type LLMAdapter,
+} from '@lucid-fin/contracts';
 import type { Keychain } from '@lucid-fin/storage';
-import { listBuiltinLLMProviderPresets } from '@lucid-fin/adapters-ai';
+import { AdapterRegistry, listBuiltinLLMProviderPresets } from '@lucid-fin/adapters-ai';
 
 const logger = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -97,42 +101,14 @@ describe('createAdapterRegistry', () => {
   it('registers every built-in media adapter used by settings', () => {
     const registry = createAdapterRegistry();
 
-    expect(
-      registry
-        .list()
-        .map((adapter) => adapter.id)
-        .sort(),
-    ).toEqual([
-      'cartesia-sonic',
-      'comfyui-local',
-      'elevenlabs-sfx',
-      'elevenlabs-v2',
-      'fish-audio-v1',
-      'google-imagen3',
-      'google-veo-2',
-      'higgsfield-v1',
-      'hunyuan-video',
-      'ideogram',
-      'kling-v1',
-      'leonardo-v2',
-      'luma-ray2',
-      'minimax-video01',
-      'musicgen-local',
-      'ollama-local',
-      'openai-dalle',
-      'openai-tts-1-hd',
-      'pika-v2',
-      'playht-3',
-      'recraft-v4',
-      'replicate',
-      'runway-gen4',
-      'sd-webui-local',
-      'seedance-2',
-      'stability-audio-v2',
-      'suno-v4',
-      'udio',
-      'wan-2.1',
-    ]);
+    for (const provider of listBuiltinMediaProviders().filter(
+      (entry) => entry.access !== 'managed',
+    )) {
+      expect(
+        registry.resolve(provider.providerId, provider.group)?.id,
+        `missing ${provider.group}:${provider.providerId}`,
+      ).toBe(provider.adapterId);
+    }
   });
 });
 
@@ -146,7 +122,7 @@ describe('createLLMRegistry', () => {
         .map((adapter) => adapter.id)
         .sort(),
     ).toEqual(
-      listBuiltinLLMProviderPresets()
+      [...listBuiltinLLMProviderPresets(), ...listBuiltinVisionProviderPresets()]
         .map((preset) => preset.id)
         .sort(),
     );
@@ -154,6 +130,30 @@ describe('createLLMRegistry', () => {
 });
 
 describe('restoreAdapterKeys', () => {
+  it('does not query the API-key keychain for OAuth adapters', async () => {
+    const registry = new AdapterRegistry();
+    registry.register({
+      id: 'oauth-image',
+      name: 'OAuth image',
+      type: 'image',
+      capabilities: ['text-to-image'],
+      maxConcurrent: 1,
+      credentialMode: 'oauth',
+      configure: vi.fn(),
+      validate: vi.fn().mockResolvedValue(true),
+      generate: vi.fn(),
+      estimateCost: vi.fn(),
+      checkStatus: vi.fn(),
+      cancel: vi.fn(),
+    } as never);
+    const keychain = { getKey: vi.fn() } as Pick<Keychain, 'getKey'> as Keychain;
+    const emptyLLMRegistry = { list: () => [] } as never;
+
+    await restoreAdapterKeys(keychain, registry, emptyLLMRegistry);
+
+    expect(keychain.getKey).not.toHaveBeenCalled();
+  });
+
   it('restores media keys saved under registry ids onto the registered adapters', async () => {
     const registry = createAdapterRegistry();
     const llmRegistry = createLLMRegistry();

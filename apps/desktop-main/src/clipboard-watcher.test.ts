@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const readTextMock = vi.hoisted(() => vi.fn());
 
@@ -7,6 +7,12 @@ vi.mock('electron', () => ({
     readText: readTextMock,
   },
 }));
+
+import {
+  setClipboardWatcherEnabled,
+  startClipboardWatcher,
+  stopClipboardWatcher,
+} from './clipboard-watcher.js';
 
 function createWindow(isFocused = false) {
   return {
@@ -18,23 +24,26 @@ function createWindow(isFocused = false) {
   };
 }
 
-async function loadModule() {
-  vi.resetModules();
-  return import('./clipboard-watcher.js');
-}
-
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.useFakeTimers();
   vi.clearAllTimers();
   readTextMock.mockReset();
+  setClipboardWatcherEnabled(true);
+});
+
+afterEach(() => {
+  stopClipboardWatcher();
+  setClipboardWatcherEnabled(true);
+  vi.clearAllTimers();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('clipboard watcher', () => {
   it('emits clipboard:ai-detected when unfocused clipboard text changes to a long value', async () => {
     const longText = 'A'.repeat(120);
     readTextMock.mockReturnValueOnce('existing').mockReturnValueOnce(longText);
-    const { startClipboardWatcher, stopClipboardWatcher } = await loadModule();
     const win = createWindow(false);
 
     startClipboardWatcher(win as never);
@@ -49,7 +58,6 @@ describe('clipboard watcher', () => {
 
   it('does not read or emit when the window is focused', async () => {
     readTextMock.mockReturnValueOnce('existing').mockReturnValueOnce('B'.repeat(120));
-    const { startClipboardWatcher, stopClipboardWatcher } = await loadModule();
     const win = createWindow(true);
 
     startClipboardWatcher(win as never);
@@ -68,8 +76,6 @@ describe('clipboard watcher', () => {
       .mockReturnValueOnce('existing')
       .mockReturnValueOnce(shortText)
       .mockReturnValueOnce(longText);
-    const { setClipboardWatcherEnabled, startClipboardWatcher, stopClipboardWatcher } =
-      await loadModule();
     const win = createWindow(false);
 
     startClipboardWatcher(win as never);
@@ -92,7 +98,6 @@ describe('clipboard watcher', () => {
 
   it('stops polling after stopClipboardWatcher is called', async () => {
     readTextMock.mockReturnValueOnce('existing').mockReturnValueOnce('D'.repeat(120));
-    const { startClipboardWatcher, stopClipboardWatcher } = await loadModule();
     const win = createWindow(false);
 
     startClipboardWatcher(win as never);

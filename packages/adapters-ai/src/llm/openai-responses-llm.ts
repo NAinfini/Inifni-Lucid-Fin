@@ -6,6 +6,7 @@ import type {
   LLMProviderAuthStyle,
   LLMRequestOptions,
   LLMToolCall,
+  ProviderProfile,
 } from '@lucid-fin/contracts';
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
 import { normalizeOpenAICompatibleBaseUrl } from './openai-compatible-base.js';
@@ -68,6 +69,20 @@ function extractTextFromResponse(response: Record<string, unknown>): string {
   return chunks.join('');
 }
 
+function responsesMessageContent(message: LLMMessage): unknown {
+  if (!message.images?.length) return message.content;
+
+  const content: Array<Record<string, unknown>> = [];
+  if (message.content) content.push({ type: 'input_text', text: message.content });
+  for (const image of message.images) {
+    const imageUrl = image.data.startsWith('data:')
+      ? image.data
+      : `data:${image.mimeType};base64,${image.data}`;
+    content.push({ type: 'input_image', image_url: imageUrl });
+  }
+  return content;
+}
+
 function stringifyUrl(url: URL): string {
   const pathname = url.pathname === '/' ? '' : url.pathname.replace(/\/+$/, '');
   return `${url.origin}${pathname}${url.search}${url.hash}`;
@@ -93,6 +108,7 @@ export class OpenAIResponsesLLM implements LLMAdapter {
   readonly id: string;
   readonly name: string;
   readonly capabilities: Capability[];
+  readonly profile: ProviderProfile;
   contextWindow?: number;
   userContextWindow?: number;
   get effectiveContextWindow(): number | undefined {
@@ -110,6 +126,14 @@ export class OpenAIResponsesLLM implements LLMAdapter {
     this.baseUrl = normalizeResponsesBaseUrl(cfg.defaultBaseUrl);
     this.model = cfg.defaultModel;
     this.authStyle = cfg.authStyle ?? 'bearer';
+    this.profile = {
+      providerId: cfg.id,
+      charsPerToken: 4,
+      sanitizeToolNames: true,
+      maxUtilization: 0.8,
+      outputReserveTokens: 8192,
+      reasoningModel: true,
+    };
     this.capabilities = cfg.capabilities ?? [
       'text-generation',
       'script-expand',
@@ -234,7 +258,7 @@ export class OpenAIResponsesLLM implements LLMAdapter {
 
       input.push({
         role: message.role,
-        content: message.content,
+        content: responsesMessageContent(message),
       });
     }
 
@@ -248,10 +272,10 @@ export class OpenAIResponsesLLM implements LLMAdapter {
       body.instructions = instructions;
     }
 
-    if (opts?.temperature !== undefined) {
+    if (!/^gpt-5/i.test(this.model) && opts?.temperature !== undefined) {
       body.temperature = opts.temperature;
     }
-    if (opts?.topP !== undefined) {
+    if (!/^gpt-5/i.test(this.model) && opts?.topP !== undefined) {
       body.top_p = opts.topP;
     }
 

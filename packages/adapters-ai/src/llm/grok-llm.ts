@@ -6,7 +6,7 @@ export class GrokLLMAdapter extends OpenAICompatibleLLM {
       id: 'grok',
       name: 'Grok',
       defaultBaseUrl: 'https://api.x.ai/v1',
-      defaultModel: 'grok-3',
+      defaultModel: 'grok-4.5',
     });
   }
 }

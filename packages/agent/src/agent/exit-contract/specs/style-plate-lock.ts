@@ -48,9 +48,9 @@ export function stylePlateLockPredicate(
   // over-optimization that required the defer mechanism.
   if (ctx.canvasSettings === undefined) return false;
 
-  const stylePlate = ctx.canvasSettings?.stylePlate;
-  const plateUnset = typeof stylePlate !== 'string' || stylePlate.trim() === '';
-  return plateUnset;
+  if (ctx.canvasSettings?.hasVisualStylePolicy) return false;
+  const legacyStylePlate = ctx.canvasSettings?.stylePlate;
+  return typeof legacyStylePlate !== 'string' || legacyStylePlate.trim() === '';
 }
 
 /**

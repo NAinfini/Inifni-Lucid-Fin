@@ -15,9 +15,15 @@ function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function setTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+  setter?.call(textarea, value);
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 function finalExportContext(): WorkflowApprovalContext {
   const manifest: FinalExportManifestContent = {
-    manifestVersion: 1,
+    manifestVersion: 2,
     workflowRunId: 'wf-final-1',
     productionPlan: { revision: 3, contentHash: 'plan-hash-3' },
     visualConstitution: { revision: 5, contentHash: 'visual-hash-5' },
@@ -38,6 +44,8 @@ function finalExportContext(): WorkflowApprovalContext {
         sourceStartSeconds: 0.5,
         durationSeconds: 2.25,
         speed: 1,
+        sourceWidth: 1080,
+        sourceHeight: 1920,
       },
       {
         order: 1,
@@ -53,6 +61,8 @@ function finalExportContext(): WorkflowApprovalContext {
         sourceStartSeconds: 0,
         durationSeconds: 4,
         speed: 1,
+        sourceWidth: 1280,
+        sourceHeight: 720,
       },
     ],
     audioTracks: [],
@@ -68,10 +78,30 @@ function finalExportContext(): WorkflowApprovalContext {
       audioCodec: 'aac',
       pixelFormat: 'yuv420p',
       overwritePolicy: 'fail',
+      fitMode: 'contain',
+      backgroundColor: '#000000',
     },
     expectedDurationMs: 6250,
     estimatedDurationSeconds: 6.25,
     maxRenderAttempts: 2,
+    resolutionRisks: [
+      {
+        code: 'aspect_padding',
+        severity: 'info',
+        nodeId: 'node-two',
+        message: 'Source aspect ratio will be padded to preserve composition',
+        source: { width: 1080, height: 1920 },
+        output: { width: 1920, height: 1080 },
+      },
+      {
+        code: 'upscale',
+        severity: 'warning',
+        nodeId: 'node-one',
+        message: 'Source will be upscaled 1.50×',
+        source: { width: 1280, height: 720 },
+        output: { width: 1920, height: 1080 },
+      },
+    ],
     capabilities: {
       embeddedClipAudio: true,
       separateAudioMix: false,
@@ -156,10 +186,18 @@ describe('FinalExportApprovalCard', () => {
       async () => ({ ok: true, code: 'approved' }) as ApproveWorkflowGateResult,
     );
     const onApproved = vi.fn();
+    const onRequestChanges = vi.fn(async () => undefined);
+    const onRequested = vi.fn();
 
     await act(async () => {
       root.render(
-        <FinalExportApprovalCard context={context} onApprove={onApprove} onApproved={onApproved} />,
+        <FinalExportApprovalCard
+          context={context}
+          onApprove={onApprove}
+          onApproved={onApproved}
+          onRequestChanges={onRequestChanges}
+          onRequested={onRequested}
+        />,
       );
       await flushPromises();
     });
@@ -177,11 +215,39 @@ describe('FinalExportApprovalCard', () => {
     expect(content).toContain('2.25s');
     expect(content).toContain('signal-final.mp4');
     expect(content).toContain('1920×1080');
+    expect(content).toContain('1080×1920');
+    expect(content).toContain('contain');
+    expect(content).toContain(t('finalExportApproval.resolutionRisks'));
+    expect(content).toContain(t('finalExportApproval.risk.aspect_padding'));
+    expect(content).toContain(t('finalExportApproval.risk.upscale'));
     expect(content).toContain(t('finalExportApproval.noAudioTracks'));
     expect(content).toContain(t('finalExportApproval.noSubtitleTracks'));
     expect(content).toContain(t('finalExportApproval.unavailable'));
     expect(content).toContain(t('finalExportApproval.changeWarning'));
     expect(onApprove).not.toHaveBeenCalled();
+
+    const requestChangesButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes(t('workflowApproval.requestChanges')),
+    );
+    await act(async () => {
+      requestChangesButton?.click();
+      await flushPromises();
+    });
+    const reason = container.querySelector<HTMLTextAreaElement>('textarea');
+    if (!reason) throw new Error('Expected a request-changes reason field');
+    await act(async () => {
+      setTextareaValue(reason, 'Please replace the opening shot before export.');
+      await flushPromises();
+    });
+    const submitChanges = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes(t('workflowApproval.submitRequestChanges')),
+    );
+    await act(async () => {
+      submitChanges?.click();
+      await flushPromises();
+    });
+    expect(onRequestChanges).toHaveBeenCalledWith('Please replace the opening shot before export.');
+    expect(onRequested).toHaveBeenCalledTimes(1);
 
     const approveButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes(t('finalExportApproval.approve')),

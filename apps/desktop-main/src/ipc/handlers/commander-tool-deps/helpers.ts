@@ -27,6 +27,7 @@ import {
   createTodoTools,
   type JobQueue,
   type WorkflowEngine,
+  type WorkflowCommanderContinuationConfig,
 } from '@lucid-fin/application';
 import { parseScript } from '@lucid-fin/domain';
 import {
@@ -56,11 +57,13 @@ import {
   type CanvasNode,
   type CanvasNote,
   type CanvasSettings,
+  type CommanderPromptGuide,
   type PresetCategory,
   type PresetDefinition,
   type PresetTrackSet,
   type ShotTemplate,
   type StyleGuide,
+  type LLMAdapter,
   normalizeLLMProviderRuntimeConfig,
   getBuiltinVisionProviderPreset,
 } from '@lucid-fin/contracts';
@@ -78,6 +81,7 @@ import {
 import type { BrowserWindow } from 'electron';
 import { createVideoTools } from '../video-tools.js';
 import { detectScenes, extractFrameAtTime } from '@lucid-fin/media-engine';
+import type { VisualAnalyzer } from '../../../services/visual-analyzer.service.js';
 
 export {
   fs,
@@ -215,6 +219,9 @@ export function saveScriptDocument(
 export interface ToolRegistrationDeps {
   adapterRegistry: AdapterRegistry;
   llmRegistry: LLMRegistry;
+  /** Configured LLM for this Commander run; reused for image analysis when visual-capable. */
+  activeLLMAdapter?: LLMAdapter;
+  visualAnalyzer: VisualAnalyzer;
   canvasStore: CanvasStore;
   presetLibrary: PresetDefinition[];
   jobQueue: JobQueue;
@@ -225,22 +232,16 @@ export interface ToolRegistrationDeps {
   promptStore: PromptStore;
   finalExportService: import('../../../services/final-export.service.js').FinalExportService;
   productionMediaService: import('../../../services/production-media.service.js').ProductionMediaService;
+  /** Host-built, keyless binding persisted atomically with a new production workflow. */
+  commanderContinuation?: WorkflowCommanderContinuationConfig;
 }
 
-type PromptGuide = { id: string; name: string; content: string };
-
 export function mergePromptGuidesWithBuiltIns(
-  promptGuides: PromptGuide[],
-  processPromptGuides?: PromptGuide[],
-): PromptGuide[] {
-  const merged: PromptGuide[] = [];
+  promptGuides: CommanderPromptGuide[],
+  processPromptGuides?: CommanderPromptGuide[],
+): CommanderPromptGuide[] {
+  const merged: CommanderPromptGuide[] = [];
   const seen = new Set<string>();
-
-  for (const guide of promptGuides) {
-    if (seen.has(guide.id)) continue;
-    seen.add(guide.id);
-    merged.push(guide);
-  }
 
   if (processPromptGuides) {
     for (const guide of processPromptGuides) {
@@ -248,6 +249,12 @@ export function mergePromptGuidesWithBuiltIns(
       seen.add(guide.id);
       merged.push(guide);
     }
+  }
+
+  for (const guide of promptGuides) {
+    if (seen.has(guide.id)) continue;
+    seen.add(guide.id);
+    merged.push(guide);
   }
 
   return merged;

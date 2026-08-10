@@ -2,13 +2,14 @@ import type { IpcMain } from 'electron';
 import * as electron from 'electron';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import type { CAS, SqliteIndex, Keychain } from '@lucid-fin/storage';
+import type { CAS, SqliteIndex } from '@lucid-fin/storage';
 import type { AssetType } from '@lucid-fin/contracts';
 import { parseAssetHash } from '@lucid-fin/contracts-parse';
 import log from '../../logger.js';
 import { assertValidAssetType } from '../validation.js';
 import { generateEmbeddingForAsset } from './embedding.handlers.js';
 import { assertSafePath, getImportSafeRoots } from '../path-safety.js';
+import type { VisualAnalyzer } from '../../services/visual-analyzer.service.js';
 
 const { dialog } = electron;
 
@@ -92,7 +93,7 @@ export function registerAssetHandlers(
   ipcMain: IpcMain,
   cas: CAS,
   db: SqliteIndex,
-  keychain?: Keychain,
+  visualAnalyzer?: VisualAnalyzer,
 ): void {
   ipcMain.handle('asset:import', async (_e, args: { filePath: string; type: AssetType }) => {
     if (!args.filePath || typeof args.filePath !== 'string')
@@ -107,8 +108,8 @@ export function registerAssetHandlers(
       filePath: args.filePath,
       hash: ref.hash,
     });
-    if (args.type === 'image' && keychain) {
-      void generateEmbeddingForAsset(cas, keychain, db, ref.hash).catch((err) =>
+    if (args.type === 'image' && visualAnalyzer) {
+      void generateEmbeddingForAsset(visualAnalyzer, db, ref.hash).catch((err) =>
         log.warn('Auto-embed failed after import', {
           category: 'embedding',
           hash: ref.hash,
@@ -140,8 +141,8 @@ export function registerAssetHandlers(
         hash: ref.hash,
         size: buf.length,
       });
-      if (args.type === 'image' && keychain) {
-        void generateEmbeddingForAsset(cas, keychain, db, ref.hash).catch((err) =>
+      if (args.type === 'image' && visualAnalyzer) {
+        void generateEmbeddingForAsset(visualAnalyzer, db, ref.hash).catch((err) =>
           log.warn('Auto-embed failed after buffer import', {
             category: 'embedding',
             hash: ref.hash,
@@ -176,8 +177,8 @@ export function registerAssetHandlers(
       filePath,
       hash: ref.hash,
     });
-    if (args.type === 'image' && keychain) {
-      void generateEmbeddingForAsset(cas, keychain, db, ref.hash).catch((err) =>
+    if (args.type === 'image' && visualAnalyzer) {
+      void generateEmbeddingForAsset(visualAnalyzer, db, ref.hash).catch((err) =>
         log.warn('Auto-embed failed after pick', {
           category: 'embedding',
           hash: ref.hash,

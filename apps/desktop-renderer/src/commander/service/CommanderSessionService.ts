@@ -14,6 +14,7 @@
 import {
   ENTITY_REFRESH_TOOL_ENTITY,
   normalizeLLMProviderRuntimeConfig,
+  type CommanderPromptGuide,
   type CommanderProcessBehaviorSettings,
 } from '@lucid-fin/contracts';
 
@@ -85,7 +86,6 @@ import {
 } from './telemetry.js';
 
 type CommanderEntityAPI = Pick<NonNullable<LucidAPI>, 'character' | 'equipment' | 'location'>;
-type CommanderPromptGuide = { id: string; name: string; content: string; autoInject?: boolean };
 
 /**
  * Map well-known runtime error strings (Electron IPC failures, AbortError
@@ -305,6 +305,9 @@ export class CommanderSessionService {
             model: activeProvider.model,
             protocol: activeProvider.protocol,
             authStyle: activeProvider.authStyle,
+            credentialMode: activeProvider.credentialMode,
+            oauthTarget: activeProvider.oauthTarget,
+            supportsVision: activeProvider.supportsVision,
             contextWindow: activeProvider.contextWindow,
           })
         : undefined;

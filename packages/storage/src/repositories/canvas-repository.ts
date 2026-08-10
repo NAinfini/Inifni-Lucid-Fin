@@ -26,7 +26,13 @@ import type {
   CanvasNode,
   CanvasEdge,
 } from '@lucid-fin/contracts';
-import { CanvasesTable, CanvasSchema, parseOrDegrade } from '@lucid-fin/contracts-parse';
+import {
+  CanvasesTable,
+  CanvasSchema,
+  ResolutionPolicySchema,
+  CanvasVisualStylePolicySchema,
+  parseOrDegrade,
+} from '@lucid-fin/contracts-parse';
 import type { Tx } from '../transactions.js';
 import type { CanvasNodeRepository } from './canvas-node-repository.js';
 import type { CanvasEdgeRepository } from './canvas-edge-repository.js';
@@ -57,6 +63,8 @@ type RawRow = {
   publish_height: number | null;
   publish_video_width: number | null;
   publish_video_height: number | null;
+  resolution_policy_json: string | null;
+  visual_style_policy_json: string | null;
   aspect_ratio: string | null;
   llm_provider_id: string | null;
   image_provider_id: string | null;
@@ -82,6 +90,8 @@ const SELECT_COLS = [
   C.publishImageHeight.sqlName,
   C.publishVideoWidth.sqlName,
   C.publishVideoHeight.sqlName,
+  C.resolutionPolicyJson.sqlName,
+  C.visualStylePolicyJson.sqlName,
   C.aspectRatio.sqlName,
   C.llmProviderId.sqlName,
   C.imageProviderId.sqlName,
@@ -129,11 +139,13 @@ export class CanvasRepository {
           ${C.refWidth.sqlName}, ${C.refHeight.sqlName},
           ${C.publishImageWidth.sqlName}, ${C.publishImageHeight.sqlName},
           ${C.publishVideoWidth.sqlName}, ${C.publishVideoHeight.sqlName},
+          ${C.resolutionPolicyJson.sqlName},
+          ${C.visualStylePolicyJson.sqlName},
           ${C.aspectRatio.sqlName},
           ${C.llmProviderId.sqlName}, ${C.imageProviderId.sqlName},
           ${C.videoProviderId.sqlName}, ${C.audioProviderId.sqlName},
           ${C.createdAt.sqlName}, ${C.updatedAt.sqlName})
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(${C.id.sqlName}) DO UPDATE SET
          ${C.name.sqlName}            = excluded.${C.name.sqlName},
          ${C.viewport.sqlName}        = excluded.${C.viewport.sqlName},
@@ -146,6 +158,8 @@ export class CanvasRepository {
          ${C.publishImageHeight.sqlName} = excluded.${C.publishImageHeight.sqlName},
          ${C.publishVideoWidth.sqlName}  = excluded.${C.publishVideoWidth.sqlName},
          ${C.publishVideoHeight.sqlName} = excluded.${C.publishVideoHeight.sqlName},
+         ${C.resolutionPolicyJson.sqlName} = excluded.${C.resolutionPolicyJson.sqlName},
+         ${C.visualStylePolicyJson.sqlName} = excluded.${C.visualStylePolicyJson.sqlName},
          ${C.aspectRatio.sqlName}     = excluded.${C.aspectRatio.sqlName},
          ${C.llmProviderId.sqlName}   = excluded.${C.llmProviderId.sqlName},
          ${C.imageProviderId.sqlName} = excluded.${C.imageProviderId.sqlName},
@@ -165,6 +179,8 @@ export class CanvasRepository {
       s.publishImageResolution?.height ?? null,
       s.publishVideoResolution?.width ?? null,
       s.publishVideoResolution?.height ?? null,
+      s.resolutionPolicy ? JSON.stringify(s.resolutionPolicy) : null,
+      s.visualStylePolicy ? JSON.stringify(s.visualStylePolicy) : null,
       s.aspectRatio ?? null,
       s.llmProviderId ?? null,
       s.imageProviderId ?? null,
@@ -198,7 +214,11 @@ export class CanvasRepository {
       [
         Exclude<
           keyof CanvasSettings,
-          'refResolution' | 'publishImageResolution' | 'publishVideoResolution'
+          | 'refResolution'
+          | 'publishImageResolution'
+          | 'publishVideoResolution'
+          | 'resolutionPolicy'
+          | 'visualStylePolicy'
         >,
         string,
       ]
@@ -231,6 +251,14 @@ export class CanvasRepository {
       const value = patch.publishVideoResolution;
       sets.push(`${C.publishVideoWidth.sqlName} = ?`, `${C.publishVideoHeight.sqlName} = ?`);
       params.push(value?.width ?? null, value?.height ?? null);
+    }
+    if ('resolutionPolicy' in patch) {
+      sets.push(`${C.resolutionPolicyJson.sqlName} = ?`);
+      params.push(patch.resolutionPolicy ? JSON.stringify(patch.resolutionPolicy) : null);
+    }
+    if ('visualStylePolicy' in patch) {
+      sets.push(`${C.visualStylePolicyJson.sqlName} = ?`);
+      params.push(patch.visualStylePolicy ? JSON.stringify(patch.visualStylePolicy) : null);
     }
     if (sets.length === 0) return 0;
     sets.push(`${C.updatedAt.sqlName} = ?`);
@@ -352,6 +380,24 @@ function rowToCanvas(
       width: row.publish_video_width,
       height: row.publish_video_height,
     };
+  }
+  if (row.resolution_policy_json) {
+    try {
+      const parsed = ResolutionPolicySchema.safeParse(JSON.parse(row.resolution_policy_json));
+      if (parsed.success) settings.resolutionPolicy = parsed.data;
+    } catch {
+      // Fault-soft read: legacy Canvas settings remain usable when this optional JSON is corrupt.
+    }
+  }
+  if (row.visual_style_policy_json) {
+    try {
+      const parsed = CanvasVisualStylePolicySchema.safeParse(
+        JSON.parse(row.visual_style_policy_json),
+      );
+      if (parsed.success) settings.visualStylePolicy = parsed.data;
+    } catch {
+      // Fault-soft read: legacy Canvas settings remain usable when this optional JSON is corrupt.
+    }
   }
   if (row.aspect_ratio && isCanvasAspectRatio(row.aspect_ratio)) {
     settings.aspectRatio = row.aspect_ratio;

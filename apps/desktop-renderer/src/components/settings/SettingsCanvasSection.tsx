@@ -1,10 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CanvasAspectRatio, CanvasSettings } from '@lucid-fin/contracts';
+import type {
+  CanvasAspectRatio,
+  CanvasSettings,
+  CanvasVisualStylePolicy,
+  ResolutionIntent,
+} from '@lucid-fin/contracts';
 import { useDispatch, useSelector } from 'react-redux';
 import { Palette, Image as ImageIcon, Layers } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
 import { updateCanvasSettings } from '../../store/slices/canvas/canvas.js';
 import { t } from '../../i18n.js';
+import type { ProviderConfig } from '../../store/slices/settings.js';
 import { Input } from '../ui/Input.js';
 import { Textarea } from '../ui/Textarea.js';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/Select.js';
@@ -41,7 +47,7 @@ const PUBLISH_IMAGE_PRESETS: Array<{
   { id: 'vertical-720p', width: 720, height: 1280, aspect: '9:16' },
 ];
 type PublishImagePresetId =
-  (typeof PUBLISH_IMAGE_PRESETS)[number]['id'] | 'provider-default' | 'custom';
+  (typeof PUBLISH_IMAGE_PRESETS)[number]['id'] | `tier:${string}` | 'provider-default' | 'custom';
 
 // Video-publishing presets. Dropped 4K because only Veo supports it —
 // everywhere else it would force a clamp-down.
@@ -57,7 +63,7 @@ const PUBLISH_VIDEO_PRESETS: Array<{
   { id: 'vertical-720p', width: 720, height: 1280, aspect: '9:16' },
 ];
 type PublishVideoPresetId =
-  (typeof PUBLISH_VIDEO_PRESETS)[number]['id'] | 'provider-default' | 'custom';
+  (typeof PUBLISH_VIDEO_PRESETS)[number]['id'] | `tier:${string}` | 'provider-default' | 'custom';
 
 // Ref-image presets: sizes accepted natively by every mainstream image
 // provider we ship (OpenAI gpt-image-1, Imagen 4, Flux 1.1 Pro/Ultra,
@@ -71,12 +77,19 @@ const REF_PRESETS: Array<{ id: string; width: number; height: number }> = [
   { id: 'ref-768-vertical', width: 768, height: 1344 },
   { id: 'ref-2048-square', width: 2048, height: 2048 },
 ];
-type RefPresetId = (typeof REF_PRESETS)[number]['id'] | 'provider-default' | 'custom';
+type RefPresetId =
+  (typeof REF_PRESETS)[number]['id'] | `tier:${string}` | 'provider-default' | 'custom';
 
 const DEFAULT_PUBLISH_IMAGE_PRESET: PublishImagePresetId = 'provider-default';
 const DEFAULT_PUBLISH_VIDEO_PRESET: PublishVideoPresetId = 'provider-default';
 const DEFAULT_ASPECT_RATIO = ''; // empty sentinel — means "canvas has no aspect override"
 const DEFAULT_REF_PRESET: RefPresetId = 'provider-default';
+
+export function isImageProviderSelectable(
+  provider: Pick<ProviderConfig, 'id' | 'hasKey'>,
+): boolean {
+  return provider.hasKey;
+}
 
 function detectPublishImagePreset(width: number, height: number): PublishImagePresetId {
   const match = PUBLISH_IMAGE_PRESETS.find((p) => p.width === width && p.height === height);
@@ -93,7 +106,8 @@ function detectRefPreset(width: number, height: number): RefPresetId {
   return match ? match.id : 'custom';
 }
 
-interface DraftState {
+export interface DraftState {
+  visualStylePolicy?: CanvasVisualStylePolicy;
   stylePlate: string;
   negativePrompt: string;
   publishImagePreset: PublishImagePresetId;
@@ -112,33 +126,64 @@ interface DraftState {
   audioProviderId: string;
 }
 
-function settingsToDraft(settings: CanvasSettings | undefined): DraftState {
-  const imgRes = settings?.publishImageResolution;
-  const imgPreset: PublishImagePresetId = imgRes
-    ? detectPublishImagePreset(imgRes.width, imgRes.height)
-    : DEFAULT_PUBLISH_IMAGE_PRESET;
-  const vidRes = settings?.publishVideoResolution;
-  const vidPreset: PublishVideoPresetId = vidRes
-    ? detectPublishVideoPreset(vidRes.width, vidRes.height)
-    : DEFAULT_PUBLISH_VIDEO_PRESET;
-  const refPreset: RefPresetId = settings?.refResolution
-    ? detectRefPreset(settings.refResolution.width, settings.refResolution.height)
-    : DEFAULT_REF_PRESET;
-  const refW = settings?.refResolution?.width ?? 0;
-  const refH = settings?.refResolution?.height ?? 0;
+function resolveDraftResolution<T extends string>(
+  intent: ResolutionIntent | undefined,
+  legacy: { width: number; height: number } | undefined,
+  detectExact: (width: number, height: number) => T,
+  fallback: T,
+): { preset: T | `tier:${string}` | 'provider-default'; width: string; height: string } {
+  if (intent?.mode === 'provider-default') {
+    return { preset: 'provider-default', width: '', height: '' };
+  }
+  if (intent?.mode === 'tier') {
+    return { preset: `tier:${intent.tier}`, width: '', height: '' };
+  }
+  const exact = intent?.mode === 'exact' ? intent : legacy;
+  return exact
+    ? {
+        preset: detectExact(exact.width, exact.height),
+        width: String(exact.width),
+        height: String(exact.height),
+      }
+    : { preset: fallback, width: '', height: '' };
+}
+
+export function settingsToDraft(settings: CanvasSettings | undefined): DraftState {
+  const image = resolveDraftResolution(
+    settings?.resolutionPolicy?.image,
+    settings?.publishImageResolution,
+    detectPublishImagePreset,
+    DEFAULT_PUBLISH_IMAGE_PRESET,
+  );
+  const video = resolveDraftResolution(
+    settings?.resolutionPolicy?.video,
+    settings?.publishVideoResolution,
+    detectPublishVideoPreset,
+    DEFAULT_PUBLISH_VIDEO_PRESET,
+  );
+  const reference = resolveDraftResolution(
+    settings?.resolutionPolicy?.referenceImage,
+    settings?.refResolution,
+    detectRefPreset,
+    DEFAULT_REF_PRESET,
+  );
   return {
-    stylePlate: settings?.stylePlate ?? '',
-    negativePrompt: settings?.negativePrompt ?? '',
-    publishImagePreset: imgPreset,
-    publishImageWidth: imgRes ? String(imgRes.width) : '',
-    publishImageHeight: imgRes ? String(imgRes.height) : '',
-    publishVideoPreset: vidPreset,
-    publishVideoWidth: vidRes ? String(vidRes.width) : '',
-    publishVideoHeight: vidRes ? String(vidRes.height) : '',
+    visualStylePolicy: settings?.visualStylePolicy,
+    stylePlate: settings?.visualStylePolicy?.summary ?? settings?.stylePlate ?? '',
+    negativePrompt:
+      settings?.visualStylePolicy?.negativeConstraints?.join(', ') ??
+      settings?.negativePrompt ??
+      '',
+    publishImagePreset: image.preset,
+    publishImageWidth: image.width,
+    publishImageHeight: image.height,
+    publishVideoPreset: video.preset,
+    publishVideoWidth: video.width,
+    publishVideoHeight: video.height,
     aspectRatio: settings?.aspectRatio ?? DEFAULT_ASPECT_RATIO,
-    refPreset,
-    refWidth: refW > 0 ? String(refW) : '',
-    refHeight: refH > 0 ? String(refH) : '',
+    refPreset: reference.preset,
+    refWidth: reference.width,
+    refHeight: reference.height,
     llmProviderId: settings?.llmProviderId ?? '',
     imageProviderId: settings?.imageProviderId ?? '',
     videoProviderId: settings?.videoProviderId ?? '',
@@ -146,32 +191,93 @@ function settingsToDraft(settings: CanvasSettings | undefined): DraftState {
   };
 }
 
-function draftToSettings(draft: DraftState): CanvasSettings {
+function draftResolutionIntent(
+  preset: string,
+  width: string,
+  height: string,
+  aspectRatio?: string,
+): ResolutionIntent | undefined {
+  if (preset === 'provider-default') {
+    return aspectRatio ? { mode: 'provider-default', aspectRatio } : { mode: 'provider-default' };
+  }
+  if (preset.startsWith('tier:')) {
+    const tier = preset.slice('tier:'.length).trim();
+    if (!tier) return undefined;
+    return aspectRatio ? { mode: 'tier', tier, aspectRatio } : { mode: 'tier', tier };
+  }
+  const parsedWidth = Number.parseInt(width, 10);
+  const parsedHeight = Number.parseInt(height, 10);
+  return Number.isFinite(parsedWidth) &&
+    Number.isFinite(parsedHeight) &&
+    parsedWidth > 0 &&
+    parsedHeight > 0
+    ? { mode: 'exact', width: parsedWidth, height: parsedHeight }
+    : undefined;
+}
+
+export function draftToSettings(draft: DraftState): CanvasSettings {
   const out: CanvasSettings = {};
-  if (draft.stylePlate.trim()) out.stylePlate = draft.stylePlate.trim();
-  if (draft.negativePrompt.trim()) out.negativePrompt = draft.negativePrompt.trim();
-  // provider-default ⇒ omit publishImageResolution. Otherwise parse and emit.
-  if (draft.publishImagePreset !== 'provider-default') {
-    const imgW = Number.parseInt(draft.publishImageWidth, 10);
-    const imgH = Number.parseInt(draft.publishImageHeight, 10);
-    if (Number.isFinite(imgW) && Number.isFinite(imgH) && imgW > 0 && imgH > 0) {
-      out.publishImageResolution = { width: imgW, height: imgH };
-    }
+  const summary = draft.stylePlate.trim();
+  const negativePrompt = draft.negativePrompt.trim();
+  const existingNegativeText = draft.visualStylePolicy?.negativeConstraints?.join(', ') ?? '';
+  const negativeConstraints = negativePrompt
+    ? negativePrompt === existingNegativeText
+      ? draft.visualStylePolicy?.negativeConstraints
+      : [negativePrompt]
+    : undefined;
+  const {
+    summary: _existingSummary,
+    negativeConstraints: _existingNegativeConstraints,
+    ...preservedVisualStyle
+  } = draft.visualStylePolicy ?? { version: 1 as const };
+  const visualStylePolicy: CanvasVisualStylePolicy = {
+    ...preservedVisualStyle,
+    version: 1,
+    ...(summary ? { summary } : {}),
+    ...(negativeConstraints?.length ? { negativeConstraints } : {}),
+  };
+  if (
+    visualStylePolicy.summary ||
+    (visualStylePolicy.locked && Object.keys(visualStylePolicy.locked).length > 0) ||
+    visualStylePolicy.allowedVariations?.length ||
+    visualStylePolicy.negativeConstraints?.length
+  ) {
+    out.visualStylePolicy = visualStylePolicy;
   }
-  if (draft.publishVideoPreset !== 'provider-default') {
-    const vidW = Number.parseInt(draft.publishVideoWidth, 10);
-    const vidH = Number.parseInt(draft.publishVideoHeight, 10);
-    if (Number.isFinite(vidW) && Number.isFinite(vidH) && vidW > 0 && vidH > 0) {
-      out.publishVideoResolution = { width: vidW, height: vidH };
-    }
+  // Compatibility mirrors for older clients. The structured draft above is canonical.
+  if (summary) out.stylePlate = summary;
+  if (negativePrompt) out.negativePrompt = negativePrompt;
+  const imageIntent = draftResolutionIntent(
+    draft.publishImagePreset,
+    draft.publishImageWidth,
+    draft.publishImageHeight,
+    draft.aspectRatio || undefined,
+  );
+  const videoIntent = draftResolutionIntent(
+    draft.publishVideoPreset,
+    draft.publishVideoWidth,
+    draft.publishVideoHeight,
+    draft.aspectRatio || undefined,
+  );
+  const referenceImageIntent = draftResolutionIntent(
+    draft.refPreset,
+    draft.refWidth,
+    draft.refHeight,
+  );
+  out.resolutionPolicy = {
+    ...(referenceImageIntent ? { referenceImage: referenceImageIntent } : {}),
+    ...(imageIntent ? { image: imageIntent } : {}),
+    ...(videoIntent ? { video: videoIntent } : {}),
+  };
+  // Mirror exact values for old readers while the canonical policy owns semantics.
+  if (imageIntent?.mode === 'exact') {
+    out.publishImageResolution = { width: imageIntent.width, height: imageIntent.height };
   }
-  // provider-default ⇒ omit refResolution entirely.
-  if (draft.refPreset !== 'provider-default') {
-    const refW = Number.parseInt(draft.refWidth, 10);
-    const refH = Number.parseInt(draft.refHeight, 10);
-    if (Number.isFinite(refW) && Number.isFinite(refH) && refW > 0 && refH > 0) {
-      out.refResolution = { width: refW, height: refH };
-    }
+  if (videoIntent?.mode === 'exact') {
+    out.publishVideoResolution = { width: videoIntent.width, height: videoIntent.height };
+  }
+  if (referenceImageIntent?.mode === 'exact') {
+    out.refResolution = { width: referenceImageIntent.width, height: referenceImageIntent.height };
   }
   if (draft.aspectRatio) out.aspectRatio = draft.aspectRatio as CanvasAspectRatio;
   if (draft.llmProviderId.trim()) out.llmProviderId = draft.llmProviderId.trim();
@@ -187,13 +293,15 @@ export function SettingsCanvasSection() {
   const imageProviders = useSelector((s: RootState) => s.settings.image.providers);
   const videoProviders = useSelector((s: RootState) => s.settings.video.providers);
   const audioProviders = useSelector((s: RootState) => s.settings.audio.providers);
-
   const llmOptions = useMemo(
     () => llmProviders.filter((p) => p.hasKey).map((p) => ({ id: p.id, name: p.name })),
     [llmProviders],
   );
   const imageOptions = useMemo(
-    () => imageProviders.filter((p) => p.hasKey).map((p) => ({ id: p.id, name: p.name })),
+    () =>
+      imageProviders
+        .filter((provider) => isImageProviderSelectable(provider))
+        .map((provider) => ({ id: provider.id, name: provider.name })),
     [imageProviders],
   );
   const videoOptions = useMemo(
@@ -287,6 +395,9 @@ export function SettingsCanvasSection() {
         {/* Style */}
         <SectionCard icon={Palette} title={t('canvas.canvasSettings.sectionStyle')}>
           <div className="space-y-3">
+            <p className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+              {t('canvas.canvasSettings.styleAuthorityHint')}
+            </p>
             <LabeledField
               label={t('canvas.canvasSettings.stylePlate')}
               hint={t('canvas.canvasSettings.stylePlateHint')}
@@ -350,6 +461,14 @@ export function SettingsCanvasSection() {
                       id: 'provider-default',
                       name: t('canvas.canvasSettings.publishPreset.providerDefault'),
                     },
+                    ...(draft.publishImagePreset.startsWith('tier:')
+                      ? [
+                          {
+                            id: draft.publishImagePreset,
+                            name: `${t('resolutionPresetGroups.providerTier')}: ${draft.publishImagePreset.slice('tier:'.length)}`,
+                          },
+                        ]
+                      : []),
                     ...PUBLISH_IMAGE_PRESETS.map((p) => ({
                       id: p.id,
                       name: `${t(`canvas.canvasSettings.publishPreset.${p.id}`)} (${p.width}×${p.height} · ${p.aspect})`,
@@ -413,6 +532,14 @@ export function SettingsCanvasSection() {
                       id: 'provider-default',
                       name: t('canvas.canvasSettings.publishPreset.providerDefault'),
                     },
+                    ...(draft.publishVideoPreset.startsWith('tier:')
+                      ? [
+                          {
+                            id: draft.publishVideoPreset,
+                            name: `${t('resolutionPresetGroups.providerTier')}: ${draft.publishVideoPreset.slice('tier:'.length)}`,
+                          },
+                        ]
+                      : []),
                     ...PUBLISH_VIDEO_PRESETS.map((p) => ({
                       id: p.id,
                       name: `${t(`canvas.canvasSettings.publishPreset.${p.id}`)} (${p.width}×${p.height} · ${p.aspect})`,
@@ -472,6 +599,14 @@ export function SettingsCanvasSection() {
                       id: 'provider-default',
                       name: t('canvas.canvasSettings.refPreset.providerDefault'),
                     },
+                    ...(draft.refPreset.startsWith('tier:')
+                      ? [
+                          {
+                            id: draft.refPreset,
+                            name: `${t('resolutionPresetGroups.providerTier')}: ${draft.refPreset.slice('tier:'.length)}`,
+                          },
+                        ]
+                      : []),
                     ...REF_PRESETS.map((p) => ({
                       id: p.id,
                       name: `${t(`canvas.canvasSettings.refPreset.${p.id}`)} (${p.width}×${p.height})`,

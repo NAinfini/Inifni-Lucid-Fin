@@ -7,8 +7,11 @@ import type {
   GenerationEntityRef,
   GenerationRequest,
   GenerationType,
+  ResolutionPreflightResult,
+  VisualStyleProvenance,
 } from '@lucid-fin/contracts';
 import type { CAS, Keychain, SqliteIndex } from '@lucid-fin/storage';
+import type { MediaProbeResult } from '@lucid-fin/media-engine';
 import type { CanvasStore } from './canvas.handlers.js';
 
 export type CanvasGenerationDeps = {
@@ -18,6 +21,8 @@ export type CanvasGenerationDeps = {
   canvasStore: CanvasStore;
   keychain: Keychain;
   getWindow: () => import('electron').BrowserWindow | null;
+  /** Test seam; production uses the packaged ffprobe implementation. */
+  probeMedia?: (filePath: string) => Promise<MediaProbeResult>;
 };
 
 export type SendTarget = {
@@ -43,9 +48,11 @@ export type GenerateArgs = {
   providerConfig?: ProviderConfigOverride;
   variantCount?: number;
   seed?: number;
-  // Commander-authored final prompt sent to the provider verbatim (bypasses the
-  // deterministic compiler). Omitted for UI/manual generation.
+  // Commander-authored creative body. The host still injects deterministic
+  // style/entity/preset constraints before calling a provider.
   finalPrompt?: string;
+  /** Host-only: exact prior provider prompt used for an additive refinement. */
+  promptInputMode?: 'base' | 'precompiled';
 };
 
 export type EstimateArgs = {
@@ -71,6 +78,10 @@ export type BuiltGenerationContext = {
   variantCount: number;
   baseSeed?: number;
   compiled: CompiledPrompt;
+  visualStyle?: VisualStyleProvenance;
+  resolutionPreflight?: Extract<ResolutionPreflightResult, { supported: true }> & {
+    request: GenerationRequest;
+  };
   resolvedEntityRefs: {
     characterRefs?: GenerationEntityRef[];
     equipmentRefs?: GenerationEntityRef[];

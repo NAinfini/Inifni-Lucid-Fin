@@ -1,15 +1,25 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  StageRunStatus,
   TaskRunStatus,
   WorkflowApprovalGateKey,
   WorkflowRunStatus,
   type ApproveWorkflowGateResult,
+  type AnswerWorkflowDecisionResult,
+  type ContextRecoveryReport,
+  type ContextRecoveryReportResult,
+  type ReviseWorkflowGateResult,
+  type WorkflowGateRevisionAction,
   type FinalExportManifestContent,
   type FinalExportManifestSegment,
   type FinalExportOutputSettings,
+  type FinalExportResolutionRisk,
   type PrepareFinalExportManifestInput,
   type PrepareFinalExportManifestResult,
+  type ReserveWorkflowDecisionResult,
   type UserApproveWorkflowGateInput,
+  type UserRejectWorkflowGateInput,
+  type UserRequestWorkflowGateChangesInput,
   type SelectVisualConstitutionCandidateInput,
   type VisualAuditionCandidate,
   type VisualAuditionDocumentContent,
@@ -19,8 +29,12 @@ import {
   type WorkflowApproval,
   type WorkflowApprovalContext,
   type WorkflowDocument,
+  type WorkflowDecision,
+  type WorkflowDecisionFilter,
+  type WorkflowDecisionOption,
   type WorkflowEvent,
   type WorkflowFinalExportContext,
+  type WorkflowMediaAttempt,
   type WorkflowRun,
   type WorkflowRunId,
   type WorkflowVisualAuditionContext,
@@ -28,11 +42,17 @@ import {
   type WorkflowStageRun,
   type WorkflowTaskId,
   type WorkflowTaskRun,
+  type LLMProviderRuntimeConfig,
+  type CommanderProcessBehaviorSettings,
 } from '@lucid-fin/contracts';
 import type { IStorageLayer, WorkflowRepository } from '@lucid-fin/storage';
 import type { WorkflowTaskExecutionResult, WorkflowTaskHandler } from './task-handler.js';
 import { WorkflowPlanner } from './workflow-planner.js';
 import type { WorkflowRegistry } from './workflow-registry.js';
+import {
+  MAX_PERSISTED_PRODUCTION_SHOTS,
+  createMovieProductionWorkflowGraph,
+} from './workflows/movie.production.v2.js';
 
 export interface WorkflowStartRequest {
   workflowType: string;
@@ -47,7 +67,51 @@ export interface ProductionPlanCreateRequest {
   canvasId: string;
   idea: string;
   plan: Record<string, unknown>;
+  /** Host-only, keyless executor binding. It is never part of the LLM tool schema. */
+  commanderContinuation?: WorkflowCommanderContinuationConfig;
 }
+
+export interface WorkflowCommanderContinuationConfig {
+  version: 1;
+  sessionId: string;
+  provider: LLMProviderRuntimeConfig;
+  permissionMode: 'danger' | 'auto' | 'normal' | 'strict';
+  locale?: string;
+  maxSteps?: number;
+  temperature?: number;
+  maxTokens?: number;
+  defaultProviders?: Record<string, string>;
+  processSettings?: CommanderProcessBehaviorSettings;
+  claim?: WorkflowCommanderContinuationClaim;
+}
+
+export interface WorkflowCommanderContinuationClaim {
+  key: string;
+  ownerId: string;
+  status: 'running' | 'completed' | 'failed';
+  startedAt: number;
+  finishedAt?: number;
+  reason?: string;
+}
+
+export type ClaimCommanderContinuationResult =
+  | {
+      ok: true;
+      run: WorkflowRun;
+      task: WorkflowTaskRun;
+      continuation: WorkflowCommanderContinuationConfig;
+    }
+  | {
+      ok: false;
+      code:
+        | 'run_not_found'
+        | 'binding_missing'
+        | 'workflow_not_ready'
+        | 'task_not_ready'
+        | 'already_claimed'
+        | 'stale_row_version';
+      actualRowVersion?: number;
+    };
 
 export interface ProductionPlanCreateResult {
   workflowRunId: string;
@@ -55,6 +119,13 @@ export interface ProductionPlanCreateResult {
   status: 'awaiting_approval';
   revision: number;
   contentHash: string;
+}
+
+export interface ProductionPlanRevisionRequest {
+  canvasId: string;
+  workflowRunId: string;
+  expectedRowVersion: number;
+  plan: Record<string, unknown>;
 }
 
 export interface ContextCheckpointCreateResult {
@@ -65,8 +136,45 @@ export interface ContextCheckpointCreateResult {
 
 export interface ProductionMediaWorkflowContext {
   run: WorkflowRun;
+  task: WorkflowTaskRun;
   productionPlan: WorkflowDocument;
   visualConstitution: WorkflowDocument;
+}
+
+export interface CreativeTaskCompletionRequest {
+  canvasId: string;
+  workflowRunId: string;
+  taskRunId: string;
+  expectedRowVersion: number;
+  summary: string;
+  evidence?: string[];
+  data?: Record<string, unknown>;
+}
+
+export interface ProductionMediaTaskCompletionRequest {
+  canvasId: string;
+  workflowRunId: string;
+  taskRunId: string;
+  expectedRowVersion: number;
+  nodeId: string;
+  attemptId: string;
+}
+
+export interface ProductionMediaFeedbackReservationRequest {
+  workflowRunId: string;
+  canvasId: string;
+  taskRunId: string;
+  attemptId: string;
+  expectedRowVersion: number;
+  feedback: string;
+  basePromptHash: string;
+  attempt: WorkflowMediaAttempt;
+}
+
+export interface ExternalTaskCompletionResult {
+  run: WorkflowRun;
+  task: WorkflowTaskRun;
+  nextTask?: WorkflowTaskRun;
 }
 
 export interface VisualAuditionStartRequest {
@@ -92,6 +200,26 @@ export interface VisualAuditionSnapshotRequest {
 export type VisualConstitutionSelectionResult = ContractVisualConstitutionSelectionResult;
 
 export type FinalExportManifestResult = PrepareFinalExportManifestResult;
+
+export interface WorkflowAskUserDecisionRequest {
+  workflowRunId: string;
+  taskRunId: string;
+  canvasId: string;
+  questionId: string;
+  decisionKey: string;
+  subjectRevision: number;
+  expectedRunRowVersion: number;
+  question: string;
+  options: WorkflowDecisionOption[];
+  allowFreeText: boolean;
+}
+
+export interface WorkflowAskUserDecisionAnswer {
+  canvasId: string;
+  questionId: string;
+  answer: string;
+  status: 'answered' | 'recovery_required';
+}
 
 export interface WorkflowEngineOptions {
   db: IStorageLayer;
@@ -195,6 +323,12 @@ export class WorkflowEngine {
     for (const taskRun of planned.taskRuns) {
       this.wf.insertTaskRun(taskRun);
     }
+    for (const dependency of planned.taskDependencies) {
+      this.wf.insertTaskDependency(
+        this.taskId(dependency.taskRunId),
+        this.taskId(dependency.dependsOnTaskRunId),
+      );
+    }
 
     // Auto-pump: begin executing the workflow immediately so callers don't need
     // to manually call pump() after start().
@@ -219,6 +353,339 @@ export class WorkflowEngine {
     return this.wf.listTaskRuns(this.runId(workflowRunId) as WorkflowRunId).rows;
   }
 
+  claimCommanderContinuation(input: {
+    workflowRunId: string;
+    taskRunId: string;
+    claimKey: string;
+    claimOwnerId: string;
+    expectedRowVersion: number;
+  }): ClaimCommanderContinuationResult {
+    const runId = this.runId(input.workflowRunId) as WorkflowRunId;
+    const run = this.wf.getRun(runId);
+    if (!run) return { ok: false, code: 'run_not_found' };
+    if ((run.rowVersion ?? 0) !== input.expectedRowVersion) {
+      return {
+        ok: false,
+        code: 'stale_row_version',
+        actualRowVersion: run.rowVersion ?? 0,
+      };
+    }
+
+    const continuation = readCommanderContinuation(run.metadata);
+    if (!continuation) return { ok: false, code: 'binding_missing' };
+    if (
+      run.workflowType !== 'movie.production.v2' ||
+      run.entityType !== 'canvas' ||
+      run.currentGate ||
+      run.status !== WorkflowRunStatus.Ready ||
+      run.currentTaskId !== input.taskRunId
+    ) {
+      return { ok: false, code: 'workflow_not_ready' };
+    }
+    const recoveryState = asRecord(asRecord(run.metadata).contextRecovery).state;
+    if (recoveryState === 'recovery_required') {
+      return { ok: false, code: 'workflow_not_ready' };
+    }
+    const task = this.wf.getTaskRun(this.taskId(input.taskRunId));
+    if (
+      !task ||
+      task.workflowRunId !== run.id ||
+      task.status !== TaskRunStatus.Ready ||
+      task.input.executionMode !== 'external'
+    ) {
+      return { ok: false, code: 'task_not_ready' };
+    }
+    if (
+      continuation.claim?.key === input.claimKey &&
+      (continuation.claim.status === 'completed' ||
+        (continuation.claim.status === 'running' &&
+          continuation.claim.ownerId === input.claimOwnerId))
+    ) {
+      return { ok: false, code: 'already_claimed' };
+    }
+
+    const claimedAt = this.nextTimestamp();
+    const claimed: WorkflowCommanderContinuationConfig = {
+      ...continuation,
+      claim: {
+        key: input.claimKey,
+        ownerId: requireNonEmptyString(input.claimOwnerId, 'continuation claim owner'),
+        status: 'running',
+        startedAt: claimedAt,
+      },
+    };
+    const changed = this.wf.compareAndSetRunMetadata(
+      runId,
+      input.expectedRowVersion,
+      { ...run.metadata, commanderContinuation: claimed },
+      claimedAt,
+    );
+    if (!changed) {
+      return {
+        ok: false,
+        code: 'stale_row_version',
+        actualRowVersion: this.wf.getRun(runId)?.rowVersion ?? input.expectedRowVersion,
+      };
+    }
+    const updated = this.wf.getRun(runId);
+    if (!updated) return { ok: false, code: 'run_not_found' };
+    return { ok: true, run: updated, task, continuation: claimed };
+  }
+
+  finishCommanderContinuationClaim(input: {
+    workflowRunId: string;
+    claimKey: string;
+    claimOwnerId: string;
+    expectedRowVersion: number;
+    outcome: 'completed' | 'failed';
+    reason?: string;
+  }): boolean {
+    const runId = this.runId(input.workflowRunId) as WorkflowRunId;
+    const run = this.wf.getRun(runId);
+    if (!run || (run.rowVersion ?? 0) !== input.expectedRowVersion) return false;
+    const continuation = readCommanderContinuation(run.metadata);
+    const claim = continuation?.claim;
+    if (
+      !continuation ||
+      !claim ||
+      claim.status !== 'running' ||
+      claim.key !== input.claimKey ||
+      claim.ownerId !== input.claimOwnerId
+    ) {
+      return false;
+    }
+
+    const finishedAt = this.nextTimestamp();
+    const finished: WorkflowCommanderContinuationConfig = {
+      ...continuation,
+      claim: {
+        ...claim,
+        status: input.outcome,
+        finishedAt,
+        ...(input.reason ? { reason: input.reason } : {}),
+      },
+    };
+    return this.wf.compareAndSetRunMetadata(
+      runId,
+      input.expectedRowVersion,
+      { ...run.metadata, commanderContinuation: finished },
+      finishedAt,
+    );
+  }
+
+  reserveAskUserDecision(input: WorkflowAskUserDecisionRequest): ReserveWorkflowDecisionResult {
+    const decisionKey = requireNonEmptyString(input.decisionKey, 'decision key');
+    const question = requireNonEmptyString(input.question, 'decision question');
+    const now = this.nextTimestamp();
+    const decision: WorkflowDecision = {
+      id: this.nextId(),
+      workflowRunId: input.workflowRunId,
+      taskRunId: input.taskRunId,
+      canvasId: input.canvasId,
+      questionId: input.questionId,
+      decisionKey,
+      subjectRevision: input.subjectRevision,
+      question,
+      options: input.options,
+      allowFreeText: input.allowFreeText,
+      status: 'pending',
+      rowVersion: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const reserved = this.wf.reserveDecision({
+      decision,
+      expectedRunRowVersion: input.expectedRunRowVersion,
+      event: {
+        workflowRunId: input.workflowRunId,
+        eventId: this.nextId(),
+        actor: 'assistant',
+        correlationId: this.nextId(),
+        payload: { type: 'workflow.decision.requested' },
+        timestamp: now,
+      },
+    });
+    if (
+      !reserved.created &&
+      reserved.decision.status === 'recovery_required' &&
+      reserved.decision.answer !== undefined
+    ) {
+      const recoveredAt = this.nextTimestamp();
+      const recovered = this.wf.answerDecision({
+        canvasId: reserved.decision.canvasId,
+        questionId: reserved.decision.questionId,
+        answer: reserved.decision.answer,
+        status: 'answered',
+        answeredAt: recoveredAt,
+        event: {
+          workflowRunId: reserved.decision.workflowRunId,
+          eventId: this.nextId(),
+          actor: 'assistant',
+          correlationId: this.nextId(),
+          payload: { type: 'workflow.decision.recovered' },
+          timestamp: recoveredAt,
+        },
+      });
+      if (!recovered) throw new Error('Persisted workflow decision disappeared during recovery');
+      if (recovered.answered) this.schedulePump(recovered.decision.workflowRunId);
+      return {
+        decision: recovered.decision,
+        run: recovered.run,
+        task: recovered.task,
+        ...(recovered.event ? { event: recovered.event } : {}),
+        created: false,
+      };
+    }
+    return reserved;
+  }
+
+  listPendingDecisions(filter: WorkflowDecisionFilter = {}): WorkflowDecision[] {
+    return this.wf.listPendingDecisions(filter);
+  }
+
+  answerAskUserDecisionFromUser(
+    input: WorkflowAskUserDecisionAnswer,
+  ): AnswerWorkflowDecisionResult | undefined {
+    const decision = this.wf.getDecisionByQuestion(input.canvasId, input.questionId);
+    if (!decision) return undefined;
+    const answeredAt = this.nextTimestamp();
+    const result = this.wf.answerDecision({
+      canvasId: input.canvasId,
+      questionId: input.questionId,
+      answer: input.answer,
+      status: input.status,
+      answeredAt,
+      event: {
+        workflowRunId: decision.workflowRunId,
+        eventId: this.nextId(),
+        actor: 'user',
+        correlationId: this.nextId(),
+        payload: { type: 'workflow.decision.answered' },
+        timestamp: answeredAt,
+      },
+    });
+    if (result?.answered && input.status === 'answered') {
+      this.schedulePump(decision.workflowRunId);
+    }
+    return result;
+  }
+
+  /** Complete a host-bound creative task after the AI has persisted its work. */
+  async completeCreativeTask(
+    input: CreativeTaskCompletionRequest,
+  ): Promise<ExternalTaskCompletionResult> {
+    const summary = requireNonEmptyString(input.summary, 'task completion summary');
+    if (summary.length > 4_000) throw new Error('Task completion summary exceeds 4000 characters');
+    const evidence = (input.evidence ?? []).map((entry) =>
+      requireNonEmptyString(entry, 'task completion evidence'),
+    );
+    if (evidence.length > 50 || evidence.some((entry) => entry.length > 500)) {
+      throw new Error('Task completion evidence exceeds its bounded size');
+    }
+    const task = this.requireCurrentExternalTask(
+      input.workflowRunId,
+      input.taskRunId,
+      input.expectedRowVersion,
+      input.canvasId,
+    );
+    const role = requireNonEmptyString(task.input.workflowTaskRole, 'workflow task role');
+    if (!['script', 'entities', 'references', 'shot_spec', 'assembly'].includes(role)) {
+      throw new Error(`Task role "${role}" requires a host-verified completion path`);
+    }
+    return this.completeExternalTask({
+      workflowRunId: input.workflowRunId,
+      task,
+      expectedRowVersion: input.expectedRowVersion,
+      output: {
+        completedBy: 'assistant',
+        role,
+        summary,
+        evidence,
+        ...(input.data ? { data: cloneJson(input.data) } : {}),
+      },
+    });
+  }
+
+  /** Complete exactly one shot task from an accepted, graded durable attempt. */
+  async completeProductionMediaTask(
+    input: ProductionMediaTaskCompletionRequest,
+  ): Promise<ExternalTaskCompletionResult> {
+    const task = this.requireCurrentExternalTask(
+      input.workflowRunId,
+      input.taskRunId,
+      input.expectedRowVersion,
+      input.canvasId,
+    );
+    if (task.input.workflowTaskRole !== 'production_media') {
+      throw new Error('Accepted production media can complete only a production_media task');
+    }
+    const attempt = this.wf.getLatestMediaAttempt(
+      this.runId(input.workflowRunId) as WorkflowRunId,
+      requireNonEmptyString(input.nodeId, 'production media nodeId'),
+    );
+    if (
+      !attempt ||
+      attempt.id !== input.attemptId ||
+      attempt.status !== 'accepted' ||
+      !attempt.assetHash ||
+      attempt.generationSpec.workflowTask.taskRunId !== task.id
+    ) {
+      throw new Error('Production task completion requires its exact accepted durable attempt');
+    }
+    const evaluation = this.wf.getMediaEvaluation(attempt.id);
+    if (
+      !evaluation ||
+      evaluation.verdict !== 'pass' ||
+      evaluation.assetHash !== attempt.assetHash
+    ) {
+      throw new Error('Production task completion requires a passing durable evaluation');
+    }
+    return this.completeExternalTask({
+      workflowRunId: input.workflowRunId,
+      task,
+      expectedRowVersion: input.expectedRowVersion,
+      output: {
+        completedBy: 'production-media-service',
+        role: 'production_media',
+        shot: cloneJson(asRecord(task.input.shot)),
+        nodeId: attempt.nodeId,
+        attemptId: attempt.id,
+        evaluationId: evaluation.id,
+        assetHash: attempt.assetHash,
+      },
+    });
+  }
+
+  async reserveProductionMediaFeedbackAttemptForRevision(
+    input: ProductionMediaFeedbackReservationRequest,
+  ): Promise<{ run: WorkflowRun; task: WorkflowTaskRun; attempt: WorkflowMediaAttempt }> {
+    const feedback = requireNonEmptyString(input.feedback, 'production media feedback');
+    const reopenedAt = this.nextTimestamp();
+    const result = this.wf.reserveMediaFeedbackAttempt({
+      workflowRunId: input.workflowRunId,
+      canvasId: input.canvasId,
+      taskRunId: input.taskRunId,
+      attemptId: input.attemptId,
+      basePromptHash: input.basePromptHash,
+      expectedRunRowVersion: input.expectedRowVersion,
+      feedback,
+      attempt: input.attempt,
+      reopenedAt,
+      event: {
+        workflowRunId: input.workflowRunId,
+        eventId: this.nextId(),
+        actor: 'user',
+        correlationId: this.nextId(),
+        payload: {},
+        timestamp: reopenedAt,
+      },
+    });
+    await this.refreshAvailability(input.workflowRunId);
+    const run = this.wf.getRun(this.runId(input.workflowRunId) as WorkflowRunId) ?? result.run;
+    const task = this.wf.getTaskRun(this.taskId(input.taskRunId)) ?? result.task;
+    return { run, task, attempt: result.attempt };
+  }
+
   /**
    * Persists the AI-expanded plan and first approval gate as one transaction.
    * Deliberately does not call start(), pump(), a provider, canvas, or media code.
@@ -241,7 +708,49 @@ export class WorkflowEngine {
     }
 
     const createdAt = this.nextTimestamp();
-    const workflowRunId = this.nextId();
+    const graph = createMovieProductionWorkflowGraph(request.plan);
+    const planned = this.planner.plan({
+      definition: graph.definition,
+      entityType: 'canvas',
+      entityId: canvasId,
+      triggerSource: 'commander',
+      input: { idea },
+      metadata: {
+        displayCategory: 'Production',
+        displayLabel:
+          typeof request.plan.title === 'string' && request.plan.title.trim()
+            ? request.plan.title.trim()
+            : 'Untitled production',
+        productionPhase: 'production-plan',
+        productionGraph: {
+          shotCount: graph.shots.length,
+          sourceSceneCount: graph.sourceSceneCount,
+          maxShots: MAX_PERSISTED_PRODUCTION_SHOTS,
+          truncated: graph.truncated,
+        },
+        ...(request.commanderContinuation
+          ? { commanderContinuation: cloneJson(request.commanderContinuation) }
+          : {}),
+      },
+      now: createdAt,
+      idFactory: this.idFactory,
+    });
+    const workflowRunId = planned.workflowRun.id;
+    const planStage = planned.stageRuns.find((stage) => stage.stageId === 'production-plan');
+    const planTask = planned.taskRuns.find((task) => task.taskId === 'production-plan');
+    if (!planStage || !planTask) {
+      throw new Error('Persistent production workflow definition is missing its plan stage');
+    }
+    planTask.status = TaskRunStatus.Completed;
+    planTask.progress = 100;
+    planTask.startedAt = createdAt;
+    planTask.completedAt = createdAt;
+    planStage.status = StageRunStatus.Completed;
+    planStage.progress = 100;
+    planStage.completedTasks = 1;
+    planStage.startedAt = createdAt;
+    planStage.completedAt = createdAt;
+
     const documentId = this.nextId();
     const approvalId = this.nextId();
     const correlationId = this.nextId();
@@ -257,33 +766,20 @@ export class WorkflowEngine {
     );
 
     const run: WorkflowRun = {
-      id: workflowRunId,
-      workflowType: 'movie.production.v2',
-      entityType: 'canvas',
-      entityId: canvasId,
-      triggerSource: 'commander',
+      ...planned.workflowRun,
       status: WorkflowRunStatus.Pending,
       summary: 'Production plan awaiting approval',
-      progress: 0,
-      completedStages: 0,
-      totalStages: 0,
-      completedTasks: 0,
-      totalTasks: 0,
-      input: { idea },
-      output: {},
-      metadata: {
-        displayCategory: 'Production',
-        displayLabel:
-          typeof request.plan.title === 'string' && request.plan.title.trim()
-            ? request.plan.title.trim()
-            : 'Untitled production',
-        productionPhase: 'production-plan',
-      },
-      createdAt,
+      progress: Math.round(100 / planned.stageRuns.length),
+      completedStages: 1,
+      totalStages: planned.stageRuns.length,
+      completedTasks: 1,
+      totalTasks: planned.taskRuns.length,
+      currentStageId: planStage.id,
+      currentTaskId: planTask.id,
       updatedAt: createdAt,
       rowVersion: 0,
-      engineVersion: 'persistent-hybrid-v1',
-      definitionVersion: 1,
+      engineVersion: 'persistent-hybrid-v2',
+      definitionVersion: graph.definition.version,
     };
     const document: WorkflowDocument = {
       id: documentId,
@@ -343,13 +839,216 @@ export class WorkflowEngine {
       },
     ];
 
-    this.wf.createApprovalGateBundle({ run, document, approval, events });
+    this.wf.createApprovalGateBundle({
+      run,
+      stageRuns: planned.stageRuns,
+      taskRuns: planned.taskRuns,
+      taskDependencies: planned.taskDependencies,
+      document,
+      approval,
+      events,
+    });
     return {
       workflowRunId,
       gate: WorkflowApprovalGateKey.ProductionPlan,
       status: 'awaiting_approval',
       revision: document.revision,
       contentHash,
+    };
+  }
+
+  /**
+   * Produces a genuinely new Production Plan revision after the user rejects
+   * the previous subject. The original idea and canvas binding remain
+   * host-owned; only the reviewed plan body may change.
+   */
+  reviseProductionPlan(request: ProductionPlanRevisionRequest): ProductionPlanCreateResult {
+    const canvasId = requireNonEmptyString(request.canvasId, 'Production plan canvasId');
+    const runId = this.runId(request.workflowRunId) as WorkflowRunId;
+    const run = this.wf.getRun(runId);
+    if (!run) throw new Error(`Workflow "${request.workflowRunId}" not found`);
+    if (
+      run.workflowType !== 'movie.production.v2' ||
+      run.entityType !== 'canvas' ||
+      run.entityId !== canvasId
+    ) {
+      throw new Error(`Workflow "${request.workflowRunId}" is not bound to canvas "${canvasId}"`);
+    }
+    if ((run.rowVersion ?? 0) !== request.expectedRowVersion) {
+      throw new Error(
+        `Workflow row version changed: expected ${request.expectedRowVersion}, got ${run.rowVersion ?? 0}`,
+      );
+    }
+    if (run.currentGate || this.getProductionStageKey(run) !== 'production-plan') {
+      throw new Error(
+        'Production Plan revision is available only after that gate requests changes',
+      );
+    }
+    const producer = this.wf
+      .listTaskRuns(runId)
+      .rows.find((task) => task.id === run.currentTaskId && task.taskId === 'production-plan');
+    if (
+      !producer ||
+      producer.status !== TaskRunStatus.Ready ||
+      !asRecord(producer.input.revisionRequest).reason
+    ) {
+      throw new Error('Production Plan producer is not awaiting a user-requested revision');
+    }
+    const previous = this.wf.getLatestDocument(runId, 'production-plan');
+    const previousApproval = this.wf.getLatestApproval(
+      runId,
+      WorkflowApprovalGateKey.ProductionPlan,
+    );
+    if (!previous || !previousApproval || previousApproval.status !== 'rejected') {
+      throw new Error('The previous Production Plan revision was not rejected for changes');
+    }
+
+    const createdAt = this.nextTimestamp();
+    const originalIdea = requireNonEmptyString(run.input.idea, 'original workflow idea');
+    const graph = createMovieProductionWorkflowGraph(request.plan);
+    const replanned = this.planner.plan({
+      definition: graph.definition,
+      entityType: 'canvas',
+      entityId: canvasId,
+      triggerSource: run.triggerSource,
+      input: { idea: originalIdea },
+      metadata: cloneJson(run.metadata),
+      now: createdAt,
+      idFactory: () => this.nextId(),
+    });
+    const existingStages = this.wf.listStageRuns(runId).rows;
+    const existingTasks = this.wf.listTaskRuns(runId).rows;
+    const persistentStageIdByLogical = new Map(
+      existingStages.map((stage) => [stage.stageId, stage.id]),
+    );
+    const plannedStageIdToPersistent = new Map<string, string>();
+    for (const stage of replanned.stageRuns) {
+      const persistentId = persistentStageIdByLogical.get(stage.stageId);
+      if (!persistentId) {
+        throw new Error(`Revised Production Plan is missing persisted stage "${stage.stageId}"`);
+      }
+      plannedStageIdToPersistent.set(stage.id, persistentId);
+    }
+    const existingTaskIdByLogical = new Map(existingTasks.map((task) => [task.taskId, task.id]));
+    const plannedTaskIdToPersistent = new Map<string, string>();
+    for (const task of replanned.taskRuns) {
+      plannedTaskIdToPersistent.set(
+        task.id,
+        task.taskId === 'production-plan'
+          ? producer.id
+          : (existingTaskIdByLogical.get(task.taskId) ?? task.id),
+      );
+    }
+    const replacementStageRuns = replanned.stageRuns
+      .filter((stage) => stage.stageId !== 'production-plan')
+      .map((stage) => ({
+        ...stage,
+        id: plannedStageIdToPersistent.get(stage.id)!,
+        workflowRunId: run.id,
+        updatedAt: createdAt,
+      }));
+    const replacementTaskRuns = replanned.taskRuns
+      .filter((task) => task.taskId !== 'production-plan')
+      .map((task) => ({
+        ...task,
+        id: plannedTaskIdToPersistent.get(task.id)!,
+        workflowRunId: run.id,
+        stageRunId: plannedStageIdToPersistent.get(task.stageRunId)!,
+        dependencyIds: task.dependencyIds.map((dependencyId) => {
+          const persistentId = plannedTaskIdToPersistent.get(dependencyId);
+          if (!persistentId) throw new Error('Revised Production Plan has an unknown dependency');
+          return persistentId;
+        }),
+        updatedAt: createdAt,
+      }));
+    const replacementTaskDependencies = replanned.taskDependencies
+      .filter((dependency) => {
+        const task = replanned.taskRuns.find((candidate) => candidate.id === dependency.taskRunId);
+        return task?.taskId !== 'production-plan';
+      })
+      .map((dependency) => ({
+        taskRunId: plannedTaskIdToPersistent.get(dependency.taskRunId)!,
+        dependsOnTaskRunId: plannedTaskIdToPersistent.get(dependency.dependsOnTaskRunId)!,
+      }));
+    const content = { ...cloneJson(request.plan), originalIdea, canvasId };
+    const document = this.createWorkflowDocument(
+      run.id,
+      'production-plan',
+      'production_plan',
+      previous.revision + 1,
+      content,
+      createdAt,
+    );
+    if (document.contentHash === previous.contentHash) {
+      throw new Error('Revised Production Plan must differ from the rejected revision');
+    }
+    const approval: WorkflowApproval = {
+      id: this.nextId(),
+      workflowRunId: run.id,
+      gateKey: WorkflowApprovalGateKey.ProductionPlan,
+      subjectLogicalKey: document.logicalKey,
+      subjectRevision: document.revision,
+      subjectHash: document.contentHash,
+      manifestHash: sha256(
+        canonicalJson({
+          gateKey: WorkflowApprovalGateKey.ProductionPlan,
+          subjectHash: document.contentHash,
+          budget: request.plan.budget ?? null,
+        }),
+      ),
+      resumeTokenHash: sha256(this.nextId()),
+      status: 'pending',
+      createdAt,
+      updatedAt: createdAt,
+    };
+    this.wf.createApprovalGateRevision({
+      expectedRowVersion: request.expectedRowVersion,
+      document,
+      approval,
+      replacementGraph: {
+        stageRuns: replacementStageRuns,
+        taskRuns: replacementTaskRuns,
+        taskDependencies: replacementTaskDependencies,
+        runMetadata: {
+          ...cloneJson(run.metadata),
+          displayLabel:
+            typeof request.plan.title === 'string' && request.plan.title.trim()
+              ? request.plan.title.trim()
+              : 'Untitled production',
+          productionPhase: 'production-plan',
+          productionGraph: {
+            shotCount: graph.shots.length,
+            sourceSceneCount: graph.sourceSceneCount,
+            maxShots: MAX_PERSISTED_PRODUCTION_SHOTS,
+            truncated: graph.truncated,
+          },
+        },
+        invalidatedByRevision: document.revision,
+        updatedAt: createdAt,
+      },
+      event: {
+        workflowRunId: run.id,
+        eventId: this.nextId(),
+        actor: 'assistant',
+        correlationId: this.nextId(),
+        payload: {
+          type: 'workflow.gate.requested',
+          gateKey: approval.gateKey,
+          approvalId: approval.id,
+          subjectLogicalKey: document.logicalKey,
+          subjectRevision: document.revision,
+          subjectHash: document.contentHash,
+          revisionOf: previous.revision,
+        },
+        timestamp: createdAt,
+      },
+    });
+    return {
+      workflowRunId: run.id,
+      gate: WorkflowApprovalGateKey.ProductionPlan,
+      status: 'awaiting_approval',
+      revision: document.revision,
+      contentHash: document.contentHash,
     };
   }
 
@@ -391,6 +1090,90 @@ export class WorkflowEngine {
     return { workflowRunId, revision, contentHash };
   }
 
+  /**
+   * Persist Commander context-recovery health on the workflow aggregate.
+   * The counter therefore survives individual Commander runs and process
+   * restarts. A recovery pause remembers the prior run status so only this
+   * automatic pause is reversed after SQLite context reload succeeds.
+   */
+  async reportContextRecovery(report: ContextRecoveryReport): Promise<ContextRecoveryReportResult> {
+    const runId = this.runId(report.workflowRunId) as WorkflowRunId;
+    const run = this.wf.getRun(runId);
+    if (!run) throw new Error(`Workflow "${report.workflowRunId}" not found`);
+    if (WORKFLOW_TERMINAL_STATUSES.has(run.status)) {
+      throw new Error(`Terminal workflow "${report.workflowRunId}" cannot change recovery state`);
+    }
+
+    const current = asRecord(run.metadata.contextRecovery);
+    const currentState = typeof current.state === 'string' ? current.state : undefined;
+    const currentFailures =
+      typeof current.consecutiveFailures === 'number' &&
+      Number.isInteger(current.consecutiveFailures) &&
+      current.consecutiveFailures >= 0
+        ? current.consecutiveFailures
+        : 0;
+
+    if (report.outcome === 'recovered') {
+      if (currentState === undefined || (currentState === 'recovered' && currentFailures === 0)) {
+        return { state: 'active', consecutiveFailures: 0, changed: false };
+      }
+
+      const previousRunStatus = isWorkflowRunStatus(current.previousRunStatus)
+        ? current.previousRunStatus
+        : WorkflowRunStatus.Ready;
+      const restoredStatus =
+        currentState === 'recovery_required' && run.status === WorkflowRunStatus.Paused
+          ? safeRecoveredRunStatus(previousRunStatus)
+          : run.status;
+      const updatedAt = this.nextTimestamp();
+      this.wf.updateRun(runId, {
+        status: restoredStatus,
+        metadata: {
+          ...run.metadata,
+          contextRecovery: {
+            state: 'recovered',
+            consecutiveFailures: 0,
+            reason: report.reason,
+            previousRunStatus,
+            updatedAt,
+          },
+        },
+        updatedAt,
+      });
+      if (restoredStatus === WorkflowRunStatus.Ready) {
+        await this.refreshAvailability(report.workflowRunId);
+      }
+      return { state: 'active', consecutiveFailures: 0, changed: true };
+    }
+
+    const consecutiveFailures = currentFailures + 1;
+    const recoveryRequired = report.forcePause === true || consecutiveFailures >= 3;
+    const previousRunStatus =
+      currentState === 'recovery_required' && isWorkflowRunStatus(current.previousRunStatus)
+        ? current.previousRunStatus
+        : run.status;
+    const updatedAt = this.nextTimestamp();
+    this.wf.updateRun(runId, {
+      ...(recoveryRequired ? { status: WorkflowRunStatus.Paused } : {}),
+      metadata: {
+        ...run.metadata,
+        contextRecovery: {
+          state: recoveryRequired ? 'recovery_required' : 'recovering',
+          consecutiveFailures,
+          reason: report.reason,
+          previousRunStatus,
+          updatedAt,
+        },
+      },
+      updatedAt,
+    });
+    return {
+      state: recoveryRequired ? 'recovery_required' : 'recovering',
+      consecutiveFailures,
+      changed: true,
+    };
+  }
+
   getLatestVisualAudition(workflowRunId: string): WorkflowDocument | undefined {
     return this.wf.getLatestDocument(
       this.runId(workflowRunId) as WorkflowRunId,
@@ -426,6 +1209,7 @@ export class WorkflowEngine {
   requireProductionMediaContext(
     workflowRunId: string,
     canvasId: string,
+    taskRunId: string,
     expectedRowVersion?: number,
   ): ProductionMediaWorkflowContext {
     const run = this.wf.getRun(this.runId(workflowRunId) as WorkflowRunId);
@@ -445,16 +1229,89 @@ export class WorkflowEngine {
     if (run.currentGate) {
       throw new Error(`Workflow "${workflowRunId}" is awaiting ${run.currentGate} approval`);
     }
+    const currentStage = this.getProductionStageKey(run);
+    const task = this.wf.getTaskRun(this.taskId(taskRunId));
+    const taskRole =
+      typeof task?.input.workflowTaskRole === 'string' ? task.input.workflowTaskRole : undefined;
+    const stageAllowsMedia =
+      (currentStage === 'media-generation' && taskRole === 'production_media') ||
+      (currentStage === 'preproduction' && taskRole === 'references');
     if (
-      run.currentStageId !== 'media-generation' ||
+      !task ||
+      task.workflowRunId !== run.id ||
+      task.id !== run.currentTaskId ||
+      (task.status !== TaskRunStatus.Ready && task.status !== TaskRunStatus.Running) ||
+      !stageAllowsMedia ||
       (run.status !== WorkflowRunStatus.Ready && run.status !== WorkflowRunStatus.Running)
     ) {
       throw new Error(
-        `Workflow "${workflowRunId}" is not ready for media generation (status=${run.status}, stage=${run.currentStageId ?? 'none'})`,
+        `Workflow "${workflowRunId}" is not ready for task-bound media generation (status=${run.status}, stage=${currentStage ?? 'none'}, task=${task?.taskId ?? 'none'})`,
       );
     }
     return {
       run,
+      task,
+      productionPlan: this.requireExactApprovedDocument(
+        run.id as WorkflowRunId,
+        WorkflowApprovalGateKey.ProductionPlan,
+      ),
+      visualConstitution: this.requireExactApprovedDocument(
+        run.id as WorkflowRunId,
+        WorkflowApprovalGateKey.VisualConstitution,
+      ),
+    };
+  }
+
+  requireProductionMediaFeedbackContext(
+    workflowRunId: string,
+    canvasId: string,
+    taskRunId: string,
+    expectedRowVersion: number,
+  ): ProductionMediaWorkflowContext {
+    const run = this.wf.getRun(this.runId(workflowRunId) as WorkflowRunId);
+    if (!run) throw new Error(`Workflow "${workflowRunId}" not found`);
+    if (
+      run.workflowType !== 'movie.production.v2' ||
+      run.entityType !== 'canvas' ||
+      run.entityId !== canvasId
+    ) {
+      throw new Error(`Workflow "${workflowRunId}" is not bound to canvas "${canvasId}"`);
+    }
+    if ((run.rowVersion ?? 0) !== expectedRowVersion) {
+      throw new Error(
+        `Workflow row version changed: expected ${expectedRowVersion}, got ${run.rowVersion ?? 0}`,
+      );
+    }
+    if (run.currentGate) {
+      throw new Error(`Workflow "${workflowRunId}" is awaiting ${run.currentGate} approval`);
+    }
+    if (run.status !== WorkflowRunStatus.Ready && run.status !== WorkflowRunStatus.Running) {
+      throw new Error(`Workflow "${workflowRunId}" cannot accept media feedback now`);
+    }
+    const task = this.wf.getTaskRun(this.taskId(taskRunId));
+    if (
+      !task ||
+      task.workflowRunId !== run.id ||
+      task.input.workflowTaskRole !== 'production_media' ||
+      task.status !== TaskRunStatus.Completed
+    ) {
+      throw new Error('Only an exact completed production-media task can accept this feedback');
+    }
+    const assemblyStarted = this.wf.listTaskRuns(run.id as WorkflowRunId).rows.some((candidate) => {
+      const stage = this.wf.getStageRun(this.stageId(candidate.stageRunId));
+      return (
+        stage?.stageId === 'assembly' &&
+        (candidate.status === TaskRunStatus.Running ||
+          candidate.status === TaskRunStatus.AwaitingProvider ||
+          candidate.status === TaskRunStatus.Completed)
+      );
+    });
+    if (assemblyStarted) {
+      throw new Error('Assembly has already started; revise that stage before changing media');
+    }
+    return {
+      run,
+      task,
       productionPlan: this.requireExactApprovedDocument(
         run.id as WorkflowRunId,
         WorkflowApprovalGateKey.ProductionPlan,
@@ -511,15 +1368,28 @@ export class WorkflowEngine {
     const existing = this.getLatestVisualAudition(run.id);
     if (existing) {
       const existingContent = existing.content as VisualAuditionDocumentContent;
-      if (existingContent.requestHash !== requestHash) {
+      const producer = this.wf
+        .listTaskRuns(run.id as WorkflowRunId)
+        .rows.find((task) => task.id === run.currentTaskId && task.taskId === 'style-audition');
+      const revisionRequest = asRecord(producer?.input.revisionRequest);
+      const isRequestedRevision =
+        producer?.status === TaskRunStatus.Ready &&
+        typeof revisionRequest.reason === 'string' &&
+        Boolean(revisionRequest.reason.trim());
+      if (existingContent.requestHash === requestHash) {
+        if (isRequestedRevision) {
+          throw new Error('Revised visual audition must differ from the rejected candidate set');
+        }
+        return {
+          document: existing,
+          resumed: existingContent.status !== 'complete',
+        };
+      }
+      if (!isRequestedRevision) {
         throw new Error(
           'A different visual audition already exists for this workflow; inspect or resolve it before submitting another candidate set',
         );
       }
-      return {
-        document: existing,
-        resumed: existingContent.status !== 'complete',
-      };
     }
 
     const createdAt = this.nextTimestamp();
@@ -550,7 +1420,7 @@ export class WorkflowEngine {
       run.id,
       'visual-auditions',
       'visual_auditions',
-      1,
+      (existing?.revision ?? 0) + 1,
       content,
       createdAt,
     );
@@ -607,7 +1477,7 @@ export class WorkflowEngine {
     if (run.workflowType !== 'movie.production.v2') {
       throw new Error(`Workflow "${input.workflowRunId}" is not a persistent video workflow`);
     }
-    if (run.currentStageId !== 'style-exploration') {
+    if (this.getProductionStageKey(run) !== 'style-exploration') {
       throw new Error('Visual candidates can be selected only during style exploration');
     }
     if (run.currentGate && run.currentGate !== WorkflowApprovalGateKey.VisualConstitution) {
@@ -793,7 +1663,7 @@ export class WorkflowEngine {
       'Production Plan budget.maxAttemptsPerShot',
     );
     const content: FinalExportManifestContent = {
-      manifestVersion: 1,
+      manifestVersion: 2,
       workflowRunId: run.id,
       productionPlan: {
         revision: productionPlan.revision,
@@ -814,6 +1684,7 @@ export class WorkflowEngine {
       expectedDurationMs: Math.round(estimatedDurationSeconds * 1000),
       estimatedDurationSeconds,
       maxRenderAttempts: Math.max(1, Math.min(2, approvedAttempts || 1)),
+      resolutionRisks: analyzeFinalExportResolutionRisks(segments, output),
       capabilities: {
         embeddedClipAudio: true,
         separateAudioMix: false,
@@ -837,6 +1708,15 @@ export class WorkflowEngine {
       const context = this.getFinalExportContext(run.id);
       if (!context) throw new Error('Final Export context could not be restored');
       return { context, created: false };
+    }
+    if (
+      latest?.contentHash === contentHash &&
+      latestApproval?.status === 'rejected' &&
+      latestApproval.subjectLogicalKey === latest.logicalKey &&
+      latestApproval.subjectRevision === latest.revision &&
+      latestApproval.subjectHash === latest.contentHash
+    ) {
+      throw new Error('Revised Final Export manifest must differ from the rejected revision');
     }
 
     const createdAt = this.nextTimestamp();
@@ -965,7 +1845,7 @@ export class WorkflowEngine {
       );
     }
     validateFinalExportOutput(content.output);
-    const current = this.deriveFinalExportSegments(canvasId);
+    const current = this.deriveFinalExportSegments(canvasId, content.manifestVersion === 2);
     if (canonicalJson(current.segments) !== canonicalJson(content.segments)) {
       throw new Error('Canvas media no longer matches the approved Final Export manifest');
     }
@@ -1018,7 +1898,17 @@ export class WorkflowEngine {
       return run ? { ok: false, code: 'no_approval' } : { ok: false, code: 'run_not_found' };
     }
 
-    return this.wf.approveGate({
+    const transition = this.resolveGateTransition(input.workflowRunId, input.gateKey);
+    const completedProducerTaskRunId =
+      input.gateKey === WorkflowApprovalGateKey.FinalExport
+        ? undefined
+        : this.wf
+            .listTaskRuns(this.runId(input.workflowRunId) as WorkflowRunId)
+            .rows.find((task) => task.taskId === producerTaskForGate(input.gateKey))?.id;
+    if (input.gateKey !== WorkflowApprovalGateKey.FinalExport && !completedProducerTaskRunId) {
+      throw new Error(`Workflow "${input.workflowRunId}" is missing its gate producer task`);
+    }
+    const result = this.wf.approveGate({
       workflowRunId: this.runId(input.workflowRunId) as WorkflowRunId,
       gateKey: input.gateKey,
       expectedRowVersion: input.expectedRowVersion,
@@ -1029,8 +1919,109 @@ export class WorkflowEngine {
       actor: 'user',
       correlationId: this.nextId(),
       approvedAt: this.nextTimestamp(),
-      nextStageId: nextStageForGate(input.gateKey),
+      nextStageId: transition.stageRunId,
+      nextTaskId: transition.taskRunId,
+      ...(completedProducerTaskRunId ? { completedProducerTaskRunId } : {}),
     });
+    if (result.ok) this.schedulePump(input.workflowRunId);
+    return result;
+  }
+
+  requestChangesPendingGateFromUser(
+    input: UserRequestWorkflowGateChangesInput,
+  ): ReviseWorkflowGateResult {
+    return this.revisePendingGateFromUser(input, 'request_changes');
+  }
+
+  rejectPendingGateFromUser(input: UserRejectWorkflowGateInput): ReviseWorkflowGateResult {
+    return this.revisePendingGateFromUser(input, 'reject');
+  }
+
+  private revisePendingGateFromUser(
+    input: UserRequestWorkflowGateChangesInput | UserRejectWorkflowGateInput,
+    action: WorkflowGateRevisionAction,
+  ): ReviseWorkflowGateResult {
+    const reason = requireNonEmptyString(input.reason, 'revision reason');
+    const runId = this.runId(input.workflowRunId) as WorkflowRunId;
+    const run = this.wf.getRun(runId);
+    if (!run) return { ok: false, code: 'run_not_found' };
+
+    const pending = this.wf.getPendingApproval(runId, input.gateKey);
+    if (!pending) {
+      const latest = this.wf.getLatestApproval(runId, input.gateKey);
+      if (!latest) return { ok: false, code: 'no_approval' };
+      if (latest.status !== 'pending') {
+        return { ok: false, code: 'approval_not_pending', status: latest.status };
+      }
+      throw new Error('Pending workflow approval lookup is inconsistent');
+    }
+    const previousDocument = this.wf.getDocumentRevision(
+      runId,
+      pending.subjectLogicalKey,
+      pending.subjectRevision,
+    );
+    if (!previousDocument || previousDocument.contentHash !== pending.subjectHash) {
+      throw new Error('Pending workflow approval subject is inconsistent');
+    }
+
+    const producerLogicalTaskId = producerTaskForGate(input.gateKey);
+    const producerTask = this.wf
+      .listTaskRuns(runId)
+      .rows.find((candidate) => candidate.taskId === producerLogicalTaskId);
+    if (!producerTask) {
+      throw new Error(
+        `Workflow "${input.workflowRunId}" is missing revision producer task "${producerLogicalTaskId}"`,
+      );
+    }
+    const revisedAt = this.nextTimestamp();
+
+    return this.wf.reviseGate({
+      workflowRunId: runId,
+      gateKey: input.gateKey,
+      action,
+      reason,
+      expectedRowVersion: input.expectedRowVersion,
+      expectedSubjectRevision: input.expectedSubjectRevision,
+      expectedSubjectHash: input.expectedSubjectHash,
+      producerTaskRunId: producerTask.id,
+      eventId: this.nextId(),
+      actor: 'user',
+      correlationId: this.nextId(),
+      revisedAt,
+    });
+  }
+
+  private resolveGateTransition(
+    workflowRunId: string,
+    gateKey: WorkflowApprovalGateKey,
+  ): { stageRunId: string; taskRunId?: string } {
+    const logicalStageId = nextStageForGate(gateKey);
+    const stage = this.wf
+      .listStageRuns(this.runId(workflowRunId) as WorkflowRunId)
+      .rows.find((candidate) => candidate.stageId === logicalStageId);
+    if (!stage) {
+      throw new Error(
+        `Workflow "${workflowRunId}" is missing the ${logicalStageId} stage run required by ${gateKey}`,
+      );
+    }
+    const tasks = this.wf.listTaskRunsByStage(this.stageId(stage.id)).rows;
+    const preferredTaskId = firstTaskForStage(logicalStageId);
+    const task =
+      tasks.find((candidate) => candidate.taskId === preferredTaskId) ??
+      tasks.sort((left, right) => left.taskId.localeCompare(right.taskId))[0];
+    return { stageRunId: stage.id, ...(task ? { taskRunId: task.id } : {}) };
+  }
+
+  private schedulePump(workflowRunId: string): void {
+    const previous = this.autoPump;
+    const scheduled = previous
+      ? previous.catch(() => 0).then(() => this.pump(workflowRunId))
+      : this.pump(workflowRunId);
+    // The host may close the project before a fire-and-forget pump settles.
+    // Keep the rejection observable through waitForAutoPump without emitting an
+    // unhandled process rejection when no caller is waiting.
+    void scheduled.catch(() => undefined);
+    this.autoPump = scheduled;
   }
 
   async pause(workflowRunId: string): Promise<void> {
@@ -1150,7 +2141,9 @@ export class WorkflowEngine {
       }
       const slots = this.maxConcurrentTasks - this.activeTasks;
       if (slots <= 0) return executed;
-      const readyTasks = this.wf.listReadyTasks(this.runId(workflowRunId)).rows;
+      const readyTasks = this.wf
+        .listReadyTasks(this.runId(workflowRunId))
+        .rows.filter((task) => task.input.executionMode !== 'external');
       if (readyTasks.length === 0) return executed;
 
       const batch = readyTasks.slice(0, slots);
@@ -1358,6 +2351,77 @@ export class WorkflowEngine {
     });
   }
 
+  private requireCurrentExternalTask(
+    workflowRunId: string,
+    taskRunId: string,
+    expectedRowVersion: number,
+    canvasId?: string,
+  ): WorkflowTaskRun {
+    const run = this.wf.getRun(this.runId(workflowRunId) as WorkflowRunId);
+    if (!run) throw new Error(`Workflow "${workflowRunId}" not found`);
+    if (run.workflowType !== 'movie.production.v2') {
+      throw new Error(`Workflow "${workflowRunId}" is not a persistent video workflow`);
+    }
+    if (canvasId !== undefined && (run.entityType !== 'canvas' || run.entityId !== canvasId)) {
+      throw new Error(`Workflow "${workflowRunId}" is not bound to canvas "${canvasId}"`);
+    }
+    if ((run.rowVersion ?? 0) !== expectedRowVersion) {
+      throw new Error(
+        `Workflow row version changed: expected ${expectedRowVersion}, got ${run.rowVersion ?? 0}`,
+      );
+    }
+    if (run.currentGate) throw new Error(`Workflow is awaiting ${run.currentGate} approval`);
+    if (run.currentTaskId !== taskRunId) {
+      throw new Error('Task completion must use the host-derived current task');
+    }
+    const task = this.wf.getTaskRun(this.taskId(taskRunId));
+    if (!task || task.workflowRunId !== workflowRunId) {
+      throw new Error(`Workflow task "${taskRunId}" not found`);
+    }
+    if (task.input.executionMode !== 'external') {
+      throw new Error(`Workflow task "${taskRunId}" is not externally completed`);
+    }
+    if (task.status !== TaskRunStatus.Ready && task.status !== TaskRunStatus.Running) {
+      throw new Error(`Workflow task cannot complete from status "${task.status}"`);
+    }
+    return task;
+  }
+
+  private async completeExternalTask(input: {
+    workflowRunId: string;
+    task: WorkflowTaskRun;
+    expectedRowVersion: number;
+    output: Record<string, unknown>;
+  }): Promise<ExternalTaskCompletionResult> {
+    const completedAt = this.nextTimestamp();
+    const persisted = this.wf.completeExternalTask({
+      workflowRunId: input.workflowRunId,
+      taskRunId: input.task.id,
+      expectedRunRowVersion: input.expectedRowVersion,
+      output: cloneJson(input.output),
+      completedAt,
+      event: {
+        workflowRunId: input.workflowRunId,
+        eventId: this.nextId(),
+        actor: 'assistant',
+        correlationId: this.nextId(),
+        payload: { role: input.task.input.workflowTaskRole ?? null },
+        timestamp: completedAt,
+      },
+    });
+    await this.refreshAvailability(input.workflowRunId);
+    const run = this.wf.getRun(this.runId(input.workflowRunId) as WorkflowRunId);
+    if (!run) throw new Error(`Workflow "${input.workflowRunId}" disappeared after completion`);
+    const nextTask = run.currentTaskId
+      ? this.wf.getTaskRun(this.taskId(run.currentTaskId))
+      : undefined;
+    return {
+      run,
+      task: persisted.task,
+      ...(nextTask ? { nextTask } : {}),
+    };
+  }
+
   private getRecord(taskRunId: string): WorkflowStateRecord {
     const taskRun = this.wf.getTaskRun(this.taskId(taskRunId));
     if (!taskRun) {
@@ -1416,6 +2480,17 @@ export class WorkflowEngine {
       : [];
   }
 
+  private getProductionStageKey(run: WorkflowRun): string | undefined {
+    if (!run.currentStageId) return undefined;
+    const stageRun = this.wf.getStageRun(this.stageId(run.currentStageId));
+    if (!stageRun || stageRun.workflowRunId !== run.id) {
+      throw new Error(
+        `Workflow "${run.id}" currentStageId does not reference one of its persisted stage runs`,
+      );
+    }
+    return stageRun.stageId;
+  }
+
   private requireFinalExportPreparationRun(workflowRunId: string, canvasId: string): WorkflowRun {
     const run = this.wf.getRun(this.runId(workflowRunId) as WorkflowRunId);
     if (!run) throw new Error(`Workflow "${workflowRunId}" not found`);
@@ -1428,15 +2503,26 @@ export class WorkflowEngine {
     if (run.currentGate && run.currentGate !== WorkflowApprovalGateKey.FinalExport) {
       throw new Error(`Workflow "${workflowRunId}" is awaiting ${run.currentGate} approval`);
     }
-    if (run.currentStageId !== 'media-generation' && run.currentStageId !== 'final-export') {
+    const currentStage = this.getProductionStageKey(run);
+    const currentTask = run.currentTaskId
+      ? this.wf.getTaskRun(this.taskId(run.currentTaskId))
+      : undefined;
+    if (
+      currentStage !== 'final-export' ||
+      currentTask?.input.workflowTaskRole !== 'final_export' ||
+      (currentTask.status !== TaskRunStatus.Ready && currentTask.status !== TaskRunStatus.Running)
+    ) {
       throw new Error(
-        `Workflow "${workflowRunId}" cannot prepare Final Export from stage ${run.currentStageId ?? 'none'}`,
+        `Workflow "${workflowRunId}" cannot prepare Final Export from stage ${currentStage ?? 'none'}`,
       );
     }
     return run;
   }
 
-  private deriveFinalExportSegments(canvasId: string): {
+  private deriveFinalExportSegments(
+    canvasId: string,
+    includeSourceDimensions = true,
+  ): {
     segments: FinalExportManifestSegment[];
     estimatedDurationSeconds: number;
     canvasName: string;
@@ -1505,6 +2591,12 @@ export class WorkflowEngine {
         durationCandidate,
         `Video node "${node.id}" duration`,
       );
+      const sourceWidth = includeSourceDimensions
+        ? requirePositiveInteger(asset.width, `Video asset "${assetHash}" width`)
+        : undefined;
+      const sourceHeight = includeSourceDimensions
+        ? requirePositiveInteger(asset.height, `Video asset "${assetHash}" height`)
+        : undefined;
       return {
         order,
         nodeId: node.id,
@@ -1519,6 +2611,9 @@ export class WorkflowEngine {
         sourceStartSeconds: 0,
         durationSeconds,
         speed: 1,
+        ...(sourceWidth !== undefined && sourceHeight !== undefined
+          ? { sourceWidth, sourceHeight }
+          : {}),
       };
     });
 
@@ -1604,9 +2699,10 @@ export class WorkflowEngine {
     if (run.currentGate) {
       throw new Error(`Workflow "${workflowRunId}" is awaiting ${run.currentGate} approval`);
     }
-    if (run.status !== WorkflowRunStatus.Ready || run.currentStageId !== 'style-exploration') {
+    const currentStage = this.getProductionStageKey(run);
+    if (run.status !== WorkflowRunStatus.Ready || currentStage !== 'style-exploration') {
       throw new Error(
-        `Workflow "${workflowRunId}" is not ready for style exploration (status=${run.status}, stage=${run.currentStageId ?? 'none'})`,
+        `Workflow "${workflowRunId}" is not ready for style exploration (status=${run.status}, stage=${currentStage ?? 'none'})`,
       );
     }
     return run;
@@ -1678,6 +2774,43 @@ function asRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function readCommanderContinuation(
+  metadata: Record<string, unknown>,
+): WorkflowCommanderContinuationConfig | undefined {
+  const value = asRecord(metadata.commanderContinuation);
+  const provider = asRecord(value.provider);
+  const permissionMode = value.permissionMode;
+  if (
+    value.version !== 1 ||
+    typeof value.sessionId !== 'string' ||
+    !value.sessionId.trim() ||
+    !['danger', 'auto', 'normal', 'strict'].includes(String(permissionMode)) ||
+    ['id', 'name', 'baseUrl', 'model', 'protocol', 'authStyle'].some(
+      (key) => typeof provider[key] !== 'string' || !(provider[key] as string).trim(),
+    )
+  ) {
+    return undefined;
+  }
+  return cloneJson(value) as unknown as WorkflowCommanderContinuationConfig;
+}
+
+function isWorkflowRunStatus(value: unknown): value is WorkflowRun['status'] {
+  return (
+    typeof value === 'string' && (Object.values(WorkflowRunStatus) as string[]).includes(value)
+  );
+}
+
+function safeRecoveredRunStatus(status: WorkflowRun['status']): WorkflowRun['status'] {
+  switch (status) {
+    case WorkflowRunStatus.Queued:
+    case WorkflowRunStatus.Preparing:
+    case WorkflowRunStatus.Running:
+      return WorkflowRunStatus.Ready;
+    default:
+      return status;
+  }
+}
+
 function requireNonEmptyString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new TypeError(`${label} must be a non-empty string`);
@@ -1714,9 +2847,7 @@ function requirePositiveFiniteNumber(value: unknown, label: string): number {
 }
 
 function validateFinalExportOutput(
-  value:
-    | Pick<FinalExportOutputSettings, 'codec' | 'quality' | 'width' | 'height' | 'fps'>
-    | FinalExportOutputSettings,
+  value: PrepareFinalExportManifestInput['output'] | FinalExportOutputSettings,
   derivedLogicalFileName?: string,
 ): FinalExportOutputSettings {
   if (!value || typeof value !== 'object') {
@@ -1766,6 +2897,14 @@ function validateFinalExportOutput(
   if ('overwritePolicy' in value && value.overwritePolicy !== 'fail') {
     throw new TypeError('Final Export overwrite policy must be fail');
   }
+  const fitMode = value.fitMode ?? 'contain';
+  if (fitMode !== 'contain' && fitMode !== 'cover' && fitMode !== 'stretch') {
+    throw new TypeError('Final Export fitMode must be contain, cover, or stretch');
+  }
+  const backgroundColor = value.backgroundColor ?? '#000000';
+  if (!/^#[0-9a-f]{6}$/i.test(backgroundColor)) {
+    throw new TypeError('Final Export backgroundColor must be a six-digit hex color');
+  }
   return {
     container,
     codec,
@@ -1777,7 +2916,63 @@ function validateFinalExportOutput(
     audioCodec,
     pixelFormat,
     overwritePolicy: 'fail',
+    fitMode,
+    backgroundColor: backgroundColor.toUpperCase(),
   };
+}
+
+function analyzeFinalExportResolutionRisks(
+  segments: FinalExportManifestSegment[],
+  output: FinalExportOutputSettings,
+): FinalExportResolutionRisk[] {
+  const risks: FinalExportResolutionRisk[] = [];
+  const fitMode = output.fitMode ?? 'contain';
+  const outputAspect = output.width / output.height;
+  for (const segment of segments) {
+    if (!segment.sourceWidth || !segment.sourceHeight) continue;
+    const source = { width: segment.sourceWidth, height: segment.sourceHeight };
+    const target = { width: output.width, height: output.height };
+    const sourceAspect = source.width / source.height;
+    const aspectMismatch = Math.abs(sourceAspect - outputAspect) / outputAspect > 0.01;
+    if (aspectMismatch) {
+      const code =
+        fitMode === 'contain'
+          ? 'aspect_padding'
+          : fitMode === 'cover'
+            ? 'aspect_crop'
+            : 'aspect_distortion';
+      risks.push({
+        code,
+        severity: fitMode === 'stretch' ? 'warning' : 'info',
+        nodeId: segment.nodeId,
+        message:
+          fitMode === 'contain'
+            ? 'Source aspect ratio will be padded to preserve composition'
+            : fitMode === 'cover'
+              ? 'Source aspect ratio will be cropped to fill the output frame'
+              : 'Source aspect ratio will be stretched to the output frame',
+        source,
+        output: target,
+      });
+    }
+    const scale =
+      fitMode === 'cover'
+        ? Math.max(output.width / source.width, output.height / source.height)
+        : fitMode === 'contain'
+          ? Math.min(output.width / source.width, output.height / source.height)
+          : Math.max(output.width / source.width, output.height / source.height);
+    if (scale > 1.001) {
+      risks.push({
+        code: 'upscale',
+        severity: 'warning',
+        nodeId: segment.nodeId,
+        message: `Source will be upscaled ${scale.toFixed(2)}×`,
+        source,
+        output: target,
+      });
+    }
+  }
+  return risks;
 }
 
 function buildFinalExportFileName(
@@ -2081,8 +3276,32 @@ function nextStageForGate(gateKey: WorkflowApprovalGateKey): string {
     case WorkflowApprovalGateKey.ProductionPlan:
       return 'style-exploration';
     case WorkflowApprovalGateKey.VisualConstitution:
-      return 'media-generation';
+      return 'preproduction';
     case WorkflowApprovalGateKey.FinalExport:
       return 'final-export';
+  }
+}
+
+function producerTaskForGate(gateKey: WorkflowApprovalGateKey): string {
+  switch (gateKey) {
+    case WorkflowApprovalGateKey.ProductionPlan:
+      return 'production-plan';
+    case WorkflowApprovalGateKey.VisualConstitution:
+      return 'style-audition';
+    case WorkflowApprovalGateKey.FinalExport:
+      return 'final-export';
+  }
+}
+
+function firstTaskForStage(stageId: string): string {
+  switch (stageId) {
+    case 'style-exploration':
+      return 'style-audition';
+    case 'preproduction':
+      return 'script';
+    case 'final-export':
+      return 'final-export';
+    default:
+      return stageId;
   }
 }

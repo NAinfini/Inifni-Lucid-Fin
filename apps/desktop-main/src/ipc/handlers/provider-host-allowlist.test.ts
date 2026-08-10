@@ -11,6 +11,40 @@ describe('isStoredKeyAllowedForBaseUrl', () => {
     expect(isStoredKeyAllowedForBaseUrl('claude', 'https://api.anthropic.com')).toBe(true);
   });
 
+  it('uses the group-aware media catalog for current provider hosts', () => {
+    expect(isStoredKeyAllowedForBaseUrl('openai-dalle', 'https://api.openai.com/v1', 'image')).toBe(
+      true,
+    );
+    expect(isStoredKeyAllowedForBaseUrl('minimax', 'https://api.minimax.io/v1', 'video')).toBe(
+      true,
+    );
+    expect(isStoredKeyAllowedForBaseUrl('xai-imagine', 'https://api.x.ai/v1', 'image')).toBe(true);
+    expect(
+      isStoredKeyAllowedForBaseUrl(
+        'volcengine-video',
+        'https://ark.eu-west.bytepluses.com/api/v3',
+        'video',
+      ),
+    ).toBe(true);
+    expect(isStoredKeyAllowedForBaseUrl('fal', 'https://queue.fal.run/model', 'video')).toBe(true);
+    expect(
+      isStoredKeyAllowedForBaseUrl(
+        'alibaba-wan-video',
+        'https://ws-123.cn-beijing.maas.aliyuncs.com/api/v1',
+        'video',
+      ),
+    ).toBe(true);
+  });
+
+  it('rejects stale or cross-provider media hosts', () => {
+    expect(isStoredKeyAllowedForBaseUrl('minimax', 'https://api.minimax.chat/v1', 'video')).toBe(
+      false,
+    );
+    expect(isStoredKeyAllowedForBaseUrl('google-image', 'https://api.openai.com/v1', 'image')).toBe(
+      false,
+    );
+  });
+
   it('refuses a stored key for a foreign host (exfiltration attempt)', () => {
     expect(isStoredKeyAllowedForBaseUrl('openai-dalle', 'https://attacker.example/v1')).toBe(false);
     expect(isStoredKeyAllowedForBaseUrl('claude', 'https://evil.test')).toBe(false);
@@ -19,6 +53,13 @@ describe('isStoredKeyAllowedForBaseUrl', () => {
   it('refuses a host that merely contains the canonical host as a substring', () => {
     expect(
       isStoredKeyAllowedForBaseUrl('openai-dalle', 'https://api.openai.com.attacker.test'),
+    ).toBe(false);
+    expect(
+      isStoredKeyAllowedForBaseUrl(
+        'alibaba-wan-video',
+        'https://ws-123.cn-beijing.maas.aliyuncs.com.attacker.test',
+        'video',
+      ),
     ).toBe(false);
   });
 

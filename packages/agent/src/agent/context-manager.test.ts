@@ -27,20 +27,19 @@ function makeInput(overrides: Partial<ToolSelectionInput> = {}): ToolSelectionIn
 // ---------------------------------------------------------------------------
 
 describe('selectContextualToolSet', () => {
-  it('always includes every TIER_A tool', () => {
+  it('loads the full manual creative set when no persistent workflow is bound', () => {
     const result = selectContextualToolSet(makeInput());
-    for (const name of TIER_A_TOOLS) {
-      expect(result.has(name), `expected ${name} to be present`).toBe(true);
-    }
+    expect(result.has('canvas.generation')).toBe(true);
+    expect(result.has('entity.generateRefImage')).toBe(true);
+    expect(result.has('preset.manage')).toBe(true);
+    expect(result.has('provider.manage')).toBe(true);
+    expect(result.has('workflow.manage')).toBe(true);
+    expect(result.has('workflow.visual')).toBe(false);
+    expect(result.has('workflow.media')).toBe(false);
   });
 
-  it('ALWAYS_LOADED_TOOLS alias equals TIER_A_TOOLS', () => {
+  it('keeps the deprecated alias identical to the protected phase-core catalog', () => {
     expect(ALWAYS_LOADED_TOOLS).toBe(TIER_A_TOOLS);
-  });
-
-  it('returns exactly TIER_A_TOOLS count', () => {
-    const result = selectContextualToolSet(makeInput());
-    expect(result.size).toBe(TIER_A_TOOLS.length);
   });
 
   it('includes canvas read tools', () => {
@@ -66,6 +65,7 @@ describe('selectContextualToolSet', () => {
     const result = selectContextualToolSet(makeInput());
     expect(result.has('canvas.generation')).toBe(true);
     expect(result.has('canvas.setMediaParams')).toBe(true);
+    expect(result.has('provider.resolveResolution')).toBe(true);
     expect(result.has('canvas.previewPrompt')).toBe(true);
     expect(result.has('canvas.presetTracks')).toBe(true);
   });
@@ -91,23 +91,60 @@ describe('selectContextualToolSet', () => {
     expect(result.has('preset.manage')).toBe(true);
     expect(result.has('provider.manage')).toBe(true);
     expect(result.has('workflow.manage')).toBe(true);
-    expect(result.has('workflow.visual')).toBe(true);
+    expect(result.has('workflow.visual')).toBe(false);
   });
 
-  it('returns the same set regardless of input', () => {
-    const empty = selectContextualToolSet(makeInput());
-    const info = selectContextualToolSet(makeInput({ intentKind: 'informational' }));
-    const full = selectContextualToolSet(
-      makeInput({
-        nodeCount: 100,
-        entityCount: 50,
-        hasStylePlate: true,
-        hasSelectedNodes: true,
-        userMessage: 'generate images for all nodes',
-      }),
+  it('loads only inspection and workflow control while a production plan is pending', () => {
+    const result = selectContextualToolSet(makeInput({ workflowPhase: 'production_plan_pending' }));
+
+    expect(result.has('canvas.getInfo')).toBe(true);
+    expect(result.has('workflow.manage')).toBe(true);
+    expect(result.has('canvas.createNodes')).toBe(false);
+    expect(result.has('canvas.generation')).toBe(false);
+    expect(result.has('workflow.visual')).toBe(false);
+  });
+
+  it('loads the bounded audition tool only during style exploration', () => {
+    const result = selectContextualToolSet(makeInput({ workflowPhase: 'style_exploration' }));
+
+    expect(result.has('workflow.visual')).toBe(true);
+    expect(result.has('workflow.media')).toBe(false);
+    expect(result.has('canvas.generation')).toBe(false);
+  });
+
+  it.each(['preproduction', 'media_generation'] as const)(
+    'loads durable media and feedback tools during %s',
+    (workflowPhase) => {
+      const result = selectContextualToolSet(makeInput({ workflowPhase }));
+
+      expect(result.has('workflow.media')).toBe(true);
+      expect(result.has('workflow.mediaFeedback')).toBe(true);
+      expect(result.has('entity.setRefImageFromNode')).toBe(true);
+      expect(result.has('canvas.setMediaParams')).toBe(true);
+      expect(result.has('canvas.generation')).toBe(false);
+      expect(result.has('entity.generateRefImage')).toBe(false);
+    },
+  );
+
+  it('keeps incremental feedback available during assembly without reopening generation', () => {
+    const result = selectContextualToolSet(makeInput({ workflowPhase: 'assembly' }));
+
+    expect(result.has('workflow.mediaFeedback')).toBe(true);
+    expect(result.has('workflow.media')).toBe(false);
+    expect(result.has('canvas.generation')).toBe(false);
+  });
+
+  it('exposes final manifest preparation and rendering in their exact phases', () => {
+    const preparing = selectContextualToolSet(
+      makeInput({ workflowPhase: 'final_export_preparation' }),
     );
-    expect([...empty].sort()).toEqual([...info].sort());
-    expect([...empty].sort()).toEqual([...full].sort());
+    const approved = selectContextualToolSet(makeInput({ workflowPhase: 'final_export_approved' }));
+
+    expect(preparing.has('workflow.finalExport')).toBe(true);
+    expect(preparing.has('render.start')).toBe(false);
+    expect(approved.has('workflow.finalExport')).toBe(false);
+    expect(approved.has('render.start')).toBe(true);
+    expect(approved.has('render.cancel')).toBe(true);
   });
 
   it('does NOT include discoverable-only tools', () => {
@@ -170,7 +207,52 @@ function makeMessagesForCompaction(count = 16, charsEach = 10000): LLMMessage[] 
   ];
 }
 
+describe('ContextManager guide retention', () => {
+  it('retains only workflow-critical guides after the opening steps', () => {
+    const manager = new ContextManager(makeMockLlm(), () => 'system prompt');
+    const prompt = manager.buildSystemPrompt(
+      {
+        page: 'canvas',
+        extra: {
+          autoInjectGuides: [
+            { name: 'Turn Guide', content: 'turn-only-content', retention: 'turn' },
+            {
+              name: 'Workflow Guide',
+              content: 'workflow-critical-content',
+              retention: 'workflow',
+            },
+          ],
+        },
+      },
+      6,
+    );
+
+    expect(prompt).toContain('workflow-critical-content');
+    expect(prompt).not.toContain('turn-only-content');
+  });
+});
+
 describe('compactWithLLM post-compact reload', () => {
+  it('distinguishes a throttled no-op from an attempted compaction failure', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-01T00:00:00Z'));
+    try {
+      const onBeforeCompact = vi.fn().mockReturnValue(false);
+      const cm = new ContextManager(makeMockLlm(), () => 'system prompt', { onBeforeCompact });
+      const first = makeMessagesForCompaction();
+      const second = makeMessagesForCompaction();
+
+      const failed = await cm.compactWithLLMResult(first, 20_000, 3);
+      const throttled = await cm.compactWithLLMResult(second, 20_000, 4);
+
+      expect(failed).toMatchObject({ attempted: true, changed: false });
+      expect(throttled).toMatchObject({ attempted: false, changed: false });
+      expect(onBeforeCompact).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('runs rule-based pruning in the same compaction attempt before calling the LLM', async () => {
     const llm = makeMockLlm();
     const cm = new ContextManager(llm, () => 'system prompt');

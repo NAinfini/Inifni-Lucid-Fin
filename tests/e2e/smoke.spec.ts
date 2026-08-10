@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,7 +23,9 @@ function resolveElectronBinary(): string {
     }
   }
 
-  throw new Error('Could not find Electron binary. Run `npm install` in the repo root first.');
+  throw new Error(
+    'Could not find Electron binary. Run `pnpm install --frozen-lockfile` in the repo root first.',
+  );
 }
 
 function isBuildAvailable(): boolean {
@@ -46,9 +49,12 @@ async function stopProcessTree(proc: ChildProcessWithoutNullStreams): Promise<vo
 
 async function launchAndWaitForStartup(): Promise<string> {
   const electronBinary = resolveElectronBinary();
+  const appDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-fin-smoke-'));
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
+  env.APPDATA = appDataDir;
   env.ELECTRON_IS_E2E = '1';
+  env.LOCALAPPDATA = appDataDir;
   env.NODE_ENV = 'test';
 
   const proc = spawn(electronBinary, [MAIN_ENTRY], {
@@ -65,26 +71,35 @@ async function launchAndWaitForStartup(): Promise<string> {
 
   try {
     await new Promise<void>((resolve, reject) => {
+      let pollTimer: ReturnType<typeof setTimeout> | undefined;
       const timeout = setTimeout(() => {
+        cleanup();
         reject(new Error(`Timed out waiting for Electron startup.\n${output}`));
       }, 45_000);
 
-      proc.on('exit', (code, signal) => {
+      const cleanup = () => {
         clearTimeout(timeout);
+        if (pollTimer) clearTimeout(pollTimer);
+        proc.off('exit', onExit);
+      };
+
+      const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+        cleanup();
         reject(
           new Error(`Electron exited before startup: code=${code} signal=${signal}\n${output}`),
         );
-      });
+      };
+      proc.once('exit', onExit);
 
       const checkReady = () => {
         if (
           output.includes('Lucid Fin initialized successfully') &&
           output.includes('[api-server] Listening')
         ) {
-          clearTimeout(timeout);
+          cleanup();
           resolve();
         } else {
-          setTimeout(checkReady, 250);
+          pollTimer = setTimeout(checkReady, 250);
         }
       };
       checkReady();
@@ -92,14 +107,16 @@ async function launchAndWaitForStartup(): Promise<string> {
 
     return output;
   } finally {
-    await stopProcessTree(proc);
+    try {
+      await stopProcessTree(proc);
+    } finally {
+      fs.rmSync(appDataDir, { recursive: true, force: true });
+    }
   }
 }
 
 test.describe('Electron smoke', () => {
-  test.beforeEach(() => {
-    test.skip(!isBuildAvailable(), 'Electron build not found; run `npm run build` first');
-  });
+  test.skip(!isBuildAvailable(), 'Electron build not found; run `pnpm run build` first');
 
   test('built app starts main process and local API server', async () => {
     const output = await launchAndWaitForStartup();

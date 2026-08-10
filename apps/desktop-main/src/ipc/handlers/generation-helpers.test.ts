@@ -44,6 +44,7 @@ import {
   materializeGenerationRequest,
   mergeVariants,
   buildAdhocAdapter,
+  resolveStoredProviderApiKey,
   DEFAULT_IMAGE_SIZE,
   DEFAULT_VIDEO_SIZE,
   DEFAULT_VIDEO_DURATION,
@@ -787,7 +788,7 @@ describe('materializeGenerationRequest', () => {
     }
   });
 
-  it('logs a warning when sourceImageHash cannot be resolved', () => {
+  it('fails closed when sourceImageHash cannot be resolved', () => {
     const cas = makeCas({});
     const req = {
       type: 'image' as const,
@@ -795,10 +796,8 @@ describe('materializeGenerationRequest', () => {
       prompt: 'test',
       sourceImageHash: 'unresolvable-hash',
     };
-    materializeGenerationRequest(req, cas as never);
-    expect(logger.warn).toHaveBeenCalledWith(
-      '[canvas:generation] sourceImageHash could not be resolved to a file',
-      expect.objectContaining({ sourceImageHash: 'unresolvable-hash' }),
+    expect(() => materializeGenerationRequest(req, cas as never)).toThrow(
+      /Source image asset "unresolvable-hash" could not be resolved from CAS/,
     );
   });
 
@@ -831,7 +830,7 @@ describe('materializeGenerationRequest', () => {
     }
   });
 
-  it('logs a warning when some referenceImages cannot be resolved', () => {
+  it('fails closed when any ordered reference image cannot be resolved', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-mat-partial-'));
     const ref1 = path.join(tmpDir, 'ref1.png');
     fs.writeFileSync(ref1, Buffer.from([1]));
@@ -850,18 +849,15 @@ describe('materializeGenerationRequest', () => {
         prompt: 'test',
         referenceImages: ['hash-ref1', 'hash-missing'],
       };
-      const result = materializeGenerationRequest(req, cas as never);
-      expect(result.referenceImages).toEqual([ref1]);
-      expect(logger.warn).toHaveBeenCalledWith(
-        '[canvas:generation] some referenceImage hashes could not be resolved',
-        expect.objectContaining({ total: 2, resolved: 1 }),
+      expect(() => materializeGenerationRequest(req, cas as never)).toThrow(
+        /Reference image asset "hash-missing" could not be resolved from CAS/,
       );
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 
-  it('sets referenceImages to undefined when none can be resolved', () => {
+  it('fails closed when no reference image can be resolved', () => {
     const cas = makeCas({});
     const req = {
       type: 'image' as const,
@@ -869,8 +865,9 @@ describe('materializeGenerationRequest', () => {
       prompt: 'test',
       referenceImages: ['hash-missing-a', 'hash-missing-b'],
     };
-    const result = materializeGenerationRequest(req, cas as never);
-    expect(result.referenceImages).toBeUndefined();
+    expect(() => materializeGenerationRequest(req, cas as never)).toThrow(
+      /Reference image asset "hash-missing-a" could not be resolved from CAS/,
+    );
   });
 });
 
@@ -979,6 +976,17 @@ describe('buildAdhocAdapter', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('resolves the catalog credential id before falling back to a legacy provider id', async () => {
+    const keychain = {
+      getKey: vi.fn(async (id: string) => (id === 'tongyi-wanxiang' ? 'shared-alibaba-key' : null)),
+    };
+
+    await expect(
+      resolveStoredProviderApiKey(keychain as never, 'alibaba-wan-video', 'video'),
+    ).resolves.toBe('shared-alibaba-key');
+    expect(keychain.getKey).toHaveBeenCalledWith('tongyi-wanxiang');
   });
 
   it('does NOT send the keychain key to an untrusted baseUrl (exfiltration guard)', async () => {

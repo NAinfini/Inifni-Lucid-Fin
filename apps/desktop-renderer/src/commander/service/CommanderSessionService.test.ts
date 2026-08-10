@@ -341,29 +341,42 @@ describe('CommanderSessionService', () => {
   });
 
   it('cancel() with activeCanvasId: calls transport.cancel(canvasId)', async () => {
-    const { service, commander } = makeService({
-      commanderState: { activeCanvasId: 'canvas-1' },
-      timelineState: { currentRunId: 'r1' },
-    });
-    // Run_end never arrives; the timeout path runs local finalize.
-    // Use very short timeout via fake timers would be noisier than just
-    // letting the 2s timeout lapse — mark test async and await.
-    const p = service.cancel();
-    await p;
-    expect(commander.cancel).toHaveBeenCalledWith('canvas-1');
-  }, 5000);
+    vi.useFakeTimers();
+    try {
+      const { service, commander } = makeService({
+        commanderState: { activeCanvasId: 'canvas-1' },
+        timelineState: { currentRunId: 'r1' },
+      });
+      const cancelPromise = service.cancel();
+
+      await vi.advanceTimersByTimeAsync(2000);
+      await cancelPromise;
+
+      expect(commander.cancel).toHaveBeenCalledWith('canvas-1');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('cancel() swallows transport.cancel errors (backend already gone)', async () => {
-    const { service, dispatch, commander } = makeService({
-      commanderState: { activeCanvasId: 'canvas-1' },
-      timelineState: { currentRunId: 'r1' },
-    });
-    commander.cancel.mockRejectedValueOnce(new Error('already gone'));
-    await service.cancel();
-    // After the await returns, finishStreaming MUST eventually be dispatched.
-    const types = dispatchedTypes(dispatch);
-    expect(types).toContain('commander/finishStreaming');
-  }, 5000);
+    vi.useFakeTimers();
+    try {
+      const { service, dispatch, commander } = makeService({
+        commanderState: { activeCanvasId: 'canvas-1' },
+        timelineState: { currentRunId: 'r1' },
+      });
+      commander.cancel.mockRejectedValueOnce(new Error('already gone'));
+      const cancelPromise = service.cancel();
+
+      await vi.advanceTimersByTimeAsync(2000);
+      await cancelPromise;
+
+      const types = dispatchedTypes(dispatch);
+      expect(types).toContain('commander/finishStreaming');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('start rejects with a backend-not-ready error when settings are unbootstrapped', async () => {
     const { service, dispatch } = makeService({

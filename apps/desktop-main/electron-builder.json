@@ -25,9 +25,14 @@
     }
   ],
   "asar": true,
-  "asarUnpack": ["node_modules/better-sqlite3/**", "node_modules/keytar/**"],
+  "asarUnpack": [
+    "node_modules/better-sqlite3/**",
+    "node_modules/keytar/**",
+    "node_modules/@openai/codex-*/vendor/**"
+  ],
+  "afterPack": "build/verify-codex-binary.cjs",
   "win": {
-    "target": [{ "target": "nsis", "arch": ["x64", "arm64"] }],
+    "target": [{ "target": "nsis" }],
     "icon": "build/icon.ico",
     "artifactName": "Lucid-Fin-${version}-win-${arch}.${ext}",
     "signAndEditExecutable": false
@@ -39,10 +44,7 @@
     "deleteAppDataOnUninstall": false
   },
   "mac": {
-    "target": [
-      { "target": "dmg", "arch": ["x64", "arm64"] },
-      { "target": "zip", "arch": ["x64", "arm64"] }
-    ],
+    "target": [{ "target": "dmg" }, { "target": "zip" }],
     "icon": "build/icon.icns",
     "category": "public.app-category.video",
     "artifactName": "${productName}-${version}-mac-${arch}.${ext}",

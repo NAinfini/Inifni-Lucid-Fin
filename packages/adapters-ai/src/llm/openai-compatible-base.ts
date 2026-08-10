@@ -164,8 +164,40 @@ function buildOpenAICompatibleBaseUrlCandidates(baseUrl: string): string[] {
   return Array.from(candidates);
 }
 
-function usesOpenAIReasoningChatCompatibility(model: string): boolean {
-  return /^(gpt-5|o1|o3|o4)/i.test(model.trim());
+function modelLeaf(model: string): string {
+  return model.trim().split('/').at(-1) ?? model.trim();
+}
+
+function isReasoningModel(model: string): boolean {
+  return /^(gpt-5|o1|o3|o4|gpt-oss|kimi-k3|deepseek-v4|qwen3\.7|glm-5\.2|grok-4\.5)/i.test(
+    modelLeaf(model),
+  );
+}
+
+function usesMaxCompletionTokens(model: string): boolean {
+  return /^(gpt-5|o1|o3|o4|gpt-oss|kimi-k3)/i.test(modelLeaf(model));
+}
+
+function omitsSamplingParameters(model: string): boolean {
+  return /^(gpt-5|o1|o3|o4|kimi-k3)/i.test(modelLeaf(model));
+}
+
+function supportsStopSequences(model: string): boolean {
+  return !/^(gpt-5|o1|o3|o4|kimi-k3|grok-4\.5)/i.test(modelLeaf(model));
+}
+
+function openAICompatibleContent(message: LLMMessage): unknown {
+  if (!message.images?.length) return message.content;
+
+  const parts: Array<Record<string, unknown>> = [];
+  if (message.content) parts.push({ type: 'text', text: message.content });
+  for (const image of message.images) {
+    const url = image.data.startsWith('data:')
+      ? image.data
+      : `data:${image.mimeType};base64,${image.data}`;
+    parts.push({ type: 'image_url', image_url: { url } });
+  }
+  return parts;
 }
 
 /**
@@ -197,7 +229,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     this.baseUrl = normalizeOpenAICompatibleBaseUrl(cfg.defaultBaseUrl);
     this.model = cfg.defaultModel;
     this.authStyle = cfg.authStyle ?? 'bearer';
-    const isReasoning = usesOpenAIReasoningChatCompatibility(cfg.defaultModel);
+    const isReasoning = isReasoningModel(cfg.defaultModel);
     this.profile = {
       providerId: cfg.id,
       charsPerToken: 4.0,
@@ -251,7 +283,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
             ...this.authHeaders(),
           },
           body: JSON.stringify(
-            usesOpenAIReasoningChatCompatibility(this.model)
+            usesMaxCompletionTokens(this.model)
               ? {
                   model: this.model,
                   messages: [{ role: 'user', content: 'hi' }],
@@ -673,7 +705,13 @@ export class OpenAICompatibleLLM implements LLMAdapter {
         if (m.role === 'tool') {
           return { role: 'tool', tool_call_id: m.toolCallId, content: m.content };
         }
-        const msg: Record<string, unknown> = { role: m.role, content: m.content };
+        const msg: Record<string, unknown> = {
+          role: m.role,
+          content: openAICompatibleContent(m),
+        };
+        if (m.role === 'assistant' && m.reasoning) {
+          msg.reasoning_content = m.reasoning;
+        }
         if (m.toolCalls?.length) {
           msg.tool_calls = m.toolCalls.map((tc) => ({
             id: tc.id,
@@ -688,15 +726,16 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       }),
       stream: streaming,
     };
-    const usesReasoningCompatibility = usesOpenAIReasoningChatCompatibility(this.model);
-    if (usesReasoningCompatibility) {
+    if (usesMaxCompletionTokens(this.model)) {
       body.max_completion_tokens = opts?.maxTokens ?? 4096;
     } else {
       body.max_tokens = opts?.maxTokens ?? 4096;
-      body.temperature = opts?.temperature ?? 0.7;
+    }
+    if (!omitsSamplingParameters(this.model)) {
+      if (opts?.temperature !== undefined) body.temperature = opts.temperature;
       if (opts?.topP !== undefined) body.top_p = opts.topP;
     }
-    if (opts?.stop !== undefined) body.stop = opts.stop;
+    if (opts?.stop !== undefined && supportsStopSequences(this.model)) body.stop = opts.stop;
 
     // OpenAI-compatible APIs require tool names matching ^[a-zA-Z0-9_-]+$
     // Build a reverse map from sanitized name → original name for response parsing

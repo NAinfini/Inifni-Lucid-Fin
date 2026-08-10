@@ -81,6 +81,7 @@ describe('registerJobHandlers', () => {
 
     // Verify IPC handlers were registered
     const submit = handlers.get('job:submit');
+    const list = handlers.get('job:list');
     const cancel = handlers.get('job:cancel');
     const pause = handlers.get('job:pause');
     const resume = handlers.get('job:resume');
@@ -96,6 +97,7 @@ describe('registerJobHandlers', () => {
         },
       ),
     ).resolves.toEqual({ jobId: 'job-1' });
+    await expect(list?.({}, { status: 'completed' })).resolves.toEqual([completedJob]);
     await cancel?.({}, { jobId: 'job-1' });
     await pause?.({}, { jobId: 'job-1' });
     await resume?.({}, { jobId: 'job-1' });
@@ -127,6 +129,12 @@ describe('registerJobHandlers', () => {
     expect(eventHandlers.has('job:completed')).toBe(true);
     expect(eventHandlers.has('job:failed')).toBe(true);
 
+    eventHandlers.get('job:submitted')?.({ id: 'job-1', status: 'pending' });
+    expect(send).toHaveBeenCalledWith('job:submitted', {
+      jobId: 'job-1',
+      status: 'pending',
+    });
+
     // Simulate progress event
     const progressHandler = eventHandlers.get('job:progress')!;
     progressHandler({ jobId: 'job-1', progress: 45, currentStep: 'rendering' });
@@ -157,5 +165,42 @@ describe('registerJobHandlers', () => {
     completedHandler({ id: 'job-2', status: 'completed' });
     const completeCalls = send.mock.calls.filter((call: unknown[]) => call[0] === 'job:complete');
     expect(completeCalls).toHaveLength(1);
+
+    const failedHandler = eventHandlers.get('job:failed')!;
+    failedHandler({ id: 'job-failed', status: 'failed', error: 'provider unavailable' });
+    failedHandler({ id: 'job-failed', status: 'failed', error: 'duplicate' });
+    expect(send).toHaveBeenCalledWith('job:failed', {
+      jobId: 'job-failed',
+      status: 'failed',
+      error: 'provider unavailable',
+    });
+    expect(
+      send.mock.calls.filter(
+        (call: unknown[]) =>
+          call[0] === 'job:complete' &&
+          (call[1] as { jobId?: string } | undefined)?.jobId === 'job-failed',
+      ),
+    ).toHaveLength(1);
+
+    eventHandlers.get('job:cancelled')?.({ id: 'job-cancelled', status: 'cancelled' });
+    eventHandlers.get('job:paused')?.({ id: 'job-paused', status: 'paused' });
+    eventHandlers.get('job:resumed')?.({ id: 'job-resumed', status: 'running' });
+    expect(send).toHaveBeenCalledWith('job:cancelled', {
+      jobId: 'job-cancelled',
+      status: 'cancelled',
+    });
+    expect(send).toHaveBeenCalledWith('job:paused', {
+      jobId: 'job-paused',
+      status: 'paused',
+    });
+    expect(send).toHaveBeenCalledWith('job:resumed', {
+      jobId: 'job-resumed',
+      status: 'running',
+    });
+
+    // Exercise the bounded dedupe cache eviction without timing dependencies.
+    for (let index = 0; index <= 500; index += 1) {
+      completedHandler({ id: `bulk-job-${index}`, status: 'completed' });
+    }
   });
 });

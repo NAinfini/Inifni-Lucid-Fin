@@ -2,18 +2,27 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React, { useState } from 'react';
+import { COMMANDER_GUIDE_LIMITS } from '@lucid-fin/contracts';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
 import type { Locale } from '../../i18n.js';
-import { setLocale, t } from '../../i18n.js';
-import { getDefaultSkillName, type SkillDefinition } from '../../store/slices/skillDefinitions.js';
+import { localizeSkillName, localizeToolName, setLocale, t } from '../../i18n.js';
+import {
+  getDefaultSkillName,
+  skillDefinitionsSlice,
+  type SkillDefinition,
+} from '../../store/slices/skillDefinitions.js';
 import type { Theme } from '../../store/slices/ui.js';
 import { settingsSlice } from '../../store/slices/settings.js';
 import { getAPI } from '../../utils/api.js';
 import { SettingsSidebarNav, type SettingsTab } from './SettingsSidebarNav.js';
 import { SettingsAppearanceSection } from './SettingsAppearanceSection.js';
 import { SettingsGuidesSection } from './SettingsGuidesSection.js';
-import { SettingsProcessPromptsSection } from './SettingsProcessPromptsSection.js';
+import {
+  PROCESS_GUIDE_GROUPS,
+  SettingsProcessPromptsSection,
+} from './SettingsProcessPromptsSection.js';
+import { getProcessPromptTriggerTools } from './processPromptTriggers.js';
 
 vi.mock('../../utils/api.js', () => ({
   getAPI: vi.fn(() => undefined),
@@ -44,7 +53,7 @@ describe('settings extracted sections', () => {
 
     expect(screen.getByRole('button', { current: 'page', name: 'Providers' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Guides' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Process Injection' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Run Guides' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Prompt Templates' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Workflows' })).toBeNull();
 
@@ -267,6 +276,70 @@ describe('settings extracted sections', () => {
     expect(screen.getAllByText(t('settings.category.workflow')).length).toBeGreaterThan(0);
   });
 
+  it('localizes every bundled guide and current run-guide metadata in zh-CN', () => {
+    setLocale('zh-CN');
+    const builtIns = skillDefinitionsSlice
+      .getInitialState()
+      .skills.filter((skill) => skill.builtIn);
+    for (const skill of builtIns) {
+      expect(localizeSkillName(skill.id, skill.name), skill.id).not.toBe(skill.name);
+    }
+
+    for (const group of PROCESS_GUIDE_GROUPS) {
+      for (const processKey of group.keys) {
+        expect(t(`processPromptNames.${processKey}`)).not.toBe(`processPromptNames.${processKey}`);
+        expect(t(`processPromptDescriptions.${processKey}`)).not.toBe(
+          `processPromptDescriptions.${processKey}`,
+        );
+      }
+    }
+  });
+
+  it('shows guide source, load mode, and bounded content sizes', () => {
+    setLocale('en-US');
+    const oversizedContent = 'x'.repeat(COMMANDER_GUIDE_LIMITS.maxWorkflowSkillChars + 1);
+    const onSetSkillContent = vi.fn();
+    const skills: SkillDefinition[] = [
+      {
+        id: 'oversized-workflow-skill',
+        name: 'Oversized Workflow Skill',
+        category: 'skill',
+        defaultContent: oversizedContent,
+        customContent: null,
+        builtIn: true,
+        source: 'workflowSkill',
+        createdAt: 0,
+        autoInject: true,
+        autoInjectContent: 'bounded kernel',
+      },
+    ];
+
+    render(
+      <SettingsGuidesSection
+        skills={skills}
+        onAddSkill={vi.fn()}
+        onRemoveSkill={vi.fn()}
+        onRenameSkill={vi.fn()}
+        onSetSkillContent={onSetSkillContent}
+        onResetAllSkills={vi.fn()}
+        onResetSkill={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Skill')).toBeTruthy();
+    expect(
+      screen.getByText((_, element) => element?.textContent === 'Skill · Automatic summary'),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByText('Oversized Workflow Skill').closest('button')!);
+    expect(screen.getByText('Automatic context summary')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toContain(
+      COMMANDER_GUIDE_LIMITS.maxWorkflowSkillChars.toLocaleString(),
+    );
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSetSkillContent).not.toHaveBeenCalled();
+  });
+
   it('fires onAddSkill with a new-template payload when Add Template is clicked', () => {
     setLocale('zh-CN');
 
@@ -345,10 +418,10 @@ describe('settings extracted sections', () => {
     expect(screen.getByText('Node Preset Tracks')).toBeTruthy();
     expect(screen.getByText('Provider Management')).toBeTruthy();
     expect(screen.getByText('Series Management')).toBeTruthy();
-    expect(screen.getAllByText('Triggered by')).toHaveLength(3);
-    expect(screen.getByText('canvas.presetTracks')).toBeTruthy();
-    expect(screen.getByText('provider.manage')).toBeTruthy();
-    expect(screen.getByText('series.addEpisode')).toBeTruthy();
+    expect(screen.getAllByText('Related tools')).toHaveLength(3);
+    expect(screen.getByText('Preset Tracks')).toBeTruthy();
+    expect(screen.getByText('Provider')).toBeTruthy();
+    expect(screen.getByText('Add Episode')).toBeTruthy();
     fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]!);
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'Custom image rules' },
@@ -367,6 +440,21 @@ describe('settings extracted sections', () => {
     await waitFor(() => {
       expect(api.processPrompt.reset).toHaveBeenCalledWith('node-preset-tracks');
     });
+  });
+
+  it('provides localized related-tool labels for every current run guide', () => {
+    for (const locale of ['en-US', 'zh-CN'] as const) {
+      setLocale(locale);
+      for (const group of PROCESS_GUIDE_GROUPS) {
+        for (const processKey of group.keys) {
+          const tools = getProcessPromptTriggerTools(processKey);
+          expect(tools.length, `${processKey} should declare related tools`).toBeGreaterThan(0);
+          for (const tool of tools) {
+            expect(localizeToolName(tool), `${locale} should localize ${tool}`).not.toBe(tool);
+          }
+        }
+      }
+    }
   });
 
   it('localizes built-in process prompt names and descriptions in zh-CN', async () => {
@@ -396,7 +484,7 @@ describe('settings extracted sections', () => {
     expect(screen.queryByText('Prompt compilation rules for image nodes.')).toBeNull();
   });
 
-  it('localizes process injection prompt titles and descriptions in zh-CN', async () => {
+  it('localizes run-guide titles and descriptions in zh-CN', async () => {
     setLocale('zh-CN');
     const prompts = [
       {
@@ -483,11 +571,11 @@ describe('settings extracted sections', () => {
     fireEvent.click(screen.getByText('Generation'));
 
     expect(screen.getByText('Entity Reference Image Generation')).toBeTruthy();
-    expect(screen.getAllByText('Triggered by')).toHaveLength(1);
-    expect(screen.getByText('entity.generateRefImage')).toBeTruthy();
-    expect(screen.getByText('entity.setRefImage')).toBeTruthy();
-    expect(screen.getByText('entity.deleteRefImage')).toBeTruthy();
-    expect(screen.getByText('entity.setRefImageFromNode')).toBeTruthy();
+    expect(screen.getAllByText('Related tools')).toHaveLength(1);
+    expect(screen.getByText('Generate Ref Image')).toBeTruthy();
+    expect(screen.getByText('Set Ref Image')).toBeTruthy();
+    expect(screen.getByText('Delete Ref Image')).toBeTruthy();
+    expect(screen.getByText('Set Ref Image from Node')).toBeTruthy();
   });
 
   it('retries process guide loading until the preload API becomes available', async () => {
@@ -512,7 +600,7 @@ describe('settings extracted sections', () => {
 
     render(<SettingsProcessPromptsSection />);
 
-    expect(screen.getByText('Loading process injection...')).toBeTruthy();
+    expect(screen.getByText('Loading run guides...')).toBeTruthy();
 
     await waitFor(
       () => {
@@ -528,5 +616,36 @@ describe('settings extracted sections', () => {
     expect(screen.getByText('Image Node Generation')).toBeTruthy();
     expect(screen.queryByText(t('settings.processGuides.unavailable'))).toBeNull();
     expect(currentApi.processPrompt.list).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows process-guide size and blocks an oversized legacy override', async () => {
+    setLocale('en-US');
+    const oversizedContent = 'x'.repeat(COMMANDER_GUIDE_LIMITS.maxProcessPromptChars + 1);
+    const api = {
+      list: vi.fn(async () => [
+        {
+          processKey: 'image-node-generation',
+          name: 'Image Node Generation',
+          description: 'Prompt compilation for image nodes.',
+          defaultValue: 'Default rules',
+          customValue: oversizedContent,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ]),
+      setCustom: vi.fn(async () => undefined),
+      reset: vi.fn(async () => undefined),
+    };
+
+    render(<SettingsProcessPromptsSection api={api as never} />);
+
+    fireEvent.click(await screen.findByText('Generation'));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByRole('alert').textContent).toContain(
+      COMMANDER_GUIDE_LIMITS.maxProcessPromptChars.toLocaleString(),
+    );
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(api.setCustom).not.toHaveBeenCalled();
   });
 });

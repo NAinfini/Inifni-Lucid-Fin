@@ -5,16 +5,16 @@
  * configurations for working on Lucid Fin.
  *
  * Usage:
- *   npx tsx scripts/doctor.ts          # Run all checks
- *   npx tsx scripts/doctor.ts --json   # Output results as JSON
+ *   pnpm exec tsx scripts/doctor.ts          # Run all checks
+ *   pnpm exec tsx scripts/doctor.ts --json   # Output results as JSON
  *
  * Checks performed:
  *   - Node.js version (>= engines.node from package.json)
- *   - npm version
+ *   - pnpm version
  *   - Git is installed
  *   - FFmpeg availability (bundled path + system PATH)
- *   - npm workspaces linked correctly
- *   - TypeScript compiles (npx tsc --noEmit)
+ *   - pnpm workspaces linked correctly
+ *   - TypeScript compiles (pnpm exec tsc --noEmit)
  *   - Platform-specific checks (long paths on Windows, Xcode CLT on macOS)
  */
 
@@ -30,13 +30,14 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = resolve(fileURLToPath(import.meta.url), '../..');
 
 interface PackageJson {
-  engines?: { node?: string };
-  workspaces?: string[];
+  engines?: { node?: string; pnpm?: string };
+  packageManager?: string;
 }
 
 const PKG: PackageJson = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf-8'));
 
-const REQUIRED_NODE_VERSION = PKG.engines?.node ?? '>=22.12.0';
+const REQUIRED_NODE_VERSION = PKG.engines?.node ?? '>=26.5.1';
+const REQUIRED_PNPM_VERSION = PKG.packageManager?.replace(/^pnpm@/, '') ?? '11.21.0';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -69,7 +70,7 @@ function run(cmd: string): string | null {
   }
 }
 
-/** Parse a semver-ish string like "v22.12.0" into [major, minor, patch]. */
+/** Parse a semver-ish string like "v26.5.1" into [major, minor, patch]. */
 function parseSemver(raw: string): [number, number, number] | null {
   const m = raw.match(/(\d+)\.(\d+)\.(\d+)/);
   if (!m) return null;
@@ -85,7 +86,7 @@ function semverGte(actual: [number, number, number], required: [number, number, 
   return true; // equal
 }
 
-/** Extract the minimum version from an engines constraint like ">=22.12.0". */
+/** Extract the minimum version from an engines constraint like ">=26.5.1". */
 function parseMinVersion(constraint: string): [number, number, number] | null {
   const m = constraint.match(/>=?\s*(\d+\.\d+\.\d+)/);
   if (!m) return null;
@@ -142,17 +143,27 @@ function checkNodeVersion(): CheckResult {
   };
 }
 
-function checkNpm(): CheckResult {
-  const raw = run('npm --version');
+function checkPnpm(): CheckResult {
+  const raw = run('pnpm --version');
   if (!raw) {
     return {
-      name: 'npm',
+      name: 'pnpm',
       status: 'fail',
-      message: 'npm not found in PATH',
-      fix: 'npm is bundled with Node.js — reinstall Node.js',
+      message: 'pnpm not found in PATH',
+      fix: `Install pnpm ${REQUIRED_PNPM_VERSION} from https://pnpm.io/installation`,
     };
   }
-  return { name: 'npm', status: 'pass', message: `npm ${raw}` };
+
+  if (raw !== REQUIRED_PNPM_VERSION) {
+    return {
+      name: 'pnpm',
+      status: 'fail',
+      message: `pnpm ${raw} does not match packageManager pnpm@${REQUIRED_PNPM_VERSION}`,
+      fix: `Install pnpm ${REQUIRED_PNPM_VERSION}`,
+    };
+  }
+
+  return { name: 'pnpm', status: 'pass', message: `pnpm ${raw}` };
 }
 
 function checkGit(): CheckResult {
@@ -199,7 +210,7 @@ function checkFfmpeg(): CheckResult {
       name: 'FFmpeg',
       status: 'warn',
       message: `System: ${firstLine} (bundled binary not found at ${bundledPath})`,
-      fix: `Run "npx tsx scripts/fetch-ffmpeg.ts" to download bundled FFmpeg`,
+      fix: `Run "pnpm exec tsx scripts/fetch-ffmpeg.ts" to download bundled FFmpeg`,
     };
   }
 
@@ -207,37 +218,37 @@ function checkFfmpeg(): CheckResult {
     name: 'FFmpeg',
     status: 'warn',
     message: 'FFmpeg not found (bundled or system PATH)',
-    fix: `Run "npx tsx scripts/fetch-ffmpeg.ts" to download, or install FFmpeg system-wide`,
+    fix: `Run "pnpm exec tsx scripts/fetch-ffmpeg.ts" to download, or install FFmpeg system-wide`,
   };
 }
 
 function checkWorkspaces(): CheckResult {
-  // Quick sanity check: run `npm ls --workspaces --depth=0` and look for errors.
-  const output = run('npm ls --workspaces --depth=0');
+  const output = run('pnpm --recursive list --depth=-1 --json');
   if (output === null) {
     return {
       name: 'Workspaces',
       status: 'fail',
-      message: 'npm ls failed — workspaces may not be linked correctly',
-      fix: 'Run "npm install" from the repo root to link workspaces',
+      message: 'pnpm list failed — workspaces may not be linked correctly',
+      fix: 'Run "pnpm install" from the repo root to link workspaces',
     };
   }
 
-  // npm ls exits 0 even with missing optional deps; look for ERR or MISSING.
-  if (/ERR!|MISSING/i.test(output)) {
+  try {
+    const workspaces = JSON.parse(output) as unknown[];
+    if (!Array.isArray(workspaces) || workspaces.length === 0) throw new Error('empty workspace');
     return {
       name: 'Workspaces',
-      status: 'warn',
-      message: 'npm ls reported warnings — some workspace links may be broken',
-      fix: 'Run "npm install" from the repo root',
+      status: 'pass',
+      message: `${workspaces.length} pnpm workspace packages linked`,
+    };
+  } catch {
+    return {
+      name: 'Workspaces',
+      status: 'fail',
+      message: 'pnpm list returned an invalid workspace graph',
+      fix: 'Run "pnpm install" from the repo root to relink workspaces',
     };
   }
-
-  return {
-    name: 'Workspaces',
-    status: 'pass',
-    message: 'All npm workspaces linked',
-  };
 }
 
 function checkTypeScript(): CheckResult {
@@ -254,6 +265,8 @@ function checkTypeScript(): CheckResult {
     'packages/domain',
     'packages/storage',
     'packages/media-engine',
+    'packages/workflows',
+    'packages/agent',
   ];
 
   const failures: string[] = [];
@@ -262,7 +275,7 @@ function checkTypeScript(): CheckResult {
     const tsconfig = join(REPO_ROOT, ws, 'tsconfig.json');
     if (!existsSync(tsconfig)) continue;
 
-    const result = run(`npx tsc --noEmit --project "${tsconfig}"`);
+    const result = run(`pnpm exec tsc --noEmit --project "${tsconfig}"`);
     if (result === null) {
       failures.push(ws);
     }
@@ -440,7 +453,7 @@ async function main(): Promise<void> {
   // Core checks
   const results: CheckResult[] = [
     checkNodeVersion(),
-    checkNpm(),
+    checkPnpm(),
     checkGit(),
     checkFfmpeg(),
     checkWorkspaces(),

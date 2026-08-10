@@ -211,4 +211,152 @@ describe('ExecutionPanel', () => {
     expect(actionTypes).toContain('workflows/resumeWorkflow');
     expect(actionTypes).toContain('workflows/cancelWorkflow');
   });
+
+  it('rebuilds persistent canvas decisions from the host and refreshes after option and free-text answers', async () => {
+    const store = configureStore({
+      reducer: {
+        workflows: workflowsSlice.reducer,
+      },
+    });
+    let currentDecisions = [
+      {
+        id: 'decision-option',
+        workflowRunId: 'wf-decision-option',
+        canvasId: 'canvas-1',
+        questionId: 'question-option',
+        question: 'Which visual direction should the film use?',
+        options: [
+          {
+            id: 'cinematic',
+            label: 'Cinematic',
+            description: 'High contrast and deliberate framing.',
+          },
+        ],
+        allowFreeText: false,
+        status: 'pending',
+      },
+      {
+        id: 'decision-free-text',
+        workflowRunId: 'wf-decision-free-text',
+        canvasId: 'canvas-1',
+        questionId: 'question-free-text',
+        question: 'What should the narrator sound like?',
+        options: [],
+        allowFreeText: true,
+        status: 'pending',
+      },
+      {
+        id: 'decision-recovery',
+        workflowRunId: 'wf-decision-recovery',
+        canvasId: 'canvas-1',
+        questionId: 'question-recovery',
+        question: 'Recovered decision',
+        options: [],
+        allowFreeText: false,
+        status: 'recovery_required',
+      },
+    ];
+    const listPendingDecisions = vi.fn(
+      async ({ canvasId }: { canvasId: string }): Promise<unknown> =>
+        currentDecisions.filter((decision) => decision.canvasId === canvasId),
+    );
+    const answerQuestion = vi.fn(
+      async (_canvasId: string, questionId: string, _answer: string): Promise<void> => {
+        currentDecisions = currentDecisions.filter(
+          (decision) => decision.questionId !== questionId,
+        );
+      },
+    );
+    window.lucidAPI = {
+      workflow: { listPendingDecisions },
+      commander: { answerQuestion },
+    } as never;
+    const dispatchSpy = vi.spyOn(store, 'dispatch');
+
+    await act(async () => {
+      root.render(
+        <Provider store={store}>
+          <ExecutionPanel entityId="canvas-1" />
+        </Provider>,
+      );
+      await flushPromises();
+      await flushPromises();
+    });
+
+    expect(listPendingDecisions).toHaveBeenCalledWith({ canvasId: 'canvas-1' });
+    expect(container.textContent).toContain('Which visual direction should the film use?');
+    expect(container.textContent).toContain('What should the narrator sound like?');
+    expect(container.textContent).toContain(t('execution.decisions.recoveryRequired'));
+    expect(container.textContent).toContain(t('execution.decisions.recoveryDescription'));
+    expect(container.textContent).not.toContain(t('layout.noWorkflowActivity'));
+
+    const workflowRefreshActionsBeforeOption = dispatchSpy.mock.calls.filter((call) => {
+      const action = call[0] as { type?: string };
+      return action?.type === 'workflows/loadWorkflowStages';
+    }).length;
+    const cinematicOption = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Cinematic'),
+    );
+
+    await act(async () => {
+      cinematicOption?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flushPromises();
+      await flushPromises();
+    });
+
+    expect(answerQuestion).toHaveBeenCalledWith('canvas-1', 'question-option', 'Cinematic');
+    expect(listPendingDecisions).toHaveBeenCalledTimes(2);
+    expect(container.textContent).not.toContain('Which visual direction should the film use?');
+    expect(
+      dispatchSpy.mock.calls.filter((call) => {
+        const action = call[0] as { type?: string };
+        return action?.type === 'workflows/loadWorkflowStages';
+      }).length,
+    ).toBeGreaterThan(workflowRefreshActionsBeforeOption);
+
+    const otherAnswerButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes(t('commander.question.otherAnswer')),
+    );
+    await act(async () => {
+      otherAnswerButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flushPromises();
+    });
+
+    const customAnswer = container.querySelector<HTMLInputElement>(
+      `input[aria-label="${t('commander.question.otherAnswer')}"]`,
+    );
+    if (!customAnswer) throw new Error('Expected a free-text decision input');
+    const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    await act(async () => {
+      valueSetter?.call(customAnswer, 'Warm and intimate');
+      customAnswer.dispatchEvent(new Event('input', { bubbles: true }));
+      await flushPromises();
+    });
+
+    const submitAnswer = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes(t('commander.question.submit')),
+    );
+    await act(async () => {
+      submitAnswer?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flushPromises();
+      await flushPromises();
+    });
+
+    expect(answerQuestion).toHaveBeenCalledWith(
+      'canvas-1',
+      'question-free-text',
+      'Warm and intimate',
+    );
+    expect(listPendingDecisions).toHaveBeenCalledTimes(3);
+    expect(container.textContent).toContain(t('execution.decisions.recoveryRequired'));
+    expect(container.textContent).toContain(t('execution.decisions.recoveryDescription'));
+
+    const actionTypes = dispatchSpy.mock.calls.map((call) => {
+      const action = call[0] as { type?: string };
+      return action?.type;
+    });
+    expect(actionTypes).toContain('workflows/loadWorkflowStages');
+    expect(actionTypes).toContain('workflows/loadWorkflowTasks');
+    expect(actionTypes).toContain('workflows/loadWorkflows');
+  });
 });

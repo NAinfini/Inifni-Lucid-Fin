@@ -138,7 +138,7 @@ export interface QuestionPromptEvent extends EventBase {
   kind: 'question_prompt';
   questionId: string;
   prompt: string;
-  options?: { id: string; label: string }[];
+  options?: { id: string; label: string; description?: string }[];
   allowFreeText: boolean;
 }
 

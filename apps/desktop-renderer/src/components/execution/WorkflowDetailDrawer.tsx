@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { AlertTriangle, Sparkles, X } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
@@ -19,6 +19,28 @@ type WorkflowDetailDrawerProps = {
   open: boolean;
   onClose: () => void;
 };
+
+type WorkflowRequestChangesInput = {
+  workflowRunId: string;
+  gateKey: WorkflowApprovalContext['approval']['gateKey'];
+  expectedRowVersion: number;
+  expectedSubjectRevision: number;
+  expectedSubjectHash: string;
+  reason: string;
+};
+
+type WorkflowRequestChangesApi = {
+  requestChanges: (request: WorkflowRequestChangesInput) => Promise<unknown>;
+};
+
+function hasWorkflowRequestChanges(value: unknown): value is WorkflowRequestChangesApi {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'requestChanges' in value &&
+    typeof value.requestChanges === 'function'
+  );
+}
 
 function workflowStatusLabel(status: string): string {
   switch (status) {
@@ -70,6 +92,37 @@ export function WorkflowDetailDrawer({ workflowRunId, open, onClose }: WorkflowD
   const tasks = useSelector((state: RootState) =>
     workflowRunId ? (state.workflows.tasksByWorkflowId[workflowRunId] ?? []) : [],
   );
+  const requestChangesSupported = hasWorkflowRequestChanges(window.lucidAPI?.workflow);
+
+  const refreshWorkflow = useCallback(() => {
+    if (!workflowRunId) return;
+    setApprovalContext(null);
+    setVisualAuditionContext(null);
+    dispatch(loadWorkflows({}));
+    dispatch(loadWorkflowStages(workflowRunId));
+    dispatch(loadWorkflowTasks(workflowRunId));
+  }, [dispatch, workflowRunId]);
+
+  const requestChanges = useCallback(async (context: WorkflowApprovalContext, reason: string) => {
+    const workflowApi: unknown = window.lucidAPI?.workflow;
+    if (!hasWorkflowRequestChanges(workflowApi)) {
+      throw new Error(t('workflowApproval.requestChangesFailure'));
+    }
+
+    return workflowApi.requestChanges({
+      workflowRunId: context.run.id,
+      gateKey: context.approval.gateKey,
+      expectedRowVersion: context.run.rowVersion ?? 0,
+      expectedSubjectRevision: context.approval.subjectRevision,
+      expectedSubjectHash: context.approval.subjectHash,
+      reason,
+    });
+  }, []);
+
+  const requestChangesForApproval =
+    approvalContext && requestChangesSupported
+      ? (reason: string) => requestChanges(approvalContext, reason)
+      : undefined;
 
   useEffect(() => {
     if (!open || !workflowRunId) {
@@ -132,6 +185,10 @@ export function WorkflowDetailDrawer({ workflowRunId, open, onClose }: WorkflowD
     return null;
   }
 
+  const visualAuditionStage = stages.find(
+    (stage) => stage.id === visualAuditionContext?.run.currentStageId,
+  );
+  const isVisualAuditionStage = visualAuditionStage?.stageId === 'style-exploration';
   const canRetry = workflow.status === 'failed' || workflow.status === 'completed_with_errors';
 
   return (
@@ -200,6 +257,8 @@ export function WorkflowDetailDrawer({ workflowRunId, open, onClose }: WorkflowD
                 setApprovalContext(null);
                 dispatch(loadWorkflows({}));
               }}
+              onRequestChanges={requestChangesForApproval}
+              onRequested={refreshWorkflow}
             />
           )}
           {approvalContext?.approval.gateKey === 'final_export' && (
@@ -218,10 +277,12 @@ export function WorkflowDetailDrawer({ workflowRunId, open, onClose }: WorkflowD
                 setApprovalContext(null);
                 dispatch(loadWorkflows({}));
               }}
+              onRequestChanges={requestChangesForApproval}
+              onRequested={refreshWorkflow}
             />
           )}
           {visualAuditionContext &&
-            (visualAuditionContext.run.currentStageId === 'style-exploration' ||
+            (isVisualAuditionStage ||
               approvalContext?.approval.gateKey === 'visual_constitution') && (
               <VisualConstitutionApprovalCard
                 auditionContext={visualAuditionContext}
@@ -258,6 +319,8 @@ export function WorkflowDetailDrawer({ workflowRunId, open, onClose }: WorkflowD
                   setVisualAuditionContext(null);
                   dispatch(loadWorkflows({}));
                 }}
+                onRequestChanges={requestChangesForApproval}
+                onRequested={refreshWorkflow}
               />
             )}
           <section className="rounded-xl border bg-card p-4">

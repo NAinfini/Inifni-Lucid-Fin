@@ -14,7 +14,7 @@ const PROCESS_PROMPT_TRIGGER_TOOLS: Record<string, string[]> = {
   'preset-definition-management': ['preset.manage'],
   'shot-template-management': ['shotTemplate.manage'],
   'color-style-management': ['colorStyle.manage'],
-  'entity-management': ['entity.create', 'entity.update', 'entity.delete'],
+  'entity-management': ['entity.list', 'entity.create', 'entity.update', 'entity.delete'],
   'canvas-structure': [
     'canvas.createNodes',
     'canvas.duplicateNodes',
@@ -43,7 +43,13 @@ const PROCESS_PROMPT_TRIGGER_TOOLS: Record<string, string[]> = {
   'vision-analysis': ['text.analyze'],
   'snapshot-and-rollback': ['snapshot.create', 'snapshot.list', 'snapshot.restore'],
   'render-and-export': ['render.start', 'render.cancel', 'render.exportBundle'],
-  'workflow-orchestration': ['workflow.manage'],
+  'workflow-orchestration': [
+    'workflow.manage',
+    'workflow.visual',
+    'workflow.media',
+    'workflow.mediaFeedback',
+    'workflow.finalExport',
+  ],
   'series-management': [
     'series.get',
     'series.update',
@@ -54,6 +60,16 @@ const PROCESS_PROMPT_TRIGGER_TOOLS: Record<string, string[]> = {
   'asset-library-management': ['asset.import', 'asset.list'],
   'job-control': ['job.list', 'job.control'],
   'canvas-settings': ['canvas.getInfo', 'canvas.setSettings'],
+  'style-plate-lock': [
+    'canvas.getInfo',
+    'canvas.setSettings',
+    'entity.generateRefImage',
+    'canvas.generation',
+  ],
+  'entities-before-generation': ['entity.list', 'entity.generateRefImage', 'canvas.generation'],
+  'batch-create-guidance': ['canvas.createNodes'],
+  'prompt-quality-gate': ['canvas.generation'],
+  'story-workflow-phase': ['workflow.manage'],
 };
 
 const PROCESS_PROMPT_TRIGGER_NOTE_KEYS: Record<string, string | undefined> = {

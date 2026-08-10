@@ -9,6 +9,7 @@ import type {
   Equipment,
   EquipmentLoadout,
   Location,
+  CanvasVisualStylePolicy,
 } from '@lucid-fin/contracts';
 
 // ---------------------------------------------------------------------------
@@ -57,6 +58,12 @@ export interface PromptExpanderContext {
   mode: PromptMode;
 }
 
+export interface PromptReferenceBinding {
+  entityType: 'character' | 'equipment' | 'location';
+  entityId: string;
+  imageHash: string;
+}
+
 export type PromptExpander = (ctx: PromptExpanderContext) => Promise<string>;
 
 export interface PromptCompilerInput {
@@ -79,6 +86,8 @@ export interface PromptCompilerInput {
   connectedTextContent?: string[];
   /** Optional pre-resolved reference image hashes */
   referenceImages?: string[];
+  /** Host-resolved identity roles aligned to referenceImages. */
+  referenceBindings?: PromptReferenceBinding[];
   /** Provider ID */
   providerId: string;
   mode: PromptMode;
@@ -86,6 +95,8 @@ export interface PromptCompilerInput {
   presetLibrary: PresetDefinition[];
   /** Style guide defaults: act as cascading defaults, node presets override */
   styleGuide?: StyleGuideDefaults;
+  /** Canonical Canvas draft style. Approved workflow styles are compiled by the workflow host. */
+  visualStylePolicy?: CanvasVisualStylePolicy;
   /** For voice mode: dialogue text to synthesize */
   dialogueText?: string;
   /** For voice mode: emotion label */

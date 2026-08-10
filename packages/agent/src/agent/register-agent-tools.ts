@@ -15,7 +15,6 @@ import type { AgentTool } from './tool-registry.js';
 /**
  * Tools excluded from the Commander AI registry.
  * These remain in the app for direct UI use but the AI should never see them.
- * See .trellis/tasks/05-18-commander-tool-consolidation/prd.md §"Removed from Commander AI".
  */
 export const EXCLUDED_TOOLS: ReadonlySet<string> = new Set([
   // Canvas: file I/O, UI-only, destructive
@@ -49,6 +48,9 @@ export const EXCLUDED_TOOLS: ReadonlySet<string> = new Set([
   'job.control',
   'asset.import',
   'asset.list',
+  // Self-modifying prompts and local video clone remain human-only.
+  'prompt.setCustom',
+  'video.clone',
 ]);
 
 export function registerFiltered(registry: AgentToolRegistry, tools: AgentTool[]): void {

@@ -20,7 +20,7 @@ import type {
   PresetResetRequest,
 } from './dto/presets/index.js';
 import type { LLMProviderRuntimeConfig, LLMProviderRuntimeInput } from './llm-provider.js';
-import type { CommanderStreamPayload } from './ipc/channels/batch-09.js';
+import type { CommanderPromptGuide, CommanderStreamPayload } from './ipc/channels/batch-09.js';
 
 /** Session stored in SQLite — lightweight chat-history record. */
 export interface IpcStoredSession {
@@ -357,7 +357,7 @@ export interface IpcChannelMap {
       message: string;
       history: Array<{ role: 'user' | 'assistant'; content: string }>;
       selectedNodeIds: string[];
-      promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>;
+      promptGuides?: CommanderPromptGuide[];
       customLLMProvider?: LLMProviderRuntimeConfig;
       permissionMode?: 'danger' | 'auto' | 'normal' | 'strict';
     };

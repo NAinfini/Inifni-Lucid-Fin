@@ -174,6 +174,88 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
     });
   });
 
+  it('handles provider-prefixed reasoning models, image input, and reasoning continuation', async () => {
+    const fetchMock = vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+      expect(body).toMatchObject({
+        model: 'openai/gpt-5.6-sol',
+        max_completion_tokens: 512,
+      });
+      expect(body).not.toHaveProperty('max_tokens');
+      expect(body).not.toHaveProperty('temperature');
+      expect(body).not.toHaveProperty('top_p');
+      expect(body).not.toHaveProperty('stop');
+      expect(body.messages).toEqual([
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'inspect' },
+            {
+              type: 'image_url',
+              image_url: { url: 'data:image/png;base64,aGVsbG8=' },
+            },
+          ],
+        },
+        {
+          role: 'assistant',
+          content: '',
+          reasoning_content: 'prior reasoning',
+          tool_calls: [
+            {
+              id: 'call-1',
+              type: 'function',
+              function: { name: 'inspect_image', arguments: '{}' },
+            },
+          ],
+        },
+        { role: 'tool', tool_call_id: 'call-1', content: '{"ok":true}' },
+      ]);
+
+      return new Response(
+        JSON.stringify({
+          choices: [{ message: { content: 'done' }, finish_reason: 'stop' }],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const adapter = new OpenAICompatibleLLM({
+      id: 'openrouter',
+      name: 'OpenRouter',
+      defaultBaseUrl: 'https://openrouter.ai/api/v1',
+      defaultModel: 'openai/gpt-5.6-sol',
+    });
+    adapter.configure('test-key');
+
+    await expect(
+      complete(
+        adapter,
+        [
+          {
+            role: 'user',
+            content: 'inspect',
+            images: [{ mimeType: 'image/png', data: 'aGVsbG8=' }],
+          },
+          {
+            role: 'assistant',
+            content: '',
+            reasoning: 'prior reasoning',
+            toolCalls: [{ id: 'call-1', name: 'inspect.image', arguments: {} }],
+          },
+          { role: 'tool', toolCallId: 'call-1', content: '{"ok":true}' },
+        ],
+        {
+          maxTokens: 512,
+          temperature: 0.2,
+          topP: 0.8,
+          stop: ['halt'],
+        },
+      ),
+    ).resolves.toMatchObject({ content: 'done' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('surfaces upstream status, endpoint, model, and response body when the provider rejects the request', async () => {
     vi.stubGlobal(
       'fetch',

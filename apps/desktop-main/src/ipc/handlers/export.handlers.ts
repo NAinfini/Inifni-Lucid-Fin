@@ -4,7 +4,7 @@ import _path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { IpcMain } from 'electron';
 import * as electron from 'electron';
-import archiver from 'archiver';
+import { ZipArchive } from 'archiver';
 import PDFDocument from 'pdfkit';
 import type { CAS } from '@lucid-fin/storage';
 import type { AssetType, CanvasNode, NodeKind, VideoNodeData } from '@lucid-fin/contracts';
@@ -162,7 +162,7 @@ export function registerExportHandlers(
       }
 
       const output = fs.createWriteStream(outputPath);
-      const archive = archiver('zip', { zlib: { level: 6 } });
+      const archive = new ZipArchive({ zlib: { level: 6 } });
 
       const done = new Promise<void>((resolve, reject) => {
         output.on('close', resolve);

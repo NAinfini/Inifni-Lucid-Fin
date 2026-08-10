@@ -61,6 +61,62 @@ describe('compilePrompt', () => {
     expect(typeof result.wordCount).toBe('number');
   });
 
+  it('places the canonical Canvas visual-style policy ahead of scene text', () => {
+    const result = compilePrompt({
+      nodeType: 'image',
+      prompt: 'A detective enters the station',
+      providerId: 'test-image',
+      mode: 'text-to-image',
+      presetLibrary: [],
+      visualStylePolicy: {
+        version: 1,
+        summary: 'hand-painted neo-noir animation',
+        locked: {
+          palette: 'muted teal and ochre',
+          lighting: 'soft chiaroscuro',
+          texture: 'visible watercolor paper grain',
+        },
+        negativeConstraints: ['photorealism', 'watermark'],
+      },
+    });
+
+    expect(result.segments[0]?.source).toBe('visual-style-policy');
+    expect(result.prompt).toContain('VISUAL STYLE AUTHORITY');
+    expect(result.prompt).toContain('hand-painted neo-noir animation');
+    expect(result.prompt.indexOf('VISUAL STYLE AUTHORITY')).toBeLessThan(
+      result.prompt.indexOf('A detective enters the station'),
+    );
+    expect(result.negativePrompt).toContain('photorealism');
+    expect(result.negativePrompt).toContain('watermark');
+  });
+
+  it('uses only preservation, camera, composition, and motion locks for image-to-video', () => {
+    const result = compilePrompt({
+      nodeType: 'video',
+      prompt: 'She turns toward the window',
+      providerId: 'test-video',
+      mode: 'image-to-video',
+      presetLibrary: [],
+      visualStylePolicy: {
+        version: 1,
+        summary: 'Japanese woodblock print with vermilion accents',
+        locked: {
+          palette: 'vermillion and indigo',
+          cameraGrammar: 'slow lateral tracking only',
+          compositionGrammar: 'stable triangular blocking',
+          motionGrammar: 'restrained natural motion',
+        },
+      },
+    });
+
+    expect(result.prompt).toContain("Preserve the source image's approved visual appearance");
+    expect(result.prompt).toContain('slow lateral tracking only');
+    expect(result.prompt).toContain('stable triangular blocking');
+    expect(result.prompt).toContain('restrained natural motion');
+    expect(result.prompt).not.toContain('Japanese woodblock print');
+    expect(result.prompt).not.toContain('vermillion and indigo');
+  });
+
   it('stacks preset fragments in the required order', () => {
     const presets = [
       makePreset('p-camera', 'camera', 'camera fragment'),
@@ -356,6 +412,45 @@ describe('compilePrompt', () => {
     expect(result.prompt).toContain('dimly lit dive bar with neon signs');
     expect(result.prompt).toContain('handgun');
     expect(result.negativePrompt).toContain('no crowd');
+  });
+
+  it('uses only host-resolved reference images and never rescans entity image libraries', () => {
+    const character: Character = {
+      id: 'char-reference-source',
+      name: 'Astra',
+      role: 'protagonist',
+      description: 'A pilot',
+      appearance: 'silver flight suit',
+      personality: 'calm',
+      costumes: [],
+      tags: [],
+      referenceImages: [
+        { slot: 'full-sheet', assetHash: 'unselected-sheet', isStandard: true },
+        { slot: 'extra-angle:left', assetHash: 'selected-left', isStandard: false },
+      ],
+      loadouts: [],
+      defaultLoadoutId: '',
+      createdAt: 0,
+      updatedAt: 0,
+    };
+
+    const result = compilePrompt({
+      nodeType: 'image',
+      prompt: 'Astra enters the cockpit',
+      characters: [{ character }],
+      referenceImages: ['selected-left'],
+      referenceBindings: [
+        { entityType: 'character', entityId: character.id, imageHash: 'selected-left' },
+      ],
+      providerId: 'test',
+      mode: 'image-to-image',
+      presetLibrary: [],
+    });
+
+    expect(result.referenceImages).toEqual(['selected-left']);
+    expect(result.referenceImages).not.toContain('unselected-sheet');
+    expect(result.prompt).toContain('identity reference 1 = character "Astra"');
+    expect(result.prompt).toContain('locked continuity');
   });
 
   it('detects conflicting presets and reports diagnostic', () => {

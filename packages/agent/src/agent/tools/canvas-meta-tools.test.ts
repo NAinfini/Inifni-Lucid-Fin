@@ -57,6 +57,13 @@ describe('createCanvasMetaTools', () => {
     expect(getTool('commander.askUser', deps).tags).toEqual(['meta', 'interaction']);
   });
 
+  it('exposes AskUser free-text choice alongside the 2-6 option contract', () => {
+    const parameters = getTool('commander.askUser', createDeps()).parameters;
+
+    expect(parameters.properties.allowFreeText).toMatchObject({ type: 'boolean' });
+    expect(parameters.properties.options?.description).toContain('2-6 options');
+  });
+
   it('reads logs with normalized filters', async () => {
     const deps = createDeps();
 

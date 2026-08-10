@@ -17,6 +17,7 @@ export {
   type StampedStreamEvent,
   type StreamEmit,
 } from './agent/agent-orchestrator.js';
+export type { ContextRecoveryReport, ContextRecoveryReportResult } from '@lucid-fin/contracts';
 export {
   getWorkflowToolDenial,
   type WorkflowToolPolicy,
@@ -54,6 +55,7 @@ export { coercePhaseNoteCode, inferErrorCodeFromMessage } from './agent/error-in
 export {
   ContextManager,
   selectContextualToolSet,
+  type ContextCompactionResult,
   type ToolSelectionInput,
 } from './agent/context-manager.js';
 export {
@@ -102,6 +104,7 @@ export {
   type CreateVisualAuditionsInput,
   type CreateVisualAuditionsResult,
   type ProduceWorkflowMediaInput,
+  type RefineWorkflowMediaInput,
 } from './agent/tools/workflow-tools.js';
 export { type PromptGuide } from './agent/tools/workflow-guides.js';
 export { createMetaTools, type MetaToolDeps } from './agent/tools/meta-tools.js';

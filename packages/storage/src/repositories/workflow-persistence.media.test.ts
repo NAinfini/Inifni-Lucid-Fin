@@ -10,6 +10,8 @@ import type {
   WorkflowMediaEvaluation,
   WorkflowRun,
   WorkflowRunId,
+  WorkflowStageRun,
+  WorkflowTaskRun,
 } from '@lucid-fin/contracts';
 import { SqliteIndex } from '../sqlite-index.js';
 
@@ -31,7 +33,7 @@ function makeRun(): WorkflowRun {
     totalStages: 0,
     completedTasks: 0,
     totalTasks: 0,
-    currentStageId: 'production-plan',
+    currentStageId: 'stage-production-plan',
     input: {},
     output: {},
     metadata: {},
@@ -40,6 +42,45 @@ function makeRun(): WorkflowRun {
     rowVersion: 0,
     engineVersion: 'persistent-hybrid-v1',
     definitionVersion: 1,
+  };
+}
+
+function stage(id: string, stageId: string, order: number): WorkflowStageRun {
+  return {
+    id,
+    workflowRunId: 'run-media',
+    stageId,
+    name: stageId,
+    status: order === 0 ? 'ready' : 'blocked',
+    order,
+    progress: 0,
+    completedTasks: 0,
+    totalTasks: 0,
+    metadata: { dependsOnStageIds: [] },
+    updatedAt: 100,
+  };
+}
+
+function mediaTask(): WorkflowTaskRun {
+  return {
+    id: 'task-media-1',
+    workflowRunId: 'run-media',
+    stageRunId: 'stage-media-generation',
+    taskId: 'media-shot-001',
+    name: 'Generate shot 001',
+    kind: 'adapter_generation',
+    status: 'ready',
+    dependencyIds: [],
+    attempts: 0,
+    maxRetries: 0,
+    input: {
+      executionMode: 'external',
+      workflowTaskRole: 'production_media',
+      shot: { id: '001' },
+    },
+    output: {},
+    progress: 0,
+    updatedAt: 100,
   };
 }
 
@@ -88,6 +129,11 @@ function approval(
 function approveBoth(db: SqliteIndex): void {
   const repo = db.repos.workflows;
   repo.insertRun(makeRun());
+  repo.insertStageRun(stage('stage-production-plan', 'production-plan', 0));
+  repo.insertStageRun(stage('stage-style-exploration', 'style-exploration', 1));
+  repo.insertStageRun(stage('stage-media-generation', 'media-generation', 2));
+  const productionTask = mediaTask();
+  repo.insertTaskRun(productionTask);
   repo.createDocument(document('plan-doc', 'production-plan', 'production_plan', PLAN_HASH));
   repo.createPendingApproval(
     approval('plan-approval', 'production_plan', 'production-plan', PLAN_HASH),
@@ -103,7 +149,7 @@ function approveBoth(db: SqliteIndex): void {
     eventId: 'plan-approved-event',
     actor: 'user',
     approvedAt: 130,
-    nextStageId: 'style-exploration',
+    nextStageId: 'stage-style-exploration',
   });
   if (!planResult.ok) throw new Error(`Plan approval failed: ${planResult.code}`);
 
@@ -124,7 +170,8 @@ function approveBoth(db: SqliteIndex): void {
     eventId: 'visual-approved-event',
     actor: 'user',
     approvedAt: 140,
-    nextStageId: 'media-generation',
+    nextStageId: 'stage-media-generation',
+    nextTaskId: productionTask.id,
   });
   if (!visualResult.ok) throw new Error(`Visual approval failed: ${visualResult.code}`);
 }
@@ -136,6 +183,12 @@ function spec(attempt: number): ProductionMediaGenerationSpec {
     canvasId: 'canvas-1',
     nodeId: 'shot-1',
     nodeUpdatedAt: 90,
+    workflowTask: {
+      taskRunId: 'task-media-1',
+      taskId: 'media-shot-001',
+      role: 'production_media',
+      shotId: '001',
+    },
     mediaType: 'image',
     generationType: 'image',
     mode: 'text-to-image',
@@ -397,6 +450,196 @@ describe('persistent production-media ledger', () => {
     });
   });
 
+  it('atomically reopens a completed media task and reserves its feedback attempt across restart', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-media-feedback-'));
+    roots.push(root);
+    const db = open(path.join(root, 'project.db'));
+    approveBoth(db);
+    const repo = db.repos.workflows;
+    db.rawDb
+      .prepare(
+        "UPDATE workflow_stage_runs SET status = 'completed', progress = 100, completed_at = 140 WHERE id IN ('stage-production-plan', 'stage-style-exploration')",
+      )
+      .run();
+    repo.insertStageRun(stage('stage-assembly', 'assembly', 3));
+    repo.insertTaskRun({
+      id: 'task-assembly-1',
+      workflowRunId: 'run-media',
+      stageRunId: 'stage-assembly',
+      taskId: 'assemble-cut',
+      name: 'Assemble cut',
+      kind: 'data_transform',
+      status: 'blocked',
+      dependencyIds: ['task-media-1'],
+      attempts: 0,
+      maxRetries: 0,
+      input: { executionMode: 'external', workflowTaskRole: 'assembly' },
+      output: {},
+      progress: 0,
+      updatedAt: 100,
+    });
+    repo.insertTaskDependency('task-assembly-1' as never, 'task-media-1' as never);
+
+    const initialRun = repo.getRun('run-media' as WorkflowRunId)!;
+    const proposed = repo.reserveMediaAttempt({
+      attempt: attempt(1),
+      expectedRunRowVersion: initialRun.rowVersion ?? -1,
+    }).attempt;
+    const submitted = repo.transitionMediaAttempt({
+      id: proposed.id,
+      expectedRowVersion: proposed.rowVersion,
+      expectedStatuses: ['reserved'],
+      status: 'submitted',
+      submittedAt: 160,
+      updatedAt: 160,
+    });
+    const ready = repo.transitionMediaAttempt({
+      id: proposed.id,
+      expectedRowVersion: submitted.rowVersion,
+      expectedStatuses: ['submitted'],
+      status: 'asset_ready',
+      assetHash: ASSET_HASH,
+      assetReadyAt: 170,
+      updatedAt: 170,
+    });
+    const accepted = repo.recordMediaEvaluation({
+      evaluation: evaluation(proposed.id, 'pass'),
+      expectedAttemptRowVersion: ready.rowVersion,
+      expectedAttemptStatuses: ['asset_ready'],
+      resultingAttemptStatus: 'accepted',
+      evaluatedAt: 180,
+    }).attempt;
+    const beforeCompletion = repo.getRun('run-media' as WorkflowRunId)!;
+    repo.completeExternalTask({
+      workflowRunId: 'run-media',
+      taskRunId: 'task-media-1',
+      expectedRunRowVersion: beforeCompletion.rowVersion ?? -1,
+      output: { attemptId: accepted.id, assetHash: ASSET_HASH },
+      completedAt: 190,
+      event: {
+        workflowRunId: 'run-media',
+        eventId: 'media-completed-event',
+        actor: 'assistant',
+        payload: {},
+        timestamp: 190,
+      },
+    });
+    const completedRun = repo.getRun('run-media' as WorkflowRunId)!;
+    expect(repo.getTaskRun('task-media-1' as never)).toMatchObject({ status: 'completed' });
+
+    const feedback = 'Keep everything else; make the eyes brighter.';
+    const feedbackAttempt: WorkflowMediaAttempt = {
+      ...attempt(2),
+      repairDelta: {
+        version: 1,
+        reason: "Apply the user's quality feedback without changing approved creative scope",
+        promptAdditions: [feedback],
+        negativeAdditions: [],
+        preserve: ['approved lighting'],
+        seedStrategy: 'keep',
+        source: 'user_feedback',
+        parentAttemptId: accepted.id,
+        basePromptHash: accepted.promptHash,
+        userFeedback: feedback,
+      },
+    };
+    const reservationInput = {
+      workflowRunId: 'run-media',
+      canvasId: 'canvas-1',
+      taskRunId: 'task-media-1',
+      attemptId: accepted.id,
+      basePromptHash: accepted.promptHash,
+      expectedRunRowVersion: completedRun.rowVersion ?? -1,
+      feedback,
+      attempt: feedbackAttempt,
+      reopenedAt: 200,
+      event: {
+        workflowRunId: 'run-media',
+        eventId: 'media-feedback-event',
+        actor: 'user',
+        payload: {},
+        timestamp: 200,
+      },
+    } as const;
+    const eventCountBeforeFeedback = repo.listEvents('run-media' as WorkflowRunId).length;
+    expect(() =>
+      repo.reserveMediaFeedbackAttempt({
+        ...reservationInput,
+        basePromptHash: 'f'.repeat(64),
+      }),
+    ).toThrow(/exact production-media feedback prompt hash/i);
+    expect(repo.getTaskRun('task-media-1' as never)).toMatchObject({ status: 'completed' });
+    expect(repo.listMediaAttempts('run-media' as WorkflowRunId)).toHaveLength(1);
+    expect(repo.listEvents('run-media' as WorkflowRunId)).toHaveLength(eventCountBeforeFeedback);
+
+    db.rawDb
+      .prepare("UPDATE workflow_task_runs SET status = 'running' WHERE id = 'task-assembly-1'")
+      .run();
+    expect(() => repo.reserveMediaFeedbackAttempt(reservationInput)).toThrow(
+      /assembly has already started/i,
+    );
+    expect(repo.getTaskRun('task-media-1' as never)).toMatchObject({ status: 'completed' });
+    expect(repo.listMediaAttempts('run-media' as WorkflowRunId)).toHaveLength(1);
+    db.rawDb
+      .prepare("UPDATE workflow_task_runs SET status = 'blocked' WHERE id = 'task-assembly-1'")
+      .run();
+
+    const reserved = repo.reserveMediaFeedbackAttempt(reservationInput);
+
+    expect(reserved.run).toMatchObject({ currentTaskId: 'task-media-1' });
+    expect(reserved.task).toMatchObject({
+      status: 'ready',
+      progress: 0,
+      currentStep: 'user_feedback_received',
+      output: {},
+    });
+    expect(reserved.event.payload).toMatchObject({
+      type: 'workflow.media.feedback_requested',
+      attemptId: accepted.id,
+      basePromptHash: accepted.promptHash,
+      feedback,
+    });
+    expect(reserved.attempt).toMatchObject({
+      id: feedbackAttempt.id,
+      status: 'reserved',
+      repairDelta: {
+        source: 'user_feedback',
+        parentAttemptId: accepted.id,
+        basePromptHash: accepted.promptHash,
+        userFeedback: feedback,
+      },
+    });
+
+    // Simulate a process crash immediately after the atomic reservation and
+    // before any provider call. The restart must recover the feedback from the
+    // reserved attempt instead of leaving only the old accepted artifact.
+    const dbPath = path.join(root, 'project.db');
+    db.close();
+    const restarted = open(dbPath);
+    expect(
+      restarted.repos.workflows.getLatestMediaAttempt('run-media' as WorkflowRunId, 'shot-1'),
+    ).toMatchObject({
+      id: feedbackAttempt.id,
+      status: 'reserved',
+      repairDelta: {
+        source: 'user_feedback',
+        parentAttemptId: accepted.id,
+        basePromptHash: accepted.promptHash,
+        userFeedback: feedback,
+      },
+    });
+    expect(restarted.repos.workflows.getMediaAttempt(accepted.id)).toMatchObject({
+      id: accepted.id,
+      status: 'accepted',
+      prompt: accepted.prompt,
+      promptHash: accepted.promptHash,
+    });
+    expect(restarted.repos.workflows.getTaskRun('task-media-1' as never)).toMatchObject({
+      status: 'ready',
+      currentStep: 'user_feedback_received',
+    });
+  });
+
   it('writes no attempt before both exact approvals exist', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-media-deny-'));
     roots.push(root);
@@ -410,7 +653,7 @@ describe('persistent production-media ledger', () => {
         attempt: attempt(1),
         expectedRunRowVersion: run.rowVersion ?? -1,
       }),
-    ).toThrow(/not ready for media generation|exact approved/i);
+    ).toThrow(/not ready for (?:task-bound )?media generation|exact approved/i);
     expect(db.rawDb.prepare('SELECT COUNT(*) AS count FROM workflow_media_attempts').get()).toEqual(
       { count: 0 },
     );

@@ -10,7 +10,7 @@
  * namespace is outside the scope of this script (TypeScript itself catches
  * that once the declaration and implementation share the same surface).
  *
- * Invoke: npx tsx scripts/check-preload-drift.ts
+ * Invoke: pnpm exec tsx scripts/check-preload-drift.ts
  */
 
 import { readFile } from 'node:fs/promises';

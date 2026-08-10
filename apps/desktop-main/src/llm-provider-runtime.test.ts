@@ -38,6 +38,7 @@ describe('llm-provider-runtime helpers', () => {
       model: 'gpt-test',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
+      credentialMode: 'api-key',
     });
     expect(getLLMProviderLogFields(resolved)).toEqual({
       providerId: 'custom-provider',
@@ -46,6 +47,8 @@ describe('llm-provider-runtime helpers', () => {
       model: 'gpt-test',
       protocol: 'openai-compatible',
       authStyle: 'bearer',
+      credentialMode: 'api-key',
+      oauthTarget: undefined,
     });
     expect(getLLMProviderLogFields(null)).toEqual({});
   });

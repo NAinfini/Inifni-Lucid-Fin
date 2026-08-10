@@ -28,14 +28,12 @@ import {
   freshRunId,
   type JobQueue,
   type WorkflowEngine,
-  type HistoryEntry,
 } from '@lucid-fin/application';
 import type {
-  LLMProviderRuntimeConfig,
+  CommanderChatRequest,
   PresetDefinition,
   ProviderProfile,
   SessionId,
-  CommanderProcessBehaviorSettings,
 } from '@lucid-fin/contracts';
 import { DEFAULT_PROVIDER_PROFILE, COMMANDER_WIRE_VERSION } from '@lucid-fin/contracts';
 import type { CAS, SqliteIndex } from '@lucid-fin/storage';
@@ -54,6 +52,12 @@ import {
   buildWorkspaceSnapshot,
 } from './commander-context.service.js';
 import { selectConfiguredAdapter, validateHistoryEntries } from './commander-llm.js';
+import { createCommanderRunWiring } from './commander-run-wiring.js';
+import {
+  buildWorkflowCommanderContinuation,
+  createCommanderWorkflowContinuationController,
+  type CommanderWorkflowContinuationController,
+} from './commander-workflow-continuation.js';
 
 // Re-exported here so existing imports (tests, etc.) continue to resolve.
 export { canvasSyncMutatingToolNames, entityMutatingToolNames };
@@ -79,381 +83,411 @@ export function registerCommanderHandlers(
     promptStore: import('@lucid-fin/storage').PromptStore;
     finalExportService: import('../../services/final-export.service.js').FinalExportService;
     productionMediaService: import('../../services/production-media.service.js').ProductionMediaService;
+    visualAnalyzer: import('../../services/visual-analyzer.service.js').VisualAnalyzer;
     resolvePrompt: (code: string) => string;
     resolveProcessPrompt: (processKey: string) => string | null;
     listProcessPromptKeys?: () => Array<{ processKey: string; name: string }>;
   },
-): void {
+): CommanderWorkflowContinuationController {
   // Shared gateway for all push sends originating from commander handlers.
   // Individual call sites pass typed channel defs from
   // `@lucid-fin/contracts-parse` so payload drift throws loudly in main.
   const gateway = createRendererPushGateway({ getWindow });
 
-  ipcMain.handle(
-    'commander:chat',
-    async (
-      _event,
-      args: {
-        canvasId: string;
-        sessionId?: string;
-        message: string;
-        history: HistoryEntry[];
-        selectedNodeIds: string[];
-        promptGuides?: Array<{ id: string; name: string; content: string; autoInject?: boolean }>;
-        customLLMProvider?: LLMProviderRuntimeConfig;
-        permissionMode?: 'danger' | 'auto' | 'normal' | 'strict';
-        locale?: string;
-        maxSteps?: number;
-        temperature?: number;
-        maxTokens?: number;
-        defaultProviders?: Record<string, string>;
-        processSettings?: CommanderProcessBehaviorSettings;
-      },
-    ) => {
-      if (!args || typeof args.canvasId !== 'string' || !args.canvasId.trim()) {
-        throw new Error('canvasId is required');
-      }
-      if (!args.message || typeof args.message !== 'string' || !args.message.trim()) {
-        throw new Error('message is required');
-      }
-      if (!Array.isArray(args.history)) {
-        throw new Error('history must be an array');
-      }
-      if (!Array.isArray(args.selectedNodeIds)) {
-        throw new Error('selectedNodeIds must be an array');
-      }
-      validateHistoryEntries(args.history);
+  const handleCommanderChat = async (
+    _event: unknown,
+    args: CommanderChatRequest,
+  ): Promise<boolean> => {
+    if (!args || typeof args.canvasId !== 'string' || !args.canvasId.trim()) {
+      throw new Error('canvasId is required');
+    }
+    if (!args.message || typeof args.message !== 'string' || !args.message.trim()) {
+      throw new Error('message is required');
+    }
+    if (!Array.isArray(args.history)) {
+      throw new Error('history must be an array');
+    }
+    if (!Array.isArray(args.selectedNodeIds)) {
+      throw new Error('selectedNodeIds must be an array');
+    }
+    validateHistoryEntries(args.history);
 
-      const MAX_STEPS = 200;
-      const MAX_TOKENS = 200_000;
-      const MAX_HISTORY = 200;
-      if (typeof args.maxSteps === 'number' && args.maxSteps > MAX_STEPS) {
-        throw new Error(`maxSteps exceeds limit (${MAX_STEPS})`);
-      }
-      if (typeof args.maxTokens === 'number' && args.maxTokens > MAX_TOKENS) {
-        throw new Error(`maxTokens exceeds limit (${MAX_TOKENS})`);
-      }
-      if (args.history.length > MAX_HISTORY) {
-        throw new Error(`history length exceeds limit (${MAX_HISTORY})`);
-      }
+    const MAX_STEPS = 200;
+    const MAX_TOKENS = 200_000;
+    const MAX_HISTORY = 200;
+    if (typeof args.maxSteps === 'number' && args.maxSteps > MAX_STEPS) {
+      throw new Error(`maxSteps exceeds limit (${MAX_STEPS})`);
+    }
+    if (typeof args.maxTokens === 'number' && args.maxTokens > MAX_TOKENS) {
+      throw new Error(`maxTokens exceeds limit (${MAX_TOKENS})`);
+    }
+    if (args.history.length > MAX_HISTORY) {
+      throw new Error(`history length exceeds limit (${MAX_HISTORY})`);
+    }
 
-      if (runningSessions.has(args.canvasId)) {
-        throw new Error('Commander already has an active session for this canvas');
-      }
+    if (runningSessions.has(args.canvasId)) {
+      throw new Error('Commander already has an active session for this canvas');
+    }
 
-      let session: RunningCommanderSession | undefined;
-      // Hoisted so the `finally` block can access them for G2-5 graph save.
-      let orchestrator: AgentOrchestrator | undefined;
-      let persistedSessionId: SessionId | null = null;
-      try {
-        const canvas = requireCanvas(deps.canvasStore, args.canvasId);
-        log.debug('Commander chat request received', {
-          category: 'commander',
-          canvasId: args.canvasId,
-          selectedNodeCount: args.selectedNodeIds.length,
-          historyCount: args.history.length,
-          promptGuideCount: Array.isArray(args.promptGuides) ? args.promptGuides.length : 0,
-          promptGuideChars: Array.isArray(args.promptGuides)
-            ? args.promptGuides.reduce((sum, guide) => sum + guide.content.length, 0)
-            : 0,
-          providerId: args.customLLMProvider?.id,
-          providerBaseUrl: args.customLLMProvider?.baseUrl,
-          providerModel: args.customLLMProvider?.model,
-          providerProtocol: args.customLLMProvider?.protocol,
-          providerAuthStyle: args.customLLMProvider?.authStyle,
-          permissionMode: args.permissionMode ?? 'normal',
-        });
+    let session: RunningCommanderSession | undefined;
+    // Hoisted so the `finally` block can access them for G2-5 graph save.
+    let orchestrator: AgentOrchestrator | undefined;
+    let persistedSessionId: SessionId | null = null;
+    try {
+      const canvas = requireCanvas(deps.canvasStore, args.canvasId);
+      log.debug('Commander chat request received', {
+        category: 'commander',
+        canvasId: args.canvasId,
+        selectedNodeCount: args.selectedNodeIds.length,
+        historyCount: args.history.length,
+        promptGuideCount: Array.isArray(args.promptGuides) ? args.promptGuides.length : 0,
+        promptGuideChars: Array.isArray(args.promptGuides)
+          ? args.promptGuides.reduce((sum, guide) => sum + guide.content.length, 0)
+          : 0,
+        providerId: args.customLLMProvider?.id,
+        providerBaseUrl: args.customLLMProvider?.baseUrl,
+        providerModel: args.customLLMProvider?.model,
+        providerProtocol: args.customLLMProvider?.protocol,
+        providerAuthStyle: args.customLLMProvider?.authStyle,
+        permissionMode: args.permissionMode ?? 'normal',
+      });
 
-        trackEvent('commander_session_started');
+      trackEvent('commander_session_started');
 
-        const llmAdapter = await selectConfiguredAdapter(
-          deps.llmRegistry,
-          deps.keychain,
-          args.customLLMProvider,
-        );
+      const llmAdapter = await selectConfiguredAdapter(
+        deps.llmRegistry,
+        deps.keychain,
+        args.customLLMProvider,
+      );
+      const commanderContinuation = buildWorkflowCommanderContinuation(args);
 
-        // Build tool registry
-        const registry = new AgentToolRegistry();
-        const compactRef: {
-          compact?: (
-            instructions?: string,
-          ) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
-        } = {};
-        const toolDeps: ToolRegistrationDeps = {
-          adapterRegistry: deps.adapterRegistry,
-          llmRegistry: deps.llmRegistry,
-          canvasStore: deps.canvasStore,
-          presetLibrary: deps.presetLibrary,
-          jobQueue: deps.jobQueue,
-          workflowEngine: deps.workflowEngine,
-          db: deps.db,
-          cas: deps.cas,
-          keychain: deps.keychain,
-          promptStore: deps.promptStore,
-          finalExportService: deps.finalExportService,
-          productionMediaService: deps.productionMediaService,
-        };
-        const processPromptGuides = (deps.listProcessPromptKeys?.() ?? [])
-          .map((entry) => ({
-            id: `process:${entry.processKey}`,
-            name: entry.name,
-            content: deps.resolveProcessPrompt(entry.processKey) ?? '',
-          }))
-          .filter((g) => g.content.length > 0);
-        registerAllTools(
-          registry,
-          toolDeps,
-          getWindow,
-          args.promptGuides ?? [],
-          compactRef,
-          args.sessionId ?? args.canvasId,
-          args.defaultProviders as Record<string, string> | undefined,
-          gateway,
-          processPromptGuides,
-        );
-        setLastToolRegistry(registry);
+      // Build tool registry
+      const registry = new AgentToolRegistry();
+      const compactRef: {
+        compact?: (
+          instructions?: string,
+        ) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
+      } = {};
+      const toolDeps: ToolRegistrationDeps = {
+        adapterRegistry: deps.adapterRegistry,
+        llmRegistry: deps.llmRegistry,
+        activeLLMAdapter: llmAdapter,
+        canvasStore: deps.canvasStore,
+        presetLibrary: deps.presetLibrary,
+        jobQueue: deps.jobQueue,
+        workflowEngine: deps.workflowEngine,
+        db: deps.db,
+        cas: deps.cas,
+        keychain: deps.keychain,
+        promptStore: deps.promptStore,
+        finalExportService: deps.finalExportService,
+        productionMediaService: deps.productionMediaService,
+        visualAnalyzer: deps.visualAnalyzer,
+        ...(commanderContinuation ? { commanderContinuation } : {}),
+      };
+      const processPromptGuides = (deps.listProcessPromptKeys?.() ?? [])
+        .map((entry) => ({
+          id: `process:${entry.processKey}`,
+          name: entry.name,
+          content: deps.resolveProcessPrompt(entry.processKey) ?? '',
+        }))
+        .filter((g) => g.content.length > 0);
+      const runWiring = createCommanderRunWiring(args, deps.workflowEngine);
+      registerAllTools(
+        registry,
+        toolDeps,
+        getWindow,
+        args.promptGuides ?? [],
+        compactRef,
+        runWiring.toolSessionId,
+        args.defaultProviders as Record<string, string> | undefined,
+        gateway,
+        processPromptGuides,
+      );
+      setLastToolRegistry(registry);
 
-        // Create orchestrator. Phase D: factory is the only supported
-        // construction path — do not replace with direct `new AgentOrchestrator`.
-        const adapterProfile: ProviderProfile = llmAdapter.profile ?? DEFAULT_PROVIDER_PROFILE;
-        const orchestratorInstance = createAgentOrchestratorForRun({
-          variant: 'production',
-          llmAdapter,
-          toolRegistry: registry,
-          resolvePrompt: deps.resolvePrompt,
-          canvasStore: deps.canvasStore,
-          options: {
-            maxSteps: typeof args.maxSteps === 'number' ? args.maxSteps : undefined,
-            temperature: typeof args.temperature === 'number' ? args.temperature : undefined,
-            // Legacy renderer field `maxTokens` is the user context-window
-            // cap. It must never be forwarded as a provider output limit.
-            contextWindowTokens: typeof args.maxTokens === 'number' ? args.maxTokens : undefined,
-            profile: adapterProfile,
-            qualityGateBehavior: args.processSettings?.qualityGateBehavior,
-            requireStylePlateBeforeRefImage: args.processSettings?.requireStylePlateBeforeRefImage,
-            resolvePersistentContext: () => buildPersistentWorkflowContext(deps.db, args.canvasId),
-            onBeforeCompact: () => {
-              const projection = buildPersistentWorkflowContext(deps.db, args.canvasId);
-              const policy = projection.workflowToolPolicy;
-              if (!policy) return true;
-              if (!policy.workflowRunId || policy.phase === 'blocked') return false;
-              const runId = policy.workflowRunId as import('@lucid-fin/contracts').WorkflowRunId;
-              const documentRefs = Object.fromEntries(
-                [
-                  ['productionPlan', 'production-plan'],
-                  ['visualConstitution', 'visual-constitution'],
-                  ['finalExport', 'final-export'],
-                ].flatMap(([label, logicalKey]) => {
-                  const document = deps.db.repos.workflows.getLatestDocument(runId, logicalKey);
-                  return document
-                    ? [[label, { revision: document.revision, contentHash: document.contentHash }]]
-                    : [];
-                }),
-              );
-              deps.workflowEngine.createContextCheckpoint(policy.workflowRunId, {
-                canvasId: args.canvasId,
-                rowVersion: policy.rowVersion,
-                phase: policy.phase,
-                gate: policy.gate ?? null,
-                documentRefs,
-              });
-              return true;
-            },
-            onPostCompact: () => {
-              try {
-                const currentCanvas = deps.canvasStore.get(args.canvasId);
-                if (!currentCanvas) return null;
-                const workspace = buildWorkspaceSnapshot(
-                  currentCanvas,
-                  args.selectedNodeIds,
-                  deps.db,
-                );
-                const workflowManifest = buildPersistentWorkflowManifest(deps.db, args.canvasId);
-                return [workspace, workflowManifest].filter(Boolean).join('\n\n');
-              } catch {
-                return null;
-              }
-            },
-          },
-        });
-        orchestrator = orchestratorInstance;
-        compactRef.compact = (instructions?: string) =>
-          orchestratorInstance.compactNow(instructions);
-        session = {
-          aborted: false,
-          canvasId: args.canvasId,
-          orchestrator: orchestratorInstance,
-          lastActivity: Date.now(),
-        };
-        runningSessions.set(args.canvasId, session);
-
-        // G2-5: rehydrate ContextGraph from storage. Seeds graph-only items
-        // (entity-snapshot, session-summary) that aren't derivable from the
-        // message history — cache warm-up on resume without replaying raw
-        // messages. No-op when the session is brand-new or has no saved
-        // graph yet; fail-soft on malformed JSON (SessionRepository returns
-        // null via parseOrDegrade in that case).
-        const persistedSessionIdLocal: SessionId | null =
-          typeof args.sessionId === 'string' && args.sessionId.length > 0
-            ? (args.sessionId as SessionId)
-            : null;
-        persistedSessionId = persistedSessionIdLocal;
-        if (persistedSessionIdLocal) {
-          try {
-            const persistedGraph = deps.db.repos.sessions.getContextGraph(persistedSessionIdLocal);
-            if (persistedGraph && persistedGraph.length > 0) {
-              orchestratorInstance.seedContextGraph(persistedGraph);
+      // Create orchestrator. Phase D: factory is the only supported
+      // construction path — do not replace with direct `new AgentOrchestrator`.
+      const adapterProfile: ProviderProfile = llmAdapter.profile ?? DEFAULT_PROVIDER_PROFILE;
+      const orchestratorInstance = createAgentOrchestratorForRun({
+        variant: 'production',
+        llmAdapter,
+        toolRegistry: registry,
+        resolvePrompt: deps.resolvePrompt,
+        canvasStore: deps.canvasStore,
+        options: {
+          maxSteps: typeof args.maxSteps === 'number' ? args.maxSteps : undefined,
+          temperature: typeof args.temperature === 'number' ? args.temperature : undefined,
+          // Legacy renderer field `maxTokens` is the user context-window
+          // cap. It must never be forwarded as a provider output limit.
+          contextWindowTokens: typeof args.maxTokens === 'number' ? args.maxTokens : undefined,
+          profile: adapterProfile,
+          qualityGateBehavior: args.processSettings?.qualityGateBehavior,
+          requireStylePlateBeforeRefImage: args.processSettings?.requireStylePlateBeforeRefImage,
+          resolvePersistentContext: () => buildPersistentWorkflowContext(deps.db, args.canvasId),
+          onContextRecoveryReport: runWiring.onContextRecoveryReport,
+          onWorkflowAskUser: (request) => {
+            const policy = buildPersistentWorkflowContext(
+              deps.db,
+              args.canvasId,
+            ).workflowToolPolicy;
+            if (
+              !policy?.workflowRunId ||
+              policy.workflowRunId !== request.workflowRunId ||
+              !policy.currentTaskRunId ||
+              policy.subjectRevision === undefined ||
+              policy.rowVersion === undefined
+            ) {
+              throw new Error('Durable AskUser workflow binding is unavailable or stale');
             }
-          } catch (err) {
-            log.warn('ContextGraph rehydrate skipped', {
-              category: 'commander',
-              sessionId: persistedSessionIdLocal,
-              detail: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
-
-        const context = buildContext(
-          canvas,
-          deps.presetLibrary,
-          args.selectedNodeIds,
-          deps.db,
-          args.promptGuides,
-        );
-        if (args.locale && typeof args.locale === 'string') {
-          const extra = context.extra as Record<string, unknown>;
-          extra['Current language'] = args.locale;
-        }
-        const contextExtra = context.extra as Record<string, unknown> | undefined;
-        log.debug('Commander context prepared', {
-          category: 'commander',
-          canvasId: args.canvasId,
-          contextKeys: contextExtra ? Object.keys(contextExtra) : [],
-          compactPromptGuideChars: 0,
-          compactPromptGuideCount: 0,
-        });
-
-        // Build emit handler
-        const emit = createEmitHandler(
-          getWindow,
-          args.canvasId,
-          deps.canvasStore,
-          canvasSyncMutatingToolNames,
-          entityMutatingToolNames,
-          gateway,
-          persistedSessionIdLocal
-            ? {
-                sessionId: persistedSessionIdLocal,
-                eventRepo: deps.db.repos.commanderEvents,
-              }
-            : undefined,
-        );
-
-        await orchestratorInstance.execute(args.message, context, emit, {
-          history: args.history,
-          isAborted: () => session?.aborted ?? false,
-          permissionMode: args.permissionMode ?? 'normal',
-          onLLMRequest: (diagnostics) => {
-            touchSession(args.canvasId);
-            log.debug('Commander LLM request prepared', {
-              category: 'commander',
+            const reserved = deps.workflowEngine.reserveAskUserDecision({
+              workflowRunId: policy.workflowRunId,
+              taskRunId: policy.currentTaskRunId,
               canvasId: args.canvasId,
-              providerId: args.customLLMProvider?.id,
-              providerBaseUrl: args.customLLMProvider?.baseUrl,
-              providerModel: args.customLLMProvider?.model,
-              step: diagnostics.step,
-              toolCount: diagnostics.toolCount,
-              toolSchemaChars: diagnostics.toolSchemaChars,
-              messageCount: diagnostics.messageCount,
-              messageChars: diagnostics.messageChars,
-              systemPromptChars: diagnostics.systemPromptChars,
-              promptGuideChars: diagnostics.promptGuideChars,
-              estimatedTokensUsed: diagnostics.estimatedTokensUsed,
-              contextWindowTokens: diagnostics.contextWindowTokens,
-              cacheChars: diagnostics.cacheChars,
-              cacheEntryCount: diagnostics.cacheEntryCount,
-              utilizationRatio: diagnostics.utilizationRatio,
+              questionId: request.questionId,
+              decisionKey: request.decisionKey,
+              subjectRevision: policy.subjectRevision,
+              expectedRunRowVersion: policy.rowVersion,
+              question: request.question,
+              options: request.options,
+              allowFreeText: request.allowFreeText,
             });
-            // `commander:stream` `context_usage` is emitted from the
-            // orchestrator itself so it picks up `runId`/`step`/`emittedAt`
-            // automatically. This hook is log-only.
+            return {
+              questionId: reserved.decision.questionId,
+              status: reserved.decision.status,
+              ...(reserved.decision.answer !== undefined
+                ? { answer: reserved.decision.answer }
+                : {}),
+              ...(reserved.decision.selectedOptionId !== undefined
+                ? { selectedOptionId: reserved.decision.selectedOptionId }
+                : {}),
+            };
           },
-        });
-      } catch (error) {
-        log.error('Commander chat failed', {
-          category: 'commander',
-          canvasId: args.canvasId,
-          selectedNodeCount: args.selectedNodeIds.length,
-          historyCount: args.history.length,
-          providerId: args.customLLMProvider?.id,
-          providerBaseUrl: args.customLLMProvider?.baseUrl,
-          providerModel: args.customLLMProvider?.model,
-          providerProtocol: args.customLLMProvider?.protocol,
-          providerAuthStyle: args.customLLMProvider?.authStyle,
-          detail: formatErrorDetail(error),
-        });
-        // Error event emitted outside the orchestrator's stamped wrapper.
-        // We mint a fresh `runId`, then emit `assistant_text` + `run_end`
-        // (status: 'failed') so the renderer's timeline closes the run
-        // cleanly without a follow-up frame.
-        const errorRunId = freshRunId();
-        const now = Date.now();
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        gateway.emit(commanderStreamChannel, {
-          wireVersion: COMMANDER_WIRE_VERSION,
-          event: {
-            kind: 'assistant_text',
-            content: errorMessage,
-            isDelta: false,
-            runId: errorRunId,
-            step: 0,
-            seq: 0,
-            emittedAt: now,
+          onBeforeCompact: () => {
+            const projection = buildPersistentWorkflowContext(deps.db, args.canvasId);
+            const policy = projection.workflowToolPolicy;
+            if (!policy) return true;
+            if (!policy.workflowRunId || policy.phase === 'blocked') return false;
+            const runId = policy.workflowRunId as import('@lucid-fin/contracts').WorkflowRunId;
+            const documentRefs = Object.fromEntries(
+              [
+                ['productionPlan', 'production-plan'],
+                ['visualConstitution', 'visual-constitution'],
+                ['finalExport', 'final-export'],
+              ].flatMap(([label, logicalKey]) => {
+                const document = deps.db.repos.workflows.getLatestDocument(runId, logicalKey);
+                return document
+                  ? [[label, { revision: document.revision, contentHash: document.contentHash }]]
+                  : [];
+              }),
+            );
+            deps.workflowEngine.createContextCheckpoint(policy.workflowRunId, {
+              canvasId: args.canvasId,
+              rowVersion: policy.rowVersion,
+              phase: policy.phase,
+              gate: policy.gate ?? null,
+              documentRefs,
+            });
+            return true;
           },
-        });
-        gateway.emit(commanderStreamChannel, {
-          wireVersion: COMMANDER_WIRE_VERSION,
-          event: {
-            kind: 'run_end',
-            status: 'failed',
-            runId: errorRunId,
-            step: 0,
-            seq: 1,
-            emittedAt: now,
-          },
-        });
-      } finally {
-        // G2-5: persist the serialized ContextGraph side-channel so the
-        // next resume can warm up cache without replaying messages. Runs
-        // on BOTH success and error paths — a crash mid-turn should still
-        // save whatever items have accumulated. Wrapped in try/catch so a
-        // persistence failure cannot mask the original error.
-        //
-        // Skip the save when the orchestrator produced an empty snapshot:
-        // early-abort / construction-time failures leave
-        // `getSerializedContextGraph()` empty, and overwriting persisted
-        // warm-up state with `[]` would lose prior-session data
-        // (entity-snapshots, session-summaries). The orchestrator already
-        // falls back to the seed on early abort, so `items.length > 0`
-        // captures both real results AND preserved-seed cases.
-        if (persistedSessionId && orchestrator) {
-          try {
-            const items = orchestrator.getSerializedContextGraph();
-            if (items.length > 0) {
-              deps.db.repos.sessions.saveContextGraph(persistedSessionId, items);
+          onPostCompact: () => {
+            try {
+              const currentCanvas = deps.canvasStore.get(args.canvasId);
+              if (!currentCanvas) return null;
+              const workspace = buildWorkspaceSnapshot(
+                currentCanvas,
+                args.selectedNodeIds,
+                deps.db,
+              );
+              const workflowManifest = buildPersistentWorkflowManifest(deps.db, args.canvasId);
+              return [workspace, workflowManifest].filter(Boolean).join('\n\n');
+            } catch {
+              return null;
             }
-          } catch (err) {
-            log.warn('ContextGraph save failed', {
-              category: 'commander',
-              sessionId: persistedSessionId,
-              detail: err instanceof Error ? err.message : String(err),
-            });
+          },
+        },
+      });
+      orchestrator = orchestratorInstance;
+      compactRef.compact = (instructions?: string) => orchestratorInstance.compactNow(instructions);
+      session = {
+        aborted: false,
+        canvasId: args.canvasId,
+        orchestrator: orchestratorInstance,
+        lastActivity: Date.now(),
+      };
+      runningSessions.set(args.canvasId, session);
+
+      // G2-5: rehydrate ContextGraph from storage. Seeds graph-only items
+      // (entity-snapshot, session-summary) that aren't derivable from the
+      // message history — cache warm-up on resume without replaying raw
+      // messages. No-op when the session is brand-new or has no saved
+      // graph yet; fail-soft on malformed JSON (SessionRepository returns
+      // null via parseOrDegrade in that case).
+      const persistedSessionIdLocal: SessionId | null =
+        typeof args.sessionId === 'string' && args.sessionId.length > 0
+          ? (args.sessionId as SessionId)
+          : null;
+      persistedSessionId = persistedSessionIdLocal;
+      if (persistedSessionIdLocal) {
+        try {
+          const persistedGraph = deps.db.repos.sessions.getContextGraph(persistedSessionIdLocal);
+          if (persistedGraph && persistedGraph.length > 0) {
+            orchestratorInstance.seedContextGraph(persistedGraph);
           }
+        } catch (err) {
+          log.warn('ContextGraph rehydrate skipped', {
+            category: 'commander',
+            sessionId: persistedSessionIdLocal,
+            detail: err instanceof Error ? err.message : String(err),
+          });
         }
-        runningSessions.delete(args.canvasId);
       }
-    },
-  );
+
+      const context = buildContext(
+        canvas,
+        deps.presetLibrary,
+        args.selectedNodeIds,
+        deps.db,
+        args.promptGuides,
+      );
+      if (args.locale && typeof args.locale === 'string') {
+        const extra = context.extra as Record<string, unknown>;
+        extra['Current language'] = args.locale;
+      }
+      const contextExtra = context.extra as Record<string, unknown> | undefined;
+      log.debug('Commander context prepared', {
+        category: 'commander',
+        canvasId: args.canvasId,
+        contextKeys: contextExtra ? Object.keys(contextExtra) : [],
+        compactPromptGuideChars: 0,
+        compactPromptGuideCount: 0,
+      });
+
+      // Build emit handler
+      const emit = createEmitHandler(
+        getWindow,
+        args.canvasId,
+        deps.canvasStore,
+        canvasSyncMutatingToolNames,
+        entityMutatingToolNames,
+        gateway,
+        persistedSessionIdLocal
+          ? {
+              sessionId: persistedSessionIdLocal,
+              eventRepo: deps.db.repos.commanderEvents,
+            }
+          : undefined,
+      );
+
+      await orchestratorInstance.execute(args.message, context, emit, {
+        history: args.history,
+        isAborted: () => session?.aborted ?? false,
+        permissionMode: args.permissionMode ?? 'normal',
+        onLLMRequest: (diagnostics) => {
+          touchSession(args.canvasId);
+          log.debug('Commander LLM request prepared', {
+            category: 'commander',
+            canvasId: args.canvasId,
+            providerId: args.customLLMProvider?.id,
+            providerBaseUrl: args.customLLMProvider?.baseUrl,
+            providerModel: args.customLLMProvider?.model,
+            step: diagnostics.step,
+            toolCount: diagnostics.toolCount,
+            toolSchemaChars: diagnostics.toolSchemaChars,
+            messageCount: diagnostics.messageCount,
+            messageChars: diagnostics.messageChars,
+            systemPromptChars: diagnostics.systemPromptChars,
+            promptGuideChars: diagnostics.promptGuideChars,
+            estimatedTokensUsed: diagnostics.estimatedTokensUsed,
+            contextWindowTokens: diagnostics.contextWindowTokens,
+            cacheChars: diagnostics.cacheChars,
+            cacheEntryCount: diagnostics.cacheEntryCount,
+            utilizationRatio: diagnostics.utilizationRatio,
+          });
+          // `commander:stream` `context_usage` is emitted from the
+          // orchestrator itself so it picks up `runId`/`step`/`emittedAt`
+          // automatically. This hook is log-only.
+        },
+      });
+      return true;
+    } catch (error) {
+      log.error('Commander chat failed', {
+        category: 'commander',
+        canvasId: args.canvasId,
+        selectedNodeCount: args.selectedNodeIds.length,
+        historyCount: args.history.length,
+        providerId: args.customLLMProvider?.id,
+        providerBaseUrl: args.customLLMProvider?.baseUrl,
+        providerModel: args.customLLMProvider?.model,
+        providerProtocol: args.customLLMProvider?.protocol,
+        providerAuthStyle: args.customLLMProvider?.authStyle,
+        detail: formatErrorDetail(error),
+      });
+      // Error event emitted outside the orchestrator's stamped wrapper.
+      // We mint a fresh `runId`, then emit `assistant_text` + `run_end`
+      // (status: 'failed') so the renderer's timeline closes the run
+      // cleanly without a follow-up frame.
+      const errorRunId = freshRunId();
+      const now = Date.now();
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      gateway.emit(commanderStreamChannel, {
+        wireVersion: COMMANDER_WIRE_VERSION,
+        event: {
+          kind: 'assistant_text',
+          content: errorMessage,
+          isDelta: false,
+          runId: errorRunId,
+          step: 0,
+          seq: 0,
+          emittedAt: now,
+        },
+      });
+      gateway.emit(commanderStreamChannel, {
+        wireVersion: COMMANDER_WIRE_VERSION,
+        event: {
+          kind: 'run_end',
+          status: 'failed',
+          runId: errorRunId,
+          step: 0,
+          seq: 1,
+          emittedAt: now,
+        },
+      });
+      return false;
+    } finally {
+      // G2-5: persist the serialized ContextGraph side-channel so the
+      // next resume can warm up cache without replaying messages. Runs
+      // on BOTH success and error paths — a crash mid-turn should still
+      // save whatever items have accumulated. Wrapped in try/catch so a
+      // persistence failure cannot mask the original error.
+      //
+      // Skip the save when the orchestrator produced an empty snapshot:
+      // early-abort / construction-time failures leave
+      // `getSerializedContextGraph()` empty, and overwriting persisted
+      // warm-up state with `[]` would lose prior-session data
+      // (entity-snapshots, session-summaries). The orchestrator already
+      // falls back to the seed on early abort, so `items.length > 0`
+      // captures both real results AND preserved-seed cases.
+      if (persistedSessionId && orchestrator) {
+        try {
+          const items = orchestrator.getSerializedContextGraph();
+          if (items.length > 0) {
+            deps.db.repos.sessions.saveContextGraph(persistedSessionId, items);
+          }
+        } catch (err) {
+          log.warn('ContextGraph save failed', {
+            category: 'commander',
+            sessionId: persistedSessionId,
+            detail: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      runningSessions.delete(args.canvasId);
+    }
+  };
+  ipcMain.handle('commander:chat', async (event, args: CommanderChatRequest) => {
+    await handleCommanderChat(event, args);
+  });
 
   // v2cut Phase 5: hydrate the renderer's timeline slice from persisted
   // `commander_events` rows. Payload column is stored as stringified JSON;
@@ -483,5 +517,16 @@ export function registerCommanderHandlers(
     },
   );
 
-  registerCommanderMetaHandlers(ipcMain);
+  const continuationController = createCommanderWorkflowContinuationController({
+    workflowEngine: deps.workflowEngine,
+    db: deps.db,
+    canvasStore: deps.canvasStore,
+    isCanvasBusy: (canvasId) => runningSessions.has(canvasId),
+    runCommander: (args) => handleCommanderChat(undefined, args),
+  });
+  registerCommanderMetaHandlers(ipcMain, {
+    workflowEngine: deps.workflowEngine,
+    requestWorkflowContinuation: continuationController.request,
+  });
+  return continuationController;
 }

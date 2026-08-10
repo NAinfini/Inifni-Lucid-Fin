@@ -80,11 +80,6 @@ export const PROVIDER_PRICING: Record<string, ProviderPricing> = {
     perVideoSecond: 0.06,
     lastUpdated: '2026-05-01',
   },
-  pika: {
-    providerId: 'pika',
-    perVideoSecond: 0.04,
-    lastUpdated: '2026-05-01',
-  },
   minimax: {
     providerId: 'minimax',
     perVideoSecond: 0.05,
@@ -98,16 +93,6 @@ export const PROVIDER_PRICING: Record<string, ProviderPricing> = {
   higgsfield: {
     providerId: 'higgsfield',
     perVideoSecond: 0.05,
-    lastUpdated: '2026-05-01',
-  },
-  hunyuan: {
-    providerId: 'hunyuan',
-    perVideoSecond: 0.04,
-    lastUpdated: '2026-05-01',
-  },
-  wan: {
-    providerId: 'wan',
-    perVideoSecond: 0.04,
     lastUpdated: '2026-05-01',
   },
   seedance: {

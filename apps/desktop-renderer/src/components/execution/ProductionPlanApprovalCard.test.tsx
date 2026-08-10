@@ -11,6 +11,12 @@ function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function setTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+  setter?.call(textarea, value);
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 describe('ProductionPlanApprovalCard', () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -37,6 +43,8 @@ describe('ProductionPlanApprovalCard', () => {
       async () => ({ ok: true, code: 'approved' }) as ApproveWorkflowGateResult,
     );
     const onApproved = vi.fn();
+    const onRequestChanges = vi.fn(async () => undefined);
+    const onRequested = vi.fn();
     await act(async () => {
       root.render(
         <ProductionPlanApprovalCard
@@ -84,8 +92,23 @@ describe('ProductionPlanApprovalCard', () => {
                 title: 'The Last Signal',
                 logline: 'A radio operator hears tomorrow.',
                 synopsis: 'She races to prevent the disaster in the transmission.',
+                genre: 'science-fiction thriller',
+                tone: 'tense and intimate',
+                targetAudience: 'adult genre audience',
                 format: { targetDurationSeconds: 90, aspectRatio: '16:9' },
-                story: { acts: [{ scenes: [{}] }] },
+                story: {
+                  acts: [
+                    {
+                      name: 'Act 1',
+                      scenes: [
+                        {
+                          title: 'The broadcast',
+                          dialogueIntent: 'Disbelief gives way to fear.',
+                        },
+                      ],
+                    },
+                  ],
+                },
                 assumptions: ['Single primary location'],
                 visualDirections: ['analog cosmic horror'],
                 budget: {
@@ -103,6 +126,8 @@ describe('ProductionPlanApprovalCard', () => {
           }}
           onApprove={onApprove}
           onApproved={onApproved}
+          onRequestChanges={onRequestChanges}
+          onRequested={onRequested}
         />,
       );
       await flushPromises();
@@ -111,7 +136,37 @@ describe('ProductionPlanApprovalCard', () => {
     expect(container.textContent).toContain('The Last Signal');
     expect(container.textContent).toContain(`${t('workflowApproval.revision')} 3`);
     expect(container.textContent).toContain('a'.repeat(64));
+    expect(container.textContent).toContain('science-fiction thriller');
+    expect(container.textContent).toContain('tense and intimate');
+    expect(container.textContent).toContain('adult genre audience');
+    expect(container.textContent).toContain('The broadcast');
+    expect(container.textContent).toContain('Disbelief gives way to fear.');
     expect(onApprove).not.toHaveBeenCalled();
+
+    const requestChangesButton = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes(t('workflowApproval.requestChanges')),
+    );
+    await act(async () => {
+      requestChangesButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flushPromises();
+    });
+    const reason = container.querySelector<HTMLTextAreaElement>('textarea');
+    if (!reason) throw new Error('Expected a request-changes reason field');
+    const submitChanges = Array.from(container.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes(t('workflowApproval.submitRequestChanges')),
+    );
+    expect(submitChanges?.hasAttribute('disabled')).toBe(true);
+
+    await act(async () => {
+      setTextareaValue(reason, 'Please make the second act less bleak.');
+      await flushPromises();
+    });
+    await act(async () => {
+      submitChanges?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await flushPromises();
+    });
+    expect(onRequestChanges).toHaveBeenCalledWith('Please make the second act less bleak.');
+    expect(onRequested).toHaveBeenCalledTimes(1);
 
     const approveButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes(t('workflowApproval.approve')),
