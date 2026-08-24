@@ -2,7 +2,7 @@
 
 Use this when you have a finished image and want a clean, reusable prompt instead of a vague visual summary.
 
-Workflow:
+Procedure:
 
 1. Start from a real image node or reference frame, not from memory.
 2. Ask for the right readout:

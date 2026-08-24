@@ -16,6 +16,19 @@ export interface OAuthUsageWindow {
   resetsAt?: number;
 }
 
+export interface OAuthProviderModelCapability {
+  id: string;
+  model: string;
+  supportedReasoningEfforts: string[];
+}
+
+/** Model configuration capabilities reported by the local managed runtime. */
+export interface OAuthProviderModelCapabilities {
+  supportsModelOverride: boolean;
+  supportsReasoningEffort: boolean;
+  models: OAuthProviderModelCapability[];
+}
+
 export type OAuthUsage =
   | {
       state: 'available';
@@ -56,6 +69,7 @@ export type OAuthProviderStatus =
       state: 'ready';
       planType?: string | null;
       usage: OAuthUsage;
+      modelCapabilities?: OAuthProviderModelCapabilities;
       version?: string;
     })
   | (OAuthStatusBase & {

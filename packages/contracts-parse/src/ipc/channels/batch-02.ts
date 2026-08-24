@@ -19,6 +19,7 @@ const CharacterShape = z.unknown();
 const EquipmentShape = z.unknown();
 const ReferenceImageShape = z.unknown();
 const EquipmentLoadoutShape = z.unknown();
+const NonEmptyIds = z.array(z.string().trim().min(1)).min(1);
 
 // ── character:list ───────────────────────────────────────────
 const CharacterListRequest = EmptyRequest;
@@ -53,9 +54,24 @@ export const characterSaveChannel = defineInvokeChannel({
 export type CharacterSaveRequest = z.infer<typeof CharacterSaveRequest>;
 export type CharacterSaveResponse = z.infer<typeof CharacterSaveResponse>;
 
+const CharacterCopyRequest = z
+  .object({
+    ids: NonEmptyIds,
+    targetFolderId: z.string().trim().min(1).nullable(),
+  })
+  .strict();
+const CharacterCopyResponse = z.object({ created: z.array(CharacterShape) }).strict();
+export const characterCopyChannel = defineInvokeChannel({
+  channel: 'character:copy',
+  request: CharacterCopyRequest,
+  response: CharacterCopyResponse,
+});
+export type CharacterCopyRequest = z.infer<typeof CharacterCopyRequest>;
+export type CharacterCopyResponse = z.infer<typeof CharacterCopyResponse>;
+
 // ── character:delete ─────────────────────────────────────────
-const CharacterDeleteRequest = z.object({ id: z.string() });
-const CharacterDeleteResponse = z.void();
+const CharacterDeleteRequest = z.object({ ids: NonEmptyIds }).strict();
+const CharacterDeleteResponse = z.object({ deletedIds: z.array(z.string()) }).strict();
 export const characterDeleteChannel = defineInvokeChannel({
   channel: 'character:delete',
   request: CharacterDeleteRequest,
@@ -156,9 +172,24 @@ export const equipmentSaveChannel = defineInvokeChannel({
 export type EquipmentSaveRequest = z.infer<typeof EquipmentSaveRequest>;
 export type EquipmentSaveResponse = z.infer<typeof EquipmentSaveResponse>;
 
+const EquipmentCopyRequest = z
+  .object({
+    ids: NonEmptyIds,
+    targetFolderId: z.string().trim().min(1).nullable(),
+  })
+  .strict();
+const EquipmentCopyResponse = z.object({ created: z.array(EquipmentShape) }).strict();
+export const equipmentCopyChannel = defineInvokeChannel({
+  channel: 'equipment:copy',
+  request: EquipmentCopyRequest,
+  response: EquipmentCopyResponse,
+});
+export type EquipmentCopyRequest = z.infer<typeof EquipmentCopyRequest>;
+export type EquipmentCopyResponse = z.infer<typeof EquipmentCopyResponse>;
+
 // ── equipment:delete ─────────────────────────────────────────
-const EquipmentDeleteRequest = z.object({ id: z.string() });
-const EquipmentDeleteResponse = z.void();
+const EquipmentDeleteRequest = z.object({ ids: NonEmptyIds }).strict();
+const EquipmentDeleteResponse = z.object({ deletedIds: z.array(z.string()) }).strict();
 export const equipmentDeleteChannel = defineInvokeChannel({
   channel: 'equipment:delete',
   request: EquipmentDeleteRequest,
@@ -201,6 +232,7 @@ export const characterChannels = [
   characterListChannel,
   characterGetChannel,
   characterSaveChannel,
+  characterCopyChannel,
   characterDeleteChannel,
   characterSetRefImageChannel,
   characterRemoveRefImageChannel,
@@ -212,6 +244,7 @@ export const equipmentChannels = [
   equipmentListChannel,
   equipmentGetChannel,
   equipmentSaveChannel,
+  equipmentCopyChannel,
   equipmentDeleteChannel,
   equipmentSetRefImageChannel,
   equipmentRemoveRefImageChannel,

@@ -48,7 +48,6 @@ describe('app settings SQL integration', () => {
     const payload = {
       renderPreset: 'film',
       providers: { image: { id: 'flux' } },
-      lipsync: { backend: 'cloud', cloudEndpoint: 'https://example.test/lipsync' },
     };
     await invoke(ipcMain, 'settings:save', payload);
 

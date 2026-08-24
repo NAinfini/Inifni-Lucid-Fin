@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BUILT_IN_PRESET_LIBRARY,
   createEmptyPresetTrackSet,
   type Character,
   type Equipment,
@@ -312,7 +313,7 @@ describe('compilePrompt', () => {
         category: 'camera',
         presetIdB: 'p-b',
         factor: 0.5,
-        paramsB: { intensity: 0.7 },
+        paramsB: { orbitRadius: 0.7 },
       },
     });
 
@@ -325,7 +326,7 @@ describe('compilePrompt', () => {
     });
 
     expect(result.prompt).toContain('(50% slow dolly in), (50% fast orbit around subject)');
-    expect(result.params).toMatchObject({ speed: 'slow', intensity: 0.7 });
+    expect(result.params).toMatchObject({ speed: 'slow', orbitRadius: 0.7 });
   });
 
   it('handles empty/missing preset tracks safely', () => {
@@ -749,6 +750,69 @@ describe('compilePrompt', () => {
     expect(result.prompt).toContain('echoing');
     expect(result.prompt).toContain('forged steel Broadsword');
     expect(result.prompt).toContain('close-up');
+  });
+
+  it('compiles audio preset parameters into provider-facing prompt language', () => {
+    const voiceTracks = createEmptyPresetTrackSet();
+    voiceTracks['voice-style'].intensity = 50;
+    voiceTracks['voice-style'].entries.push({
+      id: 'voice-entry',
+      category: 'voice-style',
+      presetId: 'builtin-voice-style-narrator-warm',
+      params: { pace: 'fast', intensity: 50 },
+      intensity: 50,
+      order: 0,
+    });
+    const voice = compilePrompt({
+      nodeType: 'audio',
+      mode: 'voice',
+      providerId: 'test',
+      presetLibrary: BUILT_IN_PRESET_LIBRARY,
+      presetTracks: voiceTracks,
+      dialogueText: 'Welcome home.',
+    });
+    expect(voice.prompt).toContain('warm, intimate narrator');
+    expect(voice.prompt).toContain('fast pacing');
+    expect(voice.prompt).toContain('balanced vocal presence');
+    expect(voice.prompt).toContain('as a subtle influence');
+
+    const musicTracks = createEmptyPresetTrackSet();
+    musicTracks['music-genre'].entries.push({
+      id: 'music-entry',
+      category: 'music-genre',
+      presetId: 'builtin-music-genre-cinematic-orchestral',
+      params: { tempo: 'slow', intensity: 75 },
+      order: 0,
+    });
+    const music = compilePrompt({
+      nodeType: 'audio',
+      mode: 'music',
+      providerId: 'test',
+      presetLibrary: BUILT_IN_PRESET_LIBRARY,
+      presetTracks: musicTracks,
+    });
+    expect(music.prompt).toContain('sweeping cinematic orchestra');
+    expect(music.prompt).toContain('slow tempo');
+    expect(music.prompt).toContain('strong arrangement energy');
+
+    const sfxTracks = createEmptyPresetTrackSet();
+    sfxTracks['sfx-environment'].entries.push({
+      id: 'sfx-entry',
+      category: 'sfx-environment',
+      presetId: 'builtin-sfx-environment-rain-heavy',
+      params: { reverb: 100, intensity: 25 },
+      order: 0,
+    });
+    const sfx = compilePrompt({
+      nodeType: 'audio',
+      mode: 'sfx',
+      providerId: 'test',
+      presetLibrary: BUILT_IN_PRESET_LIBRARY,
+      presetTracks: sfxTracks,
+    });
+    expect(sfx.prompt).toContain('dense torrential rainfall');
+    expect(sfx.prompt).toContain('very long cavernous reverb');
+    expect(sfx.prompt).toContain('subtle environmental presence');
   });
 });
 

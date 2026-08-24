@@ -1,7 +1,7 @@
 /**
  * location + style + entity + colorStyle channels — Batch 3.
  *
- * Covers the 13 invoke channels lifted from the legacy handlers. Complex DTO
+ * Covers the remaining location, style, and color-style invoke channels. Complex DTO
  * payloads (Location, StyleGuide, ColorStyle, ReferenceImage) stay as
  * `z.unknown()` — Phase C will zodify the DTOs once they move out of
  * `packages/contracts/src/dto/`.
@@ -20,6 +20,7 @@ const LocationShape = z.unknown();
 const StyleGuideShape = z.unknown();
 const ColorStyleShape = z.unknown();
 const ReferenceImageShape = z.unknown();
+const NonEmptyIds = z.array(z.string().trim().min(1)).min(1);
 
 // ── location:list ────────────────────────────────────────────
 const LocationListRequest = z.object({ type: z.string().optional() }).strict();
@@ -54,9 +55,24 @@ export const locationSaveChannel = defineInvokeChannel({
 export type LocationSaveRequest = z.infer<typeof LocationSaveRequest>;
 export type LocationSaveResponse = z.infer<typeof LocationSaveResponse>;
 
+const LocationCopyRequest = z
+  .object({
+    ids: NonEmptyIds,
+    targetFolderId: z.string().trim().min(1).nullable(),
+  })
+  .strict();
+const LocationCopyResponse = z.object({ created: z.array(LocationShape) }).strict();
+export const locationCopyChannel = defineInvokeChannel({
+  channel: 'location:copy',
+  request: LocationCopyRequest,
+  response: LocationCopyResponse,
+});
+export type LocationCopyRequest = z.infer<typeof LocationCopyRequest>;
+export type LocationCopyResponse = z.infer<typeof LocationCopyResponse>;
+
 // ── location:delete ──────────────────────────────────────────
-const LocationDeleteRequest = z.object({ id: z.string() });
-const LocationDeleteResponse = z.void();
+const LocationDeleteRequest = z.object({ ids: NonEmptyIds }).strict();
+const LocationDeleteResponse = z.object({ deletedIds: z.array(z.string()) }).strict();
 export const locationDeleteChannel = defineInvokeChannel({
   channel: 'location:delete',
   request: LocationDeleteRequest,
@@ -117,30 +133,6 @@ export const styleLoadChannel = defineInvokeChannel({
 export type StyleLoadRequest = z.infer<typeof StyleLoadRequest>;
 export type StyleLoadResponse = z.infer<typeof StyleLoadResponse>;
 
-// ── entity:generateReferenceImage ────────────────────────────
-const EntityGenerateReferenceImageRequest = z.object({
-  entityType: z.enum(['character', 'equipment', 'location']),
-  entityId: z.string(),
-  description: z.string(),
-  provider: z.string(),
-  variantCount: z.number().optional(),
-  seed: z.number().optional(),
-});
-const EntityGenerateReferenceImageResponse = z.object({
-  variants: z.array(z.string()),
-});
-export const entityGenerateReferenceImageChannel = defineInvokeChannel({
-  channel: 'entity:generateReferenceImage',
-  request: EntityGenerateReferenceImageRequest,
-  response: EntityGenerateReferenceImageResponse,
-});
-export type EntityGenerateReferenceImageRequest = z.infer<
-  typeof EntityGenerateReferenceImageRequest
->;
-export type EntityGenerateReferenceImageResponse = z.infer<
-  typeof EntityGenerateReferenceImageResponse
->;
-
 // ── colorStyle:list ──────────────────────────────────────────
 const ColorStyleListRequest = EmptyRequest;
 const ColorStyleListResponse = z.array(ColorStyleShape);
@@ -180,7 +172,7 @@ const ColorStyleExtractRequest = z.object({
   assetType: z.enum(['image', 'video']),
 });
 const ColorStyleExtractResponse = z.object({
-  workflowRunId: z.string(),
+  taskListId: z.string(),
 });
 export const colorStyleExtractChannel = defineInvokeChannel({
   channel: 'colorStyle:extract',
@@ -194,14 +186,13 @@ export const locationChannels = [
   locationListChannel,
   locationGetChannel,
   locationSaveChannel,
+  locationCopyChannel,
   locationDeleteChannel,
   locationSetRefImageChannel,
   locationRemoveRefImageChannel,
 ] as const;
 
 export const styleChannels = [styleSaveChannel, styleLoadChannel] as const;
-
-export const entityChannels = [entityGenerateReferenceImageChannel] as const;
 
 export const colorStyleChannels = [
   colorStyleListChannel,

@@ -2,7 +2,9 @@ import { t } from '../../i18n.js';
 
 const PROCESS_PROMPT_TRIGGER_TOOLS: Record<string, string[]> = {
   'entity-ref-image-generation': [
-    'entity.generateRefImage',
+    'canvas.createNodes',
+    'canvas.configureNode',
+    'canvas.generation',
     'entity.setRefImage',
     'entity.deleteRefImage',
     'entity.setRefImageFromNode',
@@ -42,34 +44,27 @@ const PROCESS_PROMPT_TRIGGER_TOOLS: Record<string, string[]> = {
   'script-development': ['script.manage', 'script.import'],
   'vision-analysis': ['text.analyze'],
   'snapshot-and-rollback': ['snapshot.create', 'snapshot.list', 'snapshot.restore'],
-  'render-and-export': ['render.start', 'render.cancel', 'render.exportBundle'],
-  'workflow-orchestration': [
-    'workflow.manage',
-    'workflow.visual',
-    'workflow.media',
-    'workflow.mediaFeedback',
-    'workflow.finalExport',
-  ],
-  'series-management': [
-    'series.get',
-    'series.update',
-    'series.addEpisode',
-    'series.reorderEpisodes',
+  'ordered-delivery': ['task.delivery'],
+  'task-list-orchestration': [
+    'taskList.manage',
+    'task.visual',
+    'task.media',
+    'task.mediaFeedback',
+    'task.delivery',
   ],
   'prompt-template-management': ['prompt.get', 'prompt.setCustom'],
   'asset-library-management': ['asset.import', 'asset.list'],
-  'job-control': ['job.list', 'job.control'],
   'canvas-settings': ['canvas.getInfo', 'canvas.setSettings'],
-  'style-plate-lock': [
-    'canvas.getInfo',
-    'canvas.setSettings',
-    'entity.generateRefImage',
+  'style-plate-lock': ['canvas.getInfo', 'canvas.setSettings', 'canvas.generation'],
+  'entities-before-generation': [
+    'entity.list',
+    'canvas.createNodes',
     'canvas.generation',
+    'entity.setRefImageFromNode',
   ],
-  'entities-before-generation': ['entity.list', 'entity.generateRefImage', 'canvas.generation'],
   'batch-create-guidance': ['canvas.createNodes'],
   'prompt-quality-gate': ['canvas.generation'],
-  'story-workflow-phase': ['workflow.manage'],
+  'story-task-list-phase': ['taskList.manage'],
 };
 
 const PROCESS_PROMPT_TRIGGER_NOTE_KEYS: Record<string, string | undefined> = {

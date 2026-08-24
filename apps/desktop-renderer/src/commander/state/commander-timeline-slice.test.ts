@@ -1,81 +1,76 @@
-/**
- * Phase C — timeline slice reducer tests.
- *
- * Covers: seq monotonicity, out-of-order drop, currentRunId tracking,
- * byRunId indexing. Phase D consumers rely on these invariants.
- */
-
 import { describe, expect, it } from 'vitest';
-import { commanderTimelineSlice, appendEvent, resetTimeline } from './commander-timeline-slice.js';
 import type { TimelineEvent } from '@lucid-fin/contracts';
+import { appendEvent, commanderTimelineSlice, resetTimeline } from './commander-timeline-slice.js';
 
-function mkEvent(runId: string, seq: number, overrides?: Partial<TimelineEvent>): TimelineEvent {
+function event(runId: string, seq: number, overrides?: Partial<TimelineEvent>): TimelineEvent {
   return {
     kind: 'assistant_text',
     runId,
     step: 0,
     seq,
-    emittedAt: Date.now(),
+    emittedAt: seq,
     content: 'x',
     isDelta: true,
     ...(overrides as object),
   } as TimelineEvent;
 }
 
+const append = (sessionId: string, value: TimelineEvent) =>
+  appendEvent({ sessionId, event: value });
+
 describe('commanderTimelineSlice', () => {
-  it('appends monotonically and indexes by runId', () => {
+  it('indexes monotonically by run and session', () => {
     const reducer = commanderTimelineSlice.reducer;
     let state = reducer(undefined, { type: '@@INIT' });
     state = reducer(
       state,
-      appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'hi' } as never)),
+      append('session-a', event('run-a', 0, { kind: 'run_start', intent: 'a' } as never)),
     );
-    state = reducer(state, appendEvent(mkEvent('r1', 1)));
-    state = reducer(state, appendEvent(mkEvent('r1', 2)));
+    state = reducer(state, append('session-a', event('run-a', 1)));
+    state = reducer(state, append('session-a', event('run-a', 1)));
 
-    expect(state.events).toHaveLength(3);
-    expect(state.byRunId['r1']).toEqual([0, 1, 2]);
-    expect(state.currentRunId).toBe('r1');
-  });
-
-  it('drops out-of-order events within a run', () => {
-    const reducer = commanderTimelineSlice.reducer;
-    let state = reducer(undefined, { type: '@@INIT' });
-    state = reducer(state, appendEvent(mkEvent('r1', 5)));
-    state = reducer(state, appendEvent(mkEvent('r1', 3))); // should drop
-    state = reducer(state, appendEvent(mkEvent('r1', 6)));
-
-    expect(state.events).toHaveLength(2);
-    expect(state.events.map((e) => e.seq)).toEqual([5, 6]);
+    expect(state.byRunId['run-a']).toEqual([0, 1]);
+    expect(state.sessionIdByRunId['run-a']).toBe('session-a');
+    expect(state.currentRunIdBySessionId['session-a']).toBe('run-a');
     expect(state.droppedOutOfOrder).toBe(1);
   });
 
-  it('clears currentRunId on run_end', () => {
+  it('keeps two sessions active and clears only the run_end owner', () => {
     const reducer = commanderTimelineSlice.reducer;
     let state = reducer(undefined, { type: '@@INIT' });
     state = reducer(
       state,
-      appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)),
+      append('session-a', event('run-a', 0, { kind: 'run_start', intent: 'a' } as never)),
     );
-    expect(state.currentRunId).toBe('r1');
     state = reducer(
       state,
-      appendEvent(mkEvent('r1', 1, { kind: 'run_end', status: 'completed' } as never)),
+      append('session-b', event('run-b', 0, { kind: 'run_start', intent: 'b' } as never)),
     );
-    expect(state.currentRunId).toBeNull();
+    state = reducer(
+      state,
+      append(
+        'session-a',
+        event('run-a', 1, { kind: 'run_end', status: 'completed' } as never),
+      ),
+    );
+
+    expect(state.currentRunIdBySessionId).toEqual({ 'session-b': 'run-b' });
+    expect(state.byRunId['run-a']).toEqual([0, 2]);
+    expect(state.byRunId['run-b']).toEqual([1]);
   });
 
-  it('clears currentRunId on cancelled', () => {
+  it('keeps a cancelled run active until run_end', () => {
     const reducer = commanderTimelineSlice.reducer;
     let state = reducer(undefined, { type: '@@INIT' });
     state = reducer(
       state,
-      appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)),
+      append('session-a', event('run-a', 0, { kind: 'run_start', intent: 'a' } as never)),
     );
     state = reducer(
       state,
-      appendEvent(
-        mkEvent('r1', 1, {
+      append(
+        'session-a',
+        event('run-a', 1, {
           kind: 'cancelled',
           reason: 'user',
           completedToolCalls: 0,
@@ -83,169 +78,74 @@ describe('commanderTimelineSlice', () => {
         } as never),
       ),
     );
-    expect(state.currentRunId).toBeNull();
+
+    expect(state.currentRunIdBySessionId['session-a']).toBe('run-a');
   });
 
-  it('keeps two runs independent in byRunId', () => {
+  it('resets only the requested session', () => {
     const reducer = commanderTimelineSlice.reducer;
     let state = reducer(undefined, { type: '@@INIT' });
     state = reducer(
       state,
-      appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'a' } as never)),
+      append('session-a', event('run-a', 0, { kind: 'run_start', intent: 'a' } as never)),
     );
-    state = reducer(state, appendEvent(mkEvent('r1', 1)));
     state = reducer(
       state,
-      appendEvent(mkEvent('r2', 0, { kind: 'run_start', intent: 'b' } as never)),
+      append('session-b', event('run-b', 0, { kind: 'run_start', intent: 'b' } as never)),
     );
-    state = reducer(state, appendEvent(mkEvent('r2', 1)));
+    state = reducer(state, resetTimeline('session-a'));
 
-    expect(state.byRunId['r1']).toEqual([0, 1]);
-    expect(state.byRunId['r2']).toEqual([2, 3]);
+    expect(state.byRunId['run-a']).toBeUndefined();
+    expect(state.byRunId['run-b']).toEqual([0]);
+    expect(state.currentRunIdBySessionId).toEqual({ 'session-b': 'run-b' });
   });
 
-  it('resetTimeline wipes everything', () => {
+  it('isolates locally resolved prompts by session and run', () => {
+    let state = commanderTimelineSlice.reducer(undefined, {
+      type: 'commanderTimeline/markConfirmationResolvedLocally',
+      payload: { sessionId: 'session-a', runId: 'run-a', toolCallId: 'tool-1' },
+    });
+    state = commanderTimelineSlice.reducer(state, {
+      type: 'commanderTimeline/markConfirmationResolvedLocally',
+      payload: { sessionId: 'session-b', runId: 'run-b', toolCallId: 'tool-1' },
+    });
+
+    expect(state.locallyResolvedConfirmationsBySessionId).toEqual({
+      'session-a': { 'run-a': ['tool-1'] },
+      'session-b': { 'run-b': ['tool-1'] },
+    });
+  });
+
+  it('synthesizes orphan tool results without affecting another run', () => {
     const reducer = commanderTimelineSlice.reducer;
     let state = reducer(undefined, { type: '@@INIT' });
     state = reducer(
       state,
-      appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)),
+      append('session-a', event('run-a', 0, { kind: 'run_start', intent: 'a' } as never)),
     );
-    state = reducer(state, resetTimeline());
-    expect(state.events).toHaveLength(0);
-    expect(state.byRunId).toEqual({});
-    expect(state.currentRunId).toBeNull();
-  });
+    state = reducer(
+      state,
+      append(
+        'session-a',
+        event('run-a', 1, {
+          kind: 'tool_call',
+          toolCallId: 'tool-a',
+          toolRef: { domain: 'canvas', action: 'list' },
+          args: {},
+        } as never),
+      ),
+    );
+    state = reducer(
+      state,
+      append(
+        'session-a',
+        event('run-a', 2, { kind: 'run_end', status: 'failed' } as never),
+      ),
+    );
 
-  describe('Phase F — orphan cleanup on terminal events', () => {
-    it('synthesizes tool_result with RUN_ENDED_BEFORE_RESULT on run_end for pending tool_calls', () => {
-      const reducer = commanderTimelineSlice.reducer;
-      let state = reducer(undefined, { type: '@@INIT' });
-      state = reducer(
-        state,
-        appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)),
-      );
-      state = reducer(
-        state,
-        appendEvent(
-          mkEvent('r1', 1, {
-            kind: 'tool_call',
-            toolCallId: 'tc-1',
-            toolRef: { domain: 'canvas', action: 'list' },
-            args: {},
-          } as never),
-        ),
-      );
-      state = reducer(
-        state,
-        appendEvent(
-          mkEvent('r1', 2, {
-            kind: 'tool_call',
-            toolCallId: 'tc-2',
-            toolRef: { domain: 'canvas', action: 'get' },
-            args: {},
-          } as never),
-        ),
-      );
-      // One tool gets a real result
-      state = reducer(
-        state,
-        appendEvent(
-          mkEvent('r1', 3, {
-            kind: 'tool_result',
-            toolCallId: 'tc-1',
-            result: 'ok',
-            durationMs: 10,
-          } as never),
-        ),
-      );
-      // Terminal — should synthesize for tc-2 only.
-      state = reducer(
-        state,
-        appendEvent(mkEvent('r1', 4, { kind: 'run_end', status: 'failed' } as never)),
-      );
-
-      const results = state.events.filter((e) => e.kind === 'tool_result');
-      expect(results).toHaveLength(2);
-      const synthetic = results.find((r) => (r as { synthetic?: boolean }).synthetic);
-      expect(synthetic).toBeDefined();
-      expect((synthetic as { toolCallId: string }).toolCallId).toBe('tc-2');
-      expect((synthetic as { error?: { code: string } }).error?.code).toBe(
-        'RUN_ENDED_BEFORE_RESULT',
-      );
-    });
-
-    it('also fires on cancelled terminal event', () => {
-      const reducer = commanderTimelineSlice.reducer;
-      let state = reducer(undefined, { type: '@@INIT' });
-      state = reducer(
-        state,
-        appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)),
-      );
-      state = reducer(
-        state,
-        appendEvent(
-          mkEvent('r1', 1, {
-            kind: 'tool_call',
-            toolCallId: 'tc-1',
-            toolRef: { domain: 'canvas', action: 'list' },
-            args: {},
-          } as never),
-        ),
-      );
-      state = reducer(
-        state,
-        appendEvent(
-          mkEvent('r1', 2, {
-            kind: 'cancelled',
-            reason: 'user',
-            completedToolCalls: 0,
-            pendingToolCalls: 0,
-          } as never),
-        ),
-      );
-      const synthetics = state.events.filter(
-        (e) => e.kind === 'tool_result' && (e as { synthetic?: boolean }).synthetic,
-      );
-      expect(synthetics).toHaveLength(1);
-    });
-
-    it('does nothing when every tool_call already has a tool_result', () => {
-      const reducer = commanderTimelineSlice.reducer;
-      let state = reducer(undefined, { type: '@@INIT' });
-      state = reducer(
-        state,
-        appendEvent(mkEvent('r1', 0, { kind: 'run_start', intent: 'x' } as never)),
-      );
-      state = reducer(
-        state,
-        appendEvent(
-          mkEvent('r1', 1, {
-            kind: 'tool_call',
-            toolCallId: 'tc-1',
-            toolRef: { domain: 'canvas', action: 'list' },
-            args: {},
-          } as never),
-        ),
-      );
-      state = reducer(
-        state,
-        appendEvent(
-          mkEvent('r1', 2, {
-            kind: 'tool_result',
-            toolCallId: 'tc-1',
-            result: 'ok',
-            durationMs: 5,
-          } as never),
-        ),
-      );
-      const before = state.events.length;
-      state = reducer(
-        state,
-        appendEvent(mkEvent('r1', 3, { kind: 'run_end', status: 'completed' } as never)),
-      );
-      // Only +1 for run_end, no synthetic appended.
-      expect(state.events.length).toBe(before + 1);
-    });
+    const synthetic = state.events.find(
+      (candidate) => candidate.kind === 'tool_result' && candidate.synthetic,
+    );
+    expect(synthetic).toMatchObject({ runId: 'run-a', toolCallId: 'tool-a' });
   });
 });

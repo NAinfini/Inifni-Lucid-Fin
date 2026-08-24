@@ -1,13 +1,13 @@
 /**
- * EntityRepository — Phase G1-2.6.
+ * Production entity persistence.
  *
  * Consolidates the three entity-domain tables (characters / equipment /
  * locations) behind branded IDs and fault-soft reads. Each domain gets its
  * own upsert/get/list/delete surface; the repository owns all SQL so
- * SqliteIndex's entity facade can delegate cleanly.
+ * callers use one consistent storage boundary.
  *
  * Table column names flow through `CharactersTable` / `EquipmentTable` /
- * `LocationsTable` from contracts-parse G1-1 — schema drift fails at compile
+ * `LocationsTable` from contracts-parse — schema drift fails at compile
  * time.
  *
  * Reads go through `parseOrDegrade` with domain-specific `ctx` so corrupt
@@ -22,6 +22,7 @@
  * present in the input are written.
  */
 
+import { randomUUID } from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3';
 import type {
   Character,
@@ -128,6 +129,36 @@ const LOC = LocationsTable.cols;
 const CHARACTER_SENTINEL = Symbol('character-degraded');
 const EQUIPMENT_SENTINEL = Symbol('equipment-degraded');
 const LOCATION_SENTINEL = Symbol('location-degraded');
+
+function uniqueIds<T extends string>(ids: readonly T[], label: string): T[] {
+  if (!Array.isArray(ids) || ids.length === 0) throw new Error(`${label} IDs are required`);
+  for (const id of ids) {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error(`${label} IDs must be non-empty strings`);
+    }
+  }
+  return [...new Set(ids)];
+}
+
+function requireActiveIds(
+  db: Tx,
+  table: string,
+  idColumn: string,
+  ids: readonly string[],
+  label: string,
+): void {
+  const rows = db
+    .prepare(
+      `SELECT ${idColumn} AS id
+         FROM ${table}
+        WHERE ${idColumn} IN (SELECT value FROM json_each(?))
+          AND deleted_at IS NULL`,
+    )
+    .all(JSON.stringify(ids)) as Array<{ id: string }>;
+  const found = new Set(rows.map(({ id }) => id));
+  const missing = ids.filter((id) => !found.has(id));
+  if (missing.length > 0) throw new Error(`${label} not found: ${missing.join(', ')}`);
+}
 
 function parseJsonArrayOrEmpty(raw: unknown): unknown[] {
   if (typeof raw !== 'string' || raw.length === 0) return [];
@@ -442,6 +473,10 @@ function rowToLocationLite(row: Record<string, unknown>): Location {
 export class EntityRepository {
   constructor(private readonly db: BetterSqlite3.Database) {}
 
+  private atomically<T>(tx: Tx | undefined, mutation: (db: Tx) => T): T {
+    return tx ? mutation(tx) : this.db.transaction(mutation)(this.db);
+  }
+
   // ── Characters ─────────────────────────────────────────────────
 
   private existsCharacter(id: string, d: BetterSqlite3.Database | Tx): boolean {
@@ -632,11 +667,39 @@ export class EntityRepository {
     return { rows: out, degradedCount };
   }
 
-  deleteCharacter(id: CharacterId, tx?: Tx): void {
-    const d = tx ?? this.db;
-    d.prepare(
-      `UPDATE ${CHAR_TBL} SET deleted_at = datetime('now') WHERE ${CHAR.id.sqlName} = ? AND deleted_at IS NULL`,
-    ).run(id);
+  copyCharacters(ids: readonly CharacterId[], targetFolderId: string | null, tx?: Tx): Character[] {
+    const sourceIds = uniqueIds(ids, 'Character');
+    return this.atomically(tx, (db) => {
+      requireActiveIds(db, CHAR_TBL, CHAR.id.sqlName, sourceIds, 'Character');
+      const now = Date.now();
+      return sourceIds.map((sourceId) => {
+        const source = this.getCharacter(sourceId, db);
+        if (!source) throw new Error(`Character could not be copied: ${sourceId}`);
+        const created: Character = {
+          ...source,
+          id: randomUUID(),
+          folderId: targetFolderId,
+          createdAt: now,
+          updatedAt: now,
+        };
+        this.upsertCharacter(created, db);
+        return created;
+      });
+    });
+  }
+
+  deleteCharacter(ids: readonly CharacterId[], tx?: Tx): CharacterId[] {
+    const deletedIds = uniqueIds(ids, 'Character');
+    return this.atomically(tx, (db) => {
+      requireActiveIds(db, CHAR_TBL, CHAR.id.sqlName, deletedIds, 'Character');
+      db.prepare(
+        `UPDATE ${CHAR_TBL}
+            SET deleted_at = datetime('now')
+          WHERE ${CHAR.id.sqlName} IN (SELECT value FROM json_each(?))
+            AND deleted_at IS NULL`,
+      ).run(JSON.stringify(deletedIds));
+      return deletedIds;
+    });
   }
 
   restoreCharacter(id: CharacterId, tx?: Tx): void {
@@ -872,11 +935,40 @@ export class EntityRepository {
     return { rows: out, degradedCount };
   }
 
-  deleteEquipment(id: EquipmentId, tx?: Tx): void {
-    const d = tx ?? this.db;
-    d.prepare(
-      `UPDATE ${EQUIP_TBL} SET deleted_at = datetime('now') WHERE ${EQUIP.id.sqlName} = ? AND deleted_at IS NULL`,
-    ).run(id);
+  copyEquipment(ids: readonly EquipmentId[], targetFolderId: string | null, tx?: Tx): Equipment[] {
+    const sourceIds = uniqueIds(ids, 'Equipment');
+    return this.atomically(tx, (db) => {
+      requireActiveIds(db, EQUIP_TBL, EQUIP.id.sqlName, sourceIds, 'Equipment');
+      const now = Date.now();
+      return sourceIds.map((sourceId) => {
+        const source = this.getEquipment(sourceId, db);
+        if (!source) throw new Error(`Equipment could not be copied: ${sourceId}`);
+        const created: Equipment = {
+          ...source,
+          id: randomUUID(),
+          folderId: targetFolderId,
+          createdAt: now,
+          updatedAt: now,
+        };
+        const { function: functionDesc, ...input } = created;
+        this.upsertEquipment({ ...input, functionDesc }, db);
+        return created;
+      });
+    });
+  }
+
+  deleteEquipment(ids: readonly EquipmentId[], tx?: Tx): EquipmentId[] {
+    const deletedIds = uniqueIds(ids, 'Equipment');
+    return this.atomically(tx, (db) => {
+      requireActiveIds(db, EQUIP_TBL, EQUIP.id.sqlName, deletedIds, 'Equipment');
+      db.prepare(
+        `UPDATE ${EQUIP_TBL}
+            SET deleted_at = datetime('now')
+          WHERE ${EQUIP.id.sqlName} IN (SELECT value FROM json_each(?))
+            AND deleted_at IS NULL`,
+      ).run(JSON.stringify(deletedIds));
+      return deletedIds;
+    });
   }
 
   restoreEquipment(id: EquipmentId, tx?: Tx): void {
@@ -1131,11 +1223,39 @@ export class EntityRepository {
     return { rows: out, degradedCount };
   }
 
-  deleteLocation(id: LocationId, tx?: Tx): void {
-    const d = tx ?? this.db;
-    d.prepare(
-      `UPDATE ${LOC_TBL} SET deleted_at = datetime('now') WHERE ${LOC.id.sqlName} = ? AND deleted_at IS NULL`,
-    ).run(id);
+  copyLocations(ids: readonly LocationId[], targetFolderId: string | null, tx?: Tx): Location[] {
+    const sourceIds = uniqueIds(ids, 'Location');
+    return this.atomically(tx, (db) => {
+      requireActiveIds(db, LOC_TBL, LOC.id.sqlName, sourceIds, 'Location');
+      const now = Date.now();
+      return sourceIds.map((sourceId) => {
+        const source = this.getLocation(sourceId, db);
+        if (!source) throw new Error(`Location could not be copied: ${sourceId}`);
+        const created: Location = {
+          ...source,
+          id: randomUUID(),
+          folderId: targetFolderId,
+          createdAt: now,
+          updatedAt: now,
+        };
+        this.upsertLocation(created, db);
+        return created;
+      });
+    });
+  }
+
+  deleteLocation(ids: readonly LocationId[], tx?: Tx): LocationId[] {
+    const deletedIds = uniqueIds(ids, 'Location');
+    return this.atomically(tx, (db) => {
+      requireActiveIds(db, LOC_TBL, LOC.id.sqlName, deletedIds, 'Location');
+      db.prepare(
+        `UPDATE ${LOC_TBL}
+            SET deleted_at = datetime('now')
+          WHERE ${LOC.id.sqlName} IN (SELECT value FROM json_each(?))
+            AND deleted_at IS NULL`,
+      ).run(JSON.stringify(deletedIds));
+      return deletedIds;
+    });
   }
 
   restoreLocation(id: LocationId, tx?: Tx): void {
@@ -1193,25 +1313,46 @@ export class EntityRepository {
 
   // ── Folder assignments ─────────────────────────────────────────
 
-  setCharacterFolder(id: CharacterId, folderId: string | null, tx?: Tx): void {
-    const d = tx ?? this.db;
-    d.prepare(
-      `UPDATE ${CHAR_TBL} SET ${CHAR.folderId.sqlName} = ?, ${CHAR.updatedAt.sqlName} = ? WHERE ${CHAR.id.sqlName} = ?`,
-    ).run(folderId, Date.now(), id);
+  setCharacterFolder(ids: readonly CharacterId[], folderId: string | null, tx?: Tx): CharacterId[] {
+    const movedIds = uniqueIds(ids, 'Character');
+    return this.atomically(tx, (db) => {
+      requireActiveIds(db, CHAR_TBL, CHAR.id.sqlName, movedIds, 'Character');
+      db.prepare(
+        `UPDATE ${CHAR_TBL}
+            SET ${CHAR.folderId.sqlName} = ?, ${CHAR.updatedAt.sqlName} = ?
+          WHERE ${CHAR.id.sqlName} IN (SELECT value FROM json_each(?))
+            AND deleted_at IS NULL`,
+      ).run(folderId, Date.now(), JSON.stringify(movedIds));
+      return movedIds;
+    });
   }
 
-  setEquipmentFolder(id: EquipmentId, folderId: string | null, tx?: Tx): void {
-    const d = tx ?? this.db;
-    d.prepare(
-      `UPDATE ${EQUIP_TBL} SET ${EQUIP.folderId.sqlName} = ?, ${EQUIP.updatedAt.sqlName} = ? WHERE ${EQUIP.id.sqlName} = ?`,
-    ).run(folderId, Date.now(), id);
+  setEquipmentFolder(ids: readonly EquipmentId[], folderId: string | null, tx?: Tx): EquipmentId[] {
+    const movedIds = uniqueIds(ids, 'Equipment');
+    return this.atomically(tx, (db) => {
+      requireActiveIds(db, EQUIP_TBL, EQUIP.id.sqlName, movedIds, 'Equipment');
+      db.prepare(
+        `UPDATE ${EQUIP_TBL}
+            SET ${EQUIP.folderId.sqlName} = ?, ${EQUIP.updatedAt.sqlName} = ?
+          WHERE ${EQUIP.id.sqlName} IN (SELECT value FROM json_each(?))
+            AND deleted_at IS NULL`,
+      ).run(folderId, Date.now(), JSON.stringify(movedIds));
+      return movedIds;
+    });
   }
 
-  setLocationFolder(id: LocationId, folderId: string | null, tx?: Tx): void {
-    const d = tx ?? this.db;
-    d.prepare(
-      `UPDATE ${LOC_TBL} SET ${LOC.folderId.sqlName} = ?, ${LOC.updatedAt.sqlName} = ? WHERE ${LOC.id.sqlName} = ?`,
-    ).run(folderId, Date.now(), id);
+  setLocationFolder(ids: readonly LocationId[], folderId: string | null, tx?: Tx): LocationId[] {
+    const movedIds = uniqueIds(ids, 'Location');
+    return this.atomically(tx, (db) => {
+      requireActiveIds(db, LOC_TBL, LOC.id.sqlName, movedIds, 'Location');
+      db.prepare(
+        `UPDATE ${LOC_TBL}
+            SET ${LOC.folderId.sqlName} = ?, ${LOC.updatedAt.sqlName} = ?
+          WHERE ${LOC.id.sqlName} IN (SELECT value FROM json_each(?))
+            AND deleted_at IS NULL`,
+      ).run(folderId, Date.now(), JSON.stringify(movedIds));
+      return movedIds;
+    });
   }
 
   // ── Reference-image on-demand fetch ────────────────────────────

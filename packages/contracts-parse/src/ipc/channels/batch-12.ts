@@ -103,57 +103,48 @@ export type FolderMoveRequest = z.infer<typeof FolderMoveRequest>;
 export type FolderDeleteRequest = z.infer<typeof FolderDeleteRequest>;
 
 // =========================================================================
-// Per-entity setFolder (4 channels)
+// Per-entity setFolder (Asset entries use assetEntry:move)
 // =========================================================================
 
-const SetFolderRequest = z.object({
-  id: z.string(),
-  folderId: z.string().nullable(),
-});
-
-// asset:setFolder uses `hash` not `id`
-const AssetSetFolderRequest = z.object({
-  hash: z.string(),
-  folderId: z.string().nullable(),
-});
+const SetFolderRequest = z
+  .object({
+    ids: z.array(z.string().trim().min(1)).min(1),
+    folderId: z.string().trim().min(1).nullable(),
+  })
+  .strict();
+const SetFolderResponse = z.object({ movedIds: z.array(z.string()) }).strict();
 
 // -- character:setFolder --------------------------------------------------
 export const characterSetFolderChannel = defineInvokeChannel({
   channel: 'character:setFolder',
   request: SetFolderRequest,
-  response: z.void(),
+  response: SetFolderResponse,
 });
 export type CharacterSetFolderRequest = z.infer<typeof SetFolderRequest>;
+export type CharacterSetFolderResponse = z.infer<typeof SetFolderResponse>;
 
 // -- equipment:setFolder --------------------------------------------------
 export const equipmentSetFolderChannel = defineInvokeChannel({
   channel: 'equipment:setFolder',
   request: SetFolderRequest,
-  response: z.void(),
+  response: SetFolderResponse,
 });
 export type EquipmentSetFolderRequest = z.infer<typeof SetFolderRequest>;
+export type EquipmentSetFolderResponse = z.infer<typeof SetFolderResponse>;
 
 // -- location:setFolder ---------------------------------------------------
 export const locationSetFolderChannel = defineInvokeChannel({
   channel: 'location:setFolder',
   request: SetFolderRequest,
-  response: z.void(),
+  response: SetFolderResponse,
 });
 export type LocationSetFolderRequest = z.infer<typeof SetFolderRequest>;
-
-// -- asset:setFolder ------------------------------------------------------
-export const assetSetFolderChannel = defineInvokeChannel({
-  channel: 'asset:setFolder',
-  request: AssetSetFolderRequest,
-  response: z.void(),
-});
-export type AssetSetFolderRequest = z.infer<typeof AssetSetFolderRequest>;
+export type LocationSetFolderResponse = z.infer<typeof SetFolderResponse>;
 
 export const setFolderChannels = [
   characterSetFolderChannel,
   equipmentSetFolderChannel,
   locationSetFolderChannel,
-  assetSetFolderChannel,
 ] as const;
 
 // =========================================================================

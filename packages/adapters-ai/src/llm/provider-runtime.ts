@@ -58,6 +58,7 @@ export function buildRuntimeLLMAdapter(config: LLMProviderRuntimeConfig): LLMAda
         defaultBaseUrl: config.baseUrl,
         defaultModel: config.model,
         authStyle: config.authStyle,
+        reasoningEffortsByModel: config.reasoningEffortsByModel,
         capabilities: capabilities ? [...capabilities] : undefined,
       });
     case 'openai-compatible':
@@ -68,6 +69,8 @@ export function buildRuntimeLLMAdapter(config: LLMProviderRuntimeConfig): LLMAda
         defaultBaseUrl: config.baseUrl,
         defaultModel: config.model,
         authStyle: config.authStyle,
+        supportsReasoningEffort: config.supportsReasoningEffort,
+        reasoningEffortsByModel: config.reasoningEffortsByModel,
         capabilities: capabilities ? [...capabilities] : undefined,
       });
   }

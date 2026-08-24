@@ -82,9 +82,7 @@ function createMockDeps() {
       getAssetsRoot: vi.fn().mockReturnValue('/mock/.lucid-fin/assets'),
     },
     keychain: {},
-    jobQueue: {
-      stop: vi.fn(),
-    },
+    stopBackgroundTasks: vi.fn(),
   };
 }
 
@@ -201,7 +199,7 @@ describe('data:wipe', () => {
 
     // Verify deps are wired correctly
     const [, wipeDeps] = mockWipeAllData.mock.calls[0];
-    expect(typeof wipeDeps.cancelActiveJobs).toBe('function');
+    expect(typeof wipeDeps.stopBackgroundTasks).toBe('function');
     expect(typeof wipeDeps.flushPendingSaves).toBe('function');
     expect(typeof wipeDeps.closeDb).toBe('function');
   });

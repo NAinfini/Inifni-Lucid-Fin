@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pencil, Save, X } from 'lucide-react';
 import type { Asset } from '../../../store/slices/assets.js';
+import { PromptAssemblyProvenance } from '../PromptAssemblyProvenance.js';
 import { t, getLocale } from '../../../i18n.js';
 import { cn } from '../../../lib/utils.js';
 import { formatSize, formatDuration, localizeAssetType } from './utils.js';
@@ -132,11 +133,30 @@ export function AssetDetailPanel({
         {asset.prompt && (
           <div className="flex flex-col gap-0.5">
             <span>{t('assetBrowser.fields.prompt')}</span>
-            <span className="text-[10px] text-foreground/80 break-words leading-snug">
+            <span className="whitespace-pre-wrap break-words text-[10px] leading-snug text-foreground/80">
               {asset.prompt}
             </span>
           </div>
         )}
+        {asset.negativePrompt && (
+          <div className="flex flex-col gap-0.5">
+            <span>{t('assetBrowser.fields.negativePrompt')}</span>
+            <span className="whitespace-pre-wrap break-words text-[10px] leading-snug text-foreground/80">
+              {asset.negativePrompt}
+            </span>
+          </div>
+        )}
+        {asset.promptAssemblyId && (
+          <div className="flex flex-col gap-0.5">
+            <span>{t('assetBrowser.fields.promptAssembly')}</span>
+            <code className="break-all text-[10px] text-foreground/80">
+              {asset.promptAssemblyId}
+            </code>
+          </div>
+        )}
+        {asset.promptAssemblyId ? (
+          <PromptAssemblyProvenance assemblyId={asset.promptAssemblyId} t={t} />
+        ) : null}
       </div>
     </div>
   );

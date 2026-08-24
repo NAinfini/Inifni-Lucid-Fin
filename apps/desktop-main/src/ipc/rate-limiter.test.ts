@@ -130,37 +130,35 @@ describe('RateLimiter', () => {
   // ── Prefix / wildcard matching ───────────────────────────────
 
   it('matches prefix rules (wildcard keys ending with *)', () => {
-    const limiter = new RateLimiter({ 'ai:*': { maxRequests: 2, windowMs: 10_000 } }, clock);
+    const limiter = new RateLimiter({ 'provider:*': { maxRequests: 2, windowMs: 10_000 } }, clock);
 
-    expect(limiter.consume('ai:chat')).toEqual({ allowed: true });
-    expect(limiter.consume('ai:chat')).toEqual({ allowed: true });
-    expect(limiter.consume('ai:chat').allowed).toBe(false);
+    expect(limiter.consume('provider:chat')).toEqual({ allowed: true });
+    expect(limiter.consume('provider:chat')).toEqual({ allowed: true });
+    expect(limiter.consume('provider:chat').allowed).toBe(false);
   });
 
   it('exact keys take priority over prefix keys', () => {
     const limiter = new RateLimiter(
       {
-        'ai:chat': { maxRequests: 5, windowMs: 10_000 },
-        'ai:*': { maxRequests: 1, windowMs: 10_000 },
+        'provider:chat': { maxRequests: 5, windowMs: 10_000 },
+        'provider:*': { maxRequests: 1, windowMs: 10_000 },
       },
       clock,
     );
 
-    // ai:chat has limit 5, not 1
     for (let i = 0; i < 5; i++) {
-      expect(limiter.consume('ai:chat').allowed).toBe(true);
+      expect(limiter.consume('provider:chat').allowed).toBe(true);
     }
-    expect(limiter.consume('ai:chat').allowed).toBe(false);
+    expect(limiter.consume('provider:chat').allowed).toBe(false);
   });
 
   it('wildcard channels get independent buckets per actual channel name', () => {
-    const limiter = new RateLimiter({ 'ai:*': { maxRequests: 1, windowMs: 10_000 } }, clock);
+    const limiter = new RateLimiter({ 'provider:*': { maxRequests: 1, windowMs: 10_000 } }, clock);
 
-    expect(limiter.consume('ai:chat').allowed).toBe(true);
-    expect(limiter.consume('ai:chat').allowed).toBe(false);
+    expect(limiter.consume('provider:chat').allowed).toBe(true);
+    expect(limiter.consume('provider:chat').allowed).toBe(false);
 
-    // ai:prompt:list is a different bucket, even though same config
-    expect(limiter.consume('ai:prompt:list').allowed).toBe(true);
+    expect(limiter.consume('provider:list').allowed).toBe(true);
   });
 
   // ── Unlimited channels ───────────────────────────────────────
@@ -177,14 +175,8 @@ describe('RateLimiter', () => {
 
   it('resolveConfig returns exact match', () => {
     const limiter = new RateLimiter(IPC_RATE_LIMITS, clock);
-    const config = limiter.resolveConfig('commander:chat');
+    const config = limiter.resolveConfig('commander:start');
     expect(config).toEqual({ maxRequests: 10, windowMs: 60_000 });
-  });
-
-  it('resolveConfig returns prefix match for ai:* channels', () => {
-    const limiter = new RateLimiter(IPC_RATE_LIMITS, clock);
-    const config = limiter.resolveConfig('ai:chat');
-    expect(config).toEqual({ maxRequests: 15, windowMs: 60_000 });
   });
 
   it('resolveConfig returns undefined for unlimited channels', () => {
@@ -249,10 +241,10 @@ describe('RateLimiter', () => {
 
 describe('rateLimitedError', () => {
   it('creates a LucidError with RATE_LIMITED code and correct details', () => {
-    const err = rateLimitedError('commander:chat', 5000);
+    const err = rateLimitedError('commander:start', 5000);
     expect(err.code).toBe(ErrorCode.RateLimited);
     expect(err.message).toBe('Too many requests. Please wait before retrying.');
-    expect(err.details).toEqual({ retryAfterMs: 5000, channel: 'commander:chat' });
+    expect(err.details).toEqual({ retryAfterMs: 5000, channel: 'commander:start' });
   });
 });
 
@@ -262,11 +254,7 @@ describe('rateLimitedError', () => {
 
 describe('IPC_RATE_LIMITS', () => {
   it('defines limits for all channels in the PRD matrix', () => {
-    expect(IPC_RATE_LIMITS['commander:chat']).toBeDefined();
-    expect(IPC_RATE_LIMITS['canvas:generate']).toBeDefined();
-    expect(IPC_RATE_LIMITS['entity:generateReferenceImage']).toBeDefined();
-    expect(IPC_RATE_LIMITS['asset:generateEmbedding']).toBeDefined();
-    expect(IPC_RATE_LIMITS['ai:*']).toBeDefined();
+    expect(IPC_RATE_LIMITS['commander:start']).toBeDefined();
   });
 
   it('all configs have positive maxRequests and windowMs', () => {

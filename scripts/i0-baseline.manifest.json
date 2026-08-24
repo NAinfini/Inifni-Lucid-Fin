@@ -1,0 +1,903 @@
+{
+  "version": 1,
+  "contracts": [
+    {
+      "path": "docs/plans/2026-08-15-project-first-lucid-fin.md",
+      "sha256": "650c5708afdffad797c9d941eed8f6107dc5fd19287c483b94cedb689007162f"
+    },
+    {
+      "path": "docs/design/project-shell-screen-contract.md",
+      "sha256": "c6932d80483fea8b9bb11759a1a4aa2275165bf7100f1c56ee95168cadd6ca7d"
+    },
+    {
+      "path": "docs/design/project-workspaces-contract.md",
+      "sha256": "ee64063c8a959dd351dc6d1e7f0a74a5a1213a6d79a9470733e318c9d1fada62"
+    },
+    {
+      "path": "docs/plans/2026-08-15-project-data-history-memory-cutover.md",
+      "sha256": "fc34f3872e36be3527c68d8d827a651513afe270a8738b0316e4f734a938c710"
+    },
+    {
+      "path": "docs/plans/2026-08-15-commander-runtime-tool-surface.md",
+      "sha256": "e3333d6e4b4bfb326a9c2a2d83a177804cd5e6c4a1bfd63fd1124ea627adcb44"
+    },
+    {
+      "path": "docs/plans/2026-08-15-film-tool-catalog-contract.md",
+      "sha256": "2296b81525e41f83b2d492351b9dd2045e7f604a7eeddeac47aff1d7e76aab34"
+    },
+    {
+      "path": "docs/plans/2026-08-15-project-first-implementation-program.md",
+      "sha256": "61528887832adc725824da9f393ee77e6388a67e9589dec2b6c8929e98aaa749"
+    }
+  ],
+  "inventoryHashes": {
+    "schema": "e7019fdadaa70aab9d2acb93591c0a6a7b01d65d8e61284b17e91e5a64cef53d",
+    "tools": "63dc4ee13ba1d08644adf20a7de810cb7d64044a30c7db0f6581b2aa0f168bfd",
+    "modelTools": "9335285e1adacca861be1c211e5798908019a3cc0ad304c65db6aed6a1c44b10",
+    "channels": "596199b7fdf5881d53fb2e4925dc4637f6cceffb6516862bc012aa235a31ebb9",
+    "routes": "f905b6ec88f63018777bd54039b62b29686b72d72b43aa122693ae7785ebda46",
+    "localStorage": "6bffe5018d14f23b76919beb3905d95d493009f3b18092ccb4ed55a5a868c30e"
+  },
+  "schemaObjects": [
+    {
+      "id": "media-blob",
+      "kind": "table",
+      "name": "asset_contents",
+      "disposition": "target:MediaBlob"
+    },
+    {
+      "id": "global-media-asset",
+      "kind": "table",
+      "name": "asset_entries",
+      "disposition": "target:GlobalMediaAsset"
+    },
+    {
+      "id": "global-media-folder",
+      "kind": "table",
+      "name": "asset_folders",
+      "disposition": "target:GlobalMediaFolder"
+    },
+    {
+      "id": "delivery-media-ref",
+      "kind": "table",
+      "name": "delivery_asset_refs",
+      "disposition": "target:ProjectMediaRef/Delivery"
+    },
+    {
+      "id": "project-canvas-split",
+      "kind": "table",
+      "name": "canvases",
+      "disposition": "target:Project+CanvasDocument+ProductionDirection+Delivery"
+    },
+    {
+      "id": "canvas-node-split",
+      "kind": "table",
+      "name": "canvas_nodes",
+      "disposition": "target:Canvas+Production+GeneratedResult+Attempt"
+    },
+    {
+      "id": "canvas-edge",
+      "kind": "table",
+      "name": "canvas_edges",
+      "disposition": "target:CanvasEdge"
+    },
+    {
+      "id": "production-objects",
+      "kind": "table",
+      "name": [
+        "characters",
+        "equipment",
+        "locations",
+        "character_folders",
+        "equipment_folders",
+        "location_folders",
+        "scripts",
+        "dependencies"
+      ],
+      "disposition": "target:ProductionObject+relations"
+    },
+    {
+      "id": "production-direction",
+      "kind": "table",
+      "name": "color_styles",
+      "disposition": "target:ProductionDirection/result-provenance"
+    },
+    {
+      "id": "project-settings",
+      "kind": "table",
+      "name": "project_settings",
+      "disposition": "target:explicit-global-or-project-setting"
+    },
+    {
+      "id": "legacy-skill-catalog-cutover",
+      "kind": "table",
+      "name": [
+        "custom_shot_templates",
+        "preset_overrides",
+        "t_prompt_overrides",
+        "process_prompts"
+      ],
+      "disposition": "target:Skill-catalog/quarantined-unreviewed/delete-legacy-runtime"
+    },
+    { "id": "chat", "kind": "table", "name": "commander_sessions", "disposition": "target:Chat" },
+    {
+      "id": "offline-snapshot",
+      "kind": "table",
+      "name": "snapshots",
+      "disposition": "offline-backup-only"
+    },
+    {
+      "id": "run-event",
+      "kind": "table",
+      "name": "commander_events",
+      "disposition": "target:RunEvent"
+    },
+    {
+      "id": "run",
+      "kind": "table",
+      "name": ["commander_runs", "commander_run_canvases", "commander_run_attachments"],
+      "disposition": "target:Run+ContextManifest"
+    },
+    {
+      "id": "task-execution",
+      "kind": "table",
+      "name": [
+        "task_lists",
+        "tasks",
+        "task_dependencies",
+        "task_artifacts",
+        "plan_documents",
+        "plan_approvals",
+        "task_events",
+        "task_decisions",
+        "task_attempts",
+        "task_evaluations"
+      ],
+      "disposition": "target:RunTaskList+Production+UserChoice+Attempt+Result"
+    },
+    {
+      "id": "prompt-assembly",
+      "kind": "table",
+      "name": "prompt_assemblies",
+      "disposition": "target:GeneratedResult-provenance"
+    },
+    {
+      "id": "fts-projection",
+      "kind": "virtual_table",
+      "name": "asset_entries_fts",
+      "disposition": "derived-search-projection/rebuild"
+    },
+    {
+      "id": "derived-index",
+      "kind": "index",
+      "name": [
+        "idx_asset_contents_type_created",
+        "idx_asset_entries_folder_created",
+        "idx_asset_entries_hash",
+        "idx_asset_folders_parent",
+        "idx_canvas_edges_canvas_id",
+        "idx_canvas_edges_source",
+        "idx_canvas_edges_target",
+        "idx_canvas_nodes_canvas_id",
+        "idx_canvas_nodes_canvas_type",
+        "idx_canvas_nodes_type",
+        "idx_canvases_updated",
+        "idx_character_folders_parent",
+        "idx_characters_active",
+        "idx_characters_deleted_at",
+        "idx_characters_folder_id",
+        "idx_characters_name",
+        "idx_commander_events_kind",
+        "idx_commander_events_run",
+        "idx_commander_run_attachments_content",
+        "idx_commander_run_canvases_active_canvas",
+        "idx_commander_runs_active_session",
+        "idx_commander_runs_parent",
+        "idx_commander_runs_retry",
+        "idx_commander_runs_session_accepted",
+        "idx_commander_sessions_default_canvas",
+        "idx_commander_sessions_updated",
+        "idx_delivery_asset_refs_hash",
+        "idx_equipment_active",
+        "idx_equipment_deleted_at",
+        "idx_equipment_folder_id",
+        "idx_equipment_folders_parent",
+        "idx_equipment_name",
+        "idx_location_folders_parent",
+        "idx_locations_active",
+        "idx_locations_deleted_at",
+        "idx_locations_folder_id",
+        "idx_locations_name",
+        "idx_plan_approvals_pending",
+        "idx_plan_documents_latest",
+        "idx_preset_overrides_category",
+        "idx_prompt_assemblies_canvas_node_created",
+        "idx_prompt_assemblies_parent",
+        "idx_snapshots_session",
+        "idx_task_artifacts_asset_hash",
+        "idx_task_artifacts_attempt_type",
+        "idx_task_artifacts_entity",
+        "idx_task_artifacts_list_type",
+        "idx_task_attempts_batch_export_identity",
+        "idx_task_attempts_kind_recovery",
+        "idx_task_attempts_list_kind",
+        "idx_task_attempts_media_identity",
+        "idx_task_decisions_canvas_question",
+        "idx_task_decisions_pending",
+        "idx_task_dependencies_depends_on",
+        "idx_task_evaluations_list",
+        "idx_task_events_list_seq",
+        "idx_task_lists_status_updated",
+        "idx_tasks_list_status_updated",
+        "idx_tasks_list_status_updated_asc",
+        "idx_tasks_phase_status",
+        "idx_tasks_provider_task",
+        "idx_tasks_status_updated_id"
+      ],
+      "disposition": "derived-index/rebuild"
+    },
+    {
+      "id": "derived-trigger",
+      "kind": "trigger",
+      "name": [
+        "asset_contents_prompt_au",
+        "asset_entries_ad",
+        "asset_entries_ai",
+        "asset_entries_au",
+        "trg_plan_documents_immutable"
+      ],
+      "disposition": "derived-projection/rebuild"
+    }
+  ],
+  "columns": [
+    {
+      "table": "canvases",
+      "default": { "id": "canvas-project-default", "disposition": "target:Project-lifecycle" },
+      "overrides": [
+        { "column": "viewport", "id": "canvas-viewport", "disposition": "target:CanvasDocument" },
+        { "column": "notes", "id": "canvas-notes", "disposition": "target:CanvasDocument" },
+        {
+          "column": "style_plate",
+          "id": "canvas-style-plate",
+          "disposition": "target:ProductionDirection/provenance"
+        },
+        {
+          "column": "visual_style_policy_json",
+          "id": "canvas-style-policy",
+          "disposition": "target:ProductionDirection/provenance"
+        },
+        {
+          "column": "negative_prompt",
+          "id": "canvas-negative",
+          "disposition": "target:ProductionDirection/provenance"
+        },
+        {
+          "column": "image_provider_id",
+          "id": "canvas-image-provider",
+          "disposition": "target:Project/DeliverySetting"
+        },
+        {
+          "column": "video_provider_id",
+          "id": "canvas-video-provider",
+          "disposition": "target:Project/DeliverySetting"
+        },
+        {
+          "column": "audio_provider_id",
+          "id": "canvas-audio-provider",
+          "disposition": "target:Project/DeliverySetting"
+        },
+        {
+          "column": "llm_provider_id",
+          "id": "canvas-llm-provider",
+          "disposition": "target:Project/DeliverySetting"
+        },
+        {
+          "column": "aspect_ratio",
+          "id": "canvas-aspect-ratio",
+          "disposition": "target:Project/DeliverySetting"
+        },
+        {
+          "column": "default_width",
+          "id": "canvas-default-width",
+          "disposition": "target:Project/DeliverySetting"
+        },
+        {
+          "column": "default_height",
+          "id": "canvas-default-height",
+          "disposition": "target:Project/DeliverySetting"
+        },
+        {
+          "column": "publish_width",
+          "id": "canvas-publish-width",
+          "disposition": "target:Project/DeliverySetting"
+        },
+        {
+          "column": "publish_height",
+          "id": "canvas-publish-height",
+          "disposition": "target:Project/DeliverySetting"
+        },
+        {
+          "column": "publish_video_width",
+          "id": "canvas-publish-video-width",
+          "disposition": "target:Project/DeliverySetting"
+        },
+        {
+          "column": "publish_video_height",
+          "id": "canvas-publish-video-height",
+          "disposition": "target:Project/DeliverySetting"
+        },
+        {
+          "column": "resolution_policy_json",
+          "id": "canvas-resolution",
+          "disposition": "target:Project/DeliverySetting"
+        },
+        {
+          "column": "delivery_sequence_json",
+          "id": "canvas-delivery-sequence",
+          "disposition": "target:Delivery"
+        },
+        {
+          "column": "delivery_sequence_revision",
+          "id": "canvas-delivery-revision",
+          "disposition": "target:Delivery"
+        }
+      ]
+    },
+    {
+      "table": "canvas_nodes",
+      "default": { "id": "canvas-node-spatial-default", "disposition": "target:Canvas-placement" },
+      "overrides": [
+        {
+          "column": "data_json",
+          "id": "canvas-node-data",
+          "disposition": "target:typed-split/migration-blocker"
+        },
+        {
+          "column": "type",
+          "id": "canvas-node-type",
+          "disposition": "target:typed-Production-or-GeneratedResult"
+        }
+      ]
+    },
+    {
+      "table": "commander_sessions",
+      "default": { "id": "chat-default", "disposition": "target:Chat" },
+      "overrides": [
+        { "column": "messages", "id": "chat-messages", "disposition": "target:Message" },
+        {
+          "column": "context_graph_json",
+          "id": "chat-context-graph",
+          "disposition": "discard/rebuild-from-events"
+        },
+        {
+          "column": "default_canvas_id",
+          "id": "chat-default-canvas",
+          "disposition": "target:Chat-context-link"
+        }
+      ]
+    },
+    {
+      "table": "asset_contents",
+      "default": { "id": "media-blob-default", "disposition": "target:MediaBlob" },
+      "overrides": [
+        {
+          "column": "prompt",
+          "id": "media-blob-prompt",
+          "disposition": "target:GeneratedResult-provenance"
+        },
+        {
+          "column": "provider",
+          "id": "media-blob-provider",
+          "disposition": "target:GeneratedResult-provenance"
+        },
+        {
+          "column": "generation_metadata",
+          "id": "media-blob-generation-metadata",
+          "disposition": "target:GeneratedResult-provenance"
+        }
+      ]
+    },
+    {
+      "table": "asset_entries",
+      "default": { "id": "global-media-asset-default", "disposition": "target:GlobalMediaAsset" },
+      "overrides": [
+        {
+          "column": "asset_hash",
+          "id": "global-media-asset-blob",
+          "disposition": "target:MediaBlob-link"
+        },
+        {
+          "column": "folder_id",
+          "id": "global-media-asset-folder",
+          "disposition": "target:GlobalMediaFolder-link"
+        }
+      ]
+    },
+    {
+      "table": ["asset_folders"],
+      "default": {
+        "id": "global-media-folder-default",
+        "disposition": "target:GlobalMediaFolder"
+      },
+      "overrides": []
+    },
+    {
+      "table": ["delivery_asset_refs"],
+      "default": {
+        "id": "delivery-media-ref-default",
+        "disposition": "target:ProjectMediaRef/Delivery"
+      },
+      "overrides": []
+    },
+    {
+      "table": ["canvas_edges"],
+      "default": { "id": "canvas-edge-default", "disposition": "target:CanvasEdge" },
+      "overrides": []
+    },
+    {
+      "table": [
+        "characters",
+        "equipment",
+        "locations",
+        "character_folders",
+        "equipment_folders",
+        "location_folders",
+        "scripts",
+        "dependencies"
+      ],
+      "default": {
+        "id": "production-object-default",
+        "disposition": "target:ProductionObject+relations"
+      },
+      "overrides": []
+    },
+    {
+      "table": "color_styles",
+      "default": {
+        "id": "production-direction-default",
+        "disposition": "target:ProductionDirection/result-provenance"
+      },
+      "overrides": []
+    },
+    {
+      "table": "project_settings",
+      "default": {
+        "id": "project-setting-default",
+        "disposition": "target:explicit-global-or-project-setting"
+      },
+      "overrides": []
+    },
+    {
+      "table": [
+        "custom_shot_templates",
+        "preset_overrides",
+        "t_prompt_overrides",
+        "process_prompts"
+      ],
+      "default": {
+        "id": "legacy-skill-catalog-default",
+        "disposition": "target:Skill-catalog/quarantined-unreviewed/delete-legacy-runtime"
+      },
+      "overrides": []
+    },
+    {
+      "table": "snapshots",
+      "default": { "id": "offline-snapshot-default", "disposition": "offline-backup-only" },
+      "overrides": []
+    },
+    {
+      "table": "commander_events",
+      "default": { "id": "run-event-default", "disposition": "target:RunEvent" },
+      "overrides": []
+    },
+    {
+      "table": ["commander_runs", "commander_run_canvases", "commander_run_attachments"],
+      "default": { "id": "run-default", "disposition": "target:Run+ContextManifest" },
+      "overrides": []
+    },
+    {
+      "table": [
+        "task_lists",
+        "tasks",
+        "task_dependencies",
+        "task_artifacts",
+        "plan_documents",
+        "plan_approvals",
+        "task_events",
+        "task_decisions",
+        "task_attempts",
+        "task_evaluations"
+      ],
+      "default": {
+        "id": "task-execution-default",
+        "disposition": "target:RunTaskList+Production+UserChoice+Attempt+Result"
+      },
+      "overrides": []
+    },
+    {
+      "table": "prompt_assemblies",
+      "default": {
+        "id": "prompt-assembly-default",
+        "disposition": "target:GeneratedResult-provenance"
+      },
+      "overrides": []
+    },
+    {
+      "table": "asset_entries_fts",
+      "default": {
+        "id": "fts-projection-default",
+        "disposition": "derived-search-projection/rebuild"
+      },
+      "overrides": []
+    }
+  ],
+  "tools": [
+    {
+      "id": "legacy-tool-catalog",
+      "name": [
+        "agent.result",
+        "agent.spawn",
+        "agent.wait",
+        "asset.import",
+        "asset.list",
+        "canvas.addNote",
+        "canvas.configureNode",
+        "canvas.connectNodes",
+        "canvas.createNodes",
+        "canvas.deleteCanvas",
+        "canvas.deleteNode",
+        "canvas.deleteNote",
+        "canvas.duplicateNodes",
+        "canvas.exportDocument",
+        "canvas.generation",
+        "canvas.getInfo",
+        "canvas.getNode",
+        "canvas.importDocument",
+        "canvas.layout",
+        "canvas.listEdges",
+        "canvas.listNodes",
+        "canvas.manage",
+        "canvas.manageEdge",
+        "canvas.presetTracks",
+        "canvas.previewPrompt",
+        "canvas.selectVariant",
+        "canvas.setMediaParams",
+        "canvas.setNodeLayout",
+        "canvas.setNodeRefs",
+        "canvas.setSettings",
+        "canvas.setVideoFrames",
+        "canvas.updateNodes",
+        "canvas.updateNote",
+        "character.create",
+        "character.delete",
+        "character.list",
+        "character.update",
+        "colorStyle.manage",
+        "commander.askUser",
+        "entity.create",
+        "entity.delete",
+        "entity.deleteRefImage",
+        "entity.list",
+        "entity.setRefImage",
+        "entity.setRefImageFromNode",
+        "entity.update",
+        "equipment.create",
+        "equipment.delete",
+        "equipment.list",
+        "equipment.update",
+        "guide.get",
+        "location.create",
+        "location.delete",
+        "location.list",
+        "location.update",
+        "logger.list",
+        "preset.manage",
+        "prompt.get",
+        "prompt.setCustom",
+        "provider.addCustom",
+        "provider.manage",
+        "provider.removeCustom",
+        "provider.resolveResolution",
+        "provider.setKey",
+        "provider.update",
+        "runChecklist.manage",
+        "script.import",
+        "script.manage",
+        "shotTemplate.manage",
+        "snapshot.create",
+        "snapshot.list",
+        "snapshot.restore",
+        "task.audio",
+        "task.delivery",
+        "task.media",
+        "task.mediaFeedback",
+        "task.visual",
+        "taskList.manage",
+        "text.analyze",
+        "tool.compact",
+        "tool.get",
+        "tool.program"
+      ],
+      "disposition": "replace-by-target-film-tool-catalog"
+    }
+  ],
+  "modelTools": [
+    {
+      "id": "legacy-model-tool-catalog",
+      "name": [
+        "agent.result",
+        "agent.spawn",
+        "agent.wait",
+        "canvas.configureNode",
+        "canvas.connectNodes",
+        "canvas.createNodes",
+        "canvas.deleteNode",
+        "canvas.duplicateNodes",
+        "canvas.generation",
+        "canvas.getInfo",
+        "canvas.getNode",
+        "canvas.layout",
+        "canvas.listEdges",
+        "canvas.listNodes",
+        "canvas.manage",
+        "canvas.manageEdge",
+        "canvas.presetTracks",
+        "canvas.previewPrompt",
+        "canvas.selectVariant",
+        "canvas.setMediaParams",
+        "canvas.setNodeRefs",
+        "canvas.setSettings",
+        "canvas.setVideoFrames",
+        "canvas.updateNodes",
+        "colorStyle.manage",
+        "commander.askUser",
+        "entity.create",
+        "entity.delete",
+        "entity.deleteRefImage",
+        "entity.list",
+        "entity.setRefImage",
+        "entity.setRefImageFromNode",
+        "entity.update",
+        "guide.get",
+        "preset.manage",
+        "prompt.get",
+        "provider.resolveResolution",
+        "runChecklist.manage",
+        "script.manage",
+        "shotTemplate.manage",
+        "task.audio",
+        "task.delivery",
+        "task.media",
+        "task.mediaFeedback",
+        "task.visual",
+        "taskList.manage",
+        "text.analyze",
+        "tool.compact",
+        "tool.get",
+        "tool.program"
+      ],
+      "disposition": "replace-by-target-authorized-tool-catalog"
+    }
+  ],
+  "channels": [
+    {
+      "id": "legacy-ipc",
+      "name": [
+        "app:restart",
+        "app:version",
+        "assetContent:export",
+        "assetContent:getPath",
+        "assetContent:inspect",
+        "assetEntry:copy",
+        "assetEntry:delete",
+        "assetEntry:import",
+        "assetEntry:importBuffer",
+        "assetEntry:move",
+        "assetEntry:pickFile",
+        "assetEntry:query",
+        "assetEntry:rename",
+        "canvas:create",
+        "canvas:delete",
+        "canvas:deletePermanent",
+        "canvas:list",
+        "canvas:load",
+        "canvas:loadAll",
+        "canvas:patch",
+        "canvas:rename",
+        "canvas:restore",
+        "canvas:save",
+        "canvasDelivery:update",
+        "character:copy",
+        "character:delete",
+        "character:deleteLoadout",
+        "character:get",
+        "character:list",
+        "character:removeRefImage",
+        "character:save",
+        "character:saveLoadout",
+        "character:setFolder",
+        "character:setRefImage",
+        "clipboard:setEnabled",
+        "colorStyle:delete",
+        "colorStyle:extract",
+        "colorStyle:list",
+        "colorStyle:save",
+        "commander:cancel",
+        "commander:cancel-step",
+        "commander:compact",
+        "commander:events:hydrate",
+        "commander:inject-message",
+        "commander:run:control",
+        "commander:run:get",
+        "commander:run:tree",
+        "commander:start",
+        "commander:tool:answer",
+        "commander:tool:decision",
+        "deliveryPackage:cancel",
+        "deliveryPackage:open",
+        "deliveryPackage:retry",
+        "deliveryPackage:start",
+        "deliveryPackage:status",
+        "equipment:copy",
+        "equipment:delete",
+        "equipment:get",
+        "equipment:list",
+        "equipment:removeRefImage",
+        "equipment:save",
+        "equipment:setFolder",
+        "equipment:setRefImage",
+        "ffmpeg:probe",
+        "ffmpeg:thumbnail",
+        "ffmpeg:transcode",
+        "health:ping",
+        "ipc:ping",
+        "keychain:delete",
+        "keychain:getMasked",
+        "keychain:isConfigured",
+        "keychain:set",
+        "keychain:test",
+        "location:copy",
+        "location:delete",
+        "location:get",
+        "location:list",
+        "location:removeRefImage",
+        "location:save",
+        "location:setFolder",
+        "location:setRefImage",
+        "logger:getRecent",
+        "preset:delete",
+        "preset:export",
+        "preset:import",
+        "preset:list",
+        "preset:reset",
+        "preset:save",
+        "processPrompt:get",
+        "processPrompt:list",
+        "processPrompt:reset",
+        "processPrompt:setCustom",
+        "promptAssembly:get",
+        "provider:health",
+        "provider:health:get",
+        "providerOAuth:cancelLogin",
+        "providerOAuth:login",
+        "providerOAuth:logout",
+        "providerOAuth:status",
+        "reviewCut:cancel",
+        "reviewCut:open",
+        "reviewCut:start",
+        "reviewCut:status",
+        "script:import",
+        "script:load",
+        "script:parse",
+        "script:save",
+        "session:delete",
+        "session:get",
+        "session:list",
+        "session:move",
+        "session:upsert",
+        "settings:load",
+        "settings:save",
+        "shell:openExternal",
+        "snapshot:capture",
+        "snapshot:delete",
+        "snapshot:list",
+        "snapshot:restore",
+        "storage:backupDatabase",
+        "storage:clearLogs",
+        "storage:getOverview",
+        "storage:openFolder",
+        "storage:openPath",
+        "storage:pickFolder",
+        "storage:pickOpenFile",
+        "storage:pickSaveFile",
+        "storage:restoreDatabase",
+        "storage:showInFolder",
+        "storage:vacuumDatabase",
+        "style:load",
+        "style:save",
+        "taskList:approveGate",
+        "taskList:cancelMedia",
+        "taskList:get",
+        "taskList:getDelivery",
+        "taskList:getPendingApproval",
+        "taskList:getTasks",
+        "taskList:getVisualAuditions",
+        "taskList:list",
+        "taskList:listPendingDecisions",
+        "taskList:rejectGate",
+        "taskList:requestChanges",
+        "taskList:requestVisualAuditionChanges",
+        "taskList:retryMedia",
+        "taskList:retryMediaEvaluation",
+        "taskList:selectVisualCandidate",
+        "taskList:startMedia",
+        "updater:check",
+        "updater:download",
+        "updater:install",
+        "updater:status",
+        "vision:describeImage",
+        "app:init-error",
+        "app:ready",
+        "clipboard:ai-detected",
+        "commander:canvas:dispatch",
+        "commander:entities:updated",
+        "commander:settings:dispatch",
+        "commander:stream",
+        "logger:entry",
+        "providerOAuth:changed",
+        "settings:providerKeyUpdated",
+        "updater:progress",
+        "updater:toast"
+      ],
+      "disposition": "replace-by-target-project-shell-ipc"
+    }
+  ],
+  "routes": [
+    { "id": "legacy-canvas-route", "name": "/", "disposition": "target:ProjectShell" },
+    { "id": "legacy-settings-route", "name": "/settings", "disposition": "target:Settings" }
+  ],
+  "localStorage": [
+    {
+      "id": "commander-provider",
+      "name": "lucid-commander-provider-v1",
+      "disposition": "target:user-setting"
+    },
+    {
+      "id": "commander-session-mirror",
+      "name": "lucid-commander-sessions-v1",
+      "disposition": "migration-evidence:Chat/block-if-merge-unknown"
+    },
+    {
+      "id": "commander-settings",
+      "name": "lucid-commander-settings-v1",
+      "disposition": "target:user-setting"
+    },
+    {
+      "id": "skill-definitions",
+      "name": "lucid-skills-v2",
+      "disposition": "target:Skill-catalog/quarantined-unreviewed/offline-export"
+    },
+    { "id": "locale", "name": "lucid-fin:locale", "disposition": "target:user-setting" },
+    { "id": "theme", "name": "lucid-fin:theme", "disposition": "target:user-setting" },
+    {
+      "id": "onboarding",
+      "name": "lucid-fin:onboarding-complete",
+      "disposition": "delete-on-cutover"
+    },
+    {
+      "id": "left-panel-width",
+      "name": "lucid-fin:left-canvas-panel-width",
+      "disposition": "delete-on-cutover"
+    },
+    {
+      "id": "right-panel-width",
+      "name": "lucid-fin:right-canvas-panel-width",
+      "disposition": "delete-on-cutover"
+    },
+    {
+      "id": "commander-first-session",
+      "name": "lucid-commander-first-session-seen",
+      "disposition": "delete-on-cutover"
+    }
+  ]
+}

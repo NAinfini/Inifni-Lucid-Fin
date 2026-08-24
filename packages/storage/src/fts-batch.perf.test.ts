@@ -3,31 +3,43 @@ import BetterSqlite3 from 'better-sqlite3';
 import { withBatchFts } from './fts-batch.js';
 
 const SCHEMA = `
-CREATE TABLE assets (
+CREATE TABLE asset_contents (
   hash       TEXT PRIMARY KEY,
   type       TEXT NOT NULL,
   format     TEXT NOT NULL,
-  tags       TEXT,
   prompt     TEXT,
   created_at INTEGER NOT NULL,
   file_size  INTEGER
 );
 
-CREATE VIRTUAL TABLE assets_fts USING fts5(
-  tags, prompt, content=assets, content_rowid=rowid
+CREATE TABLE asset_entries (
+  id TEXT PRIMARY KEY,
+  asset_hash TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  tags TEXT NOT NULL,
+  folder_id TEXT,
+  created_at INTEGER NOT NULL
 );
 
-CREATE TRIGGER assets_ai AFTER INSERT ON assets BEGIN
-  INSERT INTO assets_fts(rowid, tags, prompt) VALUES (new.rowid, new.tags, new.prompt);
+CREATE VIRTUAL TABLE asset_entries_fts USING fts5(entry_id UNINDEXED, display_name, tags, prompt);
+
+CREATE TRIGGER asset_entries_ai AFTER INSERT ON asset_entries BEGIN
+  INSERT INTO asset_entries_fts(entry_id, display_name, tags, prompt)
+  SELECT new.id, new.display_name, new.tags, prompt FROM asset_contents WHERE hash = new.asset_hash;
 END;
 
-CREATE TRIGGER assets_ad AFTER DELETE ON assets BEGIN
-  INSERT INTO assets_fts(assets_fts, rowid, tags, prompt) VALUES('delete', old.rowid, old.tags, old.prompt);
+CREATE TRIGGER asset_entries_ad AFTER DELETE ON asset_entries BEGIN
+  DELETE FROM asset_entries_fts WHERE entry_id = old.id;
 END;
 
-CREATE TRIGGER assets_au AFTER UPDATE ON assets BEGIN
-  INSERT INTO assets_fts(assets_fts, rowid, tags, prompt) VALUES('delete', old.rowid, old.tags, old.prompt);
-  INSERT INTO assets_fts(rowid, tags, prompt) VALUES (new.rowid, new.tags, new.prompt);
+CREATE TRIGGER asset_entries_au AFTER UPDATE ON asset_entries BEGIN
+  UPDATE asset_entries_fts SET display_name = new.display_name, tags = new.tags
+   WHERE entry_id = old.id;
+END;
+
+CREATE TRIGGER asset_contents_prompt_au AFTER UPDATE OF prompt ON asset_contents BEGIN
+  UPDATE asset_entries_fts SET prompt = new.prompt
+   WHERE entry_id IN (SELECT id FROM asset_entries WHERE asset_hash = new.hash);
 END;
 `;
 
@@ -39,18 +51,23 @@ function openDb(): BetterSqlite3.Database {
 
 function insertAsset(db: BetterSqlite3.Database, hash: string, tags: string, prompt: string): void {
   db.prepare(
-    `INSERT OR REPLACE INTO assets (hash, type, format, tags, prompt, created_at, file_size)
-     VALUES (?, 'image', 'png', ?, ?, ?, 1024)`,
-  ).run(hash, tags, prompt, Date.now());
+    `INSERT OR REPLACE INTO asset_contents (hash, type, format, prompt, created_at, file_size)
+     VALUES (?, 'image', 'png', ?, ?, 1024)`,
+  ).run(hash, prompt, Date.now());
+  db.prepare(
+    `INSERT OR REPLACE INTO asset_entries
+       (id, asset_hash, display_name, tags, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).run(hash, hash, hash, tags, Date.now());
 }
 
 function ftsSearch(db: BetterSqlite3.Database, query: string): string[] {
   try {
     const rows = db
       .prepare(
-        `SELECT a.hash FROM assets a
-         JOIN assets_fts f ON a.rowid = f.rowid
-         WHERE assets_fts MATCH ?`,
+        `SELECT entry.asset_hash AS hash FROM asset_entries entry
+         JOIN asset_entries_fts f ON f.entry_id = entry.id
+         WHERE asset_entries_fts MATCH ?`,
       )
       .all(query) as Array<{ hash: string }>;
     return rows.map((row) => row.hash);

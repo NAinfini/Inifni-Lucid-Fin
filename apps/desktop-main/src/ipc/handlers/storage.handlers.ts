@@ -6,7 +6,6 @@ import type { IpcMain } from 'electron';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import type { CAS } from '@lucid-fin/storage';
 import log from '../../logger.js';
-import { assertWithinRoot } from '../validation.js';
 import { assertSafePath, getSafeRoots, assertSqliteHeader } from '../path-safety.js';
 
 const { app, dialog, shell } = electron;
@@ -114,22 +113,32 @@ export function registerStorageHandlers(
   // --- Open folder in OS file manager ---
   ipcMain.handle('storage:openFolder', async (_event, args: { path: string }) => {
     if (!args?.path) return;
-    assertWithinRoot(APP_ROOT, args.path);
+    const safePath = assertSafePath(args.path, getSafeRoots([app.getPath('videos')]));
     try {
-      await fsp.access(args.path);
+      await fsp.access(safePath);
     } catch {
-      await fsp.mkdir(args.path, { recursive: true });
+      await fsp.mkdir(safePath, { recursive: true });
     }
-    shell.openPath(args.path);
+    const error = await shell.openPath(safePath);
+    if (error) throw new Error(error);
+  });
+
+  // --- Open a generated output with the OS default application ---
+  ipcMain.handle('storage:openPath', async (_event, args: { path: string }) => {
+    if (!args?.path) return;
+    const safePath = assertSafePath(args.path, getSafeRoots([app.getPath('videos')]));
+    await fsp.access(safePath);
+    const error = await shell.openPath(safePath);
+    if (error) throw new Error(error);
   });
 
   // --- Open file in OS (e.g. database) ---
   ipcMain.handle('storage:showInFolder', async (_event, args: { path: string }) => {
     if (!args?.path) return;
-    assertWithinRoot(APP_ROOT, args.path);
+    const safePath = assertSafePath(args.path, getSafeRoots([app.getPath('videos')]));
     try {
-      await fsp.access(args.path);
-      shell.showItemInFolder(args.path);
+      await fsp.access(safePath);
+      shell.showItemInFolder(safePath);
     } catch {
       /* path does not exist — nothing to show */
     }
@@ -163,17 +172,6 @@ export function registerStorageHandlers(
       }
     }
     return { cleared };
-  });
-
-  // --- Clear semantic search index ---
-  ipcMain.handle('storage:clearEmbeddings', async () => {
-    try {
-      deps.db.clearEmbeddings();
-      return { success: true };
-    } catch (err) {
-      log.warn('[storage] clearEmbeddings failed', { error: String(err) });
-      return { success: false, error: String(err) };
-    }
   });
 
   // --- Database VACUUM ---

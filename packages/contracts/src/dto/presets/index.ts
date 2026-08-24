@@ -34,6 +34,7 @@ export type {
 
 // ── built-in library (assembles prompts + templates) ───────────
 export { BUILT_IN_PRESET_LIBRARY } from './library.js';
+export { buildFallbackPresetPrompt } from './params.js';
 
 // ── shot templates ─────────────────────────────────────────────
 export { BUILT_IN_SHOT_TEMPLATES } from './shot-templates.js';

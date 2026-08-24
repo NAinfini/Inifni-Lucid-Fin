@@ -731,7 +731,8 @@ export const PRESET_TEMPLATES_a: Record<string, PresetTemplateEntry> = {
     conflictGroup: 'camera:primary',
   },
   'camera:arc-left': {
-    template: 'camera arcs {speed} leftward around the subject, {arc_angle} arc sweep, {elevation}',
+    template:
+      'camera {speed} arcs left around the subject in a {arc_angle} sweep {elevation}, keeping the subject as the visual anchor while revealing controlled parallax',
     paramDefs: [
       {
         key: 'speed',
@@ -747,10 +748,10 @@ export const PRESET_TEMPLATES_a: Record<string, PresetTemplateEntry> = {
         default: 50,
         levels: {
           0: 'barely curved',
-          25: 'slight arc',
-          50: 'quarter arc',
-          75: 'half arc',
-          100: 'sweeping full arc',
+          25: 'shallow',
+          50: 'quarter-circle',
+          75: 'half-circle',
+          100: 'near-full circular',
         },
       },
       {
@@ -765,7 +766,7 @@ export const PRESET_TEMPLATES_a: Record<string, PresetTemplateEntry> = {
   },
   'camera:arc-right': {
     template:
-      'camera arcs {speed} rightward around the subject, {arc_angle} arc sweep, {elevation}',
+      'camera {speed} arcs right around the subject in a {arc_angle} sweep {elevation}, keeping the subject as the visual anchor while revealing controlled parallax',
     paramDefs: [
       {
         key: 'speed',
@@ -781,10 +782,10 @@ export const PRESET_TEMPLATES_a: Record<string, PresetTemplateEntry> = {
         default: 50,
         levels: {
           0: 'barely curved',
-          25: 'slight arc',
-          50: 'quarter arc',
-          75: 'half arc',
-          100: 'sweeping full arc',
+          25: 'shallow',
+          50: 'quarter-circle',
+          75: 'half-circle',
+          100: 'near-full circular',
         },
       },
       {
@@ -959,7 +960,7 @@ export const PRESET_TEMPLATES_a: Record<string, PresetTemplateEntry> = {
   },
   'camera:handheld-run': {
     template:
-      'running handheld camera with {bounce} vertical bounce, {urgency} sense of urgency, {focus} focus stability',
+      'running handheld camera moving {speed}, with {bounce} vertical bounce, {urgency} sense of urgency, {focus} focus stability',
     paramDefs: [
       {
         key: 'speed',

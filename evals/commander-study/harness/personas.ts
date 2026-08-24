@@ -57,7 +57,7 @@ const TEMPLATES: Array<Omit<Persona, 'index'>> = [
     opener:
       'I want a 60s kaiju attack trailer. Tokyo skyline at dusk, monster breaches bay. Cinematic letterbox. Guide me through it.',
     followUps: [
-      'Follow whatever workflow you suggest.',
+      'Follow whatever task list you suggest.',
       'Yes use existing shot templates.',
       'Generate stills first, videos later.',
       'You decide.',
@@ -110,7 +110,7 @@ const TEMPLATES: Array<Omit<Persona, 'index'>> = [
     archetype: 'story',
     slug: 'zh-fantasy-opener',
     opener: '我要做一个仙侠剧的开场，主角在山顶御剑而立，天雷劈下，他不躲。16:9，电影感。',
-    followUps: ['两个角色：主角 + 对立面。', '用一个冷青色风格卡。', '按工作流走。', '你安排。'],
+    followUps: ['两个角色：主角 + 对立面。', '用一个冷青色风格卡。', '按任务列表走。', '你安排。'],
   },
   {
     archetype: 'story',
@@ -182,7 +182,7 @@ const TEMPLATES: Array<Omit<Persona, 'index'>> = [
     archetype: 'exploratory',
     slug: 'zh-vague',
     opener: '帮我做点视频吧，主题随便。',
-    followUps: ['你选。', '好，按工作流来。', '默认就行。', '你定。'],
+    followUps: ['你选。', '好，按任务列表来。', '默认就行。', '你定。'],
   },
   {
     archetype: 'exploratory',
@@ -255,7 +255,7 @@ const TEMPLATES: Array<Omit<Persona, 'index'>> = [
     archetype: 'power',
     slug: 'style-transfer-setup',
     opener:
-      "Set up a style-transfer workflow: ref image -> 6 target nodes, all inheriting the ref's palette and lighting.",
+      "Set up a style-transfer task list: ref image -> 6 target nodes, all inheriting the ref's palette and lighting.",
     followUps: [
       'Ref node: use first node as ref.',
       'Apply to 6 new image nodes.',
@@ -299,7 +299,7 @@ const TEMPLATES: Array<Omit<Persona, 'index'>> = [
     opener:
       "Audit my existing canvas for continuity problems. I just imported a bunch of shots and I'm sure some don't match.",
     followUps: [
-      'Use the continuity-check workflow.',
+      'Use the continuity-check task-list guide.',
       'Flag anything that drifts on character or lighting.',
       'Suggest fixes.',
       'Apply fixes.',
@@ -325,7 +325,7 @@ const TEMPLATES: Array<Omit<Persona, 'index'>> = [
     followUps: [
       'Character: Lina, voice-over line "I won\'t do this again."',
       'Three tone variants: weary, defiant, resigned.',
-      'Use lip-sync workflow after.',
+      'Use the lip-sync task-list guide after.',
       'You pick providers.',
     ],
   },
@@ -424,9 +424,9 @@ const TEMPLATES: Array<Omit<Persona, 'index'>> = [
   // === docs / tutorial (5) ===
   {
     archetype: 'docs',
-    slug: 'explain-workflow',
+    slug: 'explain-task-list',
     opener:
-      'Before making anything, walk me through what the workflow-orchestration guide expects me to do.',
+      'Before making anything, walk me through what the task-list-orchestration guide expects me to do.',
     followUps: [
       'OK now demonstrate it with a tiny project.',
       'Style-plate: any.',

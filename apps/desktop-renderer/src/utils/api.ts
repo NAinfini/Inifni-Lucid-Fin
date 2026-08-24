@@ -8,6 +8,6 @@ export function getAPI(): LucidAPI | undefined {
   return typeof window !== 'undefined' ? window.lucidAPI : undefined;
 }
 
-export function getWorkflowAPI(): LucidAPI['workflow'] | undefined {
-  return getAPI()?.workflow;
+export function getTaskListsAPI(): LucidAPI['taskLists'] | undefined {
+  return getAPI()?.taskLists;
 }

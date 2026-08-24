@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { AgentToolRegistry } from './tool-registry.js';
+import { deriveEntityMutatingToolNames, ToolRegistry } from './tool-registry.js';
 import { EXCLUDED_TOOLS, registerAgentTools, type AllToolDeps } from './register-agent-tools.js';
-import { ToolCatalog } from './tool-catalog.js';
 import { ENTITY_REFRESH_TOOL_ENTITY } from '@lucid-fin/contracts';
 import type { AssetRef, Equipment, PresetDefinition } from '@lucid-fin/contracts';
 
@@ -49,11 +48,49 @@ function createMockDeps(): AllToolDeps {
       updatedAt: 1,
     })),
     layoutNodes: vi.fn(async () => undefined),
-    triggerGeneration: vi.fn(async () => undefined),
+    prepareMediaTask: vi.fn(async (input) => ({
+      id: 'task-list-1',
+      canvasId: input.canvasId,
+      nodeId: input.nodeId,
+      status: 'running',
+      taskStatus: 'awaiting_prompt_assembly',
+      progress: 0,
+    })),
+    getMediaTask: vi.fn(async (id) => ({
+      id,
+      canvasId: 'canvas-1',
+      nodeId: 'node-1',
+      status: 'running',
+      taskStatus: 'awaiting_prompt_assembly',
+      progress: 0,
+    })),
+    submitMediaPrompt: vi.fn(async (input) => ({
+      id: input.taskListId,
+      canvasId: 'canvas-1',
+      nodeId: 'node-1',
+      status: 'running',
+      taskStatus: 'awaiting_provider',
+      progress: 0,
+    })),
     renameCanvas: vi.fn(async () => undefined),
     loadCanvas: vi.fn(async () => undefined),
     saveCanvas: vi.fn(async () => undefined),
-    cancelGeneration: vi.fn(async () => undefined),
+    cancelMediaTask: vi.fn(async (id) => ({
+      id,
+      canvasId: 'canvas-1',
+      nodeId: 'node-1',
+      status: 'cancelled',
+      taskStatus: 'cancelled',
+      progress: 0,
+    })),
+    retryMediaEvaluation: vi.fn(async (id) => ({
+      id,
+      canvasId: 'canvas-1',
+      nodeId: 'node-1',
+      status: 'running',
+      taskStatus: 'evaluating',
+      progress: 0,
+    })),
     deleteNode: vi.fn(async () => undefined),
     deleteEdge: vi.fn(async () => undefined),
     updateNodeData: vi.fn(async () => undefined),
@@ -61,7 +98,7 @@ function createMockDeps(): AllToolDeps {
     removeEquipmentRef: vi.fn(async () => undefined),
     removeLocationRef: vi.fn(async () => undefined),
     clearSelection: vi.fn(async () => undefined),
-    importWorkflow: vi.fn(async () => ({
+    importCanvasDocument: vi.fn(async () => ({
       id: 'canvas-1',
       name: 'Canvas',
       nodes: [],
@@ -71,7 +108,7 @@ function createMockDeps(): AllToolDeps {
       createdAt: 1,
       updatedAt: 1,
     })),
-    exportWorkflow: vi.fn(async () => '{}'),
+    exportCanvasDocument: vi.fn(async () => '{}'),
     setNodeColorTag: vi.fn(async () => undefined),
     toggleSeedLock: vi.fn(async () => undefined),
     selectVariant: vi.fn(async () => undefined),
@@ -92,26 +129,6 @@ function createMockDeps(): AllToolDeps {
     undo: vi.fn(async () => undefined),
     redo: vi.fn(async () => undefined),
     deleteProviderKey: vi.fn(async () => undefined),
-    // JobToolDeps
-    listJobs: vi.fn(async () => []),
-    cancelJob: vi.fn(async () => undefined),
-    pauseJob: vi.fn(async () => undefined),
-    resumeJob: vi.fn(async () => undefined),
-    // SeriesToolDeps
-    getSeries: vi.fn(async () => null),
-    saveSeries: vi.fn(async (series: Record<string, unknown>) => series),
-    listEpisodes: vi.fn(async () => []),
-    addEpisode: vi.fn(async () => ({
-      id: 'episode-1',
-      seriesId: 'series-1',
-      title: 'Episode 1',
-      order: 0,
-      status: 'draft',
-      createdAt: 1,
-      updatedAt: 1,
-    })),
-    removeEpisode: vi.fn(async () => undefined),
-    reorderEpisodes: vi.fn(async () => []),
     // ColorStyleToolDeps
     listColorStyles: vi.fn(async () => []),
     saveColorStyle: vi.fn(async (style: Record<string, unknown>) => style),
@@ -133,10 +150,6 @@ function createMockDeps(): AllToolDeps {
     getPrompt: vi.fn(async () => null),
     setCustomPrompt: vi.fn(async () => undefined),
     clearCustomPrompt: vi.fn(async () => undefined),
-    // RenderToolDeps
-    startRender: vi.fn(async () => ({ renderId: 'render-1' })),
-    cancelRender: vi.fn(async () => undefined),
-    exportBundle: vi.fn(async () => ({ path: '/tmp/export.fcpxml' })),
     // PresetToolDeps
     deletePreset: vi.fn(async () => undefined),
     resetPreset: vi.fn(async (presetId: string) => ({
@@ -151,20 +164,24 @@ function createMockDeps(): AllToolDeps {
       defaults: {},
     })),
     getPreset: vi.fn(async () => null),
-    // WorkflowToolDeps
-    pauseWorkflow: vi.fn(async () => undefined),
-    resumeWorkflow: vi.fn(async () => undefined),
-    cancelWorkflow: vi.fn(async () => undefined),
-    retryWorkflow: vi.fn(async () => undefined),
+    // TaskListToolDeps
+    pauseTaskList: vi.fn(async () => undefined),
+    resumeTaskList: vi.fn(async () => undefined),
+    cancelTaskList: vi.fn(async () => undefined),
+    retryTaskList: vi.fn(async () => undefined),
+    decidePendingGate: vi.fn(async () => ({})),
+    prepareAudioTask: vi.fn(async () => ({}) as never),
+    getAudioTask: vi.fn(async () => ({}) as never),
+    submitAudioPrompt: vi.fn(async () => ({}) as never),
     createProductionPlan: vi.fn(async () => ({
-      workflowRunId: 'wf-plan-1',
+      taskListId: 'task-list-plan-1',
       gate: 'production_plan' as const,
       status: 'awaiting_approval' as const,
       revision: 1,
       contentHash: 'plan-hash-1',
     })),
     createVisualAuditions: vi.fn(async () => ({
-      workflowRunId: 'wf-plan-1',
+      taskListId: 'task-list-plan-1',
       status: 'complete' as const,
       revision: 1,
       contentHash: 'visual-hash-1',
@@ -181,18 +198,70 @@ function createMockDeps(): AllToolDeps {
 }
 
 describe('registerAgentTools', () => {
-  it('registers the expected tool set (excluding removed tools)', () => {
-    const registry = new AgentToolRegistry();
+  it('registers the exact stable tool set after explicit exclusions', () => {
+    const registry = new ToolRegistry();
     registerAgentTools(registry, createMockDeps());
-    const names = registry.list().map((t) => t.name);
-    // After Phase 2-3 consolidation, ~40-45 tools remain (down from ~65-75)
-    expect(names.length).toBeGreaterThanOrEqual(35);
+    const names = registry.list().map((tool) => tool.name).sort();
+    expect(names).toEqual(
+      [
+        'canvas.configureNode',
+        'canvas.connectNodes',
+        'canvas.createNodes',
+        'canvas.deleteNode',
+        'canvas.duplicateNodes',
+        'canvas.generation',
+        'canvas.getInfo',
+        'canvas.getNode',
+        'canvas.layout',
+        'canvas.listEdges',
+        'canvas.listNodes',
+        'canvas.manage',
+        'canvas.manageEdge',
+        'canvas.presetTracks',
+        'canvas.previewPrompt',
+        'canvas.selectVariant',
+        'canvas.setMediaParams',
+        'canvas.setNodeRefs',
+        'canvas.setSettings',
+        'canvas.setVideoFrames',
+        'canvas.updateNodes',
+        'colorStyle.manage',
+        'commander.askUser',
+        'agent.result',
+        'agent.spawn',
+        'agent.wait',
+        'entity.create',
+        'entity.delete',
+        'entity.deleteRefImage',
+        'entity.list',
+        'entity.setRefImage',
+        'entity.setRefImageFromNode',
+        'entity.update',
+        'guide.get',
+        'preset.manage',
+        'prompt.get',
+        'provider.resolveResolution',
+        'runChecklist.manage',
+        'script.manage',
+        'shotTemplate.manage',
+        'task.audio',
+        'task.delivery',
+        'task.media',
+        'task.mediaFeedback',
+        'task.visual',
+        'taskList.manage',
+        'text.analyze',
+        'tool.compact',
+        'tool.get',
+        'tool.program',
+      ].sort(),
+    );
     expect(registry.get('tool.get')).toBeDefined();
     expect(registry.get('guide.get')).toBeDefined();
     // Verify excluded tools are NOT registered
     expect(registry.get('canvas.undo')).toBeUndefined();
     expect(registry.get('canvas.redo')).toBeUndefined();
-    expect(registry.get('canvas.importWorkflow')).toBeUndefined();
+    expect(registry.get('canvas.importDocument')).toBeUndefined();
     expect(registry.get('canvas.deleteCanvas')).toBeUndefined();
     expect(registry.get('canvas.setNodeLayout')).toBeUndefined();
     expect(registry.get('logger.list')).toBeUndefined();
@@ -200,31 +269,30 @@ describe('registerAgentTools', () => {
     expect(registry.get('provider.setKey')).toBeUndefined();
     expect(registry.get('provider.addCustom')).toBeUndefined();
     expect(EXCLUDED_TOOLS.has('prompt.setCustom')).toBe(true);
-    expect(EXCLUDED_TOOLS.has('video.clone')).toBe(true);
   });
 
   it('registers at least one script. tool', () => {
-    const registry = new AgentToolRegistry();
+    const registry = new ToolRegistry();
     registerAgentTools(registry, createMockDeps());
     const scriptTools = registry.list().filter((t) => t.name.startsWith('script.'));
     expect(scriptTools.length).toBeGreaterThanOrEqual(1);
   });
 
   it('registers at least one entity. tool', () => {
-    const registry = new AgentToolRegistry();
+    const registry = new ToolRegistry();
     registerAgentTools(registry, createMockDeps());
     const entityTools = registry.list().filter((t) => t.name.startsWith('entity.'));
     expect(entityTools.length).toBeGreaterThanOrEqual(1);
   });
 
   it('returns the same registry instance', () => {
-    const registry = new AgentToolRegistry();
+    const registry = new ToolRegistry();
     const result = registerAgentTools(registry, createMockDeps());
     expect(result).toBe(registry);
   });
 
   it('registers canvas tools only in canvas context', () => {
-    const registry = new AgentToolRegistry();
+    const registry = new ToolRegistry();
     registerAgentTools(registry, createMockDeps());
     const canvasContextTools = registry.forContext('canvas');
     const canvasTools = canvasContextTools.filter((t) => t.name.startsWith('canvas.'));
@@ -237,32 +305,33 @@ describe('registerAgentTools', () => {
     expect(storyboardContextTools.some((t) => t.name.startsWith('canvas.'))).toBe(false);
   });
 
-  it('every registered tool has a matching ToolCatalog entry', () => {
-    // Cross-check: the master ToolCatalog metadata must cover every tool the
-    // legacy `registerAgentTools` wires up. If this fails, a new tool was
-    // added to the registry without a matching `defineToolMeta` entry in
-    // `tool-catalog.ts` — and catalog-derived views (byProcess, mutatingKeys,
-    // uiEffectsByKey) would silently miss it.
-    const registry = new AgentToolRegistry();
+  it('every registered definition owns its runtime metadata', () => {
+    const registry = new ToolRegistry();
     registerAgentTools(registry, createMockDeps());
-    const registeredNames = registry.list().map((t) => t.name);
-    const catalogNames = new Set(Object.keys(ToolCatalog.byKey));
-    const missing = registeredNames.filter((name) => !catalogNames.has(name));
-    expect(missing).toEqual([]);
+    for (const tool of registry.list()) {
+      expect(tool.name.trim()).not.toBe('');
+      expect(tool.description.trim()).not.toBe('');
+      expect(tool.process.trim()).not.toBe('');
+      expect(['query', 'mutation', 'meta']).toContain(tool.category);
+      expect([1, 2, 3, 4]).toContain(tool.tier);
+      expect(['status_only', 'authority_reread', 'public_facts']).toContain(tool.contextReplay);
+      expect(tool.inputSchema.type).toBe('object');
+      expect(tool.outputSchema).toBeDefined();
+      expect(tool.execute).toBeTypeOf('function');
+    }
   });
 
-  it('ENTITY_REFRESH_TOOL_ENTITY matches catalog uiEffects', () => {
-    // The renderer consumes a pure-data map (`ENTITY_REFRESH_TOOL_ENTITY`)
-    // instead of pulling the full catalog through the main-only
-    // `@lucid-fin/application` package. The two must stay in lock-step.
-    const uiEffectsByKey = ToolCatalog.uiEffectsByKey as Readonly<
-      Record<string, readonly { kind: string; entity?: string }[]>
-    >;
-    const catalogEntries: Record<string, string> = {};
-    for (const [name, effects] of Object.entries(uiEffectsByKey)) {
-      const refresh = effects.find((e) => e.kind === 'entity.refresh');
-      if (refresh?.entity) catalogEntries[name] = refresh.entity;
+  it('derives entity mutation and UI-effect views from registered definitions', () => {
+    const registry = new ToolRegistry();
+    registerAgentTools(registry, createMockDeps());
+    const definitionEntries: Record<string, string> = {};
+    for (const tool of registry.list()) {
+      const refresh = tool.uiEffects?.find((effect) => effect.kind === 'entity.refresh');
+      if (refresh?.entity) definitionEntries[tool.name] = refresh.entity;
     }
-    expect(catalogEntries).toEqual(ENTITY_REFRESH_TOOL_ENTITY);
+    expect(definitionEntries).toEqual(ENTITY_REFRESH_TOOL_ENTITY);
+    expect(deriveEntityMutatingToolNames(registry)).toEqual(
+      new Set(Object.keys(ENTITY_REFRESH_TOOL_ENTITY)),
+    );
   });
 });

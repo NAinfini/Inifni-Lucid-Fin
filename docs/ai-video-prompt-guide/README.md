@@ -12,7 +12,7 @@
 | 03  | [03-lighting-and-atmosphere.md](./03-lighting-and-atmosphere.md)     | Light formula, motivated lighting, indoor lighting, cinematic atmosphere, atmospheric media, HEX color grading, data-driven color grading, color temperature, lighting setup patterns                                                                                                |
 | 04  | [04-motion-and-emotion.md](./04-motion-and-emotion.md)               | Emotion through environment, emotional contrast & montage, micro-expression control, multi-character control, multi-stage shot relay, creative motion, editorial rhythm                                                                                                              |
 | 05  | [05-style-and-aesthetics.md](./05-style-and-aesthetics.md)           | Visual styles, device simulation, film stocks, textures, style extraction, feature collapse, portrait de-greasing, robustness breaking, quality modifiers, aspect ratios, environments                                                                                               |
-| 06  | [06-workflow-methods.md](./06-workflow-methods.md)                   | Fake causality, reverse control, image deconstruction, reference image logic, mental image reverse-engineering, precise reproduction, salvaging, consistency, environment realism, director thinking, breaking AI defaults, video prompt kinematics                                  |
+| 06  | [06-task-methods.md](./06-task-methods.md)                           | Fake causality, reverse control, image deconstruction, reference image logic, mental image reverse-engineering, precise reproduction, salvaging, consistency, environment realism, director thinking, breaking AI defaults, video prompt kinematics                                  |
 | 07  | [07-model-specific-adaptation.md](./07-model-specific-adaptation.md) | **Per-model prompt adaptation** — optimal prompt lengths, negative prompt syntax, i2v vs t2v differences, camera/motion control, style handling, quirks and pitfalls for: Kling 2.0, Runway Gen-4, Luma Ray 2, Wan 2.1, MiniMax/Hailuo, Pika 2.0+, Seedance, HunyuanVideo, CogVideoX |
 | 08  | [08-audio-prompting.md](./08-audio-prompting.md)                     | Sound design prompting — dialogue/voice, ambient/atmosphere, music/score, SFX, audio-visual sync, anti-patterns                                                                                                                                                                      |
 
@@ -27,7 +27,7 @@ Documents are organized by **topic**, not by lesson number. Each topic file merg
 | 03 — Lighting & Atmosphere | L2, L20, L23, L32, L38                               |
 | 04 — Motion & Emotion      | L29, L34, L36, L37                                   |
 | 05 — Style & Aesthetics    | L4, L8, L10, L17, L18                                |
-| 06 — Workflow Methods      | L5, L13, L16, L19, L24, L25, L27, L30, L31, L34, L35 |
+| 06 — Task Methods          | L5, L13, L16, L19, L24, L25, L27, L30, L31, L34, L35 |
 
 ## Source Coverage
 

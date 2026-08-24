@@ -19,13 +19,13 @@ export const DEFAULT_STYLE_GUIDE: StyleGuide = {
   sceneOverrides: {},
 };
 
-export const STYLE_GUIDE_LIGHTING_PRESETS: Record<
+export const STYLE_GUIDE_LIGHTING_PRESET_NAMES: Record<
   StyleGuide['global']['lighting'],
   string | undefined
 > = {
   natural: undefined,
-  studio: 'scene:high-key',
-  dramatic: 'scene:low-key',
-  neon: 'scene:neon-noir',
+  studio: 'high-key',
+  dramatic: 'low-key',
+  neon: 'neon-noir',
   custom: undefined,
 };

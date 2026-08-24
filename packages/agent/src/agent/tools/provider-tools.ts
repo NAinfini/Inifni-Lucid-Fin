@@ -1,6 +1,74 @@
 import { getBuiltinProviderCapabilityProfile } from '@lucid-fin/contracts';
-import type { AgentTool } from '../tool-registry.js';
+import { NO_TOOL_RESOURCE, toolResultSchema, type ToolDefinition } from '../tool-registry.js';
 import { ok, fail, extractSet, warnExtraKeys } from './tool-result-helpers.js';
+import {
+  arraySchema,
+  booleanSchema,
+  enumSchema,
+  nullableSchema,
+  numberSchema,
+  objectSchema,
+  stringArraySchema,
+  stringSchema,
+  unionSchema,
+} from './tool-runtime-schemas.js';
+
+const providerInfoSchema = objectSchema({
+  id: stringSchema,
+  name: stringSchema,
+  baseUrl: stringSchema,
+  model: stringSchema,
+  isCustom: booleanSchema,
+  hasKey: booleanSchema,
+});
+
+const knownCapabilitySchema = objectSchema(
+  {
+    providerId: stringSchema,
+    known: { const: true },
+    audio: booleanSchema,
+    type: enumSchema(['image', 'video']),
+    supportsAudio: booleanSchema,
+    qualityTiers: stringArraySchema,
+    resolutions: stringArraySchema,
+    aspectRatios: stringArraySchema,
+    durationRange: arraySchema(numberSchema),
+    styles: stringArraySchema,
+    notes: stringSchema,
+    maxDimension: numberSchema,
+  },
+  ['providerId', 'known', 'audio', 'type'],
+);
+
+const unknownCapabilitySchema = objectSchema({
+  providerId: stringSchema,
+  known: { const: false },
+  message: stringSchema,
+});
+
+const providerManageDataSchema = unionSchema(
+  objectSchema({
+    total: numberSchema,
+    offset: numberSchema,
+    limit: numberSchema,
+    providers: arraySchema(providerInfoSchema),
+  }),
+  objectSchema({ activeProvider: nullableSchema(stringSchema) }),
+  objectSchema({ activated: stringSchema }),
+  knownCapabilitySchema,
+  unknownCapabilitySchema,
+);
+
+const providerUpdateDataSchema = objectSchema(
+  {
+    providerId: stringSchema,
+    baseUrl: stringSchema,
+    model: stringSchema,
+    name: stringSchema,
+    warnings: stringArraySchema,
+  },
+  ['providerId'],
+);
 
 export interface ProviderInfo {
   id: string;
@@ -29,13 +97,18 @@ export interface ProviderToolDeps {
   setProviderApiKey?: (providerId: string, apiKey: string) => Promise<void>;
 }
 
-export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
-  const manage: AgentTool = {
+export function createProviderTools(deps: ProviderToolDeps): ToolDefinition[] {
+  const manage: ToolDefinition = {
     name: 'provider.manage',
+    process: 'provider-management',
+    category: 'query',
+    contextReplay: 'status_only',
+    resource: NO_TOOL_RESOURCE,
     description:
       'Manage AI providers: list available providers, get/set the active provider, or get provider capabilities.',
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(providerManageDataSchema),
+    inputSchema: {
       type: 'object',
       properties: {
         action: {
@@ -101,7 +174,15 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
           providerId,
           known: true,
           audio: Boolean(caps.supportsAudio),
-          ...caps,
+          type: caps.type,
+          ...(caps.supportsAudio === undefined ? {} : { supportsAudio: caps.supportsAudio }),
+          ...(caps.qualityTiers === undefined ? {} : { qualityTiers: caps.qualityTiers }),
+          ...(caps.resolutions === undefined ? {} : { resolutions: caps.resolutions }),
+          ...(caps.aspectRatios === undefined ? {} : { aspectRatios: caps.aspectRatios }),
+          ...(caps.durationRange === undefined ? {} : { durationRange: caps.durationRange }),
+          ...(caps.styles === undefined ? {} : { styles: caps.styles }),
+          ...(caps.notes === undefined ? {} : { notes: caps.notes }),
+          ...(caps.maxDimension === undefined ? {} : { maxDimension: caps.maxDimension }),
         });
       } else {
         return fail(new Error(`Unknown action: ${action}`));
@@ -109,12 +190,17 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
     },
   };
 
-  const update: AgentTool = {
+  const update: ToolDefinition = {
     name: 'provider.update',
+    process: 'provider-management',
+    category: 'mutation',
+    contextReplay: 'status_only',
+    resource: NO_TOOL_RESOURCE,
     description:
       'Update provider configuration. Wrap fields to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched.',
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(providerUpdateDataSchema),
+    inputSchema: {
       type: 'object',
       properties: {
         group: {
@@ -165,12 +251,17 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
     },
   };
 
-  const setKey: AgentTool = {
+  const setKey: ToolDefinition = {
     name: 'provider.setKey',
+    process: 'provider-management',
+    category: 'mutation',
+    contextReplay: 'status_only',
+    resource: NO_TOOL_RESOURCE,
     description:
       'Set the API key for any configured provider. The key will be securely stored in the system keychain.',
     tier: 4,
-    parameters: {
+    outputSchema: toolResultSchema(objectSchema({ providerId: stringSchema, message: stringSchema })),
+    inputSchema: {
       type: 'object',
       properties: {
         providerId: {
@@ -199,12 +290,27 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
     },
   };
 
-  const addCustom: AgentTool = {
+  const addCustom: ToolDefinition = {
     name: 'provider.addCustom',
+    process: 'provider-management',
+    category: 'mutation',
+    contextReplay: 'status_only',
+    resource: NO_TOOL_RESOURCE,
     description:
       'Add a new custom provider to a group. Optionally provide baseUrl and model if known. The user will need to set the API key separately in Settings.',
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      objectSchema(
+        {
+          id: stringSchema,
+          name: stringSchema,
+          baseUrl: stringSchema,
+          model: stringSchema,
+        },
+        ['id', 'name'],
+      ),
+    ),
+    inputSchema: {
       type: 'object',
       properties: {
         group: {
@@ -229,18 +335,28 @@ export function createProviderTools(deps: ProviderToolDeps): AgentTool[] {
         const model = args.model as string | undefined;
         const id = `custom-${group}-${Date.now()}`;
         await deps.addCustomProvider(group, id, name, baseUrl, model);
-        return ok({ id, name, baseUrl, model });
+        return ok({
+          id,
+          name,
+          ...(baseUrl === undefined ? {} : { baseUrl }),
+          ...(model === undefined ? {} : { model }),
+        });
       } catch (error) {
         return fail(error);
       }
     },
   };
 
-  const removeCustom: AgentTool = {
+  const removeCustom: ToolDefinition = {
     name: 'provider.removeCustom',
+    process: 'provider-management',
+    category: 'mutation',
+    contextReplay: 'status_only',
+    resource: NO_TOOL_RESOURCE,
     description: 'Remove a custom provider from a group. Only custom providers can be removed.',
     tier: 3,
-    parameters: {
+    outputSchema: toolResultSchema(objectSchema({ removed: stringSchema })),
+    inputSchema: {
       type: 'object',
       properties: {
         group: {

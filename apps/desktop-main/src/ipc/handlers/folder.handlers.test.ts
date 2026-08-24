@@ -30,12 +30,9 @@ function makeDb() {
         delete: vi.fn(),
       },
       entities: {
-        setCharacterFolder: vi.fn(),
-        setEquipmentFolder: vi.fn(),
-        setLocationFolder: vi.fn(),
-      },
-      assets: {
-        setFolder: vi.fn(),
+        setCharacterFolder: vi.fn((ids: string[]) => [...new Set(ids)]),
+        setEquipmentFolder: vi.fn((ids: string[]) => [...new Set(ids)]),
+        setLocationFolder: vi.fn((ids: string[]) => [...new Set(ids)]),
       },
     },
   };
@@ -59,7 +56,6 @@ describe('registerFolderHandlers', () => {
     const { handlers } = registerHandlers();
 
     expect([...handlers.keys()].sort()).toEqual([
-      'asset:setFolder',
       'character:setFolder',
       'equipment:setFolder',
       'folder.asset:create',
@@ -124,26 +120,34 @@ describe('registerFolderHandlers', () => {
     expect(db.repos.folders.create).not.toHaveBeenCalled();
   });
 
-  it('routes setFolder calls to entity and asset repositories', async () => {
+  it('routes each setFolder batch through one repository call', async () => {
     const { handlers, db } = registerHandlers();
 
     await expect(
-      handlers.get('character:setFolder')?.({}, { id: 'char-1', folderId: 'folder-1' }),
-    ).resolves.toBeUndefined();
-    await expect(
-      handlers.get('asset:setFolder')?.(
+      handlers.get('character:setFolder')?.(
         {},
-        {
-          hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-          folderId: null,
-        },
+        { ids: ['char-1', 'char-2'], folderId: 'folder-1' },
       ),
-    ).resolves.toBeUndefined();
-
-    expect(db.repos.entities.setCharacterFolder).toHaveBeenCalledWith('char-1', 'folder-1');
-    expect(db.repos.assets.setFolder).toHaveBeenCalledWith(
-      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-      null,
+    ).resolves.toEqual({ movedIds: ['char-1', 'char-2'] });
+    expect(db.repos.entities.setCharacterFolder).toHaveBeenCalledOnce();
+    expect(db.repos.entities.setCharacterFolder).toHaveBeenCalledWith(
+      ['char-1', 'char-2'],
+      'folder-1',
     );
+
+    await expect(
+      handlers.get('equipment:setFolder')?.({}, { ids: ['equipment-1'], folderId: null }),
+    ).resolves.toEqual({ movedIds: ['equipment-1'] });
+    expect(db.repos.entities.setEquipmentFolder).toHaveBeenCalledOnce();
+
+    await expect(
+      handlers.get('location:setFolder')?.({}, { ids: ['location-1'], folderId: 'folder-2' }),
+    ).resolves.toEqual({ movedIds: ['location-1'] });
+    expect(db.repos.entities.setLocationFolder).toHaveBeenCalledOnce();
+
+    await expect(
+      handlers.get('character:setFolder')?.({}, { ids: [], folderId: null }),
+    ).rejects.toThrow('ids are required');
+    expect(db.repos.entities.setCharacterFolder).toHaveBeenCalledOnce();
   });
 });

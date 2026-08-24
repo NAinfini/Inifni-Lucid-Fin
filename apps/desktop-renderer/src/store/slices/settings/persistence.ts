@@ -21,6 +21,10 @@ interface SparseProviderConfig {
   hasKey: boolean;
   protocol?: LLMProviderProtocol;
   authStyle?: LLMProviderAuthStyle;
+  supportsModelOverride?: boolean;
+  supportsReasoningEffort?: boolean;
+  reasoningEffortsByModel?: Record<string, string[]>;
+  reasoningEffort?: string;
   contextWindow?: number;
 }
 
@@ -53,6 +57,7 @@ function isProviderConfigured(group: APIGroup, provider: ProviderConfig): boolea
   return (
     provider.baseUrl !== defaults.baseUrl ||
     provider.model !== defaults.model ||
+    provider.reasoningEffort !== defaults.reasoningEffort ||
     provider.protocol !== defaults.protocol ||
     provider.authStyle !== defaults.authStyle
   );
@@ -68,6 +73,10 @@ function toSparseProvider(provider: ProviderConfig): SparseProviderConfig {
     hasKey: provider.credentialMode === 'oauth' ? false : provider.hasKey,
     protocol: provider.protocol,
     authStyle: provider.authStyle,
+    supportsModelOverride: provider.supportsModelOverride,
+    supportsReasoningEffort: provider.supportsReasoningEffort,
+    reasoningEffortsByModel: provider.reasoningEffortsByModel,
+    ...(provider.reasoningEffort ? { reasoningEffort: provider.reasoningEffort } : {}),
     ...(provider.contextWindow ? { contextWindow: provider.contextWindow } : {}),
   };
 }

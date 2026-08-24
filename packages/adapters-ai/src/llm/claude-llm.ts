@@ -113,6 +113,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
   private apiKey = '';
   private baseUrl: string;
   private model: string;
+  private reasoningEffort?: string;
 
   constructor(cfg: ClaudeAdapterConfig = {}) {
     this.id = cfg.id ?? 'claude';
@@ -143,6 +144,9 @@ export class ClaudeLLMAdapter implements LLMAdapter {
       this.baseUrl = normalizeClaudeBaseUrl(options.baseUrl as string);
     }
     if (options?.model) this.model = options.model as string;
+    const reasoningEffort =
+      typeof options?.reasoningEffort === 'string' ? options.reasoningEffort.trim() : '';
+    this.reasoningEffort = reasoningEffort || undefined;
     if (typeof options?.contextWindow === 'number' && options.contextWindow > 0) {
       this.userContextWindow = options.contextWindow as number;
     }
@@ -241,6 +245,7 @@ export class ClaudeLLMAdapter implements LLMAdapter {
   ): Promise<ClaudeRequestResult> {
     const endpoint = buildClaudeMessagesEndpoint(this.baseUrl);
     const requestId = randomUUID();
+    if (this.reasoningEffort) body.output_config = { effort: this.reasoningEffort };
 
     let response: Response;
     try {

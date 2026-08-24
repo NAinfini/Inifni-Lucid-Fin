@@ -33,7 +33,6 @@ interface Args {
   persona?: number;
   concurrency: number;
   outDir: string;
-  maxSteps: number;
   maxPromptTokens: number;
   teamIfWorking: boolean;
   provider?: 'plus' | 'team' | 'hi-code' | 'all';
@@ -50,7 +49,6 @@ function parseArgs(): Args {
       'reports',
       new Date().toISOString().replace(/[:.]/g, '-'),
     ),
-    maxSteps: 200,
     maxPromptTokens: 400_000,
     teamIfWorking: false,
   };
@@ -70,10 +68,6 @@ function parseArgs(): Args {
     }
     if (a === '--out' && argv[i + 1]) {
       args.outDir = path.resolve(argv[++i]);
-      continue;
-    }
-    if (a === '--max-steps' && argv[i + 1]) {
-      args.maxSteps = Number(argv[++i]);
       continue;
     }
     if (a === '--max-prompt-tokens' && argv[i + 1]) {
@@ -161,7 +155,6 @@ async function main() {
           persona: next.persona,
           spec: next.spec,
           outDir: perUserDir,
-          maxSteps: args.maxSteps,
           maxPromptTokens: args.maxPromptTokens,
         });
       } catch (err) {

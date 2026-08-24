@@ -3,19 +3,15 @@ import BetterSqlite3 from 'better-sqlite3';
 import { withBatchFts, rebuildFtsIndex } from './fts-batch.js';
 
 /**
- * Schema for tests — mirrors the production schema's assets table,
- * FTS5 virtual table, and triggers. Uses content=assets so the FTS
- * rebuild command can repopulate from source data.
+ * Schema for tests — mirrors canonical content, logical entries, FTS, and triggers.
  */
 const SCHEMA = `
-CREATE TABLE assets (
+CREATE TABLE asset_contents (
   hash        TEXT PRIMARY KEY,
   type        TEXT NOT NULL,
   format      TEXT NOT NULL,
-  tags        TEXT,
   prompt      TEXT,
   provider    TEXT,
-  folder_id   TEXT,
   created_at  INTEGER NOT NULL,
   file_size   INTEGER,
   width       INTEGER,
@@ -24,21 +20,40 @@ CREATE TABLE assets (
   generation_metadata TEXT
 );
 
-CREATE VIRTUAL TABLE assets_fts USING fts5(
-  tags, prompt, content=assets, content_rowid=rowid
+CREATE TABLE asset_entries (
+  id TEXT PRIMARY KEY,
+  asset_hash TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  tags TEXT NOT NULL DEFAULT '[]',
+  folder_id TEXT,
+  created_at INTEGER NOT NULL
 );
 
-CREATE TRIGGER assets_ai AFTER INSERT ON assets BEGIN
-  INSERT INTO assets_fts(rowid, tags, prompt) VALUES (new.rowid, new.tags, new.prompt);
+CREATE VIRTUAL TABLE asset_entries_fts USING fts5(
+  entry_id UNINDEXED, display_name, tags, prompt
+);
+
+CREATE TRIGGER asset_entries_ai AFTER INSERT ON asset_entries BEGIN
+  INSERT INTO asset_entries_fts(entry_id, display_name, tags, prompt)
+  SELECT new.id, new.display_name, new.tags, prompt
+    FROM asset_contents WHERE hash = new.asset_hash;
 END;
 
-CREATE TRIGGER assets_ad AFTER DELETE ON assets BEGIN
-  INSERT INTO assets_fts(assets_fts, rowid, tags, prompt) VALUES('delete', old.rowid, old.tags, old.prompt);
+CREATE TRIGGER asset_entries_ad AFTER DELETE ON asset_entries BEGIN
+  DELETE FROM asset_entries_fts WHERE entry_id = old.id;
 END;
 
-CREATE TRIGGER assets_au AFTER UPDATE ON assets BEGIN
-  INSERT INTO assets_fts(assets_fts, rowid, tags, prompt) VALUES('delete', old.rowid, old.tags, old.prompt);
-  INSERT INTO assets_fts(rowid, tags, prompt) VALUES (new.rowid, new.tags, new.prompt);
+CREATE TRIGGER asset_entries_au AFTER UPDATE ON asset_entries BEGIN
+  UPDATE asset_entries_fts
+     SET display_name = new.display_name,
+         tags = new.tags,
+         prompt = (SELECT prompt FROM asset_contents WHERE hash = new.asset_hash)
+   WHERE entry_id = old.id;
+END;
+
+CREATE TRIGGER asset_contents_prompt_au AFTER UPDATE OF prompt ON asset_contents BEGIN
+  UPDATE asset_entries_fts SET prompt = new.prompt
+   WHERE entry_id IN (SELECT id FROM asset_entries WHERE asset_hash = new.hash);
 END;
 `;
 
@@ -50,9 +65,14 @@ function openDb(): BetterSqlite3.Database {
 
 function insertAsset(db: BetterSqlite3.Database, hash: string, tags: string, prompt: string): void {
   db.prepare(
-    `INSERT OR REPLACE INTO assets (hash, type, format, tags, prompt, created_at, file_size)
-     VALUES (?, 'image', 'png', ?, ?, ?, 1024)`,
-  ).run(hash, tags, prompt, Date.now());
+    `INSERT OR REPLACE INTO asset_contents (hash, type, format, prompt, created_at, file_size)
+     VALUES (?, 'image', 'png', ?, ?, 1024)`,
+  ).run(hash, prompt, Date.now());
+  db.prepare(
+    `INSERT OR REPLACE INTO asset_entries
+       (id, asset_hash, display_name, tags, created_at)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).run(hash, hash, hash, tags, Date.now());
 }
 
 /** Search FTS and return matching asset hashes. */
@@ -60,9 +80,9 @@ function ftsSearch(db: BetterSqlite3.Database, query: string): string[] {
   try {
     const rows = db
       .prepare(
-        `SELECT a.hash FROM assets a
-         JOIN assets_fts f ON a.rowid = f.rowid
-         WHERE assets_fts MATCH ?`,
+        `SELECT entry.asset_hash AS hash FROM asset_entries entry
+         JOIN asset_entries_fts f ON f.entry_id = entry.id
+         WHERE asset_entries_fts MATCH ?`,
       )
       .all(query) as Array<{ hash: string }>;
     return rows.map((r) => r.hash);
@@ -111,9 +131,9 @@ describe('withBatchFts', () => {
     });
 
     // Triggers should exist after batch completes
-    expect(triggerExists(db, 'assets_ai')).toBe(true);
-    expect(triggerExists(db, 'assets_ad')).toBe(true);
-    expect(triggerExists(db, 'assets_au')).toBe(true);
+    expect(triggerExists(db, 'asset_entries_ai')).toBe(true);
+    expect(triggerExists(db, 'asset_entries_ad')).toBe(true);
+    expect(triggerExists(db, 'asset_entries_au')).toBe(true);
   });
 
   it('individual inserts still trigger FTS after batch', () => {
@@ -143,17 +163,19 @@ describe('withBatchFts', () => {
     }).toThrow('intentional failure');
 
     // The pre-existing asset should still be there
-    const row = db.prepare('SELECT hash FROM assets WHERE hash = ?').get('pre-existing');
+    const row = db.prepare('SELECT hash FROM asset_contents WHERE hash = ?').get('pre-existing');
     expect(row).toBeDefined();
 
     // The failed batch assets should NOT exist
-    const rolled = db.prepare('SELECT hash FROM assets WHERE hash = ?').get('will-rollback-1');
+    const rolled = db
+      .prepare('SELECT hash FROM asset_contents WHERE hash = ?')
+      .get('will-rollback-1');
     expect(rolled).toBeUndefined();
 
     // Triggers should still be intact
-    expect(triggerExists(db, 'assets_ai')).toBe(true);
-    expect(triggerExists(db, 'assets_ad')).toBe(true);
-    expect(triggerExists(db, 'assets_au')).toBe(true);
+    expect(triggerExists(db, 'asset_entries_ai')).toBe(true);
+    expect(triggerExists(db, 'asset_entries_ad')).toBe(true);
+    expect(triggerExists(db, 'asset_entries_au')).toBe(true);
 
     // FTS should still work for the pre-existing asset
     expect(ftsSearch(db, 'safe')).toContain('pre-existing');
@@ -173,7 +195,7 @@ describe('withBatchFts', () => {
     });
 
     // Triggers should be restored
-    expect(triggerExists(db, 'assets_ai')).toBe(true);
+    expect(triggerExists(db, 'asset_entries_ai')).toBe(true);
 
     // Individual insert should still work
     insertAsset(db, 'after-empty', '["test"]', 'test prompt');
@@ -227,7 +249,7 @@ describe('rebuildFtsIndex', () => {
     expect(ftsSearch(db, 'visible')).toContain('a1');
 
     // Manually corrupt: drop triggers and insert without FTS
-    db.exec('DROP TRIGGER assets_ai');
+    db.exec('DROP TRIGGER asset_entries_ai');
     insertAsset(db, 'a2', '["invisible"]', 'invisible prompt');
 
     // a2 is NOT in FTS yet
@@ -240,8 +262,10 @@ describe('rebuildFtsIndex', () => {
 
     // Re-create trigger for cleanup
     db.exec(`
-      CREATE TRIGGER assets_ai AFTER INSERT ON assets BEGIN
-        INSERT INTO assets_fts(rowid, tags, prompt) VALUES (new.rowid, new.tags, new.prompt);
+      CREATE TRIGGER asset_entries_ai AFTER INSERT ON asset_entries BEGIN
+        INSERT INTO asset_entries_fts(entry_id, display_name, tags, prompt)
+        SELECT new.id, new.display_name, new.tags, prompt
+          FROM asset_contents WHERE hash = new.asset_hash;
       END;
     `);
   });

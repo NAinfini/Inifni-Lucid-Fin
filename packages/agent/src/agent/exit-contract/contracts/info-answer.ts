@@ -2,9 +2,9 @@ import type { CompletionContract } from '../types.js';
 import { contractRegistry } from '../contract-registry.js';
 
 /**
- * Fallback contract for runs with no matching workflow. Applies to
+ * Fallback contract for runs with no matching task list. Applies to
  * informational and browse intents; execution intents that fail to
- * classify to a known workflow fall here too and always report
+ * classify to a known task list fall here too and always report
  * `unsatisfied` with an empty `expected` list (a signal to the author
  * that the classifier missed).
  */

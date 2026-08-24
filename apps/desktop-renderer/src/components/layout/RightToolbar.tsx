@@ -1,5 +1,12 @@
 import React, { type ComponentType } from 'react';
-import { GitBranch, History, Info, ListTodo, ScrollText, Share2, StickyNote } from 'lucide-react';
+import {
+  Clapperboard,
+  GitBranch,
+  Info,
+  ScrollText,
+  SlidersHorizontal,
+  StickyNote,
+} from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
 import { toggleRightPanel, type RightPanelId } from '../../store/slices/ui.js';
@@ -16,10 +23,9 @@ interface ToolbarButton {
 const TOOLBAR_BUTTONS: ToolbarButton[] = [
   { id: 'inspector', panel: 'inspector', icon: Info },
   { id: 'dependencies', panel: 'dependencies', icon: GitBranch },
-  { id: 'queue', panel: 'queue', icon: ListTodo },
-  { id: 'history', panel: 'history', icon: History },
   { id: 'notes', panel: 'notes', icon: StickyNote },
-  { id: 'export', panel: 'export', icon: Share2 },
+  { id: 'shotTemplates', panel: 'shotTemplates', icon: Clapperboard },
+  { id: 'presets', panel: 'presets', icon: SlidersHorizontal },
   { id: 'logger', panel: 'logger', icon: ScrollText },
 ];
 

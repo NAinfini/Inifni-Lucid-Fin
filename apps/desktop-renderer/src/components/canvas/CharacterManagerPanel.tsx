@@ -7,8 +7,9 @@ import { enqueueToast } from '../../store/slices/toast.js';
 import {
   setCharacters,
   addCharacter,
+  addCharacters,
   updateCharacter,
-  removeCharacter,
+  removeCharacters,
   selectCharacter,
   setLoading,
   setFolders,
@@ -17,7 +18,7 @@ import {
   removeFolder,
   setCurrentFolder,
   setFoldersLoading,
-  moveItemToFolder,
+  moveItemsToFolder,
 } from '../../store/slices/characters.js';
 import { getAPI } from '../../utils/api.js';
 import type { Character } from '@lucid-fin/contracts';
@@ -80,7 +81,8 @@ export function CharacterManagerPanel() {
     return new Set(p?.items.map((it) => it.id) ?? []);
   }, [clipboard]);
 
-  const selectedChar = useMemo(() => items.find((c) => c.id === selectedId), [items, selectedId]);
+  const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+  const selectedChar = selectedId ? itemsById.get(selectedId) : undefined;
 
   const usageCountById = useSelector(selectEntityUsageCounts).character;
 
@@ -197,7 +199,7 @@ export function CharacterManagerPanel() {
   const handleDeleteIds = useCallback(
     async (ids: string[]) => {
       if (ids.length === 0) return;
-      const names = ids.map((id) => items.find((c) => c.id === id)?.name || id).join(', ');
+      const names = ids.map((id) => itemsById.get(id)?.name ?? id).join(', ');
       const ok = await confirm({
         title: t('characterManager.deleteConfirm').replace('{name}', names),
         destructive: true,
@@ -207,66 +209,67 @@ export function CharacterManagerPanel() {
       if (!ok) return;
       setError(null);
       const api = getAPI();
-      for (const id of ids) {
-        try {
-          if (api?.character) await api.character.delete(id);
-          dispatch(removeCharacter(id));
-          dispatch(removeEntityRefsFromAllCanvases({ entityType: 'character', entityId: id }));
-          if (selectedId === id) setDrawerOpen(false);
-        } catch (reason) {
-          reportError(reason, 'handleDeleteIds');
-        }
+      if (!api?.character) return;
+      try {
+        const { deletedIds } = await api.character.delete(ids);
+        dispatch(removeCharacters(deletedIds));
+        if (selectedId && deletedIds.includes(selectedId)) setDrawerOpen(false);
+        dispatch(
+          removeEntityRefsFromAllCanvases({ entityType: 'character', entityIds: deletedIds }),
+        );
+      } catch (reason) {
+        reportError(reason, 'handleDeleteIds');
       }
     },
-    [confirm, dispatch, items, reportError, selectedId, setError, t],
+    [confirm, dispatch, itemsById, reportError, selectedId, setError, t],
   );
 
   const handleMoveToFolder = useCallback(
     async (ids: string[], folderId: string | null) => {
+      if (ids.length === 0) return;
       const api = getAPI();
       if (!api?.character) return;
-      for (const id of ids) {
-        try {
-          await api.character.setFolder(id, folderId);
-          dispatch(moveItemToFolder({ id, folderId }));
-        } catch (reason) {
-          reportError(reason, 'handleMoveToFolder');
-        }
+      try {
+        const { movedIds } = await api.character.setFolder(ids, folderId);
+        dispatch(moveItemsToFolder({ ids: movedIds, folderId }));
+      } catch (reason) {
+        reportError(reason, 'handleMoveToFolder');
+      }
+    },
+    [dispatch, reportError],
+  );
+
+  const handleCopyIds = useCallback(
+    async (ids: string[], targetFolderId: string | null) => {
+      if (ids.length === 0) return;
+      const api = getAPI();
+      if (!api?.character) return;
+      try {
+        const { created } = await api.character.copy(ids, targetFolderId);
+        dispatch(addCharacters(created));
+      } catch (reason) {
+        reportError(reason, 'handleCopyIds');
       }
     },
     [dispatch, reportError],
   );
 
   const handlePaste = useCallback(
-    (payload: { mode: 'copy' | 'cut'; items: Character[] }) => {
+    async (payload: { mode: 'copy' | 'cut'; items: Character[] }) => {
       const folderId = folderApi.currentFolderId;
       if (payload.mode === 'cut') {
-        void handleMoveToFolder(
+        await handleMoveToFolder(
           payload.items.map((it) => it.id),
           folderId,
         );
       } else {
-        // Copy: duplicate each character via the API.
-        const api = getAPI();
-        if (!api?.character) return;
-        (async () => {
-          for (const original of payload.items) {
-            try {
-              const { id: _id, ...rest } = original;
-              const saved = (await api.character.save({
-                ...rest,
-                name: `${original.name} ${t('action.copySuffix')}`,
-                folderId,
-              } as Record<string, unknown>)) as Character;
-              dispatch(addCharacter(saved));
-            } catch (reason) {
-              reportError(reason, 'handlePasteCopy');
-            }
-          }
-        })();
+        await handleCopyIds(
+          payload.items.map((item) => item.id),
+          folderId,
+        );
       }
     },
-    [folderApi.currentFolderId, handleMoveToFolder, dispatch, reportError, t],
+    [folderApi.currentFolderId, handleCopyIds, handleMoveToFolder],
   );
 
   const drawerShown = drawerOpen && draft !== null;
@@ -287,6 +290,7 @@ export function CharacterManagerPanel() {
           onCreateItem={() => void createNewCharacter()}
           onOpenItem={(c) => void handleOpenItem(c)}
           onDeleteItems={(ids) => void handleDeleteIds(ids)}
+          onDuplicateItems={(ids) => void handleCopyIds(ids, folderApi.currentFolderId)}
           compact={drawerShown}
           renderThumbnail={(c) => (
             <ListThumb
@@ -321,7 +325,7 @@ export function CharacterManagerPanel() {
             paste: clipboard.paste,
             cutIds,
           }}
-          onPaste={handlePaste}
+          onPaste={(payload) => void handlePaste(payload)}
           header={
             <div className="flex items-center gap-2">
               <User className="h-3.5 w-3.5 text-primary" />

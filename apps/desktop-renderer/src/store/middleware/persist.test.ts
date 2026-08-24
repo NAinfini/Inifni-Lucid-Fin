@@ -4,8 +4,10 @@ import { configureStore } from '@reduxjs/toolkit';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   addNode,
+  archiveCanvas,
   canvasReducer,
   removeNodes,
+  restoreCanvas,
   setActiveCanvas,
   setCanvases,
 } from '../slices/canvas/canvas.js';
@@ -18,10 +20,10 @@ import {
 } from '../slices/settings.js';
 import { toastSlice } from '../slices/toast.js';
 
-function createCanvas() {
+function createCanvas(id = 'canvas-1') {
   return {
-    id: 'canvas-1',
-    name: 'Canvas',
+    id,
+    name: id,
     nodes: [],
     edges: [],
     viewport: { x: 0, y: 0, zoom: 1 },
@@ -71,6 +73,14 @@ function createImageNode(id: string) {
 async function flushPromises(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 async function loadPersistModule(_options: Record<string, never> = {}) {
@@ -176,6 +186,144 @@ describe('persistMiddleware', () => {
         }),
       }),
     );
+  });
+
+  it('keeps a delayed save bound to the canvas edited before a canvas switch', async () => {
+    const { persistMiddleware } = await loadPersistModule();
+    const api = {
+      canvas: {
+        save: vi.fn(async () => undefined),
+        patch: vi.fn(async () => undefined),
+      },
+      settings: { save: vi.fn() },
+    };
+    window.lucidAPI = api as never;
+
+    const store = configureStore({
+      reducer: {
+        canvas: canvasReducer,
+        settings: settingsSlice.reducer,
+        logger: loggerSlice.reducer,
+        toast: toastSlice.reducer,
+      },
+      middleware: (getDefault) => getDefault().concat(persistMiddleware),
+    });
+
+    store.dispatch(setBootstrapped());
+    store.dispatch(
+      setCanvases([createCanvas('canvas-a') as never, createCanvas('canvas-b') as never]),
+    );
+    store.dispatch(setActiveCanvas('canvas-a'));
+    store.dispatch(addNode(createImageNode('node-a') as never));
+    store.dispatch(setActiveCanvas('canvas-b'));
+
+    await vi.advanceTimersByTimeAsync(500);
+    await flushPromises();
+
+    expect(api.canvas.save).toHaveBeenCalledOnce();
+    expect(api.canvas.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'canvas-a',
+        nodes: [expect.objectContaining({ id: 'node-a' })],
+      }),
+    );
+  });
+
+  it('does not route Canvas archive or restore through generic content persistence', async () => {
+    const { persistMiddleware } = await loadPersistModule();
+    const api = {
+      canvas: {
+        save: vi.fn(async () => undefined),
+        patch: vi.fn(async () => undefined),
+      },
+      settings: { save: vi.fn() },
+    };
+    window.lucidAPI = api as never;
+
+    const store = configureStore({
+      reducer: {
+        canvas: canvasReducer,
+        settings: settingsSlice.reducer,
+        logger: loggerSlice.reducer,
+        toast: toastSlice.reducer,
+      },
+      middleware: (getDefault) => getDefault().concat(persistMiddleware),
+    });
+
+    store.dispatch(setBootstrapped());
+    store.dispatch(setCanvases([createCanvas('canvas-a') as never]));
+    store.dispatch(setActiveCanvas('canvas-a'));
+    store.dispatch(archiveCanvas({ id: 'canvas-a', archivedAt: 10 }));
+    store.dispatch(restoreCanvas('canvas-a'));
+
+    await vi.advanceTimersByTimeAsync(500);
+    await flushPromises();
+
+    expect(api.canvas.save).not.toHaveBeenCalled();
+    expect(api.canvas.patch).not.toHaveBeenCalled();
+  });
+
+  it('flushes and awaits debounced, in-flight, and newly queued canvas and settings saves', async () => {
+    const { flushPendingPersistence, persistMiddleware } = await loadPersistModule();
+    const firstCanvas = deferred();
+    const secondCanvas = deferred();
+    const firstSettings = deferred();
+    const secondSettings = deferred();
+    const api = {
+      canvas: {
+        save: vi.fn(() => firstCanvas.promise),
+        patch: vi.fn(() => secondCanvas.promise),
+      },
+      settings: {
+        save: vi
+          .fn()
+          .mockImplementationOnce(() => firstSettings.promise)
+          .mockImplementationOnce(() => secondSettings.promise),
+      },
+    };
+    window.lucidAPI = api as never;
+
+    const store = configureStore({
+      reducer: {
+        canvas: canvasReducer,
+        settings: settingsSlice.reducer,
+        logger: loggerSlice.reducer,
+        toast: toastSlice.reducer,
+      },
+      middleware: (getDefault) => getDefault().concat(persistMiddleware),
+    });
+
+    store.dispatch(restoreSettings({} as never));
+    store.dispatch(setBootstrapped());
+    store.dispatch(setCanvases([createCanvas() as never]));
+    store.dispatch(setActiveCanvas('canvas-1'));
+    store.dispatch(addNode(createImageNode('node-1') as never));
+    store.dispatch(setRenderPreset('film'));
+
+    let finished = false;
+    const flush = flushPendingPersistence().then(() => {
+      finished = true;
+    });
+    await flushPromises();
+
+    expect(api.canvas.save).toHaveBeenCalledOnce();
+    expect(api.settings.save).toHaveBeenCalledOnce();
+    expect(finished).toBe(false);
+
+    store.dispatch(addNode(createImageNode('node-2') as never));
+    store.dispatch(setRenderPreset('draft'));
+    firstCanvas.resolve();
+    firstSettings.resolve();
+    await vi.waitFor(() => {
+      expect(api.canvas.patch).toHaveBeenCalledOnce();
+      expect(api.settings.save).toHaveBeenCalledTimes(2);
+    });
+    expect(finished).toBe(false);
+
+    secondCanvas.resolve();
+    secondSettings.resolve();
+    await flush;
+    expect(finished).toBe(true);
   });
 
   it('falls back to a full canvas save when patch persistence fails', async () => {

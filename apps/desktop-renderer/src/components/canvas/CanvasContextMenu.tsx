@@ -13,7 +13,6 @@ import {
   LayoutTemplate,
   Redo2,
   Undo2,
-  Upload,
   Video,
   Volume2,
 } from 'lucide-react';
@@ -28,7 +27,6 @@ interface CanvasContextMenuProps {
   onPaste?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
-  onUploadMedia?: () => void;
   onAlign?: (direction: AlignDirection) => void;
   hasClipboard: boolean;
   selectedNodeCount?: number;
@@ -85,7 +83,6 @@ export function CanvasContextMenu({
   onPaste,
   onUndo,
   onRedo,
-  onUploadMedia,
   onAlign,
   hasClipboard,
   selectedNodeCount = 0,
@@ -110,14 +107,6 @@ export function CanvasContextMenu({
               </ContextMenu.Item>
             );
           })}
-          <ContextMenu.Item
-            className={ITEM}
-            disabled={!onUploadMedia}
-            onSelect={() => onUploadMedia?.()}
-          >
-            <Upload className="w-3.5 h-3.5" />
-            {t('contextMenu.uploadMedia')}
-          </ContextMenu.Item>
           <ContextMenu.Separator className="h-px my-1 bg-border" />
           {selectedNodeCount >= 2 && onAlign && (
             <>

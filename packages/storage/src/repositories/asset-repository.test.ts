@@ -1,40 +1,65 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import BetterSqlite3 from 'better-sqlite3';
-import type { AssetHash } from '@lucid-fin/contracts';
+import type { AssetEntryId } from '@lucid-fin/contracts';
 import { setDegradeReporter, type DegradeReporter } from '@lucid-fin/contracts-parse';
 import { AssetRepository } from './asset-repository.js';
 
 const SCHEMA = `
-CREATE TABLE assets (
-  hash        TEXT PRIMARY KEY,
-  type        TEXT NOT NULL,
-  format      TEXT NOT NULL,
-  tags        TEXT,
-  prompt      TEXT,
-  provider    TEXT,
-  folder_id   TEXT,
-  created_at  INTEGER NOT NULL,
-  file_size   INTEGER,
-  width       INTEGER,
-  height      INTEGER,
-  duration    REAL,
+CREATE TABLE asset_folders (id TEXT PRIMARY KEY);
+
+CREATE TABLE asset_contents (
+  hash TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  format TEXT NOT NULL,
+  prompt TEXT,
+  provider TEXT,
+  created_at INTEGER NOT NULL,
+  file_size INTEGER,
+  width INTEGER,
+  height INTEGER,
+  duration REAL,
+  has_audio INTEGER,
   generation_metadata TEXT
 );
 
-CREATE VIRTUAL TABLE assets_fts USING fts5(hash, prompt, content='');
-
-CREATE TABLE asset_embeddings (
-  hash        TEXT PRIMARY KEY,
-  description TEXT NOT NULL,
-  tokens      TEXT NOT NULL,
-  model       TEXT NOT NULL,
-  created_at  INTEGER NOT NULL
+CREATE TABLE asset_entries (
+  id TEXT PRIMARY KEY,
+  asset_hash TEXT NOT NULL REFERENCES asset_contents(hash) ON DELETE RESTRICT,
+  display_name TEXT NOT NULL CHECK (trim(display_name) <> ''),
+  tags TEXT NOT NULL DEFAULT '[]',
+  folder_id TEXT REFERENCES asset_folders(id) ON DELETE SET NULL,
+  created_at INTEGER NOT NULL
 );
+
+CREATE VIRTUAL TABLE asset_entries_fts USING fts5(
+  entry_id UNINDEXED, display_name, tags, prompt
+);
+
+CREATE TRIGGER asset_entries_ai AFTER INSERT ON asset_entries BEGIN
+  INSERT INTO asset_entries_fts(entry_id, display_name, tags, prompt)
+  SELECT new.id, new.display_name, new.tags, prompt
+    FROM asset_contents WHERE hash = new.asset_hash;
+END;
+
+CREATE TRIGGER asset_entries_ad AFTER DELETE ON asset_entries BEGIN
+  DELETE FROM asset_entries_fts WHERE entry_id = old.id;
+END;
+
+CREATE TRIGGER asset_entries_au AFTER UPDATE ON asset_entries BEGIN
+  UPDATE asset_entries_fts
+     SET display_name = new.display_name,
+         tags = new.tags,
+         prompt = (SELECT prompt FROM asset_contents WHERE hash = new.asset_hash)
+   WHERE entry_id = old.id;
+END;
+
 `;
 
 function openDb(): BetterSqlite3.Database {
   const db = new BetterSqlite3(':memory:');
+  db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
+  db.exec("INSERT INTO asset_folders (id) VALUES ('folder-a'), ('folder-b')");
   return db;
 }
 
@@ -58,126 +83,265 @@ describe('AssetRepository', () => {
     db.close();
   });
 
-  it('insert round-trips an asset with tags + timestamps', () => {
+  it('records one content row and one logical entry per insert', () => {
+    const entry = repo.insert({
+      hash: 'h1',
+      type: 'image',
+      format: 'png',
+      displayName: 'Hero shot',
+      tags: ['hero', 'shot'],
+      fileSize: 1024,
+      createdAt: 100,
+    });
+
+    expect(entry).toMatchObject({
+      hash: 'h1',
+      displayName: 'Hero shot',
+      tags: ['hero', 'shot'],
+      createdAt: 100,
+      contentCreatedAt: 100,
+    });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM asset_contents').get()).toEqual({ count: 1 });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM asset_entries').get()).toEqual({ count: 1 });
+  });
+
+  it('copies entries by identity while sharing immutable content', () => {
+    const original = repo.insert({
+      hash: 'shared-hash',
+      type: 'image',
+      format: 'png',
+      displayName: 'Original',
+      tags: ['original'],
+      folderId: 'folder-a',
+      fileSize: 10,
+      createdAt: 1,
+    });
+
+    const findEntryById = vi.spyOn(repo, 'findEntryById');
+    const [copy] = repo.copyEntries([original.id as AssetEntryId], 'folder-b');
+    expect(findEntryById).not.toHaveBeenCalled();
+    expect(copy.id).not.toBe(original.id);
+    expect(copy).toMatchObject({
+      hash: original.hash,
+      displayName: 'Original',
+      tags: ['original'],
+      folderId: 'folder-b',
+    });
+
+    repo.renameEntry(copy.id as AssetEntryId, 'Independent copy');
+    repo.setEntryTags(copy.id as AssetEntryId, ['copy']);
+    repo.moveEntry([original.id as AssetEntryId], null);
+
+    expect(repo.findEntryById(original.id as AssetEntryId)).toMatchObject({
+      displayName: 'Original',
+      tags: ['original'],
+      folderId: null,
+    });
+    expect(repo.findEntryById(copy.id as AssetEntryId)).toMatchObject({
+      displayName: 'Independent copy',
+      tags: ['copy'],
+      folderId: 'folder-b',
+    });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM asset_contents').get()).toEqual({ count: 1 });
+  });
+
+  it('deleting one entry keeps shared content and the other entry', () => {
+    const original = repo.insert({
+      hash: 'shared-hash',
+      type: 'video',
+      format: 'mp4',
+      fileSize: 10,
+      createdAt: 1,
+    });
+    const [copy] = repo.copyEntries([original.id as AssetEntryId], null);
+
+    repo.deleteEntry([original.id as AssetEntryId]);
+
+    expect(repo.findEntryById(original.id as AssetEntryId)).toBeUndefined();
+    expect(repo.findEntryById(copy.id as AssetEntryId)?.hash).toBe('shared-hash');
+    expect(repo.findByHash('shared-hash')).toMatchObject({ hash: 'shared-hash', type: 'video' });
+  });
+
+  it('moves and deletes deduplicated entry IDs in one transaction with rollback', () => {
+    const first = repo.insert({
+      hash: 'batch-first',
+      type: 'image',
+      format: 'png',
+      folderId: 'folder-a',
+      fileSize: 1,
+      createdAt: 1,
+    });
+    const second = repo.insert({
+      hash: 'batch-second',
+      type: 'image',
+      format: 'png',
+      folderId: 'folder-a',
+      fileSize: 1,
+      createdAt: 2,
+    });
+    const firstId = first.id as AssetEntryId;
+    const secondId = second.id as AssetEntryId;
+    const transaction = vi.spyOn(db, 'transaction');
+
+    expect(repo.moveEntry([firstId, firstId, secondId], 'folder-b')).toEqual([firstId, secondId]);
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(repo.findEntryById(firstId)?.folderId).toBe('folder-b');
+    expect(repo.findEntryById(secondId)?.folderId).toBe('folder-b');
+
+    transaction.mockClear();
+    expect(() => repo.moveEntry([firstId, 'missing' as AssetEntryId], null)).toThrow(
+      'Asset entry not found: missing',
+    );
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(repo.findEntryById(firstId)?.folderId).toBe('folder-b');
+
+    transaction.mockClear();
+    expect(() => repo.deleteEntry([firstId, 'missing' as AssetEntryId])).toThrow(
+      'Asset entry not found: missing',
+    );
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(repo.findEntryById(firstId)).toBeDefined();
+
+    transaction.mockClear();
+    expect(repo.deleteEntry([firstId, secondId, firstId])).toEqual([firstId, secondId]);
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(repo.findEntryById(firstId)).toBeUndefined();
+    expect(repo.findEntryById(secondId)).toBeUndefined();
+  });
+
+  it('loads multiple content records in one batch and ignores duplicate or missing hashes', () => {
+    repo.insert({ hash: 'batch-a', type: 'image', format: 'png', fileSize: 1, createdAt: 1 });
+    repo.insert({ hash: 'batch-b', type: 'video', format: 'mp4', fileSize: 2, createdAt: 2 });
+
+    expect([...repo.findByHashes(['batch-b', 'missing', 'batch-a', 'batch-b'])]).toEqual([
+      ['batch-a', expect.objectContaining({ hash: 'batch-a', type: 'image' })],
+      ['batch-b', expect.objectContaining({ hash: 'batch-b', type: 'video' })],
+    ]);
+  });
+
+  it('round-trips video audio metadata and updates only technical probe fields', () => {
+    const entry = repo.insert({
+      hash: 'probed-video',
+      type: 'video',
+      format: 'mp4',
+      prompt: 'keep this',
+      fileSize: 5,
+      createdAt: 10,
+    });
+    expect(entry.hasAudio).toBeUndefined();
+
+    expect(
+      repo.updateTechnicalMetadata('probed-video', {
+        width: 1920,
+        height: 1080,
+        duration: 4.5,
+        hasAudio: true,
+      }),
+    ).toMatchObject({
+      hash: 'probed-video',
+      width: 1920,
+      height: 1080,
+      duration: 4.5,
+      hasAudio: true,
+      prompt: 'keep this',
+    });
+    expect(repo.findEntryById(entry.id as AssetEntryId)).toMatchObject({ hasAudio: true });
+    expect(db.prepare('SELECT COUNT(*) AS count FROM asset_entries').get()).toEqual({ count: 1 });
+
     repo.insert({
-      hash: 'h1',
+      hash: 'probed-video',
+      type: 'video',
+      format: 'mp4',
+      fileSize: 5,
+      createdAt: 11,
+    });
+    expect(repo.findByHash('probed-video')).toMatchObject({ hasAudio: true });
+  });
+
+  it('rejects invalid technical metadata and missing content', () => {
+    expect(() => repo.updateTechnicalMetadata('missing', { hasAudio: false })).toThrow(
+      'Asset content not found',
+    );
+    expect(() => repo.updateTechnicalMetadata('missing', { duration: -1 })).toThrow(
+      'duration must be',
+    );
+
+    repo.insert({ hash: 'still', type: 'image', format: 'png', fileSize: 1, createdAt: 1 });
+    expect(() => repo.updateTechnicalMetadata('still', { hasAudio: true })).toThrow(
+      'only valid for video',
+    );
+    expect(repo.updateTechnicalMetadata('still', { width: undefined })).toMatchObject({
+      hash: 'still',
+      width: undefined,
+    });
+  });
+
+  it('queries independent entries by type, tags, and creation order', () => {
+    repo.insert({
+      hash: 'a',
       type: 'image',
       format: 'png',
-      tags: ['hero', 'shot'],
-      fileSize: 1024,
-      createdAt: 100,
+      tags: ['hero'],
+      fileSize: 1,
+      createdAt: 1,
     });
-    const { rows } = repo.query({});
-    expect(rows.length).toBe(1);
-    expect(rows[0]).toMatchObject({
-      hash: 'h1',
+    repo.insert({
+      hash: 'b',
+      type: 'video',
+      format: 'mp4',
+      tags: ['hero'],
+      fileSize: 1,
+      createdAt: 2,
+    });
+    repo.insert({
+      hash: 'c',
+      type: 'image',
+      format: 'jpg',
+      tags: ['other'],
+      fileSize: 1,
+      createdAt: 3,
+    });
+
+    expect(repo.query({ type: 'image' }).rows.map(({ hash }) => hash)).toEqual(['c', 'a']);
+    expect(repo.query({ tags: ['hero'] }).rows.map(({ hash }) => hash)).toEqual(['b', 'a']);
+  });
+
+  it('searches logical entry names and content prompts', () => {
+    repo.insert({
+      hash: 'search-1',
       type: 'image',
       format: 'png',
-      fileSize: 1024,
-      tags: ['hero', 'shot'],
-      createdAt: 100,
+      displayName: 'Rain portrait',
+      prompt: 'cinematic midnight',
+      fileSize: 1,
+      createdAt: 1,
     });
+
+    expect(repo.search('Rain').rows.map(({ hash }) => hash)).toEqual(['search-1']);
+    expect(repo.search('midnight').rows.map(({ hash }) => hash)).toEqual(['search-1']);
   });
 
-  it('query filters by type', () => {
-    repo.insert({ hash: 'a', type: 'image', format: 'png', fileSize: 1, createdAt: 1 });
-    repo.insert({ hash: 'b', type: 'video', format: 'mp4', fileSize: 1, createdAt: 2 });
-    repo.insert({ hash: 'c', type: 'image', format: 'jpg', fileSize: 1, createdAt: 3 });
-    const { rows } = repo.query({ type: 'image' });
-    expect(rows.map((r) => r.hash).sort()).toEqual(['a', 'c']);
-  });
-
-  it('query orders by createdAt DESC', () => {
-    repo.insert({ hash: 'first', type: 'image', format: 'png', fileSize: 1, createdAt: 1 });
-    repo.insert({ hash: 'middle', type: 'image', format: 'png', fileSize: 1, createdAt: 5 });
-    repo.insert({ hash: 'newest', type: 'image', format: 'png', fileSize: 1, createdAt: 9 });
-    const { rows } = repo.query({});
-    expect(rows.map((r) => r.hash)).toEqual(['newest', 'middle', 'first']);
-  });
-
-  it('query honors limit + offset', () => {
-    for (let i = 0; i < 5; i += 1) {
-      repo.insert({ hash: `h${i}`, type: 'image', format: 'png', fileSize: 1, createdAt: i });
-    }
-    const { rows } = repo.query({ limit: 2, offset: 1 });
-    expect(rows.length).toBe(2);
-  });
-
-  it('delete removes the row', () => {
-    repo.insert({ hash: 'h1', type: 'image', format: 'png', fileSize: 1, createdAt: 1 });
-    repo.delete('h1' as AssetHash);
-    expect(repo.query({}).rows.length).toBe(0);
-  });
-
-  it('fault injection: query skips malformed row + reports degrade', () => {
+  it('fault injection skips a malformed entry and reports degradation', () => {
     repo.insert({ hash: 'good', type: 'image', format: 'png', fileSize: 1, createdAt: 1 });
-    // Inject a row with an invalid `type` — zod enum rejects.
     db.prepare(
-      `INSERT INTO assets (hash, type, format, created_at, file_size, tags)
-       VALUES (?, 'garbage', 'png', 2, 1, '[]')`,
-    ).run('bad');
+      `INSERT INTO asset_contents (hash, type, format, created_at, file_size)
+       VALUES ('bad', 'garbage', 'png', 2, 1)`,
+    ).run();
+    db.prepare(
+      `INSERT INTO asset_entries (id, asset_hash, display_name, tags, created_at)
+       VALUES ('bad-entry', 'bad', 'Bad', '[]', 2)`,
+    ).run();
+
     const { rows, degradedCount } = repo.query({});
     expect(degradedCount).toBe(1);
-    expect(rows.map((r) => r.hash)).toEqual(['good']);
-    expect(reports.length).toBe(1);
-    expect(reports[0].schema).toBe('AssetMeta');
+    expect(rows.map(({ hash }) => hash)).toEqual(['good']);
+    expect(reports).toEqual([expect.objectContaining({ schema: 'AssetEntry' })]);
   });
 
-  it('query tolerates legacy empty-string tags (pre-DEFAULT-[] migration)', () => {
-    // Legacy rows written before the `tags DEFAULT '[]'` migration can
-    // carry `tags = ''`. `JSON.parse('')` throws, so the repo must
-    // normalize before parsing — otherwise query hard-fails.
-    db.prepare(
-      `INSERT INTO assets (hash, type, format, created_at, file_size, tags)
-       VALUES (?, 'image', 'png', 1, 1, '')`,
-    ).run('legacy');
-    const { rows, degradedCount } = repo.query({});
-    expect(degradedCount).toBe(0);
-    expect(rows[0].hash).toBe('legacy');
-    expect(rows[0].tags).toEqual([]);
-  });
-
-  it('insertEmbedding + queryEmbeddingByHash round-trip tokens array', () => {
-    repo.insertEmbedding('h1' as AssetHash, 'desc', ['a', 'b', 'c'], 'model-x');
-    const got = repo.queryEmbeddingByHash('h1' as AssetHash);
-    expect(got).toBeDefined();
-    expect(got!.tokens).toEqual(['a', 'b', 'c']);
-    expect(got!.model).toBe('model-x');
-    expect(got!.description).toBe('desc');
-  });
-
-  it('queryEmbeddingByHash returns undefined for missing hash', () => {
-    expect(repo.queryEmbeddingByHash('missing' as AssetHash)).toBeUndefined();
-  });
-
-  it('searchByTokens returns jaccard-sorted results; 0 when no overlap', () => {
-    repo.insertEmbedding('full', 'full match', ['x', 'y', 'z'], 'm');
-    repo.insertEmbedding('partial', 'partial match', ['x', 'y'], 'm');
-    repo.insertEmbedding('none', 'no match', ['p', 'q'], 'm');
-    const results = repo.searchByTokens(['x', 'y', 'z'], 10);
-    expect(results.length).toBe(2);
-    expect(results[0].hash).toBe('full');
-    expect(results[1].hash).toBe('partial');
-    expect(results[0].score).toBeGreaterThan(results[1].score);
-  });
-
-  it('searchByTokens returns empty for empty query', () => {
-    repo.insertEmbedding('h1' as AssetHash, 'desc', ['x'], 'm');
-    expect(repo.searchByTokens([], 10)).toEqual([]);
-  });
-
-  it('getAllEmbeddedHashes lists inserted hashes', () => {
-    repo.insertEmbedding('h1' as AssetHash, 'd', ['a'], 'm');
-    repo.insertEmbedding('h2' as AssetHash, 'd', ['b'], 'm');
-    const hashes = repo.getAllEmbeddedHashes();
-    expect(hashes.sort()).toEqual(['h1', 'h2']);
-  });
-
-  it('methods accept a Tx argument', () => {
-    const tx = db.transaction(() => {
+  it('accepts an explicit transaction boundary', () => {
+    db.transaction(() => {
       repo.insert({ hash: 'tx', type: 'image', format: 'png', fileSize: 1, createdAt: 1 }, db);
-    });
-    tx();
-    expect(repo.query({}).rows.map((r) => r.hash)).toEqual(['tx']);
+    })();
+    expect(repo.query({}).rows.map(({ hash }) => hash)).toEqual(['tx']);
   });
 });

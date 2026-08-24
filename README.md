@@ -52,7 +52,7 @@ _Turn scripts into shots, shots into scenes, scenes into films — all driven by
     </td>
     <td width="33%" valign="top">
       <h4>Commander AI</h4>
-      <p>Built-in AI assistant with 170+ tools. Break down scripts, manage characters, apply presets, analyze images, generate media — all from chat.</p>
+      <p>Built-in AI assistant with a stable typed tool catalog. Break down scripts, manage characters, apply presets, analyze images, generate media, and delegate bounded work — all from chat.</p>
     </td>
     <td width="33%" valign="top">
       <h4>Preset System</h4>
@@ -60,10 +60,6 @@ _Turn scripts into shots, shots into scenes, scenes into films — all driven by
     </td>
   </tr>
   <tr>
-    <td width="33%" valign="top">
-      <h4>Video Clone Mode</h4>
-      <p>Import a video &rarr; auto-detect scene cuts &rarr; extract keyframes &rarr; describe each with vision AI &rarr; rebuild as an AI-ready canvas.</p>
-    </td>
     <td width="33%" valign="top">
       <h4>Vision Analysis</h4>
       <p>Reverse prompt inference from any image. Extract art style, lighting, color palette, mood, composition — 15+ vision providers supported.</p>
@@ -84,7 +80,7 @@ _Turn scripts into shots, shots into scenes, scenes into films — all driven by
     </td>
     <td width="33%" valign="top">
       <h4>Pro Export</h4>
-      <p>Export to CapCut, FCPXML, EDL. Compatible with Final Cut Pro, DaVinci Resolve, Premiere Pro.</p>
+      <p>Review and approve an immutable Final Export manifest, then render a verified MP4 or MOV locally with FFmpeg.</p>
     </td>
   </tr>
 </table>
@@ -92,10 +88,9 @@ _Turn scripts into shots, shots into scenes, scenes into films — all driven by
 <details>
 <summary><strong>More features...</strong></summary>
 
-- **Dual Prompt System** — Separate image and video prompts per node
+- **Durable Prompt Assembly** — Commander reconciles user intent, presets, references, and Task List authority into one auditable provider prompt
 - **Character & Equipment Manager** — Reference images, structured appearance fields for consistency
 - **Location Manager** — Structured scene locations with mood, weather, lighting, reference images
-- **Lip Sync** — Post-generation lip-sync via cloud API or local Wav2Lip
 - **Adaptive Tool Execution** — Concurrency auto-tunes based on success rate (1-8 parallel calls)
 - **Context Compaction** — Codex/Claude Code inspired handoff-style summarization with anti-thrash protection
 - **Shot Templates** — Apply pre-defined shot setups across multiple nodes at once
@@ -114,7 +109,7 @@ _Turn scripts into shots, shots into scenes, scenes into films — all driven by
     <td width="50%">
       <strong>Commander AI</strong><br>
       <img src="docs/assets/screenshot-commander.png" alt="Commander AI" width="100%"><br>
-      <em>AI assistant with 170+ tools, streaming responses, tool confirmations, and slash commands</em>
+      <em>AI assistant with stable tools, public run activity, tool confirmations, and slash commands</em>
     </td>
     <td width="50%">
       <strong>Preset Tracks</strong><br>
@@ -138,7 +133,7 @@ _Turn scripts into shots, shots into scenes, scenes into films — all driven by
     <td width="50%">
       <strong>Settings — Commander AI</strong><br>
       <img src="docs/assets/screenshot-settings-ai.png" alt="Commander AI Settings" width="100%"><br>
-      <em>Agent tuning: max steps, temperature, context window, undo depth, concurrency controls</em>
+      <em>Agent controls: token, tool-call, time and cost budgets, plus context and output safety limits</em>
     </td>
     <td width="50%">
       <strong>Settings — Providers</strong><br>
@@ -148,7 +143,7 @@ _Turn scripts into shots, shots into scenes, scenes into films — all driven by
   </tr>
 </table>
 
-> **Still needed:** Canvas workspace overview, video clone workflow, generation in progress, export dialog
+> **Still needed:** Canvas workspace overview, generation in progress, export dialog
 
 ---
 
@@ -220,7 +215,7 @@ graph TB
         subgraph Main["Main Process"]
             IPC["IPC Router"]
             Pipeline["Generation Pipeline"]
-            Commander["Commander AI<br/>170+ agent tools"]
+            Commander["Commander AI<br/>stable typed tool catalog"]
         end
 
         UI <--> Store
@@ -273,9 +268,11 @@ packages/
   shared-utils/         Pure utility functions shared across layers
   storage/              SQLite database, content-addressable asset store, OS keychain
   adapters-ai/          AI provider adapters (image, video, audio, LLM, vision)
-  application/          Commander AI orchestrator, 170+ agent tools, prompt compiler
+  task-execution/       Durable Task List planning, approvals, execution, and recovery
+  application/          Commander AI orchestration, typed tool catalog, prompt source compiler
+  agent/                Commander planning, tools, grading, and bounded repair
   domain/               Script parser, prompt assembler, cascade logic
-  media-engine/         FFmpeg utilities, Ken Burns, stitcher, NLE export
+  media-engine/         FFmpeg probing, evaluation support, and Review Cut rendering
 
 evals/                  Commander evaluation harness
 .github/workflows/     CI pipeline — type check, test, lint on every push/PR
@@ -331,11 +328,10 @@ See the canonical [technology stack and upgrade policy](docs/TECH_STACK.md), inc
 5. For custom providers, click **+ Add Custom**, enter name, base URL, and model
 
 ChatGPT OAuth is available separately for Commander LLM, image generation, and fallback vision.
-Gemini OAuth is available separately for LLM, image, video, and fallback vision, so each capability
-may use a different account. OAuth cards display remaining usage when the provider exposes it; Gemini
-links to the Cloud quota dashboard when it does not. If the active LLM supports image understanding,
-Lucid Fin reuses it and does not call the fallback vision provider. See the
-[OAuth security and routing contract](docs/PROVIDER_OAUTH.md).
+OAuth cards display remaining usage when the provider exposes it. Gemini LLM, image, video, and
+vision providers use API keys. If the active LLM supports image understanding, Lucid Fin reuses it
+and does not call the fallback vision provider. See the [OAuth security and routing
+contract](docs/PROVIDER_OAUTH.md).
 
 </details>
 

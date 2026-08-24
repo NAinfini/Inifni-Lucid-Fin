@@ -8,7 +8,7 @@
  * P3 introduces the type and structured Scratchpad; incremental
  * migration of orchestrator fields happens over subsequent PRs.
  */
-import type { LLMMessage, ContextItem } from '@lucid-fin/contracts';
+import type { LLMMessage } from '@lucid-fin/contracts';
 import type { EvidenceLedger, RunIntent } from './exit-contract/index.js';
 import type { ContextGraph } from './graph/context-graph.js';
 import type { TranscriptIndex } from './transcript-index.js';
@@ -22,7 +22,7 @@ import type { StampedStreamEvent } from './stream-emit.js';
 // ---------------------------------------------------------------------------
 
 export interface Scratchpad {
-  todos: string[];
+  checklist: string[];
   decisions: string[];
   failures: string[];
   context: Map<string, string>;
@@ -30,20 +30,20 @@ export interface Scratchpad {
 
 export const SCRATCHPAD_MAX_CHARS = 2000;
 export const SCRATCHPAD_SECTION_BUDGETS = {
-  todos: 600,
+  checklist: 600,
   decisions: 500,
   failures: 300,
   context: 600,
 } as const;
 
 export function createEmptyScratchpad(): Scratchpad {
-  return { todos: [], decisions: [], failures: [], context: new Map() };
+  return { checklist: [], decisions: [], failures: [], context: new Map() };
 }
 
 export function serializeScratchpad(pad: Scratchpad): string {
   const parts: string[] = [];
-  if (pad.todos.length > 0) {
-    parts.push(`[todos]\n${pad.todos.join('\n')}`);
+  if (pad.checklist.length > 0) {
+    parts.push(`[checklist]\n${pad.checklist.join('\n')}`);
   }
   if (pad.decisions.length > 0) {
     parts.push(`[decisions]\n${pad.decisions.join('\n')}`);
@@ -74,9 +74,6 @@ export interface RunContext {
   intent: RunIntent;
   ledger: EvidenceLedger;
   scratchpad: Scratchpad;
-  activeToolNames: Set<string>;
-  discoveredToolNames: Set<string>;
-  toolLastUsedStep: Map<string, number>;
   emit: (event: StampedStreamEvent) => void;
   isAborted: () => boolean;
   contextManager: ContextManager;
@@ -86,6 +83,4 @@ export interface RunContext {
   deduplicator: ToolCallDeduplicator;
   lastAssistantText: string;
   lastAskUserAnsweredStep: number | null;
-  forceAskUserNextTurn: boolean;
-  pendingGraphSeed: ContextItem[];
 }

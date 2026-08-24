@@ -1,8 +1,8 @@
 /**
- * SnapshotRepository — Phase G1-2.10.
+ * Snapshot persistence.
  *
  * Wraps `snapshots` CRUD + prune + capture/restore behind the `SnapshotId`
- * brand. Sessions stay in `SessionRepository` (G1-2.1); this repo only owns
+ * brand. Sessions stay in `SessionRepository`; this repo only owns
  * the snapshot table.
  *
  * Read paths (`get` / `list`) go through `parseOrDegrade` with ctx
@@ -25,7 +25,7 @@ import type { Tx } from '../transactions.js';
 
 export interface StoredSession {
   id: string;
-  canvasId: string | null;
+  defaultCanvasId: string | null;
   title: string;
   messages: string;
   createdAt: number;
@@ -287,7 +287,7 @@ export class SnapshotRepository {
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT OR IGNORE INTO commander_sessions (id, canvas_id, title, messages, created_at, updated_at)
+        `INSERT OR IGNORE INTO commander_sessions (id, default_canvas_id, title, messages, created_at, updated_at)
        VALUES (?, NULL, '', '[]', ?, ?)`,
       )
       .run(sessionId, now, now);

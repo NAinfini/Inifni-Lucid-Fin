@@ -23,17 +23,14 @@ function createCallbacks(overrides: Partial<NodeCallbacks> = {}): NodeCallbacks 
     onPaste: vi.fn(),
     onDisconnect: vi.fn(),
     onConnectTo: vi.fn(),
-    onRename: vi.fn(),
     onGenerate: vi.fn(),
     onLock: vi.fn(),
     onColorTag: vi.fn(),
     onCopyPromptForAI: vi.fn(),
-    onUpload: vi.fn(),
     onSelectVariant: vi.fn(),
     onToggleSeedLock: vi.fn(),
     onToggleCollapse: vi.fn(),
     onOpacityChange: vi.fn(),
-    onCloneVideo: vi.fn(),
     ...overrides,
   };
 }
@@ -61,7 +58,7 @@ async function openMenu(
   );
 
   fireEvent.contextMenu(screen.getByRole('button', { name: TRIGGER_LABEL }));
-  await screen.findByText('Rename');
+  await screen.findByText('Duplicate');
 
   return { ...view, callbacks };
 }
@@ -70,7 +67,7 @@ describe('NodeContextMenu', () => {
   it('renders all standard menu items for image node', async () => {
     await openMenu();
 
-    expect(screen.getByText('Rename')).toBeTruthy();
+    expect(screen.queryByText('Rename')).toBeNull();
     expect(screen.getByText('Duplicate')).toBeTruthy();
     expect(screen.getByText('Cut')).toBeTruthy();
     expect(screen.getByText('Copy')).toBeTruthy();

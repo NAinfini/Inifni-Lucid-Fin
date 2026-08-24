@@ -1,6 +1,78 @@
-import type { AgentTool, AgentToolRegistry } from '../tool-registry.js';
+import {
+  NO_TOOL_RESOURCE,
+  toolResultSchema,
+  type ToolDefinition,
+  type ToolRegistry,
+} from '../tool-registry.js';
 import { COMMANDER_GUIDE_LIMITS, type CommanderPromptGuide } from '@lucid-fin/contracts';
 import { ok, fail } from './tool-result-helpers.js';
+import {
+  arraySchema,
+  booleanSchema,
+  numberSchema,
+  objectSchema,
+  recordSchema,
+  stringArraySchema,
+  stringSchema,
+  unionSchema,
+} from './tool-runtime-schemas.js';
+
+const toolListEntrySchema = objectSchema({ name: stringSchema, desc: stringSchema });
+const inspectedToolSchema = objectSchema({
+  name: stringSchema,
+  description: stringSchema,
+  inputSchemaJson: stringSchema,
+});
+const toolGetDataSchema = unionSchema(
+  recordSchema(arraySchema(toolListEntrySchema)),
+  objectSchema(
+    {
+      tools: arraySchema(inspectedToolSchema),
+      notFound: stringArraySchema,
+    },
+    ['tools'],
+  ),
+);
+
+const guideListEntrySchema = objectSchema({ id: stringSchema, name: stringSchema });
+const guideContentEntrySchema = objectSchema(
+  {
+    id: stringSchema,
+    name: stringSchema,
+    content: stringSchema,
+    totalChars: numberSchema,
+    contentOffset: numberSchema,
+    contentLength: numberSchema,
+    truncated: booleanSchema,
+    nextOffset: numberSchema,
+  },
+  ['id', 'name', 'content', 'totalChars', 'contentOffset', 'contentLength', 'truncated'],
+);
+const guideGetDataSchema = unionSchema(
+  objectSchema({
+    total: numberSchema,
+    offset: numberSchema,
+    limit: numberSchema,
+    guides: arraySchema(guideListEntrySchema),
+  }),
+  objectSchema(
+    {
+      guides: arraySchema(guideContentEntrySchema),
+      notFound: stringArraySchema,
+    },
+    ['guides'],
+  ),
+);
+
+const compactDataSchema = unionSchema(
+  objectSchema({ note: stringSchema }),
+  objectSchema({
+    freedChars: numberSchema,
+    messageCount: numberSchema,
+    toolCount: numberSchema,
+    note: stringSchema,
+  }),
+);
 
 export interface MetaToolDeps {
   promptGuides?: CommanderPromptGuide[];
@@ -11,25 +83,30 @@ export interface MetaToolDeps {
   ) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
 }
 
-export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps): AgentTool[] {
+export function createMetaTools(registry: ToolRegistry, deps: MetaToolDeps): ToolDefinition[] {
   const promptGuides = deps.promptGuides ?? [];
 
-  const toolGet: AgentTool = {
+  const toolGet: ToolDefinition = {
     name: 'tool.get',
+    process: 'meta',
+    category: 'meta',
+    contextReplay: 'status_only',
+    resource: NO_TOOL_RESOURCE,
     description: [
       'Two modes:',
       '  (1) Omit "names" to list all available tools grouped by domain (name + short description only). Use this for browse/menu intent or when the user asks what Commander can do.',
-      '  (2) Provide "names" array to load full parameter schemas for specific tools. Use this before calling a tool whose parameter schema you are unsure about.',
+      '  (2) Provide "names" to inspect full parameter schemas for specific tools.',
     ].join('\n'),
     tags: ['meta', 'read'],
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(toolGetDataSchema),
+    inputSchema: {
       type: 'object',
       properties: {
         names: {
           type: 'array',
           items: { type: 'string', description: 'Tool name.' },
-          description: 'Tool names to load. Omit to list all tools grouped by domain.',
+          description: 'Tool names to inspect. Omit to list all tools grouped by domain.',
         },
       },
       required: [],
@@ -63,7 +140,7 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
           const results: Array<{
             name: string;
             description: string;
-            parameters: unknown;
+            inputSchemaJson: string;
           }> = [];
           const notFound: string[] = [];
           for (const entry of rawNames) {
@@ -73,10 +150,14 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
               notFound.push(name);
               continue;
             }
+            const inputSchemaJson = JSON.stringify(tool.inputSchema);
+            if (typeof inputSchemaJson !== 'string') {
+              throw new Error(`Tool input schema for ${tool.name} could not be serialized`);
+            }
             results.push({
               name: tool.name,
               description: tool.description,
-              parameters: tool.parameters,
+              inputSchemaJson,
             });
           }
           if (results.length === 0 && notFound.length > 0) {
@@ -99,16 +180,21 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
     },
   };
 
-  const guideGet: AgentTool = {
+  const guideGet: ToolDefinition = {
     name: 'guide.get',
+    process: 'meta',
+    category: 'meta',
+    contextReplay: 'status_only',
+    resource: NO_TOOL_RESOURCE,
     description: [
       'Two modes:',
       '  If `ids` is provided: fetch bounded prompt-guide content chunks for one or two ids. Continue from `nextOffset` until `truncated` is false.',
-      '  If `ids` is omitted: list all available guides (id and name only, with offset/limit pagination). Use this when the user asks what workflows, skills, or guides are available.',
+      '  If `ids` is omitted: list all available guides (id and name only, with offset/limit pagination). Use this when the user asks what task lists, skills, or guides are available.',
     ].join('\n'),
     tags: ['meta', 'guide', 'read'],
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(guideGetDataSchema),
+    inputSchema: {
       type: 'object',
       properties: {
         ids: {
@@ -243,13 +329,18 @@ export function createMetaTools(registry: AgentToolRegistry, deps: MetaToolDeps)
     },
   };
 
-  const toolCompact: AgentTool = {
+  const toolCompact: ToolDefinition = {
     name: 'tool.compact',
+    process: 'meta',
+    category: 'meta',
+    contextReplay: 'status_only',
+    resource: NO_TOOL_RESOURCE,
     description:
-      'Compact conversation context by summarizing old tool exchanges and stripping unused tool schemas. Optionally pass "instructions" to focus the summary (e.g. "focus on the API changes"). Call proactively when context feels large or before complex multi-step operations.',
+      'Compact conversation context by summarizing old complete exchanges and trimming large results. Optionally pass "instructions" to focus the summary (e.g. "focus on the API changes"). Call proactively when context feels large or before complex multi-step operations.',
     tags: ['meta'],
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(compactDataSchema),
+    inputSchema: {
       type: 'object',
       properties: {
         instructions: {

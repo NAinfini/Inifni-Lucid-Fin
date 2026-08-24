@@ -1,20 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import type { RootState } from '../../store/index.js';
-import { selectActiveCanvas } from '../../store/slices/canvas/canvas-selectors.js';
 import { enqueueToast } from '../../store/slices/toast.js';
+import { addLog } from '../../store/slices/logger.js';
 import {
   setNodeSeed,
-  setNodeGenerating,
-  setNodeGenerationFailed,
   setNodeProvider,
   setNodeVariantCount,
-  setNodeEstimatedCost,
   setNodeResolution,
   setNodeDuration,
   setNodeFps,
   setNodeAudio,
-  setNodeLipSync,
   setNodeQuality,
   setNodeUploadedAsset,
   clearNodeAsset,
@@ -24,12 +20,16 @@ import {
   setVideoFrameNode,
   setVideoFrameAsset,
 } from '../../store/slices/canvas/canvas.js';
+import {
+  requestDurableMediaCancellation,
+  requestDurableMediaTask,
+} from '../../store/slices/commander.js';
 import { getAPI } from '../../utils/api.js';
 import { getProviderMetadata, type ProviderConfig } from '../../store/slices/settings.js';
 import { InspectorGenerationBar } from './InspectorGenerationBar.js';
 import { InspectorVariantThumb } from './InspectorVariantThumb.js';
-import { getLocale } from '../../i18n.js';
 import {
+  CUSTOM_DURATION_VALUE,
   CUSTOM_RESOLUTION_VALUE,
   DURATION_PRESETS,
   FPS_PRESETS,
@@ -45,12 +45,7 @@ import {
   type VisualGenerationNodeType,
   type ResolutionPresetValue,
 } from './inspector-generation-utils.js';
-import type {
-  AudioNodeData,
-  CanvasNode,
-  ImageNodeData,
-  VideoNodeData,
-} from '@lucid-fin/contracts';
+import type { AudioNodeData, CanvasNode, ImageNodeData, VideoNodeData } from '@lucid-fin/contracts';
 
 const VARIANT_OPTIONS = [1, 2, 4, 9];
 
@@ -149,7 +144,6 @@ export function InspectorGenerationState({
 }: InspectorGenerationStateProps) {
   const dispatch = useDispatch();
   const activeCanvasId = useSelector((s: RootState) => s.canvas.activeCanvasId);
-  const canvas = useSelector(selectActiveCanvas);
   const imageProviders = useSelector((s: RootState) => s.settings.image.providers);
   const videoProviders = useSelector((s: RootState) => s.settings.video.providers);
   const audioProviders = useSelector((s: RootState) => s.settings.audio.providers);
@@ -160,12 +154,6 @@ export function InspectorGenerationState({
     if (selectedNode.type === 'video') return videoProviders;
     return imageProviders;
   }, [audioProviders, imageProviders, selectedNode.type, videoProviders]);
-  const activeProviderConfig = useMemo(() => {
-    if (!activeProviderId) return undefined;
-    const p = providerCandidates.find((x) => x.id === activeProviderId);
-    if (!p) return undefined;
-    return { baseUrl: p.baseUrl, model: p.model };
-  }, [activeProviderId, providerCandidates]);
   const activeVideoProviderMetadata = useMemo(() => {
     if (selectedNode.type !== 'video' || !activeProviderId) return undefined;
     return getProviderMetadata('video', activeProviderId);
@@ -230,14 +218,13 @@ export function InspectorGenerationState({
     activeDuration != null &&
     DURATION_PRESETS.some((preset) => preset === activeDuration)
       ? String(activeDuration)
-      : CUSTOM_RESOLUTION_VALUE;
+      : CUSTOM_DURATION_VALUE;
   const activeFps =
     selectedNode.type === 'video' ? ((selectedNode.data as VideoNodeData).fps ?? 24) : undefined;
   const visibleVariantCount = Math.max(activeVariantCount, activeVariants.length);
   const shouldShowVariantGrid = visibleVariantCount > 0 && generationData.status !== 'empty';
   const selectedVariantMediaType: 'image' | 'video' | 'audio' =
     selectedNode.type === 'video' ? 'video' : selectedNode.type === 'audio' ? 'audio' : 'image';
-  const pendingRandomSeedByNodeId = useRef<Record<string, number>>({});
 
   const [resolutionSelectValue, setResolutionSelectValue] = useState<ResolutionPresetValue | null>(
     null,
@@ -266,21 +253,9 @@ export function InspectorGenerationState({
     setDurationSelectValue(
       DURATION_PRESETS.some((preset) => preset === activeDuration)
         ? String(activeDuration)
-        : CUSTOM_RESOLUTION_VALUE,
+        : CUSTOM_DURATION_VALUE,
     );
   }, [activeDuration, selectedNode.id, selectedNode.type]);
-
-  useEffect(() => {
-    if (!canvas) return;
-    for (const node of canvas.nodes) {
-      const pendingSeed = pendingRandomSeedByNodeId.current[node.id];
-      if (typeof pendingSeed !== 'number') continue;
-      const nd = node.data as ImageNodeData | VideoNodeData | AudioNodeData;
-      if (!nd || nd.status === 'generating' || nd.status === 'empty') continue;
-      delete pendingRandomSeedByNodeId.current[node.id];
-      dispatch(setNodeSeed({ id: node.id, seed: pendingSeed }));
-    }
-  }, [canvas, dispatch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -304,36 +279,6 @@ export function InspectorGenerationState({
       cancelled = true;
     };
   }, [activeProviderId, dispatch, providerCandidates, selectedNode.id]);
-
-  const selectedNodeId = selectedNode.id;
-
-  useEffect(() => {
-    if (!activeProviderId || !activeCanvasId) return;
-    const api = getAPI();
-    if (!api?.canvasGeneration) return;
-    let cancelled = false;
-    void api.canvasGeneration
-      .estimateCost(activeCanvasId, selectedNodeId, activeProviderId, activeProviderConfig)
-      .then((result) => {
-        if (!cancelled)
-          dispatch(
-            setNodeEstimatedCost({ id: selectedNodeId, estimatedCost: result.estimatedCost }),
-          );
-      })
-      .catch(() => {
-        if (!cancelled) dispatch(setNodeEstimatedCost({ id: selectedNodeId, estimatedCost: 0 }));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    activeCanvasId,
-    activeProviderId,
-    activeProviderConfig,
-    activeVariantCount,
-    dispatch,
-    selectedNodeId,
-  ]);
 
   // --- Handlers ---
 
@@ -494,8 +439,8 @@ export function InspectorGenerationState({
 
   const handleDurationSelectChange = useCallback(
     (event: React.ChangeEvent<HTMLSelectElement>) => {
-      if (event.target.value === CUSTOM_RESOLUTION_VALUE) {
-        setDurationSelectValue(CUSTOM_RESOLUTION_VALUE);
+      if (event.target.value === CUSTOM_DURATION_VALUE) {
+        setDurationSelectValue(CUSTOM_DURATION_VALUE);
         return;
       }
       setDurationSelectValue(event.target.value);
@@ -530,8 +475,6 @@ export function InspectorGenerationState({
 
   const handleGenerate = useCallback(async () => {
     if (!activeCanvasId) return;
-    const api = getAPI();
-    if (!api?.canvasGeneration) return;
     const randomSeed = createRandomSeed();
     const seedRequest = resolveSeedRequest({
       seed: activeSeed,
@@ -541,60 +484,29 @@ export function InspectorGenerationState({
     if (typeof seedRequest.persistImmediately === 'number') {
       dispatch(setNodeSeed({ id: selectedNode.id, seed: seedRequest.persistImmediately }));
     }
-    if (typeof seedRequest.persistAfterCompletion === 'number') {
-      pendingRandomSeedByNodeId.current[selectedNode.id] = seedRequest.persistAfterCompletion;
-    } else {
-      delete pendingRandomSeedByNodeId.current[selectedNode.id];
-    }
-    dispatch(setNodeGenerating({ id: selectedNode.id, jobId: `pending-${Date.now()}` }));
-    try {
-      await api.canvasGeneration.generate(
-        activeCanvasId,
-        selectedNode.id,
-        activeProviderId,
-        activeVariantCount,
-        seedRequest.requestSeed,
-        activeProviderConfig,
-      );
-    } catch (error) {
-      delete pendingRandomSeedByNodeId.current[selectedNode.id];
-      const msg = error instanceof Error ? error.message : String(error);
-      dispatch(setNodeGenerationFailed({ id: selectedNode.id, error: msg }));
-      const isProviderError = /no configured adapter|api.?key|provider.*not.*found/i.test(msg);
-      const isProviderSettingsError =
-        isProviderError || /replicate.*(422|rejected the request)|invalid[_ ]request/i.test(msg);
-      dispatch(
-        enqueueToast({
-          title: t('generation.failed'),
-          message: isProviderError ? t('generation.noProviderHint') : msg,
-          variant: 'error',
-          ...(isProviderSettingsError && {
-            actionLabel: t('generation.openProviders'),
-            onAction: () => {
-              window.location.hash = '#/settings';
-            },
-          }),
-        }),
-      );
-    }
+    dispatch(
+      requestDurableMediaTask({
+        canvasId: activeCanvasId,
+        nodeId: selectedNode.id,
+        providerId: activeProviderId ?? null,
+        variantCount: activeVariantCount,
+        seed: seedRequest.requestSeed,
+      }),
+    );
   }, [
     activeCanvasId,
-    activeProviderConfig,
     activeProviderId,
     activeSeed,
     activeSeedLocked,
     activeVariantCount,
     dispatch,
     selectedNode.id,
-    t,
   ]);
 
   const handleCancelGeneration = useCallback(async () => {
     if (!activeCanvasId) return;
-    const api = getAPI();
-    if (!api?.canvasGeneration) return;
-    await api.canvasGeneration.cancel(activeCanvasId, selectedNode.id);
-  }, [activeCanvasId, selectedNode.id]);
+    dispatch(requestDurableMediaCancellation({ canvasId: activeCanvasId, nodeId: selectedNode.id }));
+  }, [activeCanvasId, dispatch, selectedNode.id]);
 
   const handleSelectVariant = useCallback(
     (index: number) => {
@@ -614,14 +526,6 @@ export function InspectorGenerationState({
     (enabled: boolean) => {
       if (selectedNode.type !== 'video') return;
       dispatch(setNodeAudio({ id: selectedNode.id, audio: enabled }));
-    },
-    [dispatch, selectedNode.id, selectedNode.type],
-  );
-
-  const handleLipSyncChange = useCallback(
-    (enabled: boolean) => {
-      if (selectedNode.type !== 'video') return;
-      dispatch(setNodeLipSync({ nodeId: selectedNode.id, enabled }));
     },
     [dispatch, selectedNode.id, selectedNode.type],
   );
@@ -659,16 +563,42 @@ export function InspectorGenerationState({
     [dispatch, selectedNode.id, selectedNode.type],
   );
 
+  const reportAssetImportFailure = useCallback(
+    (error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      dispatch(
+        addLog({
+          level: 'error',
+          category: 'asset',
+          message: t('toast.error.operationFailed'),
+          detail: message,
+        }),
+      );
+      dispatch(
+        enqueueToast({
+          variant: 'error',
+          title: t('toast.error.operationFailed'),
+          message,
+        }),
+      );
+    },
+    [dispatch, t],
+  );
+
   const handleUploadVideoFrame = useCallback(
     async (role: 'first' | 'last') => {
       if (selectedNode.type !== 'video') return;
       const api = getAPI();
       if (!api) return;
-      const ref = (await api.asset.pickFile('image')) as { hash: string } | null;
-      if (!ref) return;
-      dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash: ref.hash }));
+      try {
+        const ref = await api.assetEntry.pickFile('image');
+        if (!ref) return;
+        dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash: ref.hash }));
+      } catch (error) {
+        reportAssetImportFailure(error);
+      }
     },
-    [dispatch, selectedNode.id, selectedNode.type],
+    [dispatch, reportAssetImportFailure, selectedNode.id, selectedNode.type],
   );
 
   const handleDropFileVideoFrame = useCallback(
@@ -676,16 +606,18 @@ export function InspectorGenerationState({
       if (selectedNode.type !== 'video') return;
       const api = getAPI();
       if (!api) return;
-      const filePath = (file as { path?: string }).path ?? '';
-      const ref = filePath
-        ? ((await api.asset.import(filePath, 'image')) as { hash: string } | null)
-        : ((await api.asset.importBuffer(await file.arrayBuffer(), file.name, 'image')) as {
-            hash: string;
-          } | null);
-      if (!ref?.hash) return;
-      dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash: ref.hash }));
+      try {
+        const filePath = (file as { path?: string }).path ?? '';
+        const ref = filePath
+          ? await api.assetEntry.import(filePath, 'image')
+          : await api.assetEntry.importBuffer(await file.arrayBuffer(), file.name, 'image');
+        if (!ref?.hash) return;
+        dispatch(setVideoFrameAsset({ id: selectedNode.id, role, assetHash: ref.hash }));
+      } catch (error) {
+        reportAssetImportFailure(error);
+      }
     },
-    [dispatch, selectedNode.id, selectedNode.type],
+    [dispatch, reportAssetImportFailure, selectedNode.id, selectedNode.type],
   );
 
   const handleClearVideoFrame = useCallback(
@@ -700,10 +632,14 @@ export function InspectorGenerationState({
     if (selectedNode.type !== 'image' && selectedNode.type !== 'video') return;
     const api = getAPI();
     if (!api) return;
-    const ref = (await api.asset.pickFile(selectedNode.type)) as { hash: string } | null;
-    if (!ref) return;
-    dispatch(setNodeUploadedAsset({ id: selectedNode.id, assetHash: ref.hash }));
-  }, [dispatch, selectedNode.id, selectedNode.type]);
+    try {
+      const ref = await api.assetEntry.pickFile(selectedNode.type);
+      if (!ref) return;
+      dispatch(setNodeUploadedAsset({ id: selectedNode.id, assetHash: ref.hash }));
+    } catch (error) {
+      reportAssetImportFailure(error);
+    }
+  }, [dispatch, reportAssetImportFailure, selectedNode.id, selectedNode.type]);
 
   const handleClearUploadedAsset = useCallback(() => {
     if (selectedNode.type !== 'image' && selectedNode.type !== 'video') return;
@@ -752,11 +688,6 @@ export function InspectorGenerationState({
       onVariantCountChange={handleVariantCountChange}
       isGenerating={generationData.status === 'generating'}
       hasVariants={activeVariants.length > 0}
-      estimatedCost={
-        typeof generationData.estimatedCost === 'number'
-          ? `${t('inspector.estimated')}: ${new Intl.NumberFormat(getLocale(), { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(generationData.estimatedCost)}`
-          : undefined
-      }
       onGenerate={handleGenerate}
       onCancel={handleCancelGeneration}
       seedValue={activeSeed}
@@ -810,6 +741,7 @@ export function InspectorGenerationState({
       onHeightChange={visualGenerationNode ? handleResolutionHeightChange : undefined}
       durationOptions={selectedNode.type === 'video' ? DURATION_PRESETS : undefined}
       durationValue={selectedNode.type === 'video' ? durationControlValue : undefined}
+      customDurationValue={CUSTOM_DURATION_VALUE}
       onDurationChange={selectedNode.type === 'video' ? handleDurationSelectChange : undefined}
       durationInputValue={activeDuration}
       onDurationInputChange={selectedNode.type === 'video' ? handleDurationInputChange : undefined}
@@ -831,14 +763,6 @@ export function InspectorGenerationState({
           ? t('node.audioUnsupported')
           : undefined
       }
-      showLipSyncToggle={selectedNode.type === 'video'}
-      lipSyncEnabled={
-        selectedNode.type === 'video'
-          ? ((selectedNode.data as VideoNodeData).lipSyncEnabled ?? false)
-          : false
-      }
-      onLipSyncChange={handleLipSyncChange}
-      lipSyncLabel={t('inspector.lipSync.enable')}
       qualityOptions={((activeVideoProviderMetadata?.qualityTiers?.length ?? 0) > 0
         ? activeVideoProviderMetadata?.qualityTiers
         : ['standard']

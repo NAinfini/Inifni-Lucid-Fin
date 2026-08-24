@@ -1,71 +1,50 @@
-/**
- * Commander Redux slice — Batch 2 (legacy reducer removal).
- *
- * After Batch 2:
- * - 8 dead stream reducers deleted (`appendStreamChunk`, `addToolCall`,
- *   `updateToolCallArguments`, `resolveToolCall`, `appendThinking`,
- *   `collapseThinking`, `pushStepMarker`, `pushPhaseNote`) — the timeline
- *   slice is the single source of truth for live run events.
- * - 3 transient state fields deleted (`currentStreamContent`,
- *   `currentToolCalls`, `currentSegments`) — selector derives from the
- *   timeline on the fly.
- * - `finalizeCurrentRunMessage` helper deleted — finalized messages are
- *   built by `buildFinalizedAssistantMessage` (run-derivation.ts) and
- *   appended via `appendFinalizedAssistantMessage` / upserted via
- *   `upsertFinalizedAssistantMessage`.
- * - `finishStreaming()` is payloadless.
- * - `streamError` still pushes a failed CommanderMessage (D4) but only
- *   from `start()`'s pre-run_end exception catch.
- * - `state.commander.finalizedRunIds: string[]` dedup set guards against
- *   local-cancel + late-backend-run_end producing duplicate messages.
- */
-
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import type { CommanderRunIntent, RunResourceBudget, TimelineEvent } from '@lucid-fin/contracts';
 
 import {
   COMMANDER_PROVIDER_KEY,
   DEFAULT_AUTO_SAVE_DELAY_MS,
+  DEFAULT_COMMANDER_PANEL_HEIGHT,
+  DEFAULT_COMMANDER_PANEL_WIDTH,
   DEFAULT_CLIPBOARD_MIN_LENGTH,
   DEFAULT_CLIPBOARD_WATCH_INTERVAL_MS,
+  DEFAULT_CONTEXT_WINDOW_TOKENS,
   DEFAULT_GENERATION_CONCURRENCY,
-  DEFAULT_LLM_RETRIES,
   DEFAULT_MAX_LOG_ENTRIES,
   DEFAULT_MAX_MESSAGES_PER_SESSION,
+  DEFAULT_MAX_OUTPUT_TOKENS,
   DEFAULT_MAX_SESSIONS,
-  DEFAULT_MAX_STEPS,
-  DEFAULT_MAX_TOKENS,
   DEFAULT_QUALITY_GATE_BEHAVIOR,
   DEFAULT_REQUIRE_STYLE_PLATE_BEFORE_REF_IMAGE,
   DEFAULT_TEMPERATURE,
   DEFAULT_UNDO_GROUP_WINDOW_MS,
   DEFAULT_UNDO_STACK_DEPTH,
+  MAX_COMMANDER_CONTEXT_TOKENS,
+  MAX_COMMANDER_OUTPUT_TOKENS,
   MAX_SESSIONS,
   buildRunSummary,
+  createCommanderSession,
+  createCommanderSessionRuntime,
   createMessageId,
-  deriveSessionTitle,
-  formatQuestionTranscript,
-  hasUserMessage,
   idlePhase,
   isActivePhase,
   loadPersistedProviderId,
   loadPersistedSessions,
   loadPersistedSettings,
-  persistCurrentSession,
+  persistSession,
   persistSessions,
   persistSettingsFromState,
   phaseFromEvent,
   resetTransientRunState,
   writePersistedProviderId,
 } from '../../commander/state/index.js';
-import type { TimelineEvent } from '@lucid-fin/contracts';
 import type { RunPhase } from '../../commander/state/run-phase.js';
 import type {
   CommanderBackendContextUsage,
   CommanderMessage,
   CommanderSession,
+  CommanderSessionRuntime,
   CommanderState,
-  PendingConfirmation,
-  PendingQuestion,
   PermissionMode,
 } from '../../commander/state/types.js';
 
@@ -78,6 +57,7 @@ export type {
   CommanderRunStatus,
   CommanderRunSummary,
   CommanderSession,
+  CommanderSessionRuntime,
   CommanderState,
   CommanderToolCall,
   MessageSegment,
@@ -87,27 +67,32 @@ export type {
 } from '../../commander/state/types.js';
 export type { RunPhase } from '../../commander/state/run-phase.js';
 
+export type DurableMediaTaskRequest = {
+  canvasId: string;
+  nodeId: string;
+  providerId: string | null;
+  variantCount: number;
+  seed: number;
+};
+
+export type DurableMediaCancellationRequest = Pick<DurableMediaTaskRequest, 'canvasId' | 'nodeId'>;
+
 const persistedSettings = loadPersistedSettings();
 
 const initialState: CommanderState = {
   open: false,
   minimized: false,
+  activityFocus: null,
   providerId: loadPersistedProviderId(),
-  activeCanvasId: null,
   activeSessionId: null,
   sessions: loadPersistedSessions(),
-  messages: [],
-  phase: idlePhase,
-  currentRunStartedAt: null,
-  error: null,
-  finalizedRunIds: [],
   position: { x: 24, y: 96 },
-  size: { width: 400, height: 500 },
+  size: { width: DEFAULT_COMMANDER_PANEL_WIDTH, height: DEFAULT_COMMANDER_PANEL_HEIGHT },
   permissionMode: persistedSettings.permissionMode ?? 'normal',
-  maxSteps: persistedSettings.maxSteps ?? DEFAULT_MAX_STEPS,
+  resourceBudget: normalizeRunResourceBudget(persistedSettings.resourceBudget),
   temperature: persistedSettings.temperature ?? DEFAULT_TEMPERATURE,
-  maxTokens: persistedSettings.maxTokens ?? DEFAULT_MAX_TOKENS,
-  llmRetries: persistedSettings.llmRetries ?? DEFAULT_LLM_RETRIES,
+  contextWindowTokens: normalizeContextWindowTokens(persistedSettings.contextWindowTokens),
+  maxOutputTokens: normalizeMaxOutputTokens(persistedSettings.maxOutputTokens),
   maxSessions: persistedSettings.maxSessions ?? DEFAULT_MAX_SESSIONS,
   maxMessagesPerSession:
     persistedSettings.maxMessagesPerSession ?? DEFAULT_MAX_MESSAGES_PER_SESSION,
@@ -123,27 +108,39 @@ const initialState: CommanderState = {
   requireStylePlateBeforeRefImage:
     persistedSettings.requireStylePlateBeforeRefImage ??
     DEFAULT_REQUIRE_STYLE_PLATE_BEFORE_REF_IMAGE,
-  pendingConfirmation: null,
-  pendingQuestion: null,
-  confirmAutoMode: 'none',
-  consecutiveConfirmCount: 0,
-  messageQueue: [],
-  pendingInjectedMessages: [],
-  backendContextUsage: null,
 };
 
-/** Commit queued injected user messages to the message list. Shared by
- *  finishStreaming / streamError paths so both preserve ordering. */
-function commitPendingInjectedMessages(state: CommanderState): void {
-  for (const msg of state.pendingInjectedMessages) {
-    state.messages.push({
+const MESSAGE_QUEUE_COMPACTION_MIN_CURSOR = 128;
+
+function findSession(state: CommanderState, sessionId: string): CommanderSession | undefined {
+  return state.sessions.find((session) => session.id === sessionId);
+}
+
+function compactMessageQueue(runtime: CommanderSessionRuntime): void {
+  const { messageQueue, messageQueueCursor } = runtime;
+  if (
+    messageQueueCursor === 0 ||
+    (messageQueueCursor < messageQueue.length &&
+      (messageQueueCursor < MESSAGE_QUEUE_COMPACTION_MIN_CURSOR ||
+        messageQueueCursor * 2 < messageQueue.length))
+  ) {
+    return;
+  }
+  runtime.messageQueue = messageQueue.slice(messageQueueCursor);
+  runtime.messageQueueFirstIndex += messageQueueCursor;
+  runtime.messageQueueCursor = 0;
+}
+
+function commitPendingInjectedMessages(session: CommanderSession): void {
+  for (const content of session.runtime.pendingInjectedMessages) {
+    session.messages.push({
       id: createMessageId('user'),
       role: 'user',
-      content: msg,
+      content,
       timestamp: Date.now(),
     });
   }
-  state.pendingInjectedMessages = [];
+  session.runtime.pendingInjectedMessages = [];
 }
 
 function finiteNumber(value: number): number | null {
@@ -156,22 +153,89 @@ function wholeNumberAtLeast(value: number, min: number): number | null {
   return Math.max(min, rounded);
 }
 
+function normalizeContextWindowTokens(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_CONTEXT_WINDOW_TOKENS;
+  }
+  return Math.min(MAX_COMMANDER_CONTEXT_TOKENS, Math.max(1, Math.round(value)));
+}
+
+function normalizeMaxOutputTokens(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_MAX_OUTPUT_TOKENS;
+  return Math.min(MAX_COMMANDER_OUTPUT_TOKENS, Math.max(1, Math.round(value)));
+}
+
+function normalizeRunResourceBudget(value: unknown): RunResourceBudget {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const candidate = value as Partial<RunResourceBudget>;
+  const budget: RunResourceBudget = {};
+  const integerFields = ['maxTokens', 'maxToolCalls', 'maxWallTimeMs'] as const;
+  for (const field of integerFields) {
+    const fieldValue = candidate[field];
+    if (
+      typeof fieldValue === 'number' &&
+      Number.isSafeInteger(fieldValue) &&
+      fieldValue >= 0
+    ) {
+      budget[field] = fieldValue;
+    }
+  }
+  if (
+    typeof candidate.maxCostUsd === 'number' &&
+    Number.isFinite(candidate.maxCostUsd) &&
+    candidate.maxCostUsd >= 0
+  ) {
+    budget.maxCostUsd = candidate.maxCostUsd;
+  }
+  return budget;
+}
+
+function retainRecentSessions(
+  sessions: CommanderSession[],
+  activeSessionId: string | null,
+): CommanderSession[] {
+  const protectedSessionIds = new Set(
+    sessions
+      .filter((session) => session.id === activeSessionId || isActivePhase(session.runtime.phase))
+      .map((session) => session.id),
+  );
+  const inactiveLimit = Math.max(0, MAX_SESSIONS - protectedSessionIds.size);
+  let retainedInactive = 0;
+
+  return sessions.filter((session) => {
+    if (protectedSessionIds.has(session.id)) return true;
+    if (retainedInactive >= inactiveLimit) return false;
+    retainedInactive += 1;
+    return true;
+  });
+}
+
+function addSession(state: CommanderState, session: CommanderSession, select: boolean): void {
+  state.sessions.unshift(session);
+  if (select) state.activeSessionId = session.id;
+  state.sessions = retainRecentSessions(state.sessions, state.activeSessionId);
+  persistSessions(state.sessions);
+}
+
 export const commanderSlice = createSlice({
   name: 'commander',
   initialState,
   reducers: {
     toggleCommander(state) {
-      if (!state.open) {
-        state.open = true;
-        state.minimized = false;
-        return;
-      }
-      state.open = false;
+      state.open = !state.open;
       state.minimized = false;
     },
     setCommanderOpen(state, action: PayloadAction<boolean>) {
       state.open = action.payload;
       state.minimized = false;
+    },
+    focusAgentActivity(state, action: PayloadAction<{ sessionId: string; runId: string }>) {
+      state.activityFocus = action.payload;
+      state.open = true;
+      state.minimized = false;
+    },
+    clearAgentActivityFocus(state) {
+      state.activityFocus = null;
     },
     minimizeCommander(state) {
       if (state.open) state.minimized = true;
@@ -180,100 +244,131 @@ export const commanderSlice = createSlice({
       state.providerId = action.payload;
       writePersistedProviderId(action.payload);
     },
-    ensureActiveSession(state, action: PayloadAction<string>) {
-      if (!state.activeSessionId) {
-        state.activeSessionId = action.payload;
+    ensureSession(state, action: PayloadAction<{ id: string; defaultCanvasId: string | null }>) {
+      if (!findSession(state, action.payload.id)) {
+        addSession(
+          state,
+          createCommanderSession(action.payload.id, action.payload.defaultCanvasId),
+          false,
+        );
       }
     },
-    addUserMessage(state, action: PayloadAction<string>) {
-      state.messages.push({
+    ensureActiveSession(
+      state,
+      action: PayloadAction<{ id: string; defaultCanvasId: string | null }>,
+    ) {
+      if (!findSession(state, action.payload.id)) {
+        addSession(
+          state,
+          createCommanderSession(action.payload.id, action.payload.defaultCanvasId),
+          true,
+        );
+      } else {
+        state.activeSessionId = action.payload.id;
+      }
+    },
+    newSession: {
+      reducer(
+        state,
+        action: PayloadAction<{ id: string; defaultCanvasId: string | null; createdAt: number }>,
+      ) {
+        addSession(
+          state,
+          createCommanderSession(
+            action.payload.id,
+            action.payload.defaultCanvasId,
+            action.payload.createdAt,
+          ),
+          true,
+        );
+        state.open = true;
+        state.minimized = false;
+      },
+      prepare(defaultCanvasId: string | null = null) {
+        return {
+          payload: { id: crypto.randomUUID(), defaultCanvasId, createdAt: Date.now() },
+        };
+      },
+    },
+    addUserMessage(state, action: PayloadAction<{ sessionId: string; content: string }>) {
+      const session = findSession(state, action.payload.sessionId);
+      if (!session) return;
+      session.messages.push({
         id: createMessageId('user'),
         role: 'user',
-        content: action.payload,
+        content: action.payload.content,
         timestamp: Date.now(),
       });
-      state.error = null;
+      session.runtime.error = null;
       state.open = true;
       state.minimized = false;
+      persistSession(state, session.id);
     },
-    /** Queue a user message sent during streaming — shown below live AI, committed on finishStreaming. */
-    addInjectedMessage(state, action: PayloadAction<string>) {
-      state.pendingInjectedMessages.push(action.payload);
+    addInjectedMessage(state, action: PayloadAction<{ sessionId: string; content: string }>) {
+      const session = findSession(state, action.payload.sessionId);
+      if (!session) return;
+      session.runtime.pendingInjectedMessages.push(action.payload.content);
+      persistSession(state, session.id);
     },
-    startStreaming(state) {
-      state.phase = { kind: 'awaiting_model', step: 0, since: Date.now() };
-      state.currentRunStartedAt = Date.now();
-      state.error = null;
+    startStreaming(state, action: PayloadAction<string>) {
+      const session = findSession(state, action.payload);
+      if (!session) return;
+      const now = Date.now();
+      session.runtime.phase = { kind: 'awaiting_model', step: 0, since: now };
+      session.runtime.currentRunStartedAt = now;
+      session.runtime.error = null;
       state.open = true;
       state.minimized = false;
+      persistSession(state, session.id);
     },
-    /**
-     * Advance the RunPhase state machine by one TimelineEvent. Called by
-     * the service after it pushes the event into `commanderTimeline` so
-     * `state.phase` stays in sync with the v2 event stream.
-     */
-    updateRunPhase(state, action: PayloadAction<TimelineEvent>) {
-      state.phase = phaseFromEvent(state.phase, action.payload);
+    updateRunPhase(state, action: PayloadAction<{ sessionId: string; event: TimelineEvent }>) {
+      const session = findSession(state, action.payload.sessionId);
+      if (!session) return;
+      session.runtime.phase = phaseFromEvent(session.runtime.phase, action.payload.event);
     },
-    /**
-     * D2/D2b — normal-path finalize. No-op when runId is already in
-     * `finalizedRunIds` (late-run_end-after-local-cancel race handled by
-     * `upsertFinalizedAssistantMessage` instead).
-     */
     appendFinalizedAssistantMessage(
       state,
-      action: PayloadAction<{ message: CommanderMessage; runId: string }>,
+      action: PayloadAction<{ sessionId: string; message: CommanderMessage; runId: string }>,
     ) {
-      const { message, runId } = action.payload;
-      if (state.finalizedRunIds.includes(runId)) return;
-      state.messages.push(message);
-      state.finalizedRunIds.push(runId);
-      persistCurrentSession(state);
+      const session = findSession(state, action.payload.sessionId);
+      if (!session || session.runtime.finalizedRunIds.includes(action.payload.runId)) return;
+      session.messages.push(action.payload.message);
+      session.runtime.finalizedRunIds.push(action.payload.runId);
+      persistSession(state, session.id);
     },
-    /**
-     * D2b — late-run_end-after-cancel merge. Always dispatched by the
-     * service's `run_end` side-effect when the runId is already in
-     * `finalizedRunIds`. Replaces the message in place (preserving the
-     * list position) so the backend's richer `exitDecision` / `summary`
-     * wins while the user sees no flicker.
-     */
     upsertFinalizedAssistantMessage(
       state,
-      action: PayloadAction<{ message: CommanderMessage; runId: string }>,
+      action: PayloadAction<{ sessionId: string; message: CommanderMessage; runId: string }>,
     ) {
-      const { message, runId } = action.payload;
-      const idx = state.messages.findIndex((m) => m.id === message.id);
-      if (idx >= 0) {
-        state.messages[idx] = message;
-      } else {
-        state.messages.push(message);
+      const session = findSession(state, action.payload.sessionId);
+      if (!session) return;
+      const index = session.messages.findIndex(
+        (message) => message.id === action.payload.message.id,
+      );
+      if (index >= 0) session.messages[index] = action.payload.message;
+      else session.messages.push(action.payload.message);
+      if (!session.runtime.finalizedRunIds.includes(action.payload.runId)) {
+        session.runtime.finalizedRunIds.push(action.payload.runId);
       }
-      if (!state.finalizedRunIds.includes(runId)) {
-        state.finalizedRunIds.push(runId);
-      }
-      persistCurrentSession(state);
+      persistSession(state, session.id);
     },
-    finishStreaming(state) {
-      commitPendingInjectedMessages(state);
-      resetTransientRunState(state);
-      persistCurrentSession(state);
+    finishStreaming(state, action: PayloadAction<string>) {
+      const session = findSession(state, action.payload);
+      if (!session) return;
+      commitPendingInjectedMessages(session);
+      resetTransientRunState(session.runtime);
+      persistSession(state, session.id);
     },
-    /**
-     * Pre-run_end error path (D4). Pushes a minimal failed assistant
-     * message — no segments, no toolCalls — since no timeline events
-     * existed when this error fired. The run_end.failed path does NOT
-     * dispatch this reducer; it uses `appendFinalizedAssistantMessage`
-     * with a derived message.
-     */
-    streamError(state, action: PayloadAction<string>) {
-      const errorMsg = action.payload;
-      state.error = errorMsg;
+    streamError(state, action: PayloadAction<{ sessionId: string; error: string }>) {
+      const session = findSession(state, action.payload.sessionId);
+      if (!session) return;
       const completedAt = Date.now();
-      const startedAt = state.currentRunStartedAt ?? completedAt;
-      state.messages.push({
+      const startedAt = session.runtime.currentRunStartedAt ?? completedAt;
+      session.runtime.error = action.payload.error;
+      session.messages.push({
         id: createMessageId('assistant'),
         role: 'assistant',
-        content: errorMsg,
+        content: action.payload.error,
         runMeta: {
           status: 'failed',
           collapsed: true,
@@ -281,100 +376,79 @@ export const commanderSlice = createSlice({
           completedAt,
           summary: buildRunSummary(
             'failed',
-            errorMsg,
+            action.payload.error,
             undefined,
             [],
             startedAt,
             completedAt,
-            errorMsg,
+            action.payload.error,
           ),
         },
         timestamp: completedAt,
       });
-      commitPendingInjectedMessages(state);
-      resetTransientRunState(state);
-      persistCurrentSession(state);
+      commitPendingInjectedMessages(session);
+      resetTransientRunState(session.runtime);
+      persistSession(state, session.id);
     },
-    clearHistory(state) {
-      persistCurrentSession(state);
-      state.activeSessionId = null;
-      state.messages = [];
-      state.currentRunStartedAt = null;
-      state.error = null;
-      state.finalizedRunIds = [];
-      state.phase = idlePhase;
-      state.pendingConfirmation = null;
-      state.pendingQuestion = null;
-      state.confirmAutoMode = 'none';
-      state.consecutiveConfirmCount = 0;
-      state.pendingInjectedMessages = [];
-      state.backendContextUsage = null;
+    clearHistory(state, action: PayloadAction<string>) {
+      const session = findSession(state, action.payload);
+      if (!session) return;
+      session.messages = [];
+      session.runtime = createCommanderSessionRuntime();
+      session.title = 'New session';
+      persistSession(state, session.id);
     },
-    /** Start a new session (save current first) */
-    newSession(state) {
-      persistCurrentSession(state);
-      state.activeSessionId = null;
-      state.messages = [];
-      state.currentRunStartedAt = null;
-      state.error = null;
-      state.finalizedRunIds = [];
-      state.phase = idlePhase;
-      state.pendingConfirmation = null;
-      state.pendingQuestion = null;
-      state.confirmAutoMode = 'none';
-      state.consecutiveConfirmCount = 0;
-      state.pendingInjectedMessages = [];
-      state.backendContextUsage = null;
-    },
-    /** Load a previous session. Pass hydratedMessages if fetched from DB. */
     loadSession(
       state,
       action: PayloadAction<{ id: string; hydratedMessages?: CommanderMessage[] }>,
     ) {
-      const { id, hydratedMessages } =
-        typeof action.payload === 'string'
-          ? { id: action.payload, hydratedMessages: undefined }
-          : action.payload;
-      if (hasUserMessage(state.messages) && state.activeSessionId) {
-        const existing = state.sessions.findIndex((s) => s.id === state.activeSessionId);
-        if (existing >= 0) {
-          state.sessions[existing].messages = state.messages;
-          state.sessions[existing].updatedAt = Date.now();
-          persistSessions(state.sessions);
-        }
-      }
-      const session = state.sessions.find((s) => s.id === id);
+      const session = findSession(state, action.payload.id);
       if (!session) return;
-      if (hydratedMessages && session.messages.length === 0) {
-        session.messages = hydratedMessages;
+      if (action.payload.hydratedMessages && session.messages.length === 0) {
+        session.messages = action.payload.hydratedMessages;
+        session.messageCount = action.payload.hydratedMessages.length;
       }
       state.activeSessionId = session.id;
-      state.activeCanvasId = session.canvasId;
-      state.messages = session.messages;
-      state.currentRunStartedAt = null;
-      state.error = null;
-      state.finalizedRunIds = [];
-      state.phase = idlePhase;
-      state.pendingConfirmation = null;
-      state.pendingQuestion = null;
-      state.confirmAutoMode = 'none';
-      state.consecutiveConfirmCount = 0;
+      if (state.activityFocus?.sessionId !== session.id) state.activityFocus = null;
+      state.open = true;
+      state.minimized = false;
     },
-    /** Delete a saved session */
+    hydrateSessionMessages(
+      state,
+      action: PayloadAction<{ id: string; messages: CommanderMessage[] }>,
+    ) {
+      const session = findSession(state, action.payload.id);
+      if (!session || session.messages.length === session.messageCount) return;
+      session.messages = action.payload.messages;
+      session.messageCount = action.payload.messages.length;
+    },
     deleteSession(state, action: PayloadAction<string>) {
-      state.sessions = state.sessions.filter((s) => s.id !== action.payload);
+      state.sessions = state.sessions.filter((session) => session.id !== action.payload);
+      if (state.activeSessionId === action.payload) state.activeSessionId = null;
+      if (state.activityFocus?.sessionId === action.payload) state.activityFocus = null;
       persistSessions(state.sessions);
-      if (state.activeSessionId === action.payload) {
-        state.activeSessionId = null;
-        state.messages = [];
-      }
     },
-    /** Rename a saved session */
     renameSession(state, action: PayloadAction<{ id: string; title: string }>) {
-      const session = state.sessions.find((s) => s.id === action.payload.id);
+      const session = findSession(state, action.payload.id);
       if (!session) return;
       session.title = action.payload.title;
       session.updatedAt = Date.now();
+      persistSessions(state.sessions);
+    },
+    moveSession(state, action: PayloadAction<{ id: string; defaultCanvasId: string | null }>) {
+      const session = findSession(state, action.payload.id);
+      if (!session) return;
+      session.defaultCanvasId = action.payload.defaultCanvasId;
+      session.updatedAt = Date.now();
+      persistSessions(state.sessions);
+    },
+    unassignSessionsFromCanvas(state, action: PayloadAction<string>) {
+      const now = Date.now();
+      for (const session of state.sessions) {
+        if (session.defaultCanvasId !== action.payload) continue;
+        session.defaultCanvasId = null;
+        session.updatedAt = now;
+      }
       persistSessions(state.sessions);
     },
     setPosition(state, action: PayloadAction<{ x: number; y: number }>) {
@@ -387,10 +461,8 @@ export const commanderSlice = createSlice({
       state.permissionMode = action.payload;
       persistSettingsFromState(state);
     },
-    setMaxSteps(state, action: PayloadAction<number>) {
-      const next = wholeNumberAtLeast(action.payload, 1);
-      if (next === null) return;
-      state.maxSteps = next;
+    setRunResourceBudget(state, action: PayloadAction<RunResourceBudget>) {
+      state.resourceBudget = normalizeRunResourceBudget(action.payload);
       persistSettingsFromState(state);
     },
     setTemperature(state, action: PayloadAction<number>) {
@@ -399,10 +471,16 @@ export const commanderSlice = createSlice({
       state.temperature = Math.max(0, next);
       persistSettingsFromState(state);
     },
-    setMaxTokens(state, action: PayloadAction<number>) {
+    setContextWindowTokens(state, action: PayloadAction<number>) {
       const next = wholeNumberAtLeast(action.payload, 1);
       if (next === null) return;
-      state.maxTokens = next;
+      state.contextWindowTokens = normalizeContextWindowTokens(next);
+      persistSettingsFromState(state);
+    },
+    setMaxOutputTokens(state, action: PayloadAction<number>) {
+      const next = wholeNumberAtLeast(action.payload, 1);
+      if (next === null) return;
+      state.maxOutputTokens = normalizeMaxOutputTokens(next);
       persistSettingsFromState(state);
     },
     setAutoSaveDelayMs(state, action: PayloadAction<number>) {
@@ -443,12 +521,6 @@ export const commanderSlice = createSlice({
       state.requireStylePlateBeforeRefImage = action.payload;
       persistSettingsFromState(state);
     },
-    setLlmRetries(state, action: PayloadAction<number>) {
-      const next = wholeNumberAtLeast(action.payload, 0);
-      if (next === null) return;
-      state.llmRetries = next;
-      persistSettingsFromState(state);
-    },
     setMaxSessions(state, action: PayloadAction<number>) {
       const next = wholeNumberAtLeast(action.payload, 1);
       if (next === null) return;
@@ -473,186 +545,174 @@ export const commanderSlice = createSlice({
       state.maxLogEntries = next;
       persistSettingsFromState(state);
     },
-    setPendingConfirmation(state, action: PayloadAction<PendingConfirmation>) {
-      state.pendingConfirmation = action.payload;
+    setConfirmAutoMode(
+      state,
+      action: PayloadAction<{
+        sessionId: string;
+        mode: CommanderSessionRuntime['confirmAutoMode'];
+      }>,
+    ) {
+      const session = findSession(state, action.payload.sessionId);
+      if (!session) return;
+      session.runtime.confirmAutoMode = action.payload.mode;
+      if (action.payload.mode === 'none') session.runtime.consecutiveConfirmCount = 0;
     },
-    clearPendingConfirmation(state) {
-      state.pendingConfirmation = null;
-      state.consecutiveConfirmCount++;
+    recordConfirmationResolved(state, action: PayloadAction<string>) {
+      const session = findSession(state, action.payload);
+      if (session) session.runtime.consecutiveConfirmCount += 1;
     },
-    setConfirmAutoMode(state, action: PayloadAction<'none' | 'approve' | 'skip'>) {
-      state.confirmAutoMode = action.payload;
-      if (action.payload === 'none') {
-        state.consecutiveConfirmCount = 0;
+    setBackendContextUsage(
+      state,
+      action: PayloadAction<{ sessionId: string; usage: CommanderBackendContextUsage | null }>,
+    ) {
+      const session = findSession(state, action.payload.sessionId);
+      if (session) session.runtime.backendContextUsage = action.payload.usage;
+    },
+    requestDurableMediaTask(_state, _action: PayloadAction<DurableMediaTaskRequest>) {},
+    requestDurableMediaCancellation(
+      _state,
+      _action: PayloadAction<DurableMediaCancellationRequest>,
+    ) {},
+    enqueueMessage(
+      state,
+      action: PayloadAction<{ sessionId: string; content: string; extraCanvasIds?: string[] }>,
+    ) {
+      const session = findSession(state, action.payload.sessionId);
+      if (!session) return;
+      session.runtime.messageQueue.push({
+        id: createMessageId('queue'),
+        content: action.payload.content,
+        extraCanvasIds: action.payload.extraCanvasIds,
+      });
+      persistSession(state, session.id);
+    },
+    enqueueMediaPromptIntent(
+      state,
+      action: PayloadAction<{
+        sessionId: string;
+        content: string;
+        intent: Extract<CommanderRunIntent, { kind: 'media_prompt_assembly' }>;
+        extraCanvasIds?: string[];
+      }>,
+    ) {
+      const session = findSession(state, action.payload.sessionId);
+      if (!session) return;
+      session.runtime.messageQueue.push({
+        id: createMessageId('queue'),
+        content: action.payload.content,
+        intent: action.payload.intent,
+        extraCanvasIds: action.payload.extraCanvasIds,
+      });
+      persistSession(state, session.id);
+    },
+    dequeueMessage(state, action: PayloadAction<string>) {
+      const session = findSession(state, action.payload);
+      if (!session || session.runtime.messageQueueCursor >= session.runtime.messageQueue.length) {
+        return;
       }
+      session.runtime.messageQueueCursor += 1;
+      compactMessageQueue(session.runtime);
+      persistSession(state, session.id);
     },
-    setBackendContextUsage(state, action: PayloadAction<CommanderBackendContextUsage | null>) {
-      state.backendContextUsage = action.payload;
+    removeQueuedMessage(state, action: PayloadAction<{ sessionId: string; index: number }>) {
+      const session = findSession(state, action.payload.sessionId);
+      if (!session) return;
+      const index = session.runtime.messageQueueCursor + action.payload.index;
+      if (
+        index < session.runtime.messageQueueCursor ||
+        index >= session.runtime.messageQueue.length
+      ) {
+        return;
+      }
+      session.runtime.messageQueue.splice(index, 1);
+      persistSession(state, session.id);
     },
-    setPendingQuestion(state, action: PayloadAction<PendingQuestion>) {
-      state.pendingQuestion = action.payload;
+    editQueuedMessage(
+      state,
+      action: PayloadAction<{ sessionId: string; index: number; content: string }>,
+    ) {
+      const session = findSession(state, action.payload.sessionId);
+      if (!session) return;
+      const item =
+        session.runtime.messageQueue[session.runtime.messageQueueCursor + action.payload.index];
+      if (item && !item.intent) item.content = action.payload.content;
+      persistSession(state, session.id);
     },
-    clearPendingQuestion(state) {
-      state.pendingQuestion = null;
+    clearQueue(state, action: PayloadAction<string>) {
+      const session = findSession(state, action.payload);
+      if (!session) return;
+      session.runtime.messageQueue = [];
+      session.runtime.messageQueueCursor = 0;
+      session.runtime.messageQueueFirstIndex = 0;
+      persistSession(state, session.id);
     },
-    resolveQuestion(state, action: PayloadAction<{ answer: string }>) {
-      if (!state.pendingQuestion) return;
-      const { question, options } = state.pendingQuestion;
-      state.messages.push({
-        id: createMessageId('assistant'),
-        role: 'assistant',
-        content: formatQuestionTranscript(question, options),
-        questionMeta: { question, options },
-        timestamp: Date.now(),
-      });
-      state.messages.push({
-        id: createMessageId('user'),
-        role: 'user',
-        content: action.payload.answer,
-        timestamp: Date.now(),
-      });
-      state.pendingQuestion = null;
-    },
-    enqueueMessage(state, action: PayloadAction<string>) {
-      state.messageQueue.push({ id: createMessageId('queue'), content: action.payload });
-    },
-    dequeueMessage(state) {
-      state.messageQueue.shift();
-    },
-    removeQueuedMessage(state, action: PayloadAction<number>) {
-      state.messageQueue.splice(action.payload, 1);
-    },
-    editQueuedMessage(state, action: PayloadAction<{ index: number; content: string }>) {
-      const item = state.messageQueue[action.payload.index];
-      if (item) item.content = action.payload.content;
-    },
-    clearQueue(state) {
-      state.messageQueue = [];
-    },
-    addSystemNotice(state, action: PayloadAction<string>) {
-      state.messages.push({
+    addSystemNotice(state, action: PayloadAction<{ sessionId: string; content: string }>) {
+      const session = findSession(state, action.payload.sessionId);
+      if (!session) return;
+      session.messages.push({
         id: createMessageId('system'),
         role: 'assistant',
-        content: action.payload,
+        content: action.payload.content,
         timestamp: Date.now(),
       });
+      persistSession(state, session.id);
     },
-    /**
-     * Kept for persisted-action compatibility. The Redux message list is the
-     * durable transcript, so context compaction must happen only in the
-     * backend model projection and must never rewrite this state.
-     */
-    compactLocalContext(_state) {
-      // Intentionally empty.
-    },
+    compactLocalContext() {},
     restore(_state, action: PayloadAction<CommanderState>) {
-      // Defensive destructure — old persisted payloads may include the
-      // three deleted transient fields; strip them before spread.
-      const {
-        currentStreamContent: _a,
-        currentToolCalls: _b,
-        currentSegments: _c,
-        ...rest
-      } = action.payload as CommanderState & {
-        currentStreamContent?: unknown;
-        currentToolCalls?: unknown;
-        currentSegments?: unknown;
-      };
-      void _a;
-      void _b;
-      void _c;
+      const sessions = action.payload.sessions.map((session) => ({
+        ...session,
+        messageCount:
+          typeof session.messageCount === 'number' ? session.messageCount : session.messages.length,
+        defaultCanvasId:
+          typeof session.defaultCanvasId === 'string' ? session.defaultCanvasId : null,
+        runtime: { ...createCommanderSessionRuntime(), ...session.runtime },
+      }));
       return {
         ...initialState,
-        ...rest,
-        phase: idlePhase,
-        currentRunStartedAt: null,
-        error: null,
-        finalizedRunIds: [],
-        permissionMode: rest.permissionMode ?? 'normal',
-        maxSteps: rest.maxSteps ?? DEFAULT_MAX_STEPS,
-        temperature: rest.temperature ?? DEFAULT_TEMPERATURE,
-        maxTokens: rest.maxTokens ?? DEFAULT_MAX_TOKENS,
-        qualityGateBehavior: rest.qualityGateBehavior ?? DEFAULT_QUALITY_GATE_BEHAVIOR,
-        requireStylePlateBeforeRefImage:
-          rest.requireStylePlateBeforeRefImage ?? DEFAULT_REQUIRE_STYLE_PLATE_BEFORE_REF_IMAGE,
-        pendingConfirmation: null,
-        pendingQuestion: null,
-        confirmAutoMode: 'none',
-        consecutiveConfirmCount: 0,
-        messageQueue: [],
+        ...action.payload,
+        sessions,
+        activeSessionId: sessions.some((session) => session.id === action.payload.activeSessionId)
+          ? action.payload.activeSessionId
+          : null,
+        contextWindowTokens: normalizeContextWindowTokens(action.payload.contextWindowTokens),
+        maxOutputTokens: normalizeMaxOutputTokens(action.payload.maxOutputTokens),
       };
     },
-    /** Merge sessions loaded from SQLite into in-memory list. */
     loadSessionsFromDB(state, action: PayloadAction<CommanderSession[]>) {
-      const localMap = new Map(state.sessions.map((s) => [s.id, s]));
-      const dbMap = new Map(action.payload.map((s) => [s.id, s]));
+      const localMap = new Map(state.sessions.map((session) => [session.id, session]));
+      const dbMap = new Map(action.payload.map((session) => [session.id, session]));
       const merged: CommanderSession[] = [];
       for (const [id, dbSession] of dbMap) {
         const local = localMap.get(id);
-        if (local && local.messages.length > 0 && dbSession.messages.length === 0) {
-          merged.push({ ...dbSession, messages: local.messages });
-        } else {
-          merged.push(dbSession);
-        }
+        merged.push(
+          local
+            ? {
+                ...dbSession,
+                messages:
+                  local.updatedAt >= dbSession.updatedAt &&
+                  local.messages.length === local.messageCount &&
+                  local.messageCount >= dbSession.messageCount
+                    ? local.messages
+                    : dbSession.messages,
+                messageCount:
+                  local.updatedAt >= dbSession.updatedAt &&
+                  local.messages.length === local.messageCount &&
+                  local.messageCount >= dbSession.messageCount
+                    ? local.messageCount
+                    : dbSession.messageCount,
+                runtime: local.runtime,
+              }
+            : {
+                ...dbSession,
+                runtime: { ...createCommanderSessionRuntime(), ...dbSession.runtime },
+              },
+        );
       }
-      for (const s of state.sessions) {
-        if (!dbMap.has(s.id)) merged.push(s);
+      for (const session of state.sessions) {
+        if (!dbMap.has(session.id)) merged.push(session);
       }
       merged.sort((a, b) => b.updatedAt - a.updatedAt);
-      state.sessions = merged.slice(0, MAX_SESSIONS);
-    },
-    /** Called when the active canvas changes. Saves current session, resets state, and loads the most recent session for the new canvas (if any). */
-    switchCanvas(state, action: PayloadAction<string | null>) {
-      const newCanvasId = action.payload;
-      if (newCanvasId === state.activeCanvasId) return;
-
-      if (hasUserMessage(state.messages)) {
-        const now = Date.now();
-        const sessionId = state.activeSessionId ?? crypto.randomUUID();
-        const existing = state.sessions.findIndex((s) => s.id === sessionId);
-        const session: CommanderSession = {
-          id: sessionId,
-          canvasId: state.activeCanvasId,
-          title: deriveSessionTitle(state.messages),
-          messages: state.messages,
-          createdAt: existing >= 0 ? state.sessions[existing].createdAt : now,
-          updatedAt: now,
-        };
-        if (existing >= 0) {
-          state.sessions[existing] = session;
-        } else {
-          state.sessions.unshift(session);
-        }
-        if (state.sessions.length > MAX_SESSIONS) {
-          state.sessions = state.sessions.slice(0, MAX_SESSIONS);
-        }
-        persistSessions(state.sessions);
-      }
-
-      state.activeCanvasId = newCanvasId;
-
-      const canvasSession = newCanvasId
-        ? state.sessions.find((s) => s.canvasId === newCanvasId)
-        : undefined;
-
-      if (canvasSession) {
-        state.activeSessionId = canvasSession.id;
-        state.messages = canvasSession.messages;
-      } else {
-        state.activeSessionId = null;
-        state.messages = [];
-      }
-
-      state.currentRunStartedAt = null;
-      state.error = null;
-      state.finalizedRunIds = [];
-      state.phase = idlePhase;
-      state.pendingConfirmation = null;
-      state.pendingQuestion = null;
-      state.confirmAutoMode = 'none';
-      state.consecutiveConfirmCount = 0;
-      state.pendingInjectedMessages = [];
-      state.backendContextUsage = null;
+      state.sessions = retainRecentSessions(merged, state.activeSessionId);
     },
   },
 });
@@ -660,9 +720,13 @@ export const commanderSlice = createSlice({
 export const {
   toggleCommander,
   setCommanderOpen,
+  focusAgentActivity,
+  clearAgentActivityFocus,
   minimizeCommander,
   setProviderId,
+  ensureSession,
   ensureActiveSession,
+  newSession,
   addUserMessage,
   addInjectedMessage,
   startStreaming,
@@ -672,17 +736,19 @@ export const {
   finishStreaming,
   streamError,
   clearHistory,
-  newSession,
   loadSession,
+  hydrateSessionMessages,
   deleteSession,
   renameSession,
+  moveSession,
+  unassignSessionsFromCanvas,
   setPosition,
   setSize,
   setPermissionMode,
-  setMaxSteps,
+  setRunResourceBudget,
   setTemperature,
-  setMaxTokens,
-  setLlmRetries,
+  setContextWindowTokens,
+  setMaxOutputTokens,
   setMaxSessions,
   setMaxMessagesPerSession,
   setUndoStackDepth,
@@ -694,14 +760,13 @@ export const {
   setGenerationConcurrency,
   setQualityGateBehavior,
   setRequireStylePlateBeforeRefImage,
-  setPendingConfirmation,
-  clearPendingConfirmation,
   setConfirmAutoMode,
+  recordConfirmationResolved,
   setBackendContextUsage,
-  setPendingQuestion,
-  clearPendingQuestion,
-  resolveQuestion,
+  requestDurableMediaTask,
+  requestDurableMediaCancellation,
   enqueueMessage,
+  enqueueMediaPromptIntent,
   dequeueMessage,
   removeQueuedMessage,
   editQueuedMessage,
@@ -709,18 +774,53 @@ export const {
   addSystemNotice,
   compactLocalContext,
   loadSessionsFromDB,
-  switchCanvas,
 } = commanderSlice.actions;
 
 export { COMMANDER_PROVIDER_KEY };
 
-/**
- * Whether the Commander is in an active run. Replaces the old boolean
- * `state.commander.streaming` field — the phase machine is the source of
- * truth; every other "am I streaming" check derives from it.
- */
-export const selectIsStreaming = (state: { commander: { phase: RunPhase } }): boolean =>
-  isActivePhase(state.commander.phase);
+type CommanderRoot = { commander: CommanderState };
 
-export const selectPhase = (state: { commander: { phase: RunPhase } }): RunPhase =>
-  state.commander.phase;
+const EMPTY_MESSAGES: CommanderMessage[] = [];
+const EMPTY_QUEUE: CommanderSessionRuntime['messageQueue'] = [];
+const EMPTY_INJECTED: string[] = [];
+
+export const selectCommanderSessionById = (
+  state: CommanderRoot,
+  sessionId: string | null,
+): CommanderSession | null =>
+  sessionId ? (state.commander.sessions.find((session) => session.id === sessionId) ?? null) : null;
+
+export const selectActiveCommanderSession = (state: CommanderRoot): CommanderSession | null =>
+  selectCommanderSessionById(state, state.commander.activeSessionId);
+
+export const selectIsStreaming = (state: CommanderRoot): boolean =>
+  isActivePhase(selectActiveCommanderSession(state)?.runtime?.phase ?? idlePhase);
+
+export const selectPhase = (state: CommanderRoot): RunPhase =>
+  selectActiveCommanderSession(state)?.runtime?.phase ?? idlePhase;
+
+export const selectActiveMessages = (state: CommanderRoot): CommanderMessage[] =>
+  selectActiveCommanderSession(state)?.messages ?? EMPTY_MESSAGES;
+
+export const selectCurrentRunStartedAt = (state: CommanderRoot): number | null =>
+  selectActiveCommanderSession(state)?.runtime?.currentRunStartedAt ?? null;
+
+export const selectBackendContextUsage = (
+  state: CommanderRoot,
+): CommanderBackendContextUsage | null =>
+  selectActiveCommanderSession(state)?.runtime?.backendContextUsage ?? null;
+
+export const selectPendingInjectedMessages = (state: CommanderRoot): string[] =>
+  selectActiveCommanderSession(state)?.runtime?.pendingInjectedMessages ?? EMPTY_INJECTED;
+
+export const selectConsecutiveConfirmCount = (state: CommanderRoot): number =>
+  selectActiveCommanderSession(state)?.runtime?.consecutiveConfirmCount ?? 0;
+
+export const selectMessageQueue = (state: CommanderRoot): CommanderSessionRuntime['messageQueue'] =>
+  selectActiveCommanderSession(state)?.runtime?.messageQueue ?? EMPTY_QUEUE;
+
+export const selectMessageQueueCursor = (state: CommanderRoot): number =>
+  selectActiveCommanderSession(state)?.runtime?.messageQueueCursor ?? 0;
+
+export const selectMessageQueueFirstIndex = (state: CommanderRoot): number =>
+  selectActiveCommanderSession(state)?.runtime?.messageQueueFirstIndex ?? 0;

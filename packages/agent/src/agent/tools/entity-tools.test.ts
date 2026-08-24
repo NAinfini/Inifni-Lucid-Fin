@@ -42,47 +42,10 @@ function getTool(name: string, deps: EntityToolDeps) {
 }
 
 describe('unified entity reference-image tools', () => {
-  it('keeps positive and negative provider prompts on separate channels', async () => {
-    const generateImage = vi.fn(async () => ({ assetHash: 'generated-hash' }));
-    const canvas: Canvas = {
-      id: 'canvas-1',
-      name: 'Film',
-      nodes: [],
-      edges: [],
-      viewport: { x: 0, y: 0, zoom: 1 },
-      notes: [],
-      settings: {
-        visualStylePolicy: {
-          version: 1,
-          summary: 'hand-painted science-fiction realism',
-          negativeConstraints: ['FORBID_MAGENTA_BRANDMARK'],
-        },
-      },
-      createdAt: 1,
-      updatedAt: 1,
-    };
-    const deps = createDeps({
-      generateImage,
-      getCanvas: vi.fn(async () => canvas),
-    });
-
-    await expect(
-      getTool('entity.generateRefImage', deps).execute({
-        type: 'character',
-        id: 'character-1',
-        canvasId: 'canvas-1',
-      }),
-    ).resolves.toMatchObject({ success: true });
-
-    const [positivePrompt, options] = generateImage.mock.calls[0];
-    expect(positivePrompt).toContain('hand-painted science-fiction realism');
-    expect(positivePrompt).not.toContain('FORBID_MAGENTA_BRANDMARK');
-    expect(options).toMatchObject({
-      negativePrompt: 'FORBID_MAGENTA_BRANDMARK',
-      resolution: { mode: 'provider-default' },
-      resolutionSource: 'canvas',
-    });
-    expect(deps.saveCharacter).toHaveBeenCalledOnce();
+  it('does not expose a direct provider-generation shortcut', () => {
+    const names = createEntityTools(createDeps()).map((tool) => tool.name);
+    expect(names).not.toContain('entity.generateRefImage');
+    expect(names).toContain('entity.setRefImageFromNode');
   });
 
   it('rejects video assets as still-image identity references', async () => {

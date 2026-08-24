@@ -1,20 +1,20 @@
 /**
  * Contract-drift lint.
  *
- * Goal: fail the build when the "Terminal commitment" prose in a workflow
- * guide (`docs/ai-skills/workflows/*.md`) disagrees with the declarative
- * contract registered under the same workflow id.
+ * Goal: fail the build when the "Terminal commitment" prose in a task-list
+ * guide (`docs/ai-skills/task-list-guides/*.md`) disagrees with the declarative
+ * contract registered under the same contract id.
  *
  * Algorithm:
  *  1. Import every registered contract (the contract-registry barrel's
  *     side-effect imports do the heavy lifting).
- *  2. For each workflow id that has a matching guide file, extract the
+ *  2. For each contract id that has a matching guide file, extract the
  *     "## Terminal commitment" section from the guide markdown.
  *  3. Assert that every `requiredCommits[*].toolName` and
  *     `acceptableSubstitutes[*].toolName` appears literally in the guide
  *     section. (The reverse check — guide mentions ⊆ contract — is not
  *     enforced, because guides legitimately name tools in negative
- *     contexts like "never use `canvas.updateNodes` for lip-sync" or
+ *     contexts like "never use `canvas.updateNodes` for media parameters" or
  *     "verify via `canvas.getInfo`" that shouldn't be terminals.)
  *  4. On mismatch: print a readable diff and exit non-zero.
  *
@@ -26,8 +26,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { contractRegistry } from '@lucid-fin/application';
 
-// Map workflow contract id → guide file basename. The new unified contracts
-// ('mutation-execution', 'workflow-execution') use wildcard '*' toolNames so
+// Map contract id → guide file basename. Unified execution contracts use wildcard
+// `*` toolNames, so
 // there is nothing to drift-check against; only contracts with specific tool
 // names need a guide entry here.
 const GUIDE_BY_CONTRACT_ID: Record<string, string> = {};
@@ -60,7 +60,7 @@ function extractToolNamesFromProse(section: string): Set<string> {
 
 async function main(): Promise<void> {
   const repoRoot = path.resolve(fileURLToPath(import.meta.url), '../..');
-  const guideDir = path.join(repoRoot, 'docs/ai-skills/workflows');
+  const guideDir = path.join(repoRoot, 'docs/ai-skills/task-list-guides');
 
   const reports: DriftReport[] = [];
   for (const contractId of contractRegistry.ids()) {

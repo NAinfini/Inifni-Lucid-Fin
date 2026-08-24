@@ -12,6 +12,9 @@
     { "path": "../../packages/contracts-parse" },
     { "path": "../../packages/storage" },
     { "path": "../../packages/adapters-ai" },
-    { "path": "../../packages/application" }
+    { "path": "../../packages/application" },
+    { "path": "../../packages/target-contracts" },
+    { "path": "../../packages/target-runtime" },
+    { "path": "../../packages/target-storage" }
   ]
 }

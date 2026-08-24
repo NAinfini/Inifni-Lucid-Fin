@@ -16,7 +16,6 @@ import { applyNodeChanges, type Node, type Edge } from '@xyflow/react';
 
 import type { RootState } from '../../store/index.js';
 import { selectActiveCanvas } from '../../store/slices/canvas/canvas-selectors.js';
-import type { BackdropNodeData } from '@lucid-fin/contracts';
 import { deriveNodeStatus } from '@lucid-fin/contracts';
 import {
   toFlowNode,
@@ -26,6 +25,7 @@ import {
   collectDependencies,
   type DependencyState,
 } from './canvas-utils.js';
+import { computeBackdropContainment } from './backdrop-containment.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -99,7 +99,8 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
 
   // ---- Dependency graph ----
   const dependencyState = useMemo(() => {
-    if (!canvas || !dependencyFocusNodeId) {
+    const edges = canvas?.edges;
+    if (!edges || !dependencyFocusNodeId) {
       return {
         upstream: new Set<string>(),
         downstream: new Set<string>(),
@@ -107,8 +108,8 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
         downstreamEdges: new Set<string>(),
       };
     }
-    return collectDependencies(canvas.edges, dependencyFocusNodeId);
-  }, [canvas, dependencyFocusNodeId]);
+    return collectDependencies(edges, dependencyFocusNodeId);
+  }, [canvas?.edges, dependencyFocusNodeId]);
 
   // ---- Flow nodes ----
   const flowNodeDataCacheRef = useRef(new Map<string, Record<string, unknown>>());
@@ -116,34 +117,8 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
   const flowNodes = useMemo<Node[]>(() => {
     const allCanvasNodes = canvas?.nodes ?? [];
 
-    // Single-pass backdrop containment: O(N × B) done once, reused for
-    // child counts AND collapsed-backdrop hiding.
-    const backdrops = allCanvasNodes.filter((n) => n.type === 'backdrop');
-    const backdropChildCounts = new Map<string, number>();
-    const hiddenIds = new Set<string>();
-    if (backdrops.length > 0) {
-      const collapsedIds = new Set(
-        backdrops.filter((b) => (b.data as BackdropNodeData).collapsed).map((b) => b.id),
-      );
-      for (const bd of backdrops) {
-        backdropChildCounts.set(bd.id, 0);
-      }
-      for (const other of allCanvasNodes) {
-        if (other.type === 'backdrop') continue;
-        const cx = other.position.x + (other.width ?? 200) / 2;
-        const cy = other.position.y + (other.height ?? 100) / 2;
-        for (const bd of backdrops) {
-          const bx = bd.position.x;
-          const by = bd.position.y;
-          const bw = bd.width ?? 420;
-          const bh = bd.height ?? 240;
-          if (cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh) {
-            backdropChildCounts.set(bd.id, (backdropChildCounts.get(bd.id) ?? 0) + 1);
-            if (collapsedIds.has(bd.id)) hiddenIds.add(other.id);
-          }
-        }
-      }
-    }
+    const { backdropChildCounts, hiddenNodeIds } = computeBackdropContainment(allCanvasNodes);
+    const nodesById = new Map(allCanvasNodes.map((node) => [node.id, node]));
 
     const prevCache = flowNodeDataCacheRef.current;
     const nextCache = new Map<string, Record<string, unknown>>();
@@ -168,7 +143,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
         node,
         presetById,
         { dependencyRole, dimmed, keyboardFocused: kbFocused },
-        allCanvasNodes,
+        nodesById,
         backdropChildCounts,
       );
 
@@ -181,7 +156,7 @@ export function useFlowData(params: UseFlowDataParams): FlowDataResult {
       }
       nextCache.set(node.id, rfNode.data as Record<string, unknown>);
 
-      if (hiddenIds.has(node.id)) {
+      if (hiddenNodeIds.has(node.id)) {
         rfNode.hidden = true;
         rfNode.style = { ...rfNode.style, display: 'none' };
       }

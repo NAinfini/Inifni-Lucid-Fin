@@ -1,6 +1,15 @@
-import type { AgentTool } from '../tool-registry.js';
+import { NO_TOOL_RESOURCE, toolResultSchema, type ToolDefinition } from '../tool-registry.js';
 import { defineToolModule } from '../tool-module.js';
 import { ok, fail, requireString } from './tool-result-helpers.js';
+import { authorityFact, contextProjector, record, records, resultRecord } from './context-replay.js';
+import {
+  arraySchema,
+  colorStyleSchema,
+  numberSchema,
+  objectSchema,
+  stringSchema,
+  unionSchema,
+} from './tool-runtime-schemas.js';
 
 export interface ColorStyleToolDeps {
   listColorStyles: () => Promise<unknown[]>;
@@ -16,12 +25,40 @@ function requireStyle(args: Record<string, unknown>): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export function createColorStyleTools(deps: ColorStyleToolDeps): AgentTool[] {
-  const manage: AgentTool = {
+export function createColorStyleTools(deps: ColorStyleToolDeps): ToolDefinition[] {
+  const manage: ToolDefinition = {
     name: 'colorStyle.manage',
+    process: 'color-style-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description: 'Manage color styles: list, save, or delete.',
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema({
+          total: numberSchema,
+          offset: numberSchema,
+          limit: numberSchema,
+          colorStyles: arraySchema(colorStyleSchema),
+        }),
+        objectSchema({ style: colorStyleSchema }),
+        objectSchema({ id: stringSchema }),
+      ),
+    ),
+    projectPublicResult: contextProjector((result, args) => {
+      const data = resultRecord(result);
+      if (args.action === 'list') {
+        return records(data?.colorStyles).map((style) =>
+          authorityFact('color_style', 'read', style.id),
+        );
+      }
+      if (args.action === 'save') {
+        return [authorityFact('color_style', 'updated', record(data?.style)?.id)];
+      }
+      return [authorityFact('color_style', 'deleted', data?.id ?? args.id)];
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
         action: {
@@ -32,7 +69,7 @@ export function createColorStyleTools(deps: ColorStyleToolDeps): AgentTool[] {
         offset: { type: 'number', description: 'Start index (0-based). Default 0.' },
         limit: { type: 'number', description: 'Max items to return. Default 50.' },
         style: {
-          type: 'object',
+          ...colorStyleSchema as Extract<typeof colorStyleSchema, { type: 'object' }>,
           description: 'The color style definition to save.',
         },
         id: { type: 'string', description: 'The color style ID to delete.' },

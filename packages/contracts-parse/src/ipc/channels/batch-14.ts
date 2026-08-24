@@ -46,6 +46,22 @@ const OAuthUsageSchema = z.discriminatedUnion('state', [
 
 const BaseShape = { target: OAuthProviderTargetSchema } as const;
 
+const OAuthProviderModelCapabilitiesSchema = z
+  .object({
+    supportsModelOverride: z.boolean(),
+    supportsReasoningEffort: z.boolean(),
+    models: z.array(
+      z
+        .object({
+          id: z.string().min(1),
+          model: z.string().min(1),
+          supportedReasoningEfforts: z.array(z.string().min(1)),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
 export const OAuthProviderStatusSchema = z.discriminatedUnion('state', [
   z
     .object({
@@ -68,6 +84,7 @@ export const OAuthProviderStatusSchema = z.discriminatedUnion('state', [
       state: z.literal('ready'),
       planType: z.string().nullable().optional(),
       usage: OAuthUsageSchema,
+      modelCapabilities: OAuthProviderModelCapabilitiesSchema.optional(),
       version: z.string().optional(),
     })
     .strict(),

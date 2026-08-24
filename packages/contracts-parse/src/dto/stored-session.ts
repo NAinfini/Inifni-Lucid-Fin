@@ -14,7 +14,7 @@ import { z } from 'zod';
 
 export const StoredSessionSchema = z.object({
   id: z.string().min(1),
-  canvasId: z.string().nullable(),
+  defaultCanvasId: z.string().nullable(),
   title: z.string(),
   messages: z.string(),
   createdAt: z.number().int().nonnegative(),
@@ -22,3 +22,9 @@ export const StoredSessionSchema = z.object({
 });
 
 export type StoredSessionDto = z.infer<typeof StoredSessionSchema>;
+
+export const StoredSessionSummarySchema = StoredSessionSchema.omit({ messages: true }).extend({
+  messageCount: z.number().int().nonnegative(),
+});
+
+export type StoredSessionSummaryDto = z.infer<typeof StoredSessionSummarySchema>;

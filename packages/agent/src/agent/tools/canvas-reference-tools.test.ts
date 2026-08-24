@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Canvas } from '@lucid-fin/contracts';
+import type { Canvas, CanvasPatch } from '@lucid-fin/contracts';
 import { createCanvasGenerationTools } from './canvas-generation-tools.js';
 import type { CanvasToolDeps } from './canvas-tool-utils.js';
 
@@ -50,9 +50,18 @@ function createCanvas(): Canvas {
   };
 }
 
+function applyCanvasPatch(canvas: Canvas, patch: CanvasPatch): void {
+  for (const update of patch.updatedNodes ?? []) {
+    const node = canvas.nodes.find((entry) => entry.id === update.id);
+    if (!node) throw new Error(`Node not found: ${update.id}`);
+    Object.assign(node, structuredClone(update.changes));
+  }
+}
+
 function createDeps(canvas = createCanvas()): CanvasToolDeps {
   return {
     getCanvas: vi.fn(async () => canvas),
+    patchCanvas: vi.fn(async (_canvasId, patch) => applyCanvasPatch(canvas, patch)),
     deleteCanvas: vi.fn(async () => undefined),
     addNode: vi.fn(async () => undefined),
     moveNode: vi.fn(async () => undefined),
@@ -61,8 +70,26 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     connectNodes: vi.fn(async () => undefined),
     setNodePresets: vi.fn(async () => undefined),
     layoutNodes: vi.fn(async () => undefined),
-    triggerGeneration: vi.fn(async () => undefined),
-    cancelGeneration: vi.fn(async () => undefined),
+    prepareMediaTask: vi.fn(async (input) => ({
+      id: 'task-list-1', canvasId: input.canvasId, nodeId: input.nodeId,
+      status: 'running', taskStatus: 'awaiting_prompt_assembly', progress: 0,
+    })),
+    getMediaTask: vi.fn(async (id) => ({
+      id, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'running', taskStatus: 'awaiting_prompt_assembly', progress: 0,
+    })),
+    submitMediaPrompt: vi.fn(async (input) => ({
+      id: input.taskListId, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'running', taskStatus: 'awaiting_provider', progress: 0,
+    })),
+    cancelMediaTask: vi.fn(async (id) => ({
+      id, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'cancelled', taskStatus: 'cancelled', progress: 0,
+    })),
+    retryMediaEvaluation: vi.fn(async (id) => ({
+      id, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'running', taskStatus: 'evaluating', progress: 0,
+    })),
     deleteNode: vi.fn(async () => undefined),
     deleteEdge: vi.fn(async () => undefined),
     updateNodeData: vi.fn(async (_canvasId, nodeId, data) => {
@@ -75,8 +102,8 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     listShotTemplates: vi.fn(async () => []),
     saveShotTemplate: vi.fn(async (t) => t),
     deleteShotTemplate: vi.fn(async () => {}),
-    importWorkflow: vi.fn(async () => canvas),
-    exportWorkflow: vi.fn(async () => '{}'),
+    importCanvasDocument: vi.fn(async () => canvas),
+    exportCanvasDocument: vi.fn(async () => '{}'),
     setNodeColorTag: vi.fn(async () => undefined),
     toggleSeedLock: vi.fn(async () => undefined),
     selectVariant: vi.fn(async () => undefined),
@@ -159,11 +186,23 @@ describe('canvas.setNodeRefs', () => {
         locationRefs: [locationRef],
       },
     });
-    expect(deps.updateNodeData).toHaveBeenCalledWith('canvas-1', 'image-1', {
-      characterRefs: [characterRef],
-      equipmentRefs: [equipmentRef],
-      locationRefs: [locationRef],
-    });
+    expect(deps.patchCanvas).toHaveBeenCalledWith(
+      'canvas-1',
+      expect.objectContaining({
+        updatedNodes: [
+          expect.objectContaining({
+            id: 'image-1',
+            changes: expect.objectContaining({
+              data: expect.objectContaining({
+                characterRefs: [characterRef],
+                equipmentRefs: [equipmentRef],
+                locationRefs: [locationRef],
+              }),
+            }),
+          }),
+        ],
+      }),
+    );
   });
 
   it('rejects an empty entity ID before mutating any node', async () => {
@@ -179,7 +218,7 @@ describe('canvas.setNodeRefs', () => {
       success: false,
       error: expect.stringContaining('locationRefs[0].locationId must be a non-empty string'),
     });
-    expect(deps.updateNodeData).not.toHaveBeenCalled();
+    expect(deps.patchCanvas).not.toHaveBeenCalled();
   });
 
   it('clears refs by passing empty arrays', async () => {

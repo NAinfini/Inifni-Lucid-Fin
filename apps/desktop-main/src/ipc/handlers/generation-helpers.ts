@@ -61,6 +61,7 @@ export async function materializeAsset(generated: {
 
   const metadataUrl =
     normalizeOptionalString(generated.metadata?.url as string | undefined) ??
+    normalizeOptionalString(generated.metadata?.audio_url as string | undefined) ??
     normalizeOptionalString(generated.metadata?.video_url as string | undefined) ??
     normalizeOptionalString(generated.metadata?.output as string | undefined) ??
     normalizeOptionalString(generated.metadata?.download_url as string | undefined);
@@ -83,7 +84,7 @@ export async function probeGeneratedAsset(
   filePath: string,
   assetType: AssetType,
   probe: (path: string) => Promise<MediaProbeResult> = probeMedia,
-): Promise<{ width?: number; height?: number; duration?: number }> {
+): Promise<{ width?: number; height?: number; duration?: number; hasAudio?: boolean }> {
   if (assetType === 'audio') return {};
   const result = await probe(filePath);
   if (!result.width || !result.height) {
@@ -93,7 +94,7 @@ export async function probeGeneratedAsset(
     width: result.width,
     height: result.height,
     ...(assetType === 'video' && result.durationSeconds > 0
-      ? { duration: result.durationSeconds }
+      ? { duration: result.durationSeconds, hasAudio: result.hasAudio }
       : {}),
   };
 }

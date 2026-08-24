@@ -1,16 +1,10 @@
 /**
- * Commander event emission helpers.
+ * Commander event emission boundary.
  *
- * The orchestrator stamps every event with `runId`/`step`/`seq`/`emittedAt`
- * via `makeStampedEmit`, producing a `TimelineEvent`. This module wraps the
- * event in a `WireEnvelope` and forwards it to the typed renderer gateway,
- * adds structured logging, and fires companion canvas / entities dispatch
- * channels when a mutating `tool_result` lands.
- *
- * `ToolResultEvent` no longer carries `toolRef` (see Phase A invariant freeze
- * in timeline-event.ts). We maintain a per-handler map of
- * `toolCallId → toolName` populated on `tool_call` so companion dispatch can
- * resolve the tool name when the matching result arrives.
+ * Internal events may contain raw model/tool data needed during execution.
+ * This boundary projects them to canonical public events before the existing
+ * persist-then-broadcast path. Companion canvas/entity dispatch still derives
+ * its authorization data transiently from the internal tool call.
  */
 import type { BrowserWindow } from 'electron';
 import {
@@ -19,187 +13,199 @@ import {
   commanderEntitiesUpdatedChannel,
   type CommanderStreamPayload,
 } from '@lucid-fin/contracts-parse';
-import { COMMANDER_WIRE_VERSION } from '@lucid-fin/contracts';
-import type { SessionId } from '@lucid-fin/contracts';
-import type { CommanderEventRepository } from '@lucid-fin/storage';
+import { COMMANDER_WIRE_VERSION, type TimelineEvent } from '@lucid-fin/contracts';
 import log from '../../logger.js';
-import type { StampedStreamEvent } from '@lucid-fin/application';
+import type { StampedStreamEvent, ToolRegistry } from '@lucid-fin/application';
 import type { CanvasStore } from './canvas.handlers.js';
 import {
   createRendererPushGateway,
   type RendererPushGateway,
 } from '../../features/ipc/push-gateway.js';
+import {
+  createCommanderPublicProjectionState,
+  projectCommanderPublicEvent,
+} from './commander-public-event.js';
+import {
+  deriveCommanderRecoveryRecord,
+  sealCommanderRecoveryBatch,
+  type CommanderRecoveryCodec,
+  type CommanderRecoverySupplement,
+} from './commander-recovery.service.js';
 
 export type { CommanderStreamPayload };
 
-export function safeStringifyForLog(value: unknown): string {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
+export interface CommanderPersistedEvent {
+  event: TimelineEvent;
+  privatePayload?: Buffer;
 }
 
-export function formatErrorDetail(error: unknown): string {
-  if (error instanceof Error) {
-    const lines: string[] = [];
-    if (error.stack?.trim()) {
-      lines.push(error.stack);
-    } else {
-      lines.push(`${error.name}: ${error.message}`);
-    }
-
-    const extended = error as Error & {
-      code?: unknown;
-      details?: unknown;
-      cause?: unknown;
-    };
-    const extra: Record<string, unknown> = {};
-    if (extended.code !== undefined) {
-      extra.code = extended.code;
-    }
-    if (extended.details !== undefined) {
-      const details = extended.details as Record<string, unknown>;
-      const {
-        responseText: _responseText,
-        requestBody: _requestBody,
-        responseBody: _responseBody,
-        ...compactDetails
-      } = details;
-      extra.details = compactDetails;
-    }
-    if (extended.cause !== undefined) {
-      extra.cause = extended.cause;
-    }
-
-    if (Object.keys(extra).length > 0) {
-      lines.push(safeStringifyForLog(extra));
-    }
-
-    return lines.join('\n');
-  }
-
-  return typeof error === 'string' ? error : safeStringifyForLog(error);
+export interface CommanderInternalRecoveryEnvelope {
+  event: StampedStreamEvent;
+  recovery: CommanderRecoverySupplement;
 }
+
+type CommanderEmitInput = StampedStreamEvent | CommanderInternalRecoveryEnvelope;
+
+export type CommanderEmitHandler = ((event: CommanderEmitInput) => void) & {
+  batch(events: readonly CommanderEmitInput[]): void;
+};
 
 export function createEmitHandler(
   getWindow: () => BrowserWindow | null,
-  canvasId: string,
+  sessionId: string,
+  defaultCanvasId: string | undefined,
+  authorizedCanvasIds: readonly string[],
   canvasStore: CanvasStore,
+  tools: Pick<ToolRegistry, 'get' | 'projectPublicCall'>,
   mutatingToolNames: ReadonlySet<string>,
   entityMutatingToolNames: ReadonlySet<string>,
   pushGateway?: RendererPushGateway,
-  persistence?: {
-    sessionId: SessionId | null;
-    eventRepo: CommanderEventRepository;
-  },
-): (event: StampedStreamEvent) => void {
+  persist?: (events: readonly CommanderPersistedEvent[]) => void,
+  recovery?: { codec: CommanderRecoveryCodec; previousHash: string | null },
+): CommanderEmitHandler {
   const gateway = pushGateway ?? createRendererPushGateway({ getWindow });
-  const toolNameByCallId = new Map<string, string>();
+  const toolByCallId = new Map<
+    string,
+    { name: string; args: Record<string, unknown>; canvasId?: string }
+  >();
+  const publicProjection = createCommanderPublicProjectionState();
+  let recoveryHead = recovery?.previousHash ?? null;
 
-  return (event: StampedStreamEvent) => {
-    gateway.emit(commanderStreamChannel, {
-      wireVersion: COMMANDER_WIRE_VERSION,
-      event,
+  const emitBatch = (inputs: readonly CommanderEmitInput[]): void => {
+    if (inputs.length === 0) return;
+    const events = inputs.map((input) => 'event' in input ? input.event : input);
+    const supplements = inputs.map((input) => 'event' in input ? input.recovery : undefined);
+    const stagedToolByCallId = new Map(toolByCallId);
+    for (const event of events) {
+      if (event.kind !== 'tool_call') continue;
+      const name = `${event.toolRef.domain}.${event.toolRef.action}`;
+      const requestedCanvasId =
+        typeof event.args.canvasId === 'string' && authorizedCanvasIds.includes(event.args.canvasId)
+          ? event.args.canvasId
+          : undefined;
+      stagedToolByCallId.set(event.toolCallId, {
+        name,
+        args: event.args,
+        ...(requestedCanvasId ? { canvasId: requestedCanvasId } : {}),
+      });
+    }
+
+    const publicEvents = events.map((event) => {
+      const projected = projectCommanderPublicEvent(event, tools, publicProjection);
+      if (!projected) throw new Error(`Unable to project Commander event: ${event.kind}`);
+      return projected;
     });
 
-    // Phase 5: persist the event to the commander_events table so the
-    // renderer can rehydrate the timeline on next session resume. We
-    // swallow write errors (same philosophy as ContextGraph side-channel
-    // saves — a persistence failure must never abort a live run).
-    if (persistence?.sessionId) {
-      try {
-        persistence.eventRepo.append({
-          sessionId: persistence.sessionId,
-          runId: event.runId,
-          seq: event.seq,
-          kind: event.kind,
-          step: event.step,
-          emittedAt: event.emittedAt,
-          payload: JSON.stringify(event),
-        });
-      } catch (err) {
-        log.warn('Commander event persist failed', {
-          category: 'commander',
-          sessionId: persistence.sessionId,
-          runId: event.runId,
-          seq: event.seq,
-          detail: err instanceof Error ? err.message : String(err),
-        });
-      }
+    const sealed = recovery
+      ? sealCommanderRecoveryBatch(
+          recovery.codec,
+          recoveryHead,
+          publicEvents.map((event, index) => ({
+            event,
+            record: deriveCommanderRecoveryRecord(
+              events[index]!,
+              event,
+              tools,
+              supplements[index],
+            ),
+          })),
+        )
+      : undefined;
+    persist?.(publicEvents.map((event, index) => ({
+      event,
+      ...(sealed?.privatePayloads[index]
+        ? { privatePayload: sealed.privatePayloads[index] }
+        : {}),
+    })));
+    if (sealed) recoveryHead = sealed.head;
+    for (const publicEvent of publicEvents) {
+      gateway.emit(commanderStreamChannel, {
+        wireVersion: COMMANDER_WIRE_VERSION,
+        sessionId,
+        event: publicEvent,
+      });
     }
 
-    switch (event.kind) {
-      case 'tool_call': {
-        const toolName = `${event.toolRef.domain}.${event.toolRef.action}`;
-        toolNameByCallId.set(event.toolCallId, toolName);
-        log.debug(`Tool: ${toolName}`, {
-          category: 'commander',
-          toolName,
-          toolCallId: event.toolCallId,
-          detail: event.args ? JSON.stringify(event.args, null, 2) : undefined,
-        });
-        break;
-      }
-      case 'tool_result': {
-        const toolName = toolNameByCallId.get(event.toolCallId);
-        const resultStr = event.result != null ? JSON.stringify(event.result, null, 2) : '';
-        log.debug(`Result: ${toolName ?? event.toolCallId}`, {
-          category: 'commander',
-          toolName,
-          toolCallId: event.toolCallId,
-          detail: resultStr || undefined,
-        });
-        if (event.error) {
-          log.error(event.error.code, {
+    for (const publicEvent of publicEvents) {
+      switch (publicEvent.kind) {
+        case 'tool_call': {
+          const toolName = `${publicEvent.toolRef.domain}.${publicEvent.toolRef.action}`;
+          log.debug(`Tool: ${toolName}`, {
             category: 'commander',
-            toolCallId: event.toolCallId,
-            detail: `Tool call: ${event.toolCallId}`,
+            toolName,
+            toolCallId: publicEvent.toolCallId,
+            status: publicEvent.status,
           });
+          break;
         }
-        break;
+        case 'tool_result': {
+          const toolCall = stagedToolByCallId.get(publicEvent.toolCallId);
+          const toolName = toolCall?.name;
+          log.debug(`Result: ${toolName ?? publicEvent.toolCallId}`, {
+            category: 'commander',
+            toolName,
+            toolCallId: publicEvent.toolCallId,
+            status: publicEvent.status,
+            durationMs: publicEvent.durationMs,
+            errorCode: publicEvent.errorCode,
+          });
+          if (publicEvent.errorCode) {
+            log.error(publicEvent.errorCode, {
+              category: 'commander',
+              toolCallId: publicEvent.toolCallId,
+            });
+          }
+          if (
+            publicEvent.status === 'succeeded' &&
+            toolName &&
+            toolCall?.canvasId &&
+            mutatingToolNames.has(toolName)
+          ) {
+            const canvas = canvasStore.get(toolCall.canvasId);
+            if (canvas) {
+              gateway.emit(commanderCanvasDispatchChannel, {
+                canvasId: toolCall.canvasId,
+                canvas,
+              });
+            }
+          }
+          if (toolName && entityMutatingToolNames.has(toolName)) {
+            gateway.emit(commanderEntitiesUpdatedChannel, { toolName });
+          }
+          stagedToolByCallId.delete(publicEvent.toolCallId);
+          break;
+        }
+        case 'run_end':
+          log.info('Session complete', {
+            category: 'commander',
+            defaultCanvasId,
+            status: publicEvent.status,
+            outcome: publicEvent.exitDecision?.outcome,
+          });
+          break;
+        case 'cancelled':
+          log.info('Session cancelled', {
+            category: 'commander',
+            defaultCanvasId,
+            reason: publicEvent.reason,
+          });
+          break;
+        case 'phase_note':
+          log.info(`Phase note: ${publicEvent.note}`, {
+            category: 'commander',
+            phaseNote: publicEvent.note,
+          });
+          break;
+        default:
+          break;
       }
-      case 'run_end':
-        log.info('Session complete', {
-          category: 'commander',
-          canvasId,
-          status: event.status,
-          outcome: event.exitDecision?.outcome,
-        });
-        break;
-      case 'cancelled':
-        log.info('Session cancelled', {
-          category: 'commander',
-          canvasId,
-          reason: event.reason,
-        });
-        break;
-      case 'phase_note':
-        log.info(`Phase note: ${event.note}`, {
-          category: 'commander',
-          phaseNote: event.note,
-          detail: event.params ? JSON.stringify(event.params) : undefined,
-        });
-        break;
-      default:
-        break;
     }
 
-    if (event.kind === 'tool_result') {
-      const toolName = toolNameByCallId.get(event.toolCallId);
-      if (toolName && mutatingToolNames.has(toolName)) {
-        const canvas = canvasStore.get(canvasId);
-        if (canvas) {
-          gateway.emit(commanderCanvasDispatchChannel, {
-            canvasId,
-            canvas,
-          });
-        }
-      }
-      if (toolName && entityMutatingToolNames.has(toolName)) {
-        gateway.emit(commanderEntitiesUpdatedChannel, { toolName });
-      }
-      toolNameByCallId.delete(event.toolCallId);
-    }
+    toolByCallId.clear();
+    for (const [toolCallId, value] of stagedToolByCallId) toolByCallId.set(toolCallId, value);
   };
+
+  const handler = ((event: CommanderEmitInput) => emitBatch([event])) as CommanderEmitHandler;
+  handler.batch = emitBatch;
+  return handler;
 }

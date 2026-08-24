@@ -31,27 +31,18 @@ describe('createCharacterTools', () => {
       'character',
       'mutate',
     ]);
-    expect(tools.find((tool) => tool.name === 'character.setRefImage')?.tags).toEqual([
-      'character',
-      'generation',
-    ]);
-    expect(tools.find((tool) => tool.name === 'character.deleteRefImage')?.tags).toEqual([
-      'character',
-      'generation',
-    ]);
   });
 
-  it('returns tool names with split ref image tools', () => {
+  it('returns only character CRUD tools', () => {
     const deps = createDeps();
     const tools = createCharacterTools(deps);
     const names = tools.map((t) => t.name);
-    expect(names).toContain('character.setRefImage');
-    expect(names).toContain('character.deleteRefImage');
-    expect(names).not.toContain('character.refImage');
-    expect(names).not.toContain('character.generateReferenceImage');
-    expect(names).not.toContain('character.setReferenceImage');
-    expect(names).not.toContain('character.deleteReferenceImage');
-    expect(names).not.toContain('character.setReferenceImageFromNode');
+    expect(names).toEqual([
+      'character.list',
+      'character.create',
+      'character.update',
+      'character.delete',
+    ]);
   });
 
   describe('character.list query filter', () => {

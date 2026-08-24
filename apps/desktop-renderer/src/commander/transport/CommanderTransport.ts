@@ -9,16 +9,27 @@
  * returns the full envelope; consumers unwrap `envelope.event` as needed.
  */
 
-import type { CommanderWireVersion, TimelineEvent, WireEnvelope } from '@lucid-fin/contracts';
+import type {
+  CommanderEventsHydrateResponse,
+  CommanderRunRecord,
+  CommanderRunControlRequest,
+  CommanderRunControlResponse,
+  CommanderRunTreeResponse,
+  CommanderStartRequest,
+  CommanderStartResponse,
+  CommanderWireVersion,
+  TimelineEvent,
+  WireEnvelope,
+} from '@lucid-fin/contracts';
 import type { LucidAPI } from '../../utils/api.js';
 
 type CommanderAPI = NonNullable<LucidAPI>['commander'];
 type OptionalCommanderAPI = NonNullable<LucidAPI>['commander'] | undefined;
 
-export type CommanderStreamEnvelope = WireEnvelope<TimelineEvent>;
+export type CommanderStreamEnvelope = WireEnvelope<TimelineEvent> & { sessionId: string };
 
 export type CommanderCanvasUpdatedPayload = Parameters<
-  Parameters<CommanderAPI['onCanvasUpdated']>[0]
+  Parameters<CommanderAPI['onCanvasDispatch']>[0]
 >[0];
 export type CommanderEntitiesUpdatedPayload = Parameters<
   NonNullable<Parameters<NonNullable<CommanderAPI['onEntitiesUpdated']>>[0]>
@@ -26,12 +37,7 @@ export type CommanderEntitiesUpdatedPayload = Parameters<
 export type CommanderSettingsDispatchPayload = Parameters<
   NonNullable<Parameters<NonNullable<CommanderAPI['onSettingsDispatch']>>[0]>
 >[0];
-export type CommanderUndoDispatchPayload = Parameters<
-  NonNullable<Parameters<NonNullable<CommanderAPI['onUndoDispatch']>>[0]>
->[0];
-
-export type CommanderChatArgs = Parameters<CommanderAPI['chat']>;
-export type CommanderChatResult = Awaited<ReturnType<CommanderAPI['chat']>>;
+export type CommanderToolActionResult = Awaited<ReturnType<CommanderAPI['toolDecision']>>;
 
 export type Unsub = () => void;
 
@@ -42,34 +48,67 @@ export class CommanderTransport {
     return !!this.api;
   }
 
-  async chat(...args: CommanderChatArgs): Promise<CommanderChatResult> {
+  async start(request: CommanderStartRequest): Promise<CommanderStartResponse> {
     if (!this.api) throw new Error('Commander IPC bridge unavailable');
-    return this.api.chat(...args);
+    return this.api.start(request);
   }
 
-  async cancel(canvasId: string): Promise<void> {
+  async cancel(runId: string): Promise<void> {
     if (!this.api) return;
-    await this.api.cancel(canvasId);
+    await this.api.cancel({ runId });
   }
 
-  async cancelCurrentStep(canvasId: string): Promise<{ escalated: boolean }> {
-    if (!this.api?.cancelCurrentStep) return { escalated: false };
-    return this.api.cancelCurrentStep(canvasId);
+  async cancelCurrentStep(runId: string): Promise<{ escalated: boolean }> {
+    if (!this.api) return { escalated: false };
+    return this.api.cancelStep({ runId });
   }
 
-  async injectMessage(canvasId: string, message: string): Promise<void> {
+  async injectMessage(runId: string, message: string): Promise<void> {
     if (!this.api) return;
-    await this.api.injectMessage(canvasId, message);
+    await this.api.injectMessage({ runId, message });
   }
 
-  async confirmTool(canvasId: string, toolCallId: string, approved: boolean): Promise<void> {
-    if (!this.api) return;
-    await this.api.confirmTool(canvasId, toolCallId, approved);
+  async confirmTool(
+    sessionId: string,
+    runId: string,
+    toolCallId: string,
+    approved: boolean,
+  ): Promise<CommanderToolActionResult> {
+    if (!this.api) return { accepted: false, code: 'no_active_session' };
+    return this.api.toolDecision({ sessionId, runId, toolCallId, approved });
   }
 
-  async answerQuestion(canvasId: string, toolCallId: string, answer: string): Promise<void> {
-    if (!this.api) return;
-    await this.api.answerQuestion(canvasId, toolCallId, answer);
+  async answerQuestion(
+    sessionId: string,
+    runId: string,
+    toolCallId: string,
+    answer: string,
+  ): Promise<CommanderToolActionResult> {
+    if (!this.api) return { accepted: false, code: 'no_active_session' };
+    return this.api.toolAnswer({ sessionId, runId, toolCallId, answer });
+  }
+
+  async getRun(runId: string): Promise<CommanderRunRecord> {
+    if (!this.api) throw new Error('Commander IPC bridge unavailable');
+    return this.api.runGet({ runId });
+  }
+
+  async runControl(request: CommanderRunControlRequest): Promise<CommanderRunControlResponse> {
+    if (!this.api) throw new Error('Commander IPC bridge unavailable');
+    return this.api.runControl(request);
+  }
+
+  async runTree(sessionId: string): Promise<CommanderRunTreeResponse> {
+    if (!this.api) throw new Error('Commander IPC bridge unavailable');
+    return this.api.runTree({ sessionId });
+  }
+
+  async hydrate(
+    runId: string,
+    afterSeq: number,
+  ): Promise<CommanderEventsHydrateResponse> {
+    if (!this.api) throw new Error('Commander IPC bridge unavailable');
+    return this.api.eventsHydrate({ runId, afterSeq });
   }
 
   /**
@@ -84,7 +123,7 @@ export class CommanderTransport {
 
   onCanvasUpdated(cb: (payload: CommanderCanvasUpdatedPayload) => void): Unsub {
     if (!this.api) return () => {};
-    return this.api.onCanvasUpdated(cb);
+    return this.api.onCanvasDispatch(cb);
   }
 
   onEntitiesUpdated(cb: (payload: CommanderEntitiesUpdatedPayload) => void): Unsub {
@@ -97,10 +136,6 @@ export class CommanderTransport {
     return this.api.onSettingsDispatch(cb) ?? (() => {});
   }
 
-  onUndoDispatch(cb: (payload: CommanderUndoDispatchPayload) => void): Unsub {
-    if (!this.api?.onUndoDispatch) return () => {};
-    return this.api.onUndoDispatch(cb) ?? (() => {});
-  }
 }
 
 export type { CommanderWireVersion };

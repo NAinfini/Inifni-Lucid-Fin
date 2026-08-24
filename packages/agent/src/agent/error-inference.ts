@@ -14,9 +14,6 @@ export function coercePhaseNoteCode(raw: string): PhaseNoteCode {
     case 'compacted':
     case 'prompt_loaded':
     case 'tool_skipped_dedup':
-    case 'max_steps_warning':
-    case 'intent_reclassified':
-    case 'force_ask_user':
       return raw;
     case 'process_prompt_loaded':
       return 'prompt_loaded';
@@ -29,7 +26,6 @@ export function inferErrorCodeFromMessage(message: string): CommanderErrorCode {
   const lower = message.toLowerCase();
   if (lower.includes('cancel')) return 'RUN_CANCELLED';
   if (lower.includes('rate limit') || lower.includes('stall')) return 'LLM_TRANSIENT';
-  if (lower.includes('max steps')) return 'RUN_MAX_STEPS';
   if (lower.includes('validation') || lower.includes('invalid argument')) return 'TOOL_VALIDATION';
   if (lower.includes('not found')) return 'TOOL_NOT_FOUND';
   if (lower.includes('permission') || lower.includes('declined')) return 'TOOL_PERMISSION';

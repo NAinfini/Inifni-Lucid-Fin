@@ -51,7 +51,7 @@ export interface WipeDeps {
   /** Flush any pending saves (e.g. settings, in-memory state) */
   flushPendingSaves: () => Promise<void>;
   /** Cancel all active jobs */
-  cancelActiveJobs: () => void;
+  stopBackgroundTasks: () => void;
 }
 
 const KEYTAR_SERVICE = 'lucid-fin';
@@ -105,7 +105,7 @@ export async function wipeAllData(paths: WipePaths, deps: WipeDeps): Promise<Wip
   try {
     // Step 1: Cancel all active jobs
     try {
-      deps.cancelActiveJobs();
+      deps.stopBackgroundTasks();
       steps.push({ step: 'cancel active jobs', success: true });
       log.info('[data-wipe] Active jobs cancelled', { category: 'wipe' });
     } catch (err) {

@@ -95,7 +95,7 @@ export interface PromptCompilerInput {
   presetLibrary: PresetDefinition[];
   /** Style guide defaults: act as cascading defaults, node presets override */
   styleGuide?: StyleGuideDefaults;
-  /** Canonical Canvas draft style. Approved workflow styles are compiled by the workflow host. */
+  /** Canonical Canvas draft style. Approved task-list styles are compiled by the execution host. */
   visualStylePolicy?: CanvasVisualStylePolicy;
   /** For voice mode: dialogue text to synthesize */
   dialogueText?: string;
@@ -118,7 +118,7 @@ export interface PromptCompilerInput {
 }
 
 export interface PromptDiagnostic {
-  type: 'conflict' | 'duplicate' | 'info';
+  type: 'conflict' | 'duplicate' | 'missing-preset' | 'mode-exclusion' | 'info';
   severity: 'warning' | 'info';
   message: string;
   source?: string;

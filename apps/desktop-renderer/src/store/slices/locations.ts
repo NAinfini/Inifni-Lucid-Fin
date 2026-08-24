@@ -31,6 +31,9 @@ export const locationsSlice = createSlice({
     addLocation(state, action: PayloadAction<Location>) {
       state.items.push(action.payload);
     },
+    addLocations(state, action: PayloadAction<Location[]>) {
+      state.items.push(...action.payload);
+    },
     updateLocation(state, action: PayloadAction<{ id: string; data: Partial<Location> }>) {
       const item = state.items.find((l) => l.id === action.payload.id);
       if (item) Object.assign(item, action.payload.data);
@@ -38,6 +41,11 @@ export const locationsSlice = createSlice({
     removeLocation(state, action: PayloadAction<string>) {
       state.items = state.items.filter((l) => l.id !== action.payload);
       if (state.selectedId === action.payload) state.selectedId = null;
+    },
+    removeLocations(state, action: PayloadAction<string[]>) {
+      const ids = new Set(action.payload);
+      state.items = state.items.filter((location) => !ids.has(location.id));
+      if (state.selectedId && ids.has(state.selectedId)) state.selectedId = null;
     },
     selectLocation(state, action: PayloadAction<string | null>) {
       state.selectedId = action.payload;
@@ -93,14 +101,22 @@ export const locationsSlice = createSlice({
       const item = state.items.find((l) => l.id === action.payload.id);
       if (item) item.folderId = action.payload.folderId;
     },
+    moveItemsToFolder(state, action: PayloadAction<{ ids: string[]; folderId: string | null }>) {
+      const ids = new Set(action.payload.ids);
+      for (const location of state.items) {
+        if (ids.has(location.id)) location.folderId = action.payload.folderId;
+      }
+    },
   },
 });
 
 export const {
   setLocations,
   addLocation,
+  addLocations,
   updateLocation,
   removeLocation,
+  removeLocations,
   selectLocation,
   setLocationsLoading,
   setLocationsSearch,
@@ -113,4 +129,5 @@ export const {
   setCurrentFolder,
   setFoldersLoading,
   moveItemToFolder,
+  moveItemsToFolder,
 } = locationsSlice.actions;

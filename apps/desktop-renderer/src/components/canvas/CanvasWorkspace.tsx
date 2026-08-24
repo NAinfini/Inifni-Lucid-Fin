@@ -22,7 +22,10 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import type { AppDispatch, RootState } from '../../store/index.js';
-import { selectActiveCanvas } from '../../store/slices/canvas/canvas-selectors.js';
+import {
+  selectActiveCanvas,
+  selectNodesById,
+} from '../../store/slices/canvas/canvas-selectors.js';
 import {
   addNode,
   removeNodes,
@@ -41,7 +44,9 @@ import {
   reconnectCanvasEdge,
   setCanvases,
   addCanvas,
+  setNodeSeed,
 } from '../../store/slices/canvas/canvas.js';
+import { requestDurableMediaTask } from '../../store/slices/commander.js';
 import {
   setRightPanel,
   toggleMinimapVisible,
@@ -65,27 +70,25 @@ import { BackdropNode } from './nodes/BackdropNode.js';
 import { LinkEdge } from './edges/LinkEdge.js';
 import { CanvasSearchPanel } from './CanvasSearchPanel.js';
 import { CanvasToolbar } from './CanvasToolbar.js';
-import { VideoCloneDialog } from './VideoCloneDialog.js';
-import { EditView } from './views/EditView.js';
-import { AudioView } from './views/AudioView.js';
-import { MaterialsView } from './views/MaterialsView.js';
+import { CanvasViewSwitcher } from './CanvasViewSwitcher.js';
+import { DeliveryView } from './views/delivery/DeliveryView.js';
 import {
   CanvasContextMenu,
   setContextMenuPosition,
   type AlignDirection,
 } from './CanvasContextMenu.js';
-import { useCanvasGeneration } from '../../hooks/useCanvasGeneration.js';
 import { useCanvasKeyboard } from '../../hooks/useCanvasKeyboard.js';
 import { useCanvasDragDrop } from '../../hooks/useCanvasDragDrop.js';
 import { setCanvasInteracting } from '../../store/middleware/persist.js';
 import { getAPI } from '../../utils/api.js';
-import { downloadWorkflowDocument } from '../../utils/workflowExport.js';
-import { materializeImportedCanvas, readWorkflowDocument } from '../../utils/workflowImport.js';
+import { downloadCanvasDocument } from '../../utils/canvasDocumentExport.js';
+import { materializeImportedCanvas, readCanvasDocument } from '../../utils/canvasDocumentImport.js';
 import { t } from '../../i18n.js';
 import { buildClipboardPayload, parseClipboardPayload, minimapNodeColor } from './canvas-utils.js';
 import { useFlowData, applyNodeChanges } from './useFlowData.js';
 import { useCanvasNodeCallbacks } from './useCanvasNodeCallbacks.js';
 import { useCanvasEdgeCallbacks } from './useCanvasEdgeCallbacks.js';
+import { createRandomSeed, resolveSeedRequest } from './inspector-generation-utils.js';
 
 // ---- React Flow node/edge type registrations --------------------------------
 
@@ -120,8 +123,7 @@ export function CanvasWorkspace() {
   // Single LOD subscription for all nodes — avoids N per-node Zustand subscriptions.
   const canvasLod = useCanvasLod();
   const rfInstanceRef = useRef<ReactFlowInstance | null>(null);
-  const workflowImportInputRef = useRef<HTMLInputElement | null>(null);
-  const { generate } = useCanvasGeneration();
+  const canvasImportInputRef = useRef<HTMLInputElement | null>(null);
   const hoveredNodeIdRef = useRef<string | null>(null);
   // RAF-based batching: accumulate node changes across mouse events within
   // the same animation frame, then flush once. This prevents multiple
@@ -133,7 +135,6 @@ export function CanvasWorkspace() {
   const draggingNodeIdsRef = useRef<Set<string>>(new Set());
   const [depHighlightLocked, setDepHighlightLocked] = useState(false);
   const [connectingFromNodeId, setConnectingFromNodeId] = useState<string | null>(null);
-  const [videoCloneOpen, setVideoCloneOpen] = useState(false);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   // Track whether the user is actively panning/zooming. Uses a ref instead
   // of state to avoid re-rendering the entire component tree on every pan
@@ -143,6 +144,7 @@ export function CanvasWorkspace() {
 
   const activeCanvasId = useSelector((s: RootState) => s.canvas.activeCanvasId);
   const canvas = useSelector(selectActiveCanvas);
+  const nodesById = useSelector(selectNodesById);
   const canvasViewport = useSelector((s: RootState) => s.canvas.viewport);
   const projectStyleGuide = useSelector((s: RootState) => s.settings.styleGuide);
   const selectedNodeIds = useSelector((s: RootState) => s.canvas.selectedNodeIds);
@@ -153,7 +155,38 @@ export function CanvasWorkspace() {
   const snapToGrid = useSelector((s: RootState) => s.ui.snapToGrid);
   const rightPanel = useSelector((s: RootState) => s.ui.rightPanel);
   const canvasViewMode = useSelector((s: RootState) => s.ui.canvasViewMode);
-  const editViewFocusedNodeId = useSelector((s: RootState) => s.ui.editViewFocusedNodeId);
+
+  const generate = useCallback(
+    async (nodeId: string) => {
+      if (!activeCanvasId) return;
+      const node = nodesById.get(nodeId);
+      if (!node || (node.type !== 'image' && node.type !== 'video' && node.type !== 'audio')) return;
+      const data = node.data as {
+        providerId?: string;
+        variantCount?: number;
+        seed?: number;
+        seedLocked?: boolean;
+      };
+      const seedRequest = resolveSeedRequest({
+        seed: data.seed,
+        seedLocked: data.seedLocked ?? false,
+        randomSeed: createRandomSeed(),
+      });
+      if (typeof seedRequest.persistImmediately === 'number') {
+        dispatch(setNodeSeed({ id: nodeId, seed: seedRequest.persistImmediately }));
+      }
+      dispatch(
+        requestDurableMediaTask({
+          canvasId: activeCanvasId,
+          nodeId,
+          providerId: data.providerId ?? null,
+          variantCount: data.variantCount ?? 1,
+          seed: seedRequest.requestSeed,
+        }),
+      );
+    },
+    [activeCanvasId, dispatch, nodesById],
+  );
 
   // When the active canvas changes, imperatively move ReactFlow's viewport
   // to the restored position.  `defaultViewport` is an init-only prop, so
@@ -172,7 +205,6 @@ export function CanvasWorkspace() {
   const nodeCallbacks = useCanvasNodeCallbacks({
     generate,
     setConnectingFromNodeId,
-    setVideoCloneOpen,
   });
   const edgeCallbacks = useCanvasEdgeCallbacks();
 
@@ -187,6 +219,8 @@ export function CanvasWorkspace() {
   // being in the dependency array of every callback.
   const canvasRef = useRef(canvas);
   canvasRef.current = canvas;
+  const nodesByIdRef = useRef(nodesById);
+  nodesByIdRef.current = nodesById;
 
   const selectedNodeIdsRef = useRef(selectedNodeIds);
   selectedNodeIdsRef.current = selectedNodeIds;
@@ -195,7 +229,7 @@ export function CanvasWorkspace() {
 
   const handleNavigateToNode = useCallback(
     (nodeId: string) => {
-      const node = canvas?.nodes.find((n) => n.id === nodeId);
+      const node = nodesById.get(nodeId);
       if (!node) return;
       const w = node.width ?? 200;
       const h = node.height ?? 100;
@@ -205,7 +239,7 @@ export function CanvasWorkspace() {
       });
       dispatch(setSelection({ nodeIds: [nodeId], edgeIds: [] }));
     },
-    [canvas?.nodes, dispatch, reactFlow],
+    [dispatch, nodesById, reactFlow],
   );
 
   useEffect(() => {
@@ -241,7 +275,7 @@ export function CanvasWorkspace() {
           if (change.dragging) {
             // ---- Active drag: local-only, no Redux ----
             if (currentCanvas) {
-              const movedNode = currentCanvas.nodes.find((n) => n.id === change.id);
+              const movedNode = nodesByIdRef.current.get(change.id);
               if (movedNode?.type === 'backdrop') {
                 if (backdropChildrenRef.current.size === 0) {
                   const bw = movedNode.width ?? 420;
@@ -567,7 +601,7 @@ export function CanvasWorkspace() {
     (direction: AlignDirection) => {
       if (!canvas || selectedNodeIds.length < 2) return;
       const nodes = selectedNodeIds
-        .map((id) => canvas.nodes.find((n) => n.id === id))
+        .map((id) => nodesById.get(id))
         .filter((n): n is NonNullable<typeof n> => n != null && !n.locked);
       if (nodes.length < 2) return;
 
@@ -620,7 +654,7 @@ export function CanvasWorkspace() {
       }
       dispatch(moveNodes(moves));
     },
-    [canvas, dispatch, selectedNodeIds],
+    [canvas, dispatch, nodesById, selectedNodeIds],
   );
 
   // ---- Context menu position tracking ---------------------------------------
@@ -670,41 +704,41 @@ export function CanvasWorkspace() {
     triggerEl.dispatchEvent(syntheticEvent);
   }, []);
 
-  const handleExportWorkflow = useCallback(() => {
+  const handleExportCanvas = useCallback(() => {
     if (!canvas) return;
     try {
       const canvasWithViewport =
         canvas.viewport === canvasViewport ? canvas : { ...canvas, viewport: canvasViewport };
-      downloadWorkflowDocument(canvasWithViewport);
-      dispatch(enqueueToast({ variant: 'success', title: t('toast.workflowExported') }));
+      downloadCanvasDocument(canvasWithViewport);
+      dispatch(enqueueToast({ variant: 'success', title: t('toast.canvasExported') }));
     } catch (error) {
       dispatch(
         enqueueToast({
           variant: 'error',
-          title: t('toast.error.workflowExportFailed'),
+          title: t('toast.error.canvasExportFailed'),
           message: error instanceof Error ? error.message : String(error),
         }),
       );
     }
   }, [canvas, canvasViewport, dispatch]);
 
-  const handleOpenWorkflowImport = useCallback(() => {
-    workflowImportInputRef.current?.click();
+  const handleOpenCanvasImport = useCallback(() => {
+    canvasImportInputRef.current?.click();
   }, []);
 
-  const handleWorkflowImport = useCallback(
+  const handleCanvasImport = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       if (!file || !canvas) return;
 
       try {
-        const document = await readWorkflowDocument(file);
+        const document = await readCanvasDocument(file);
         if (!document?.canvas) {
           dispatch(
             enqueueToast({
               variant: 'error',
-              title: t('toast.error.workflowImportFailed'),
-              message: t('toast.error.workflowImportInvalid'),
+              title: t('toast.error.canvasImportFailed'),
+              message: t('toast.error.canvasImportInvalid'),
             }),
           );
           return;
@@ -718,19 +752,16 @@ export function CanvasWorkspace() {
             : `${document.canvas.name} ${t('canvas.importedSuffix')}`,
         });
 
-        await getAPI()?.canvas.save(importedCanvas);
         const api = getAPI();
-        if (api) {
-          const list = await api.canvas.list();
-          const loaded = await Promise.all(list.map((item) => api.canvas.load(item.id)));
-          dispatch(setCanvases(loaded.filter(Boolean)));
-        }
+        if (!api) throw new Error('Canvas persistence API is unavailable');
+        await api.canvas.save(importedCanvas);
+        dispatch(setCanvases(await api.canvas.loadAll()));
         dispatch(setActiveCanvas(importedCanvas.id));
       } catch (error) {
         dispatch(
           enqueueToast({
             variant: 'error',
-            title: t('toast.error.workflowImportFailed'),
+            title: t('toast.error.canvasImportFailed'),
             message: error instanceof Error ? error.message : String(error),
           }),
         );
@@ -792,13 +823,13 @@ export function CanvasWorkspace() {
             </div>
           )}
           <input
-            ref={workflowImportInputRef}
+            ref={canvasImportInputRef}
             type="file"
-            accept=".json,.lucid-workflow.json"
+            accept=".json,.lucid-canvas.json"
             className="hidden"
             aria-label={t('canvasWorkspace.importFileAriaLabel')}
             onChange={(event) => {
-              void handleWorkflowImport(event);
+              void handleCanvasImport(event);
             }}
           />
           <CanvasToolbar
@@ -808,8 +839,9 @@ export function CanvasWorkspace() {
             onToggleSearch={() => dispatch(toggleSearchPanel())}
             onToggleMinimap={() => dispatch(toggleMinimapVisible())}
             onToggleSnapToGrid={() => dispatch(toggleSnapToGrid())}
-            onExportWorkflow={handleExportWorkflow}
-            onImportWorkflow={handleOpenWorkflowImport}
+            onExportCanvas={handleExportCanvas}
+            onImportCanvas={handleOpenCanvasImport}
+            viewSwitcher={<CanvasViewSwitcher />}
             styleGuide={{
               artStyle: projectStyleGuide?.global?.artStyle,
               lighting: projectStyleGuide?.global?.lighting,
@@ -832,9 +864,7 @@ export function CanvasWorkspace() {
               onNavigateToNode={handleNavigateToNode}
             />
           ) : null}
-          {canvasViewMode === 'edit' && <EditView focusedNodeId={editViewFocusedNodeId} />}
-          {canvasViewMode === 'audio' && <AudioView />}
-          {canvasViewMode === 'materials' && <MaterialsView />}
+          {canvasViewMode === 'delivery' && <DeliveryView />}
           {canvasViewMode === 'main' && (
             <>
               <CanvasLodContext.Provider value={canvasLod}>
@@ -903,11 +933,6 @@ export function CanvasWorkspace() {
           )}
         </div>
       </CanvasContextMenu>
-      <VideoCloneDialog
-        open={videoCloneOpen}
-        onClose={() => setVideoCloneOpen(false)}
-        onCanvasCreated={(canvasId) => dispatch(setActiveCanvas(canvasId))}
-      />
     </>
   );
 }

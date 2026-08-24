@@ -199,7 +199,7 @@ describe('useCanvasDragDrop', () => {
   it('imports dropped image files through IPC buffer import', async () => {
     const importBuffer = vi.fn(async () => ({ hash: 'imported-image-hash' }));
     vi.mocked(getAPI).mockReturnValue({
-      asset: {
+      assetEntry: {
         importBuffer,
       },
     } as never);

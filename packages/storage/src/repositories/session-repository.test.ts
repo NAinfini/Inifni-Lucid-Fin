@@ -1,18 +1,28 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import BetterSqlite3 from 'better-sqlite3';
 import { setDegradeReporter, type DegradeReporter } from '@lucid-fin/contracts-parse';
-import type { SessionId, ContextItem, ToolKey } from '@lucid-fin/contracts';
+import type { CommanderContextCache, SessionId } from '@lucid-fin/contracts';
 import { SessionRepository, type StoredSession } from './session-repository.js';
 
 const SCHEMA = `
 CREATE TABLE commander_sessions (
   id          TEXT PRIMARY KEY,
-  canvas_id   TEXT,
+  default_canvas_id TEXT,
   title       TEXT NOT NULL DEFAULT '',
   messages    TEXT NOT NULL DEFAULT '[]',
   context_graph_json TEXT,
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL
+);
+CREATE TABLE commander_runs (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES commander_sessions(id) ON DELETE CASCADE,
+  status TEXT NOT NULL
+);
+CREATE TABLE task_lists (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  metadata_json TEXT NOT NULL DEFAULT '{}'
 );
 `;
 
@@ -25,13 +35,26 @@ function openDb(): BetterSqlite3.Database {
 function mkSession(id: string, overrides: Partial<StoredSession> = {}): StoredSession {
   return {
     id: id as SessionId,
-    canvasId: null,
+    defaultCanvasId: null,
     title: '',
     messages: '[]',
     createdAt: 1,
     updatedAt: 1,
     ...overrides,
   };
+}
+
+function insertTaskList(
+  db: BetterSqlite3.Database,
+  id: string,
+  sessionId: string,
+  status: string,
+): void {
+  db.prepare(`INSERT INTO task_lists (id, status, metadata_json) VALUES (?, ?, ?)`).run(
+    id,
+    status,
+    JSON.stringify({ commanderSessionId: sessionId }),
+  );
 }
 
 describe('SessionRepository', () => {
@@ -93,17 +116,81 @@ describe('SessionRepository', () => {
     expect(rows.length).toBe(2);
   });
 
+  it('listSummaries derives messageCount without returning message payloads', () => {
+    repo.upsert(mkSession('s1', { messages: '[{"role":"user"},{"role":"assistant"}]' }));
+    const { rows, degradedCount } = repo.listSummaries();
+    expect(degradedCount).toBe(0);
+    expect(rows).toEqual([expect.objectContaining({ id: 's1', messageCount: 2 })]);
+    expect(rows[0]).not.toHaveProperty('messages');
+  });
+
   it('delete removes the row', () => {
     repo.upsert(mkSession('s1'));
     repo.delete('s1' as SessionId);
     expect(repo.get('s1' as SessionId)).toBeUndefined();
   });
 
+  it('rejects deleting an active session and deletes it after the run is terminal', () => {
+    repo.upsert(mkSession('s1'));
+    db.prepare(
+      `INSERT INTO commander_runs (id, session_id, status) VALUES ('run-1', 's1', 'running')`,
+    ).run();
+    expect(() => repo.delete('s1' as SessionId)).toThrow('has an active run');
+    expect(repo.get('s1' as SessionId)).toBeDefined();
+    expect(repo.deleteTerminal('s1' as SessionId)).toBe(false);
+
+    db.prepare(`UPDATE commander_runs SET status = 'completed' WHERE id = 'run-1'`).run();
+    expect(repo.deleteTerminal('s1' as SessionId)).toBe(true);
+    expect(repo.get('s1' as SessionId)).toBeUndefined();
+  });
+
+  it('guards move, delete, and ownership-changing upsert while a Task List is unfinished', () => {
+    repo.upsert(mkSession('s1', { defaultCanvasId: 'canvas-a', title: 'before' }));
+    insertTaskList(db, 'task-list-1', 's1', 'running');
+
+    expect(() => repo.move('s1' as SessionId, 'canvas-b')).toThrow('unfinished Task List');
+    expect(() => repo.delete('s1' as SessionId)).toThrow('unfinished Task List');
+    expect(() =>
+      repo.upsert(mkSession('s1', { defaultCanvasId: 'canvas-b', title: 'must-not-persist' })),
+    ).toThrow('unfinished Task List');
+    expect(repo.get('s1' as SessionId)).toMatchObject({
+      defaultCanvasId: 'canvas-a',
+      title: 'before',
+    });
+
+    repo.upsert(
+      mkSession('s1', {
+        defaultCanvasId: 'canvas-a',
+        title: 'message-sync-still-allowed',
+        messages: '[{"role":"user"}]',
+      }),
+    );
+    expect(repo.get('s1' as SessionId)).toMatchObject({
+      defaultCanvasId: 'canvas-a',
+      title: 'message-sync-still-allowed',
+    });
+
+    db.prepare(`UPDATE task_lists SET status = 'completed' WHERE id = 'task-list-1'`).run();
+    repo.move('s1' as SessionId, 'canvas-b');
+    expect(repo.get('s1' as SessionId)?.defaultCanvasId).toBe('canvas-b');
+    repo.delete('s1' as SessionId);
+    expect(repo.get('s1' as SessionId)).toBeUndefined();
+  });
+
+  it('rejects moving an active session without partially changing its Canvas', () => {
+    repo.upsert(mkSession('s1', { defaultCanvasId: 'canvas-a' }));
+    db.prepare(
+      `INSERT INTO commander_runs (id, session_id, status) VALUES ('run-1', 's1', 'accepted')`,
+    ).run();
+    expect(() => repo.move('s1' as SessionId, 'canvas-b')).toThrow('has an active run');
+    expect(repo.get('s1' as SessionId)?.defaultCanvasId).toBe('canvas-a');
+  });
+
   it('fault injection: list skips malformed row + increments degradedCount + reports', () => {
     repo.upsert(mkSession('good', { updatedAt: 20 }));
     // Inject a corrupt row (non-numeric created_at) bypassing the repository.
     db.prepare(
-      `INSERT INTO commander_sessions (id, canvas_id, title, messages, created_at, updated_at)
+      `INSERT INTO commander_sessions (id, default_canvas_id, title, messages, created_at, updated_at)
        VALUES (?, NULL, '', '[]', ?, ?)`,
     ).run('bad', 'not-a-number' as unknown as number, 30);
     const { rows, degradedCount } = repo.list();
@@ -123,73 +210,35 @@ describe('SessionRepository', () => {
     expect(repo.get('tx-session' as SessionId)?.title).toBe('tx');
   });
 
-  // ── G2a-5: ContextGraph persistence round-trip ─────────────
-
-  it('getContextGraph returns null when no graph has been saved', () => {
+  it('distinguishes missing, invalid, and valid Commander context caches', () => {
     repo.upsert(mkSession('s1'));
-    expect(repo.getContextGraph('s1' as SessionId)).toBeNull();
-  });
+    expect(repo.readContextCache('s1' as SessionId)).toEqual({ state: 'missing' });
 
-  it('saveContextGraph and getContextGraph round-trip items', () => {
-    repo.upsert(mkSession('s1'));
+    const cache: CommanderContextCache = {
+      kind: 'commander_context_cache',
+      version: 2,
+      projectorVersion: 1,
+      sessionId: 's1',
+      runs: [],
+      projectionHash: 'a'.repeat(64),
+    };
+    repo.saveContextCache('s1' as SessionId, cache);
+    expect(repo.readContextCache('s1' as SessionId)).toEqual({ state: 'valid', cache });
 
-    const items: ContextItem[] = [
-      {
-        kind: 'user-message',
-        itemId: 'item-1' as import('@lucid-fin/contracts').ContextItemId,
-        producedAtStep: 0,
-        content: 'Hello',
-      },
-      {
-        kind: 'tool-result',
-        itemId: 'item-2' as import('@lucid-fin/contracts').ContextItemId,
-        producedAtStep: 1,
-        toolKey: 'canvas.getInfo' as ToolKey,
-        paramsHash: '{}',
-        content: { success: true },
-        schemaVersion: 1,
-      },
-      {
-        kind: 'assistant-turn',
-        itemId: 'item-3' as import('@lucid-fin/contracts').ContextItemId,
-        producedAtStep: 1,
-        content: '',
-        reasoning: 'inspect first',
-        toolCalls: [
-          {
-            id: 'call-1',
-            name: 'image.analyze',
-            arguments: { assetId: 'asset-1' },
-            thoughtSignature: 'opaque-signature',
-          },
-        ],
-      },
-    ];
+    db.prepare(`UPDATE commander_sessions SET context_graph_json = ? WHERE id = ?`).run(
+      JSON.stringify([{ kind: 'user-message', content: 'legacy private graph' }]),
+      's1',
+    );
+    expect(repo.readContextCache('s1' as SessionId)).toEqual({ state: 'invalid' });
 
-    repo.saveContextGraph('s1' as SessionId, items);
-    const loaded = repo.getContextGraph('s1' as SessionId);
-    expect(loaded).not.toBeNull();
-    expect(loaded).toHaveLength(3);
-    expect(loaded![0]!.kind).toBe('user-message');
-    expect(loaded![1]!.kind).toBe('tool-result');
-    expect(loaded![2]).toMatchObject({
-      kind: 'assistant-turn',
-      reasoning: 'inspect first',
-      toolCalls: [{ thoughtSignature: 'opaque-signature' }],
-    });
-  });
-
-  it('getContextGraph returns null on malformed JSON (fail-soft)', () => {
-    repo.upsert(mkSession('bad-graph'));
-    // Inject corrupt JSON directly
     db.prepare(`UPDATE commander_sessions SET context_graph_json = ? WHERE id = ?`).run(
       'not valid json {{{{',
-      'bad-graph',
+      's1',
     );
-    expect(repo.getContextGraph('bad-graph' as SessionId)).toBeNull();
-  });
+    expect(repo.readContextCache('s1' as SessionId)).toEqual({ state: 'invalid' });
 
-  it('getContextGraph returns null when id does not exist', () => {
-    expect(repo.getContextGraph('nonexistent' as SessionId)).toBeNull();
+    repo.clearContextCache('s1' as SessionId);
+    expect(repo.readContextCache('s1' as SessionId)).toEqual({ state: 'missing' });
+    expect(repo.readContextCache('nonexistent' as SessionId)).toEqual({ state: 'missing' });
   });
 });

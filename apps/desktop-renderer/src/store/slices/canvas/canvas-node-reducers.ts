@@ -124,8 +124,9 @@ export function moveNodes(
   const canvas = findActiveCanvas(state);
   if (!canvas) return;
   const now = Date.now();
+  const nodesById = new Map(canvas.nodes.map((node) => [node.id, node]));
   for (const { id, position } of action.payload) {
-    const node = canvas.nodes.find((n) => n.id === id);
+    const node = nodesById.get(id);
     if (node && !node.locked) {
       node.position = position;
       node.updatedAt = now;
@@ -309,7 +310,7 @@ export function setNodeVariantCount(
 
 export function setNodeEstimatedCost(
   state: CanvasSliceState,
-  action: PayloadAction<{ id: string; estimatedCost: number }>,
+  action: PayloadAction<{ id: string; estimatedCost: number | undefined }>,
 ): void {
   const canvas = findActiveCanvas(state);
   if (!canvas) return;
@@ -317,7 +318,11 @@ export function setNodeEstimatedCost(
   if (!node) return;
   const data = getGenerationNodeData(node);
   if (!data) return;
-  data.estimatedCost = action.payload.estimatedCost;
+  if (action.payload.estimatedCost === undefined) {
+    delete data.estimatedCost;
+  } else {
+    data.estimatedCost = action.payload.estimatedCost;
+  }
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }

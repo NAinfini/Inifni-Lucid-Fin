@@ -44,15 +44,8 @@ export interface ConsumeResult {
  */
 export const IPC_RATE_LIMITS: Readonly<Record<string, RateLimitConfig>> = {
   // AI generation channels — expensive, rate limit aggressively
-  'commander:chat': { maxRequests: 10, windowMs: 60_000 },
-  'canvas:generate': { maxRequests: 5, windowMs: 60_000 },
-  'entity:generateReferenceImage': { maxRequests: 5, windowMs: 60_000 },
+  'commander:start': { maxRequests: 10, windowMs: 60_000 },
 
-  // Embedding — cheaper but still external API
-  'asset:generateEmbedding': { maxRequests: 20, windowMs: 60_000 },
-
-  // Catch-all for any AI channel not explicitly listed
-  'ai:*': { maxRequests: 15, windowMs: 60_000 },
 };
 
 // ---------------------------------------------------------------------------

@@ -35,6 +35,9 @@ export const CanvasesTable = defineTable('canvases', {
   imageProviderId: col<string | null>('image_provider_id'),
   videoProviderId: col<string | null>('video_provider_id'),
   audioProviderId: col<string | null>('audio_provider_id'),
+  deliverySequenceJson: col<string | null>('delivery_sequence_json'),
+  deliverySequenceRevision: col<number>('delivery_sequence_revision'),
+  archivedAt: col<number | null>('archived_at'),
   createdAt: col<number>('created_at'),
   updatedAt: col<number>('updated_at'),
 });

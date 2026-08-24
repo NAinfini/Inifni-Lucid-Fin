@@ -62,7 +62,7 @@ Ignore minor variations that would not be noticeable in motion.
 
 ---
 
-## Commander Workflow
+## Commander Task Procedure
 
 1. User selects a scene or range of nodes
 2. Commander calls `image.analyze` per node (vision LLM)

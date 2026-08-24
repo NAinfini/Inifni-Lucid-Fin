@@ -1,7 +1,7 @@
 import type { ComponentType } from 'react';
 import { FileText, Image, LayoutTemplate, Video, Volume2 } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useReactFlow } from '@xyflow/react';
+import { useStore } from '@xyflow/react';
 import type { NodeKind } from '@lucid-fin/contracts';
 import type { RootState } from '../../store/index.js';
 import { addNode } from '../../store/slices/canvas/canvas.js';
@@ -22,18 +22,17 @@ const NODE_OPTIONS: Array<{
 
 export function AddNodePanel() {
   const dispatch = useDispatch();
-  const { screenToFlowPosition } = useReactFlow();
+  const flowWidth = useStore((state) => state.width);
+  const flowHeight = useStore((state) => state.height);
+  const transform = useStore((state) => state.transform);
   const activeCanvasId = useSelector((state: RootState) => state.canvas.activeCanvasId);
 
   const getCanvasCenter = () => {
-    // Use the ReactFlow pane DOM element to find the true center of the canvas viewport.
-    const pane = document.querySelector('.react-flow__pane') as HTMLElement | null;
-    if (pane) {
-      const rect = pane.getBoundingClientRect();
-      return screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-    }
-    // Fallback if pane not found
-    return screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+    const [translateX, translateY, zoom] = transform;
+    return {
+      x: (flowWidth / 2 - translateX) / zoom,
+      y: (flowHeight / 2 - translateY) / zoom,
+    };
   };
 
   return (

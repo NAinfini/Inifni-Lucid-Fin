@@ -32,7 +32,7 @@ export const presetsSlice = createSlice({
         state.byId[preset.id] = preset;
         state.allIds.push(preset.id);
       }
-      if (state.managerSelectedPresetId && !state.byId[state.managerSelectedPresetId]) {
+      if (!state.managerSelectedPresetId || !state.byId[state.managerSelectedPresetId]) {
         state.managerSelectedPresetId = state.allIds[0] ?? null;
       }
     },

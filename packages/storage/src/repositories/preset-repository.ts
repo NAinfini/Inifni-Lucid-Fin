@@ -1,11 +1,11 @@
 /**
- * PresetRepository — Phase G1-2.8.
+ * Preset persistence.
  *
  * Wraps `preset_overrides` CRUD behind the `PresetId` brand and fault-soft
  * reads. Preset body (`params`, `defaults`) is stored as serialized JSON;
  * the repository parses and returns typed objects.
  *
- * Table column names flow through `PresetOverridesTable` (G1-1) — schema
+ * Table column names flow through `PresetOverridesTable` — schema
  * drift fails at compile time.
  *
  * Reads go through `parseOrDegrade` with `'PresetOverride'` ctx so a

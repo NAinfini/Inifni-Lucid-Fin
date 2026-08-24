@@ -1,4 +1,16 @@
-import { BarChart3, Bot, Cpu, FileText, HardDrive, Image, Info, ListTree, Sun } from 'lucide-react';
+import {
+  BarChart3,
+  Bot,
+  ChevronDown,
+  Cpu,
+  FileText,
+  HardDrive,
+  Image,
+  Info,
+  ListTree,
+  Sun,
+} from 'lucide-react';
+import { useState } from 'react';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
 import { t } from '../../i18n.js';
@@ -33,16 +45,7 @@ const TAB_GROUPS: SettingsTabGroup[] = [
     id: 'program',
     labelKey: 'settings.nav.groupProgram',
     fallbackLabel: 'Application',
-    tabs: [
-      'commander',
-      'providers',
-      'guides',
-      'processGuides',
-      'appearance',
-      'storage',
-      'usage',
-      'about',
-    ],
+    tabs: ['providers', 'appearance', 'storage', 'usage', 'about'],
   },
   {
     id: 'canvas',
@@ -51,6 +54,8 @@ const TAB_GROUPS: SettingsTabGroup[] = [
     tabs: ['canvas'],
   },
 ];
+
+const ADVANCED_TABS: SettingsTab[] = ['commander', 'guides', 'processGuides'];
 
 export const SETTINGS_TAB_META: Record<
   SettingsTab,
@@ -89,8 +94,56 @@ interface SettingsSidebarNavProps {
   onTabChange: (tab: SettingsTab) => void;
 }
 
+function SettingsTabButtons({
+  activeTab,
+  availableUpdate,
+  onTabChange,
+  tabs,
+}: {
+  activeTab: SettingsTab;
+  availableUpdate: boolean;
+  onTabChange: (tab: SettingsTab) => void;
+  tabs: SettingsTab[];
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-1 md:grid-cols-1">
+      {tabs.map((tab) => {
+        const meta = SETTINGS_TAB_META[tab];
+        const Icon = meta.icon;
+        const isActive = activeTab === tab;
+
+        return (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => onTabChange(tab)}
+            aria-current={isActive ? 'page' : undefined}
+            className={cn(
+              'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors',
+              isActive
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+            )}
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">
+              {translateOrFallback(meta.labelKey, meta.fallbackLabel)}
+            </span>
+            {tab === 'about' && availableUpdate && !isActive && (
+              <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-primary animate-pulse" />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function SettingsSidebarNav({ activeTab, onTabChange }: SettingsSidebarNavProps) {
   const availableUpdate = useSelector((s: RootState) => s.settings.availableUpdate);
+  const advancedActive = ADVANCED_TABS.includes(activeTab);
+  const [advancedOpen, setAdvancedOpen] = useState(advancedActive);
+  const showAdvancedTabs = advancedOpen || advancedActive;
 
   return (
     <nav
@@ -103,38 +156,42 @@ export function SettingsSidebarNav({ activeTab, onTabChange }: SettingsSidebarNa
             <div className="px-2 pb-1.5 pt-0.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               {translateOrFallback(group.labelKey, group.fallbackLabel)}
             </div>
-            <div className="grid grid-cols-2 gap-1 md:grid-cols-1">
-              {group.tabs.map((tab) => {
-                const meta = SETTINGS_TAB_META[tab];
-                const Icon = meta.icon;
-                const isActive = activeTab === tab;
-
-                return (
-                  <button
-                    key={tab}
-                    type="button"
-                    onClick={() => onTabChange(tab)}
-                    aria-current={isActive ? 'page' : undefined}
-                    className={cn(
-                      'flex items-center gap-2 rounded-md px-2.5 py-1.5 text-xs transition-colors',
-                      isActive
-                        ? 'bg-primary text-primary-foreground shadow-sm'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">
-                      {translateOrFallback(meta.labelKey, meta.fallbackLabel)}
-                    </span>
-                    {tab === 'about' && availableUpdate && !isActive && (
-                      <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-primary animate-pulse" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
+            <SettingsTabButtons
+              activeTab={activeTab}
+              availableUpdate={Boolean(availableUpdate)}
+              onTabChange={onTabChange}
+              tabs={group.tabs}
+            />
           </div>
         ))}
+
+        <div className="rounded-lg border border-border/60 bg-card p-1.5">
+          <button
+            type="button"
+            aria-controls="settings-advanced-tabs"
+            aria-expanded={showAdvancedTabs}
+            onClick={() => setAdvancedOpen((open) => (advancedActive ? true : !open))}
+            className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            {translateOrFallback('settings.nav.groupAdvanced', 'Advanced')}
+            <ChevronDown
+              className={cn(
+                'h-3.5 w-3.5 transition-transform duration-200',
+                showAdvancedTabs && 'rotate-180',
+              )}
+            />
+          </button>
+          {showAdvancedTabs && (
+            <div id="settings-advanced-tabs" className="mt-1">
+              <SettingsTabButtons
+                activeTab={activeTab}
+                availableUpdate={Boolean(availableUpdate)}
+                onTabChange={onTabChange}
+                tabs={ADVANCED_TABS}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </nav>
   );

@@ -94,5 +94,3 @@ export interface AdapterResolutionController {
   readonly capabilities: ResolutionCapabilities;
   resolve(intent: ResolutionIntent, context: ResolutionResolveContext): ResolutionPreflightResult;
 }
-
-export type FinalExportFitMode = 'contain' | 'cover' | 'stretch';

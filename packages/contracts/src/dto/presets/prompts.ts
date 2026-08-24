@@ -387,4 +387,70 @@ export const PRESET_PROMPT_LIBRARY: Record<string, string> = {
     'maximum detail ultra-quality, highest resolution rendering with full texture detail and precision',
   'technical:turbo-preview':
     'turbo fast preview, minimal-step rapid generation for quick concept exploration',
+
+  // ── voice style ──
+  'voice-style:narrator-warm':
+    'warm, intimate narrator with a rounded tone, natural breath, reassuring cadence, and close-mic presence',
+  'voice-style:narrator-authoritative':
+    'authoritative narrator with resonant projection, firm articulation, measured cadence, and confident emphasis',
+  'voice-style:conversational':
+    'relaxed conversational delivery with natural rhythm, subtle inflection, clear diction, and direct personal address',
+  'voice-style:dramatic-reading':
+    'expressive dramatic reading with theatrical projection, deliberate pauses, dynamic emphasis, and emotional range',
+  'voice-style:whisper':
+    'intimate breath-led whisper with soft consonants, close proximity, controlled low volume, and restrained expression',
+  'voice-style:announcer':
+    'polished broadcast announcer with crisp diction, energetic projection, punchy cadence, and confident clarity',
+  'voice-style:child-like':
+    'youthful light voice with bright pitch, playful cadence, clear articulation, and curious expressive energy',
+  'voice-style:elderly':
+    'aged textured voice with measured rhythm, gentle rasp, deliberate articulation, and lived-in warmth',
+  'voice-style:robotic':
+    'synthetic robotic voice with precise timing, controlled pitch, machine-like articulation, and minimal organic variation',
+  'voice-style:breathy':
+    'airy breath-forward voice with soft attacks, intimate tone, delicate phrasing, and gentle vocal texture',
+
+  // ── music genre ──
+  'music-genre:cinematic-orchestral':
+    'sweeping cinematic orchestra with expressive strings, bold brass, orchestral percussion, and a wide narrative dynamic arc',
+  'music-genre:ambient-electronic':
+    'spacious ambient electronic soundscape with evolving synth pads, restrained pulse, textured layers, and immersive depth',
+  'music-genre:jazz-smooth':
+    'smooth jazz ensemble with warm electric piano, lyrical saxophone, brushed drums, flowing bass, and a relaxed groove',
+  'music-genre:rock-driving':
+    'driving rock arrangement with distorted guitars, punchy live drums, propulsive bass, and anthemic forward momentum',
+  'music-genre:hip-hop-boom-bap':
+    'boom-bap hip-hop groove with dusty sampled drums, heavy kick and snare, chopped melodic phrases, and head-nod swing',
+  'music-genre:classical-piano':
+    'solo acoustic grand piano with lyrical phrasing, expressive dynamics, natural pedal resonance, and intimate room detail',
+  'music-genre:lo-fi-chill':
+    'lo-fi chill beat with mellow drums, warm tape texture, soft keys, restrained bass, and a relaxed looping groove',
+  'music-genre:epic-trailer':
+    'epic trailer score with massive percussion, heroic brass, urgent string ostinatos, rising tension, and climactic impacts',
+  'music-genre:folk-acoustic':
+    'intimate acoustic folk arrangement with natural guitar, organic strings, light hand percussion, and human warmth',
+  'music-genre:synthwave-retro':
+    'retro synthwave track with analog arpeggios, gated drums, neon bass, soaring leads, and nostalgic cinematic drive',
+
+  // ── sound environment ──
+  'sfx-environment:indoor-room':
+    'controlled interior room tone with close wall reflections, subtle ventilation, furnishing resonance, and realistic enclosed acoustics',
+  'sfx-environment:outdoor-nature':
+    'layered open-air nature ambience with wind, foliage, birds, insects, distant wildlife, and natural spatial movement',
+  'sfx-environment:urban-street':
+    'dense urban street ambience with traffic, engines, horns, footsteps, passing voices, and realistic distance and occlusion',
+  'sfx-environment:underwater':
+    'submerged environment with filtered low-frequency rumbles, bubbles, muffled movement, pressure texture, and fluid spatial depth',
+  'sfx-environment:cave-reverb':
+    'deep cave ambience with water drips, distant echoes, irregular stone reflections, low resonances, and long decaying space',
+  'sfx-environment:stadium-crowd':
+    'wide stadium crowd bed with layered cheers, chants, claps, surging reactions, arena reflections, and distant public address',
+  'sfx-environment:forest-dense':
+    'dense forest ambience with close leaves, moving branches, insects, birds, layered canopy activity, and damp natural depth',
+  'sfx-environment:desert-wind':
+    'exposed desert ambience with dry wind gusts, granular sand hiss, sparse debris movement, and vast open distance',
+  'sfx-environment:rain-heavy':
+    'dense torrential rainfall across mixed surfaces with close impacts, roof and pavement texture, flowing runoff, and distant thunder',
+  'sfx-environment:mechanical-factory':
+    'active factory ambience with interlocking motors, conveyors, ventilation, metal impacts, hydraulic movement, and rhythmic machinery',
 };

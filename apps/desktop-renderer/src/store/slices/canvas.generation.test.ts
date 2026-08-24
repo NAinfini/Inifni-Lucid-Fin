@@ -146,6 +146,9 @@ describe('canvas generation reducers', () => {
         primaryAssetHash: 'hash-b',
         cost: 0.2,
         generationTimeMs: 8000,
+        promptAssemblyId: 'assembly-1',
+        prompt: 'exact Commander final prompt',
+        negativePrompt: 'watermark, duplicate subject',
       }),
     );
 
@@ -159,6 +162,11 @@ describe('canvas generation reducers', () => {
       variantCount?: number;
       estimatedCost?: number;
       generationTimeMs?: number;
+      generationHistory?: Array<{
+        promptAssemblyId?: string;
+        prompt: string;
+        negativePrompt?: string;
+      }>;
     };
     expect(deriveNodeStatus(node!)).toBe('done');
     expect(data.status).toBe('done');
@@ -169,6 +177,11 @@ describe('canvas generation reducers', () => {
     expect(data.progress).toBe(100);
     expect(data.estimatedCost).toBe(0.2);
     expect(data.generationTimeMs).toBe(8000);
+    expect(data.generationHistory?.at(-1)).toMatchObject({
+      promptAssemblyId: 'assembly-1',
+      prompt: 'exact Commander final prompt',
+      negativePrompt: 'watermark, duplicate subject',
+    });
   });
 
   it('marks generation failed and clears progress', () => {
@@ -249,6 +262,15 @@ describe('canvas generation reducers', () => {
     expect(data.providerId).toBe('runway');
     expect(data.variantCount).toBe(4);
     expect(data.estimatedCost).toBe(0.14);
+
+    state = canvasSlice.reducer(
+      state,
+      setNodeEstimatedCost({ id: 'img-1', estimatedCost: undefined }),
+    );
+    const clearedNode = state.canvases.entities['canvas-1']!.nodes.find(
+      (candidate) => candidate.id === 'img-1',
+    );
+    expect((clearedNode?.data as { estimatedCost?: number }).estimatedCost).toBeUndefined();
   });
 
   it('stores resolution, duration, and fps on generation nodes only', () => {

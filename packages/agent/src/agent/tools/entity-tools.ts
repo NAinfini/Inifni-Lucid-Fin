@@ -3,7 +3,6 @@ import {
   locationViewToSlot,
   equipmentViewToSlot,
   type Canvas,
-  type CanvasSettings,
   type Character,
   type CharacterRefImageView,
   type Equipment,
@@ -14,21 +13,38 @@ import {
   type Location,
   type LocationRefImageView,
   type ReferenceImage,
-  type ResolutionIntent,
-  type ResolutionSource,
+  type ContextAuthority,
 } from '@lucid-fin/contracts';
-import { tryProviderId } from '@lucid-fin/contracts-parse';
-import { compileVisualStylePolicy, resolveCanvasVisualStylePolicy } from '@lucid-fin/shared-utils';
-import type { AgentTool } from '../tool-registry.js';
+import { NO_TOOL_RESOURCE, toolResultSchema, type ToolDefinition } from '../tool-registry.js';
 import {
   extractSet,
   warnExtraKeys,
   requireString,
   requireSetString,
 } from './tool-result-helpers.js';
-import { buildCharacterRefImagePrompt } from './character-prompt.js';
-import { buildLocationRefImagePrompt } from './location-prompt.js';
-import { buildEquipmentRefImagePrompt } from './equipment-prompt.js';
+import { authorityFact, contextProjector, records, resultRecord } from './context-replay.js';
+import {
+  arraySchema,
+  authorityViewSchema,
+  characterSchema,
+  equipmentSchema,
+  locationSchema,
+  numberSchema,
+  objectSchema,
+  stringSchema,
+  unionSchema,
+} from './tool-runtime-schemas.js';
+
+const entitySchema = unionSchema(characterSchema, locationSchema, equipmentSchema);
+const referenceMutationSchema = objectSchema(
+  {
+    id: stringSchema,
+    assetHash: stringSchema,
+    slot: stringSchema,
+    view: authorityViewSchema,
+  },
+  ['slot', 'view'],
+);
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -50,6 +66,10 @@ const VALID_LOCATION_TYPES = new Set<NonNullable<Location['type']>>([
   'exterior',
   'int-ext',
 ]);
+
+function entityAuthority(type: unknown): ContextAuthority | undefined {
+  return type === 'character' || type === 'location' || type === 'equipment' ? type : undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -141,17 +161,6 @@ export interface EntityToolDeps {
   saveEquipment: (equipment: Equipment) => Promise<void>;
   deleteEquipment: (id: string) => Promise<void>;
   // Shared
-  generateImage?: (
-    prompt: string,
-    options?: {
-      providerId?: string;
-      width?: number;
-      height?: number;
-      resolution?: ResolutionIntent;
-      resolutionSource?: ResolutionSource;
-      negativePrompt?: string;
-    },
-  ) => Promise<{ assetHash: string }>;
   getCanvas?: (canvasId: string) => Promise<Canvas>;
 }
 
@@ -188,17 +197,37 @@ const VIEW_PARAM = {
 // createEntityTools
 // ---------------------------------------------------------------------------
 
-export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
+export function createEntityTools(deps: EntityToolDeps): ToolDefinition[] {
   // -------------------------------------------------------------------------
   // entity.list
   // -------------------------------------------------------------------------
-  const entityList: AgentTool = {
+  const entityList: ToolDefinition = {
     name: 'entity.list',
+    process: 'entity-management',
+    category: 'query',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description:
       'List entities in the current project. Use type to specify which entity domain. Results are returned in the "entities" array.',
     tags: ['entity', 'read', 'search'],
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(
+      objectSchema({
+        total: numberSchema,
+        offset: numberSchema,
+        limit: numberSchema,
+        entities: arraySchema(entitySchema),
+      }),
+    ),
+    projectPublicResult: contextProjector((result, args) => {
+      const authority = entityAuthority(args.type);
+      return authority
+        ? records(resultRecord(result)?.entities).map((entity) =>
+            authorityFact(authority, 'read', entity.id),
+          )
+        : [];
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
         type: ENTITY_TYPE_PARAM,
@@ -278,13 +307,25 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
   // -------------------------------------------------------------------------
   // entity.create
   // -------------------------------------------------------------------------
-  const entityCreate: AgentTool = {
+  const entityCreate: ToolDefinition = {
     name: 'entity.create',
+    process: 'entity-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'entity.refresh', entity: 'all' }] as const,
     description:
-      'Create a new entity in the current project. Fields vary by type — character requires role/appearance/personality; location accepts timeOfDay/mood/lighting; equipment accepts equipmentType/material/condition. To update an existing entity, use entity.update instead. To generate a reference image, use entity.generateRefImage after creation.',
+      'Create a new entity in the current project. Fields vary by type — character requires role/appearance/personality; location accepts timeOfDay/mood/lighting; equipment accepts equipmentType/material/condition. To update an existing entity, use entity.update instead. Generate reference images as ordinary Canvas image nodes through canvas.generation, then attach an accepted result with entity.setRefImageFromNode.',
     tags: ['entity', 'mutate'],
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(entitySchema),
+    projectPublicResult: contextProjector((result, args) => {
+      const authority = entityAuthority(args.type);
+      return authority
+        ? [authorityFact(authority, 'created', resultRecord(result)?.id)]
+        : [];
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
         type: ENTITY_TYPE_PARAM,
@@ -457,6 +498,15 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
         const name = requireString(args, 'name');
 
         if (entityType === 'character') {
+          const role = args.role;
+          if (
+            role !== 'protagonist' &&
+            role !== 'antagonist' &&
+            role !== 'supporting' &&
+            role !== 'extra'
+          ) {
+            throw new Error('role is required for character entities');
+          }
           const face =
             typeof args.face === 'object' && args.face !== null
               ? (args.face as Record<string, unknown>)
@@ -480,10 +530,10 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
           const character: Character = {
             id: crypto.randomUUID(),
             name,
-            role: args.role as Character['role'],
-            description: args.description as string,
-            appearance: args.appearance as string,
-            personality: args.personality as string,
+            role,
+            description: requireString(args, 'description'),
+            appearance: requireString(args, 'appearance'),
+            personality: requireString(args, 'personality'),
             costumes: [],
             referenceImages: [],
             loadouts: [],
@@ -513,23 +563,24 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
             id: crypto.randomUUID(),
             name,
             type: normalizeLocationType(args.locationType) ?? 'interior',
-            subLocation: typeof args.subLocation === 'string' ? args.subLocation : undefined,
-            description: args.description as string,
-            timeOfDay: typeof args.timeOfDay === 'string' ? args.timeOfDay : undefined,
-            mood: typeof args.mood === 'string' ? args.mood : undefined,
-            weather: typeof args.weather === 'string' ? args.weather : undefined,
-            lighting: typeof args.lighting === 'string' ? args.lighting : undefined,
-            architectureStyle:
-              typeof args.architectureStyle === 'string' ? args.architectureStyle : undefined,
-            dominantColors: Array.isArray(args.dominantColors)
-              ? args.dominantColors.filter((c): c is string => typeof c === 'string')
-              : undefined,
-            keyFeatures: Array.isArray(args.keyFeatures)
-              ? args.keyFeatures.filter((f): f is string => typeof f === 'string')
-              : undefined,
-            atmosphereKeywords: Array.isArray(args.atmosphereKeywords)
-              ? args.atmosphereKeywords.filter((k): k is string => typeof k === 'string')
-              : undefined,
+            description: requireString(args, 'description'),
+            ...(typeof args.subLocation === 'string' ? { subLocation: args.subLocation } : {}),
+            ...(typeof args.timeOfDay === 'string' ? { timeOfDay: args.timeOfDay } : {}),
+            ...(typeof args.mood === 'string' ? { mood: args.mood } : {}),
+            ...(typeof args.weather === 'string' ? { weather: args.weather } : {}),
+            ...(typeof args.lighting === 'string' ? { lighting: args.lighting } : {}),
+            ...(typeof args.architectureStyle === 'string'
+              ? { architectureStyle: args.architectureStyle }
+              : {}),
+            ...(Array.isArray(args.dominantColors)
+              ? { dominantColors: args.dominantColors.filter((c): c is string => typeof c === 'string') }
+              : {}),
+            ...(Array.isArray(args.keyFeatures)
+              ? { keyFeatures: args.keyFeatures.filter((f): f is string => typeof f === 'string') }
+              : {}),
+            ...(Array.isArray(args.atmosphereKeywords)
+              ? { atmosphereKeywords: args.atmosphereKeywords.filter((k): k is string => typeof k === 'string') }
+              : {}),
             tags: Array.isArray(args.tags)
               ? args.tags.filter((t): t is string => typeof t === 'string')
               : [],
@@ -542,17 +593,22 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
         }
 
         if (entityType === 'equipment') {
+          if (!EQUIPMENT_TYPES.includes(args.equipmentType as EquipmentType)) {
+            throw new Error('equipmentType is required for equipment entities');
+          }
           const equipment: Equipment = {
             id: crypto.randomUUID(),
             name,
             type: args.equipmentType as EquipmentType,
-            subtype: (args.subtype as string) || undefined,
-            description: args.description as string,
-            function: (args.function as string) || undefined,
-            material: typeof args.material === 'string' ? args.material : undefined,
-            color: typeof args.color === 'string' ? args.color : undefined,
-            condition: typeof args.condition === 'string' ? args.condition : undefined,
-            visualDetails: typeof args.visualDetails === 'string' ? args.visualDetails : undefined,
+            description: requireString(args, 'description'),
+            ...(typeof args.subtype === 'string' && args.subtype ? { subtype: args.subtype } : {}),
+            ...(typeof args.function === 'string' && args.function ? { function: args.function } : {}),
+            ...(typeof args.material === 'string' ? { material: args.material } : {}),
+            ...(typeof args.color === 'string' ? { color: args.color } : {}),
+            ...(typeof args.condition === 'string' ? { condition: args.condition } : {}),
+            ...(typeof args.visualDetails === 'string'
+              ? { visualDetails: args.visualDetails }
+              : {}),
             tags: Array.isArray(args.tags)
               ? args.tags.filter((t): t is string => typeof t === 'string')
               : [],
@@ -574,13 +630,25 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
   // -------------------------------------------------------------------------
   // entity.update
   // -------------------------------------------------------------------------
-  const entityUpdate: AgentTool = {
+  const entityUpdate: ToolDefinition = {
     name: 'entity.update',
+    process: 'entity-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'entity.refresh', entity: 'all' }] as const,
     description:
       'Update an existing entity by ID. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched. To create a new entity, use entity.create instead.',
     tags: ['entity', 'mutate'],
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(entitySchema),
+    projectPublicResult: contextProjector((result, args) => {
+      const authority = entityAuthority(args.type);
+      return authority
+        ? [authorityFact(authority, 'updated', resultRecord(result)?.id ?? args.id)]
+        : [];
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
         type: ENTITY_TYPE_PARAM,
@@ -817,7 +885,7 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
             updatedAt: Date.now(),
           };
           await deps.saveCharacter(updated);
-          return { success: true, data: updated, ...(warnings.length > 0 && { warnings }) };
+          return { success: true, data: { ...updated, ...(warnings.length > 0 && { warnings }) } };
         }
 
         if (entityType === 'location') {
@@ -862,7 +930,7 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
             updatedAt: Date.now(),
           };
           await deps.saveLocation(updated);
-          return { success: true, data: updated, ...(warnings.length > 0 && { warnings }) };
+          return { success: true, data: { ...updated, ...(warnings.length > 0 && { warnings }) } };
         }
 
         if (entityType === 'equipment') {
@@ -890,7 +958,7 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
             updatedAt: Date.now(),
           };
           await deps.saveEquipment(updated);
-          return { success: true, data: updated, ...(warnings.length > 0 && { warnings }) };
+          return { success: true, data: { ...updated, ...(warnings.length > 0 && { warnings }) } };
         }
 
         return { success: false, error: `Unknown entity type: ${String(args.type)}` };
@@ -903,12 +971,22 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
   // -------------------------------------------------------------------------
   // entity.delete
   // -------------------------------------------------------------------------
-  const entityDelete: AgentTool = {
+  const entityDelete: ToolDefinition = {
     name: 'entity.delete',
+    process: 'entity-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'entity.refresh', entity: 'all' }] as const,
     description: 'Delete an entity by ID.',
     tags: ['entity', 'mutate'],
     tier: 3,
-    parameters: {
+    outputSchema: toolResultSchema(undefined, { dataOptional: true }),
+    projectPublicResult: contextProjector((_result, args) => {
+      const authority = entityAuthority(args.type);
+      return authority ? [authorityFact(authority, 'deleted', args.id)] : [];
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
         type: ENTITY_TYPE_PARAM,
@@ -948,11 +1026,6 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
     parseView: (
       raw: unknown,
     ) => CharacterRefImageView | LocationRefImageView | EquipmentRefImageView;
-    buildPrompt: (
-      entity: AnyEntity,
-      view: CharacterRefImageView | LocationRefImageView | EquipmentRefImageView,
-      stylePlate?: string,
-    ) => string;
     viewToSlot: (
       view: CharacterRefImageView | LocationRefImageView | EquipmentRefImageView,
     ) => string;
@@ -966,8 +1039,6 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
         },
         saveEntity: (e) => deps.saveCharacter(e as Character),
         parseView: parseCharacterView,
-        buildPrompt: (e, v, sp) =>
-          buildCharacterRefImagePrompt(e as Character, v as CharacterRefImageView, sp),
         viewToSlot: (v) => characterViewToSlot(v as CharacterRefImageView),
         entityLabelCap: 'Character',
       };
@@ -980,8 +1051,6 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
         },
         saveEntity: (e) => deps.saveLocation(e as Location),
         parseView: parseLocationView,
-        buildPrompt: (e, v, sp) =>
-          buildLocationRefImagePrompt(e as Location, v as LocationRefImageView, sp),
         viewToSlot: (v) => locationViewToSlot(v as LocationRefImageView),
         entityLabelCap: 'Location',
       };
@@ -994,200 +1063,36 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
       },
       saveEntity: (e) => deps.saveEquipment(e as Equipment),
       parseView: parseEquipmentView,
-      buildPrompt: (e, v, sp) =>
-        buildEquipmentRefImagePrompt(e as Equipment, v as EquipmentRefImageView, sp),
       viewToSlot: (v) => equipmentViewToSlot(v as EquipmentRefImageView),
       entityLabelCap: 'Equipment',
     };
   }
 
-  async function resolveCanvasSettings(canvasId: unknown): Promise<CanvasSettings | undefined> {
-    if (typeof canvasId === 'string' && canvasId.trim().length > 0 && deps.getCanvas) {
-      try {
-        const canvas = await deps.getCanvas(canvasId);
-        return canvas.settings;
-      } catch {
-        // Canvas lookup failed — fall through with no canvas settings.
-      }
-    }
-    return undefined;
-  }
-
-  // -------------------------------------------------------------------------
-  // entity.generateRefImage
-  // -------------------------------------------------------------------------
-  const entityGenerateRefImage: AgentTool = {
-    name: 'entity.generateRefImage',
-    description:
-      'Generate a new AI reference image for an entity. ' +
-      'Requires the entity ID from entity.list. ' +
-      'Pass a canvasId so the canvas-scoped style prompt is woven into the generation prompt. ' +
-      'View defaults to the primary composite kind (full-sheet for character, bible for location, ortho-grid for equipment). ' +
-      'Optionally specify dimensions, provider, and a custom prompt.',
-    tags: ['entity', 'generation'],
-    tier: 3,
-    parameters: {
-      type: 'object',
-      properties: {
-        type: ENTITY_TYPE_PARAM,
-        id: { type: 'string', description: 'The entity ID (obtain from entity.list).' },
-        view: VIEW_PARAM,
-        canvasId: {
-          type: 'string',
-          description:
-            'Canvas ID whose canonical visual-style draft and provider overrides drive prompt composition.',
-        },
-        width: {
-          type: 'number',
-          description:
-            'Exact image width. Provide together with height; omit both to inherit the Canvas reference-image policy.',
-        },
-        height: {
-          type: 'number',
-          description:
-            'Exact image height. Provide together with width; omit both to inherit the Canvas reference-image policy.',
-        },
-        prompt: {
-          type: 'string',
-          description:
-            'Optional supplementary prompt merged with the composite prompt. ' +
-            'The composite prompt (entity appearance + style plate + layout) is ALWAYS generated; ' +
-            'this field adds extra instructions (e.g. specific pose, mood, angle emphasis) AFTER the composite.',
-        },
-        providerId: {
-          type: 'string',
-          description:
-            'Optional provider ID override (falls back to canvas setting, then global default).',
-        },
-      },
-      required: ['type', 'id'],
-    },
-    async execute(args) {
-      try {
-        if (!deps.generateImage) {
-          return { success: false, error: 'Image generation not available' };
-        }
-        const entityType = args.type as EntityType;
-        const id = requireString(args, 'id');
-        const handlers = resolveEntityHandlers(entityType);
-
-        const entity = await handlers.getEntity(id);
-        if (!entity) {
-          return { success: false, error: `${handlers.entityLabelCap} not found: ${id}` };
-        }
-
-        let view: CharacterRefImageView | LocationRefImageView | EquipmentRefImageView;
-        try {
-          view = handlers.parseView(args.view);
-        } catch (viewErr) {
-          return {
-            success: false,
-            error: viewErr instanceof Error ? viewErr.message : String(viewErr),
-          };
-        }
-        const slot = handlers.viewToSlot(view);
-
-        const canvasSettings = await resolveCanvasSettings(args.canvasId);
-        const resolvedStyle = resolveCanvasVisualStylePolicy(canvasSettings);
-        const compiledStyle = compileVisualStylePolicy(resolvedStyle?.policy, 'character-sheet');
-
-        const customPrompt = typeof args.prompt === 'string' ? args.prompt.trim() : '';
-        const negativePrompt = compiledStyle.negativePrompt?.trim() ?? '';
-        const compositePrompt = handlers.buildPrompt(entity, view, compiledStyle.prompt);
-        let finalPrompt = compositePrompt;
-        if (customPrompt.length > 0) {
-          finalPrompt = `${compositePrompt}\n\nAdditional instructions: ${customPrompt}`;
-        }
-
-        const reqWidth = typeof args.width === 'number' && args.width > 0 ? args.width : undefined;
-        const reqHeight =
-          typeof args.height === 'number' && args.height > 0 ? args.height : undefined;
-        const legacyCanvasResolution = canvasSettings?.refResolution;
-        const canvasResolutionIntent: ResolutionIntent =
-          canvasSettings?.resolutionPolicy?.referenceImage ??
-          (legacyCanvasResolution
-            ? {
-                mode: 'exact',
-                width: legacyCanvasResolution.width,
-                height: legacyCanvasResolution.height,
-              }
-            : { mode: 'provider-default' });
-
-        const explicitProvider = tryProviderId(args.providerId);
-        const canvasProvider = tryProviderId(canvasSettings?.imageProviderId);
-        const providerId = explicitProvider ?? canvasProvider;
-
-        const result = await deps.generateImage(finalPrompt, {
-          ...(reqWidth !== undefined && { width: reqWidth }),
-          ...(reqHeight !== undefined && { height: reqHeight }),
-          ...(reqWidth === undefined && reqHeight === undefined
-            ? {
-                resolution: canvasResolutionIntent,
-                resolutionSource: canvasSettings ? ('canvas' as const) : ('provider' as const),
-              }
-            : {}),
-          ...(providerId !== undefined && { providerId }),
-          ...(negativePrompt ? { negativePrompt } : {}),
-        });
-
-        const referenceImages: ReferenceImage[] = [...(entity.referenceImages ?? [])];
-        const existingIndex = referenceImages.findIndex((image) => image.slot === slot);
-        if (existingIndex >= 0) {
-          const existing = referenceImages[existingIndex];
-          const prevVariants = [...(existing.variants ?? [])];
-          if (existing.assetHash && !prevVariants.includes(existing.assetHash)) {
-            prevVariants.push(existing.assetHash);
-          }
-          if (!prevVariants.includes(result.assetHash)) {
-            prevVariants.push(result.assetHash);
-          }
-          referenceImages[existingIndex] = {
-            ...existing,
-            assetHash: result.assetHash,
-            variants: prevVariants,
-          };
-        } else {
-          referenceImages.push({
-            slot,
-            assetHash: result.assetHash,
-            isStandard: true,
-            variants: [result.assetHash],
-          });
-        }
-
-        entity.referenceImages = referenceImages;
-        entity.updatedAt = Date.now();
-        await handlers.saveEntity(entity);
-
-        const variantCount =
-          referenceImages.find((image) => image.slot === slot)?.variants?.length ?? 0;
-        return {
-          success: true,
-          data: {
-            assetHash: result.assetHash,
-            slot,
-            view,
-            variantCount,
-            promptSource: customPrompt.length > 0 ? 'composite+custom' : 'composite',
-            stylePlateUsed: Boolean(compiledStyle.prompt),
-            visualStyle: resolvedStyle?.provenance,
-          },
-        };
-      } catch (err) {
-        return { success: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-  };
-
   // -------------------------------------------------------------------------
   // entity.setRefImage
   // -------------------------------------------------------------------------
-  const entitySetRefImage: AgentTool = {
+  const entitySetRefImage: ToolDefinition = {
     name: 'entity.setRefImage',
+    process: 'entity-ref-image-generation',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'entity.refresh', entity: 'all' }] as const,
     description: 'Assign an existing asset hash as a reference image for an entity.',
     tags: ['entity', 'generation'],
     tier: 3,
-    parameters: {
+    outputSchema: toolResultSchema(referenceMutationSchema),
+    projectPublicResult: contextProjector((result, args) => {
+      const authority = entityAuthority(args.type);
+      const data = resultRecord(result);
+      return [
+        ...(authority ? [authorityFact(authority, 'updated', args.id)] : []),
+        authorityFact('cas', 'attachment', data?.assetHash ?? args.assetHash, {
+          contentHash: data?.assetHash ?? args.assetHash,
+        }),
+      ];
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
         type: ENTITY_TYPE_PARAM,
@@ -1243,12 +1148,22 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
   // -------------------------------------------------------------------------
   // entity.deleteRefImage
   // -------------------------------------------------------------------------
-  const entityDeleteRefImage: AgentTool = {
+  const entityDeleteRefImage: ToolDefinition = {
     name: 'entity.deleteRefImage',
+    process: 'entity-ref-image-generation',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'entity.refresh', entity: 'all' }] as const,
     description: 'Delete a reference image by view from an entity.',
     tags: ['entity', 'generation'],
     tier: 3,
-    parameters: {
+    outputSchema: toolResultSchema(referenceMutationSchema),
+    projectPublicResult: contextProjector((_result, args) => {
+      const authority = entityAuthority(args.type);
+      return authority ? [authorityFact(authority, 'updated', args.id)] : [];
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
         type: ENTITY_TYPE_PARAM,
@@ -1292,13 +1207,28 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
   // -------------------------------------------------------------------------
   // entity.setRefImageFromNode
   // -------------------------------------------------------------------------
-  const entitySetRefImageFromNode: AgentTool = {
+  const entitySetRefImageFromNode: ToolDefinition = {
     name: 'entity.setRefImageFromNode',
+    process: 'entity-ref-image-generation',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'entity.refresh', entity: 'all' }] as const,
     description:
       'Pull a generated asset from a canvas node and assign it as a reference image for an entity.',
     tags: ['entity', 'generation'],
     tier: 3,
-    parameters: {
+    outputSchema: toolResultSchema(referenceMutationSchema),
+    projectPublicResult: contextProjector((result, args) => {
+      const authority = entityAuthority(args.type);
+      const data = resultRecord(result);
+      return [
+        ...(authority ? [authorityFact(authority, 'updated', args.id)] : []),
+        authorityFact('canvas_node', 'read', args.nodeId, { scopeId: args.canvasId }),
+        authorityFact('cas', 'attachment', data?.assetHash, { contentHash: data?.assetHash }),
+      ];
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
         type: ENTITY_TYPE_PARAM,
@@ -1370,7 +1300,6 @@ export function createEntityTools(deps: EntityToolDeps): AgentTool[] {
     entityCreate,
     entityUpdate,
     entityDelete,
-    entityGenerateRefImage,
     entitySetRefImage,
     entityDeleteRefImage,
     entitySetRefImageFromNode,

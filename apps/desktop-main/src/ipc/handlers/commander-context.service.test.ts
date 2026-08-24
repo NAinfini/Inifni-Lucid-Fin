@@ -2,9 +2,32 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   selectPromptGuidesForContext,
   buildWorkspaceSnapshot,
-  buildPersistentWorkflowContext,
-  buildPersistentWorkflowManifest,
+  buildPersistentTaskListContext,
+  buildPersistentTaskListManifest,
 } from './commander-context.service.js';
+
+function taskListRepoDefaults() {
+  return {
+    listTaskLists: vi.fn(() => ({ rows: [], degradedCount: 0 })),
+    getTask: vi.fn(() => undefined),
+    getLatestDocument: vi.fn(() => undefined),
+    getLatestApproval: vi.fn(() => undefined),
+    getDocumentRevision: vi.fn(() => undefined),
+    getPendingApproval: vi.fn(() => undefined),
+    getLatestDeliveryPackageAttempt: vi.fn(() => undefined),
+    listProductionMediaAttempts: vi.fn(() => []),
+    listTaskEvaluations: vi.fn(() => []),
+    getTaskCostSummary: vi.fn(() => ({
+      attemptCount: 0,
+      regenerationCount: 0,
+      estimatedCostUsd: 0,
+      reportedActualCostUsd: 0,
+      committedCostUsd: 0,
+      hasUnreportedActualCosts: false,
+    })),
+    listPendingDecisions: vi.fn(() => []),
+  };
+}
 
 describe('buildWorkspaceSnapshot', () => {
   it('recognizes a structured Canvas style draft even when it has no summary', () => {
@@ -38,11 +61,11 @@ describe('buildWorkspaceSnapshot', () => {
     );
 
     expect(snapshot).toContain(
-      'Canvas manual style draft (not workflow authority): structured locks:',
+      'Canvas manual style draft (not Task List authority): structured locks:',
     );
     expect(snapshot).toContain('lighting');
     expect(snapshot).toContain('palette');
-    expect(snapshot).not.toContain('Canvas manual style draft (not workflow authority): NOT SET');
+    expect(snapshot).not.toContain('Canvas manual style draft (not Task List authority): NOT SET');
   });
 });
 
@@ -69,7 +92,7 @@ describe('selectPromptGuidesForContext', () => {
     expect(selected.discoveryOnly).toContainEqual({ id: 'manual', name: 'Manual guide' });
   });
 
-  it('ranks a later workflow-critical guide ahead of the first eight low-priority guides', () => {
+  it('ranks a later Task-List-critical guide ahead of the first eight low-priority guides', () => {
     const guides = [
       ...Array.from({ length: 8 }, (_, index) => ({
         id: `low-${index}`,
@@ -86,7 +109,7 @@ describe('selectPromptGuidesForContext', () => {
         autoInject: true,
         autoInjectContent: 'critical',
         priority: 100,
-        retention: 'workflow' as const,
+        retention: 'task_list' as const,
         phases: ['media_generation' as const],
       },
     ];
@@ -145,7 +168,7 @@ describe('selectPromptGuidesForContext', () => {
     ]);
   });
 
-  it('keeps guides for other workflow phases discovery-only', () => {
+  it('keeps guides for other Task List phases discovery-only', () => {
     const selected = selectPromptGuidesForContext(
       [
         {
@@ -165,37 +188,34 @@ describe('selectPromptGuidesForContext', () => {
   });
 });
 
-describe('buildPersistentWorkflowManifest', () => {
+describe('buildPersistentTaskListManifest', () => {
   it('projects the current durable task contract and bounded shot input', () => {
-    const manifest = buildPersistentWorkflowManifest({
+    const manifest = buildPersistentTaskListManifest({
       repos: {
-        workflows: {
-          listRuns: vi.fn(() => ({
+        taskLists: {
+          ...taskListRepoDefaults(),
+          listTaskLists: vi.fn(() => ({
             rows: [
               {
-                id: 'wf-shot-1',
-                workflowType: 'movie.production.v2',
+                id: 'task-list-shot-1',
+                taskListType: 'movie.production.v2',
                 entityType: 'canvas',
                 entityId: 'canvas-1',
                 status: 'ready',
                 rowVersion: 7,
-                currentStageId: 'stage-preproduction-1',
+                currentPhaseKey: 'preproduction',
                 currentTaskId: 'task-shot-1',
               },
             ],
           })),
-          getStageRun: vi.fn(() => ({
-            id: 'stage-preproduction-1',
-            workflowRunId: 'wf-shot-1',
-            stageId: 'preproduction',
-          })),
-          getTaskRun: vi.fn(() => ({
+          getTask: vi.fn(() => ({
             id: 'task-shot-1',
-            workflowRunId: 'wf-shot-1',
-            taskId: 'shot-spec-003',
+            taskListId: 'task-list-shot-1',
+            taskKey: 'shot-spec-003',
+            phaseKey: 'preproduction',
             status: 'ready',
             input: {
-              workflowTaskRole: 'shot_spec',
+              taskRole: 'shot_spec',
               executionMode: 'external',
               privateProviderConfig: 'must-not-leak',
               shot: {
@@ -223,6 +243,54 @@ describe('buildPersistentWorkflowManifest', () => {
     expect(manifest).not.toContain('privateNotes');
   });
 
+  it('projects the exact chat revision request into the current plan task context', () => {
+    const manifest = buildPersistentTaskListManifest({
+      repos: {
+        taskLists: {
+          ...taskListRepoDefaults(),
+          listTaskLists: vi.fn(() => ({
+            rows: [
+              {
+                id: 'task-list-plan-1',
+                taskListType: 'movie.production.v2',
+                entityType: 'canvas',
+                entityId: 'canvas-1',
+                status: 'ready',
+                rowVersion: 8,
+                currentPhaseKey: 'production-plan',
+                currentTaskId: 'task-plan-1',
+              },
+            ],
+          })),
+          getTask: vi.fn(() => ({
+            id: 'task-plan-1',
+            taskListId: 'task-list-plan-1',
+            taskKey: 'production-plan',
+            phaseKey: 'production-plan',
+            status: 'ready',
+            input: {
+              taskRole: 'document',
+              documentLogicalKey: 'production-plan',
+              revisionRequest: {
+                action: 'request_changes',
+                reason: 'Give the ending more hope.',
+                previousRevision: 2,
+                previousHash: 'a'.repeat(64),
+                internalNote: 'must-not-leak',
+              },
+            },
+          })),
+          getLatestDocument: vi.fn(() => undefined),
+          getPendingApproval: vi.fn(() => undefined),
+        },
+      },
+    } as never);
+
+    expect(manifest).toContain('Give the ending more hope.');
+    expect(manifest).toContain('previousRevision');
+    expect(manifest).not.toContain('internalNote');
+  });
+
   it('reloads the exact pending gate and approved bounds without exposing the resume token', () => {
     const getLatestDocument = vi.fn((_runId: string, logicalKey: string) =>
       logicalKey === 'production-plan'
@@ -238,13 +306,14 @@ describe('buildPersistentWorkflowManifest', () => {
           }
         : undefined,
     );
-    const manifest = buildPersistentWorkflowManifest({
+    const manifest = buildPersistentTaskListManifest({
       repos: {
-        workflows: {
-          listRuns: vi.fn(() => ({
+        taskLists: {
+          ...taskListRepoDefaults(),
+          listTaskLists: vi.fn(() => ({
             rows: [
               {
-                id: 'wf-plan-1',
+                id: 'task-list-plan-1',
                 status: 'awaiting_approval',
                 rowVersion: 4,
                 currentGate: 'production_plan',
@@ -263,48 +332,47 @@ describe('buildPersistentWorkflowManifest', () => {
       },
     } as never);
 
-    expect(manifest).toContain('Authority: SQLite workflow aggregate');
-    expect(manifest).toContain('Run wf-plan-1');
+    expect(manifest).toContain('Authority: SQLite Task List aggregate');
+    expect(manifest).toContain('Approval state is represented by pending gate records');
+    expect(manifest).toContain('Task List task-list-plan-1');
     expect(manifest).toContain('Production Plan: revision=2');
     expect(manifest).toContain('Pending human approval: production_plan');
     expect(manifest).toContain('maxTotalCostUsd');
+    expect(manifest).not.toContain('the model may apply');
     expect(manifest).not.toContain('host-secret-hash');
   });
 
-  it('fails closed when workflow persistence cannot be read', () => {
-    const manifest = buildPersistentWorkflowManifest({
+  it('fails closed when Task List persistence cannot be read', () => {
+    const manifest = buildPersistentTaskListManifest({
       repos: {
-        workflows: {
-          listRuns: vi.fn(() => {
+        taskLists: {
+          ...taskListRepoDefaults(),
+          listTaskLists: vi.fn(() => {
             throw new Error('database unavailable');
           }),
         },
       },
     } as never);
-    expect(manifest).toContain('pause workflow mutations');
+    expect(manifest).toContain('pause Task List mutations');
   });
 
   it('reloads bounded visual audition heads, costs, grading evidence, and failures', () => {
-    const manifest = buildPersistentWorkflowManifest({
+    const manifest = buildPersistentTaskListManifest({
       repos: {
-        workflows: {
-          listRuns: vi.fn(() => ({
+        taskLists: {
+          ...taskListRepoDefaults(),
+          listTaskLists: vi.fn(() => ({
             rows: [
               {
-                id: 'wf-visual-1',
-                workflowType: 'movie.production.v2',
+                id: 'task-list-visual-1',
+                taskListType: 'movie.production.v2',
                 entityType: 'canvas',
                 entityId: 'canvas-1',
                 status: 'ready',
                 rowVersion: 9,
-                currentStageId: 'stage-visual-1',
+                currentPhaseKey: 'style-exploration',
               },
             ],
-          })),
-          getStageRun: vi.fn(() => ({
-            id: 'stage-visual-1',
-            workflowRunId: 'wf-visual-1',
-            stageId: 'style-exploration',
           })),
           getLatestDocument: vi.fn((_runId: string, logicalKey: string) =>
             logicalKey === 'visual-auditions'
@@ -382,117 +450,109 @@ describe('buildPersistentWorkflowManifest', () => {
     expect(manifest).not.toContain('constitution');
   });
 
-  it('reloads the bounded Final Export manifest and execution receipt without leaking paths', () => {
-    const manifest = buildPersistentWorkflowManifest({
+  it('reloads the bounded Delivery manifest and package receipt without leaking paths', () => {
+    const manifest = buildPersistentTaskListManifest({
       repos: {
-        workflows: {
-          listRuns: vi.fn(() => ({
+        taskLists: {
+          ...taskListRepoDefaults(),
+          listTaskLists: vi.fn(() => ({
             rows: [
               {
-                id: 'wf-final-1',
-                workflowType: 'movie.production.v2',
+                id: 'task-list-delivery-1',
+                taskListType: 'movie.production.v2',
                 entityType: 'canvas',
                 entityId: 'canvas-1',
                 status: 'ready',
                 rowVersion: 12,
-                currentStageId: 'stage-final-1',
+                currentPhaseKey: 'delivery',
               },
             ],
           })),
-          getStageRun: vi.fn(() => ({
-            id: 'stage-final-1',
-            workflowRunId: 'wf-final-1',
-            stageId: 'final-export',
-          })),
           getLatestDocument: vi.fn((_runId: string, logicalKey: string) =>
-            logicalKey === 'final-export'
+            logicalKey === 'delivery-manifest'
               ? {
                   revision: 3,
                   contentHash: 'f'.repeat(64),
                   status: 'active',
                   content: {
-                    manifestVersion: 1,
+                    taskListId: 'task-list-delivery-1',
                     productionPlan: { revision: 1, contentHash: 'a'.repeat(64) },
                     visualConstitution: { revision: 2, contentHash: 'b'.repeat(64) },
                     canvasId: 'canvas-1',
-                    assemblySnapshotHash: 'c'.repeat(64),
-                    segments: [
+                    deliverySequence: { revision: 4, contentHash: 'c'.repeat(64) },
+                    namingPolicy: {
+                      packageBaseName: 'movie',
+                      orderPrefixWidth: 3,
+                      separator: '_',
+                      overwritePolicy: 'fail',
+                    },
+                    items: [
                       {
-                        order: 0,
-                        nodeId: 'shot-1',
-                        nodeUpdatedAt: 20,
-                        title: 'A deliberately verbose title need not enter model context',
-                        assetHash: 'd'.repeat(64),
-                        assetFormat: 'mp4',
-                        selectedVariantIndex: 0,
+                        shotId: 'shot-1',
+                        selectedVideoHash: 'd'.repeat(64),
+                        packageFileName: '001_opening.mp4',
+                        sourceFileName: 'a-deliberately-private-source-name.mp4',
+                        sourceFormat: 'mp4',
+                        sourceBytes: 1234,
+                        sourceDurationMs: 5000,
                         trimInMs: 0,
                         trimOutMs: 5000,
-                        sourceDurationMs: 5000,
-                        durationSeconds: 5,
-                        speed: 1,
+                        embeddedAudioEnabled: true,
+                        provenance: {
+                          assetCreatedAt: 10,
+                          nodeId: 'node-1',
+                          taskId: 'task-1',
+                        },
                       },
                     ],
-                    audioTracks: [],
-                    subtitleTracks: [],
-                    output: { codec: 'h264', container: 'mp4', width: 1920, height: 1080, fps: 24 },
-                    expectedDurationMs: 5000,
-                    maxRenderAttempts: 2,
-                    capabilities: {
-                      embeddedClipAudio: true,
-                      separateAudioMix: false,
-                      subtitles: false,
-                    },
                   },
                 }
               : undefined,
           ),
-          getLatestExportExecution: vi.fn(() => ({
+          getLatestDeliveryPackageAttempt: vi.fn(() => ({
             status: 'ready_to_publish',
             attempt: 1,
             manifestRevision: 3,
             manifestHash: 'f'.repeat(64),
-            outputHash: 'e'.repeat(64),
-            outputSize: 1234,
-            destinationPath: 'C:\\Users\\secret\\movie.mp4',
+            packageHash: 'e'.repeat(64),
+            packageBytes: 1234,
+            fileCount: 3,
+            destinationPath: 'C:\\Users\\secret\\movie-delivery-ffffffffffff',
           })),
           getPendingApproval: vi.fn(() => undefined),
         },
       },
     } as never);
 
-    expect(manifest).toContain('Final Export: revision=3');
-    expect(manifest).toContain('assetHash');
+    expect(manifest).toContain('Delivery Manifest: revision=3');
+    expect(manifest).toContain('selectedVideoHash');
     expect(manifest).toContain('ready_to_publish');
-    expect(manifest).toContain('outputBytes=1234');
+    expect(manifest).toContain('packageBytes=1234');
     expect(manifest).not.toContain('C:\\Users\\secret');
-    expect(manifest).not.toContain('deliberately verbose title');
+    expect(manifest).not.toContain('deliberately-private-source-name');
   });
 
   it('reloads bounded production attempts and grading evidence without full prompts', () => {
-    const manifest = buildPersistentWorkflowManifest({
+    const manifest = buildPersistentTaskListManifest({
       repos: {
-        workflows: {
-          listRuns: vi.fn(() => ({
+        taskLists: {
+          ...taskListRepoDefaults(),
+          listTaskLists: vi.fn(() => ({
             rows: [
               {
-                id: 'wf-media-1',
-                workflowType: 'movie.production.v2',
+                id: 'task-list-media-1',
+                taskListType: 'movie.production.v2',
                 entityType: 'canvas',
                 entityId: 'canvas-1',
                 status: 'ready',
                 rowVersion: 8,
-                currentStageId: 'stage-media-1',
+                currentPhaseKey: 'media-generation',
               },
             ],
           })),
-          getStageRun: vi.fn(() => ({
-            id: 'stage-media-1',
-            workflowRunId: 'wf-media-1',
-            stageId: 'media-generation',
-          })),
           getLatestDocument: vi.fn(() => undefined),
-          getLatestExportExecution: vi.fn(() => undefined),
-          listMediaAttempts: vi.fn(() => [
+          getLatestDeliveryPackageAttempt: vi.fn(() => undefined),
+          listProductionMediaAttempts: vi.fn(() => [
             {
               id: 'attempt-1',
               nodeId: 'shot-1',
@@ -514,7 +574,7 @@ describe('buildPersistentWorkflowManifest', () => {
               },
             },
           ]),
-          listMediaEvaluations: vi.fn(() => [
+          listTaskEvaluations: vi.fn(() => [
             {
               attemptId: 'attempt-1',
               rubricVersion: 'production-media-rubric-v1',
@@ -526,7 +586,7 @@ describe('buildPersistentWorkflowManifest', () => {
               frameEvidence: [{ timestampSeconds: 3, assetHash: 'frame-2' }],
             },
           ]),
-          getMediaCostSummary: vi.fn(() => ({
+          getTaskCostSummary: vi.fn(() => ({
             attemptCount: 1,
             regenerationCount: 0,
             estimatedCostUsd: 0.5,
@@ -549,46 +609,43 @@ describe('buildPersistentWorkflowManifest', () => {
     expect(manifest).not.toContain('very long private provider prompt');
   });
 
-  it('reloads pending and recovery-required workflow decisions with their durable task facts', () => {
-    const manifest = buildPersistentWorkflowManifest({
+  it('reloads pending and recovery-required Task decisions with their durable task facts', () => {
+    const manifest = buildPersistentTaskListManifest({
       repos: {
-        workflows: {
-          listRuns: vi.fn(() => ({
+        taskLists: {
+          ...taskListRepoDefaults(),
+          listTaskLists: vi.fn(() => ({
             rows: [
               {
-                id: 'wf-decisions-1',
-                workflowType: 'movie.production.v2',
+                id: 'task-list-decisions-1',
+                taskListType: 'movie.production.v2',
                 entityType: 'canvas',
                 entityId: 'canvas-1',
                 status: 'blocked',
                 rowVersion: 14,
-                currentStageId: 'stage-media-1',
+                currentPhaseKey: 'media-generation',
                 currentTaskId: 'task-media-2',
               },
             ],
           })),
-          getStageRun: vi.fn(() => ({
-            id: 'stage-media-1',
-            workflowRunId: 'wf-decisions-1',
-            stageId: 'media-generation',
-          })),
-          getTaskRun: vi.fn((taskRunId: string) => ({
-            id: taskRunId,
-            workflowRunId: 'wf-decisions-1',
-            taskId: taskRunId === 'task-media-2' ? 'media-shot-002' : 'media-shot-001',
+          getTask: vi.fn((taskId: string) => ({
+            id: taskId,
+            taskListId: 'task-list-decisions-1',
+            taskKey: taskId === 'task-media-2' ? 'media-shot-002' : 'media-shot-001',
+            phaseKey: 'media-generation',
             status: 'blocked',
-            input: { workflowTaskRole: 'production_media', shotId: 'shot-001' },
+            input: { taskRole: 'production_media', shotId: 'shot-001' },
           })),
           getLatestDocument: vi.fn(() => undefined),
-          getLatestExportExecution: vi.fn(() => undefined),
-          listMediaAttempts: vi.fn(() => []),
-          listMediaEvaluations: vi.fn(() => []),
-          getMediaCostSummary: vi.fn(() => undefined),
+          getLatestDeliveryPackageAttempt: vi.fn(() => undefined),
+          listProductionMediaAttempts: vi.fn(() => []),
+          listTaskEvaluations: vi.fn(() => []),
+          getTaskCostSummary: vi.fn(() => undefined),
           listPendingDecisions: vi.fn(() => [
             {
               id: 'decision-pending',
-              workflowRunId: 'wf-decisions-1',
-              taskRunId: 'task-media-1',
+              taskListId: 'task-list-decisions-1',
+              taskId: 'task-media-1',
               canvasId: 'canvas-1',
               questionId: 'question-provider',
               decisionKey: 'missing-video-provider',
@@ -609,8 +666,8 @@ describe('buildPersistentWorkflowManifest', () => {
             },
             {
               id: 'decision-recovery',
-              workflowRunId: 'wf-decisions-1',
-              taskRunId: 'task-media-2',
+              taskListId: 'task-list-decisions-1',
+              taskId: 'task-media-2',
               canvasId: 'canvas-1',
               questionId: 'question-budget',
               decisionKey: 'budget-overrun',
@@ -632,11 +689,11 @@ describe('buildPersistentWorkflowManifest', () => {
       },
     } as never);
 
-    expect(manifest).toContain('Workflow decision: status=pending');
+    expect(manifest).toContain('Task decision: status=pending');
     expect(manifest).toContain('decisionKey=missing-video-provider');
     expect(manifest).toContain('Which configured video provider');
     expect(manifest).toContain('task=media-shot-001 (task-media-1)');
-    expect(manifest).toContain('Workflow decision: status=recovery_required');
+    expect(manifest).toContain('Task decision: status=recovery_required');
     expect(manifest).toContain('Stop and keep the latest accepted clip.');
     expect(manifest).toContain('selectedOption=stop');
     expect(manifest).toContain('task=media-shot-002 (task-media-2)');
@@ -652,36 +709,34 @@ describe('buildPersistentWorkflowManifest', () => {
       subjectHash,
       status: 'pending',
     }));
-    const context = buildPersistentWorkflowContext(
+    const context = buildPersistentTaskListContext(
       {
         repos: {
-          workflows: {
-            listRuns: vi.fn(() => ({
+          taskLists: {
+            ...taskListRepoDefaults(),
+            listTaskLists: vi.fn(() => ({
               rows: [
                 {
-                  id: 'wf-plan-1',
-                  workflowType: 'movie.production.v2',
+                  id: 'task-list-plan-1',
+                  taskListType: 'movie.production.v2',
                   entityType: 'canvas',
                   entityId: 'canvas-1',
                   status: 'awaiting_approval',
                   rowVersion: 3,
                   currentGate: 'production_plan',
-                  currentStageId: 'stage-plan-1',
+                  currentPhaseKey: 'production-plan',
                   currentTaskId: 'task-plan-1',
+                  metadata: { commanderSessionId: 'session-1' },
                 },
               ],
             })),
-            getStageRun: vi.fn(() => ({
-              id: 'stage-plan-1',
-              workflowRunId: 'wf-plan-1',
-              stageId: 'production-plan',
-            })),
-            getTaskRun: vi.fn(() => ({
+            getTask: vi.fn(() => ({
               id: 'task-plan-1',
-              workflowRunId: 'wf-plan-1',
-              taskId: 'production-plan',
+              taskListId: 'task-list-plan-1',
+              taskKey: 'production-plan',
+              phaseKey: 'production-plan',
               status: 'blocked',
-              input: { workflowTaskRole: 'document' },
+              input: { taskRole: 'document' },
             })),
             getLatestDocument: vi.fn(() => undefined),
             getLatestApproval: vi.fn(() => undefined),
@@ -691,36 +746,39 @@ describe('buildPersistentWorkflowManifest', () => {
         },
       } as never,
       'canvas-1',
+      'session-1',
     );
 
-    expect(context.workflowToolPolicy).toEqual({
-      workflowRunId: 'wf-plan-1',
+    expect(context.taskListToolPolicy).toEqual({
+      taskListId: 'task-list-plan-1',
       rowVersion: 3,
       phase: 'production_plan_pending',
       gate: 'production_plan',
-      currentTaskRunId: 'task-plan-1',
-      currentTaskId: 'production-plan',
+      currentTaskId: 'task-plan-1',
+      currentTaskKey: 'production-plan',
       currentTaskRole: 'document',
-      currentStageId: 'production-plan',
+      currentPhaseKey: 'production-plan',
       subjectRevision: 1,
     });
   });
 
   it('fails closed when a pending approval does not match its immutable document', () => {
-    const context = buildPersistentWorkflowContext(
+    const context = buildPersistentTaskListContext(
       {
         repos: {
-          workflows: {
-            listRuns: vi.fn(() => ({
+          taskLists: {
+            ...taskListRepoDefaults(),
+            listTaskLists: vi.fn(() => ({
               rows: [
                 {
-                  id: 'wf-plan-1',
-                  workflowType: 'movie.production.v2',
+                  id: 'task-list-plan-1',
+                  taskListType: 'movie.production.v2',
                   entityType: 'canvas',
                   entityId: 'canvas-1',
                   status: 'awaiting_approval',
                   rowVersion: 3,
                   currentGate: 'production_plan',
+                  metadata: { commanderSessionId: 'session-1' },
                 },
               ],
             })),
@@ -742,13 +800,33 @@ describe('buildPersistentWorkflowManifest', () => {
         },
       } as never,
       'canvas-1',
+      'session-1',
     );
 
-    expect(context.workflowToolPolicy).toMatchObject({
-      workflowRunId: 'wf-plan-1',
+    expect(context.taskListToolPolicy).toMatchObject({
+      taskListId: 'task-list-plan-1',
       phase: 'blocked',
       gate: 'production_plan',
     });
-    expect(context.workflowToolPolicy?.reason).toContain('could not be verified');
+    expect(context.taskListToolPolicy?.reason).toContain('could not be verified');
+  });
+
+  it('surfaces persistent Task List read failures instead of synthesizing a blocked manifest', () => {
+    expect(() =>
+      buildPersistentTaskListContext(
+        {
+          repos: {
+            taskLists: {
+              ...taskListRepoDefaults(),
+              listTaskLists: vi.fn(() => {
+                throw new Error('database unavailable');
+              }),
+            },
+          },
+        } as never,
+        'canvas-1',
+        'session-1',
+      ),
+    ).toThrow('database unavailable');
   });
 });

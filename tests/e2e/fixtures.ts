@@ -75,16 +75,22 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
       const electronBinary = resolveElectronBinary();
       const appDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-fin-e2e-'));
+      const roamingAppDataDir = path.join(appDataDir, 'AppData', 'Roaming');
+      const localAppDataDir = path.join(appDataDir, 'AppData', 'Local');
+      fs.mkdirSync(roamingAppDataDir, { recursive: true });
+      fs.mkdirSync(localAppDataDir, { recursive: true });
 
       const app = await _electron.launch({
         executablePath: electronBinary,
         args: [mainEntry],
         env: {
           ...process.env,
-          APPDATA: appDataDir,
+          APPDATA: roamingAppDataDir,
           ELECTRON_IS_E2E: '1',
-          LOCALAPPDATA: appDataDir,
+          HOME: appDataDir,
+          LOCALAPPDATA: localAppDataDir,
           NODE_ENV: 'test',
+          USERPROFILE: appDataDir,
         },
       });
 

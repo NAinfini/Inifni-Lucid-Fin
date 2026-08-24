@@ -20,7 +20,7 @@
     "test:perf": "vitest run --config vitest.performance.config.ts",
     "test:types": "tsc --noEmit -p tests/types/tsconfig.json",
     "pretest:coverage:critical": "node scripts/ensure-native-runtime.mjs node",
-    "test:coverage:critical": "vitest run --config vitest.coverage-critical.config.ts src/logger.test.ts src/startup-metrics.test.ts src/electron.startup.test.ts src/llm-provider-runtime.test.ts src/bootstrap/init-app.test.ts src/ipc/handlers/canvas-generation.handlers.test.ts src/ipc/handlers/commander.handlers.logging.test.ts src/ipc/handlers/commander-meta.handlers.test.ts src/ipc/handlers/workflow.handlers.test.ts src/ipc/handlers/job.handlers.test.ts --coverage",
+    "test:coverage:critical": "vitest run --config vitest.coverage-critical.config.ts src/logger.test.ts src/startup-metrics.test.ts src/electron.startup.test.ts src/llm-provider-runtime.test.ts src/bootstrap/init-app.test.ts src/ipc/handlers/commander.handlers.logging.test.ts src/ipc/handlers/commander-meta.handlers.test.ts src/ipc/handlers/task-list.handlers.test.ts --coverage",
     "electron:install": "node scripts/install-electron.mjs",
     "predev": "node scripts/ensure-native-runtime.mjs electron",
     "postinstall": "node scripts/install-electron.mjs && node -e \"if(!process.env.CI)require('child_process').execFileSync(process.execPath,['scripts/ensure-native-runtime.mjs','electron'],{stdio:'inherit'})\"",
@@ -36,6 +36,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@lucid-fin/application": "workspace:*",
     "@playwright/test": "^1.62.1",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.8.0",
@@ -44,9 +45,12 @@
     "jsdom": "^30.0.1",
     "prettier": "^3.9.6",
     "rimraf": "^6.1.3",
+    "tsx": "^4.23.11",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.65.0",
-    "tsx": "^4.23.11",
     "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "target-contracts": "link:../../packages/target-contracts"
   }
 }

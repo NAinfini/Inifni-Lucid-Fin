@@ -3,7 +3,7 @@ import { buildRunSummary } from './run-summary.js';
 import type { CommanderToolCall, MessageSegment } from './types.js';
 
 function tc(status: CommanderToolCall['status']): CommanderToolCall {
-  return { name: 'x', id: 'id', arguments: {}, startedAt: 0, status };
+  return { name: 'x', id: 'id', startedAt: 0, status };
 }
 
 describe('buildRunSummary', () => {

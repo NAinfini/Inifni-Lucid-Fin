@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { configureStore } from '@reduxjs/toolkit';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BUILT_IN_PRESET_LIBRARY, type ShotTemplate } from '@lucid-fin/contracts';
@@ -48,7 +48,7 @@ function renderPanel() {
 
   store.dispatch(presetsSlice.actions.setPresets(BUILT_IN_PRESET_LIBRARY));
   store.dispatch(shotTemplatesSlice.actions.addCustomTemplate(createCustomTemplate()));
-  store.dispatch(uiSlice.actions.setActivePanel('shotTemplates'));
+  store.dispatch(uiSlice.actions.setRightPanel('shotTemplates'));
 
   render(
     <Provider store={store}>
@@ -82,7 +82,7 @@ describe('ShotTemplateManagerPanel', () => {
     expect(screen.getByText('Push In')).toBeTruthy();
   });
 
-  it('adds, edits, and deletes custom templates without rendering a close button', () => {
+  it('adds, edits, and deletes custom templates without rendering a close button', async () => {
     const store = renderPanel();
 
     fireEvent.click(screen.getByRole('button', { name: /custom template/i }));
@@ -100,8 +100,16 @@ describe('ShotTemplateManagerPanel', () => {
     expect(store.getState().shotTemplates.custom).toHaveLength(2);
 
     fireEvent.click(screen.getByRole('button', { name: t('shotTemplates.deleteTemplate') }));
-    expect(store.getState().shotTemplates.custom).toHaveLength(1);
+    expect(store.getState().shotTemplates.custom).toHaveLength(2);
+    expect(screen.getByText(t('shotTemplates.deleteConfirmDescription'))).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: t('dialog.cancel') }));
+    expect(store.getState().shotTemplates.custom).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole('button', { name: t('shotTemplates.deleteTemplate') }));
+    fireEvent.click(screen.getByRole('button', { name: t('action.delete') }));
+    await waitFor(() => expect(store.getState().shotTemplates.custom).toHaveLength(1));
     expect(screen.queryByRole('button', { name: t('commander.close') })).toBeNull();
-    expect(store.getState().ui.activePanel).toBe('shotTemplates');
+    expect(store.getState().ui.rightPanel).toBe('shotTemplates');
   });
 });

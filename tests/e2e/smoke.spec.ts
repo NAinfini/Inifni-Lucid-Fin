@@ -47,15 +47,33 @@ async function stopProcessTree(proc: ChildProcessWithoutNullStreams): Promise<vo
   proc.kill('SIGTERM');
 }
 
+async function removeTemporaryProfile(directory: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      fs.rmSync(directory, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (attempt === 4) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+    }
+  }
+}
+
 async function launchAndWaitForStartup(): Promise<string> {
   const electronBinary = resolveElectronBinary();
   const appDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-fin-smoke-'));
+  const roamingAppDataDir = path.join(appDataDir, 'AppData', 'Roaming');
+  const localAppDataDir = path.join(appDataDir, 'AppData', 'Local');
+  fs.mkdirSync(roamingAppDataDir, { recursive: true });
+  fs.mkdirSync(localAppDataDir, { recursive: true });
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE;
-  env.APPDATA = appDataDir;
+  env.APPDATA = roamingAppDataDir;
   env.ELECTRON_IS_E2E = '1';
-  env.LOCALAPPDATA = appDataDir;
+  env.HOME = appDataDir;
+  env.LOCALAPPDATA = localAppDataDir;
   env.NODE_ENV = 'test';
+  env.USERPROFILE = appDataDir;
 
   const proc = spawn(electronBinary, [MAIN_ENTRY], {
     cwd: REPO_ROOT,
@@ -92,10 +110,7 @@ async function launchAndWaitForStartup(): Promise<string> {
       proc.once('exit', onExit);
 
       const checkReady = () => {
-        if (
-          output.includes('Lucid Fin initialized successfully') &&
-          output.includes('[api-server] Listening')
-        ) {
+        if (output.includes('Lucid Fin initialized successfully')) {
           cleanup();
           resolve();
         } else {
@@ -110,7 +125,7 @@ async function launchAndWaitForStartup(): Promise<string> {
     try {
       await stopProcessTree(proc);
     } finally {
-      fs.rmSync(appDataDir, { recursive: true, force: true });
+      await removeTemporaryProfile(appDataDir);
     }
   }
 }
@@ -118,11 +133,10 @@ async function launchAndWaitForStartup(): Promise<string> {
 test.describe('Electron smoke', () => {
   test.skip(!isBuildAvailable(), 'Electron build not found; run `pnpm run build` first');
 
-  test('built app starts main process and local API server', async () => {
+  test('built app starts the main process', async () => {
     const output = await launchAndWaitForStartup();
 
     expect(output).toContain('Lucid Fin initialized successfully');
-    expect(output).toContain('[api-server] Listening');
     expect(output).toContain('IPC handlers registered');
   });
 });

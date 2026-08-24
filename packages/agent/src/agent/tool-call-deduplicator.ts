@@ -25,6 +25,11 @@ export interface DedupRecord {
   wasError: boolean;
 }
 
+export interface ToolCallDedupSeed extends DedupRecord {
+  toolRef: ToolRef;
+  args: Record<string, unknown>;
+}
+
 /**
  * Stable JSON stringify — deterministic key order so
  * `{a:1,b:2}` and `{b:2,a:1}` hash to the same bucket. Strips
@@ -87,6 +92,12 @@ export class ToolCallDeduplicator {
 
   register(toolRef: ToolRef, args: Record<string, unknown>, record: DedupRecord): void {
     this.records.set(this.key(toolRef, args), record);
+  }
+
+  seed(records: readonly ToolCallDedupSeed[]): void {
+    for (const { toolRef, args, toolCallId, step, wasError } of records) {
+      this.register(toolRef, args, { toolCallId, step, wasError });
+    }
   }
 
   reset(): void {

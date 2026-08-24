@@ -41,12 +41,14 @@ function registerHandlers(db?: Record<string, unknown>) {
         }),
         getEquipment: db.getEquipment,
         upsertEquipment: db.upsertEquipment,
+        copyEquipment: db.copyEquipment,
         deleteEquipment: db.deleteEquipment,
       }
     : {
         listEquipment: vi.fn(() => ({ rows: [], degradedCount: 0 })),
         getEquipment: vi.fn(),
         upsertEquipment: vi.fn(),
+        copyEquipment: vi.fn(),
         deleteEquipment: vi.fn(),
       };
 
@@ -76,6 +78,7 @@ describe('registerEquipmentHandlers', () => {
     const handlers = registerHandlers();
 
     expect([...handlers.keys()].sort()).toEqual([
+      'equipment:copy',
       'equipment:delete',
       'equipment:get',
       'equipment:list',
@@ -83,6 +86,34 @@ describe('registerEquipmentHandlers', () => {
       'equipment:save',
       'equipment:setRefImage',
     ]);
+  });
+
+  it('copies and deletes multiple equipment records with one repository call', async () => {
+    resetCommon();
+    const created = [makeEquipment({ id: 'copy-1' }), makeEquipment({ id: 'copy-2' })];
+    const db = {
+      listEquipment: vi.fn(),
+      getEquipment: vi.fn(),
+      upsertEquipment: vi.fn(),
+      copyEquipment: vi.fn(() => created),
+      deleteEquipment: vi.fn((ids: string[]) => [...new Set(ids)]),
+    };
+    const handlers = registerHandlers(db);
+
+    await expect(
+      handlers.get('equipment:copy')?.(
+        {},
+        { ids: ['equipment-1', 'equipment-2'], targetFolderId: null },
+      ),
+    ).resolves.toEqual({ created });
+    expect(db.copyEquipment).toHaveBeenCalledOnce();
+    expect(db.copyEquipment).toHaveBeenCalledWith(['equipment-1', 'equipment-2'], null);
+
+    await expect(
+      handlers.get('equipment:delete')?.({}, { ids: ['equipment-1', 'equipment-2'] }),
+    ).resolves.toEqual({ deletedIds: ['equipment-1', 'equipment-2'] });
+    expect(db.deleteEquipment).toHaveBeenCalledOnce();
+    expect(db.deleteEquipment).toHaveBeenCalledWith(['equipment-1', 'equipment-2']);
   });
 
   it('lists equipment for the current project and optional type filter', async () => {

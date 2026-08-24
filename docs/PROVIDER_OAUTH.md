@@ -1,28 +1,27 @@
 # Capability-scoped provider OAuth contract
 
-This document is the executable contract for ChatGPT and Google Gemini OAuth in Lucid Fin. OAuth
-is an alternative provider entry beside API-key providers; it is never treated as an API key and no
-OAuth token, authorization URL, account email, or local credential path may cross into the renderer.
+This document is the executable contract for ChatGPT OAuth in Lucid Fin. OAuth is an alternative
+provider entry beside API-key providers; it is never treated as an API key and no OAuth token,
+authorization URL, account email, or local credential path may cross into the renderer.
 
 ## Scope
 
 The supported OAuth targets are:
 
-| Provider | LLM | Image generation | Video generation | Vision fallback |
-| -------- | --- | ---------------- | ---------------- | --------------- |
-| ChatGPT  | Yes | Yes              | No               | Yes             |
-| Gemini   | Yes | Yes              | Yes              | Yes             |
+| Provider | LLM | Image generation | Vision fallback |
+| -------- | --- | ---------------- | --------------- |
+| ChatGPT  | Yes | Yes              | Yes             |
 
-Every `(provider, capability)` target is an independent login slot. A user may therefore use one
-ChatGPT account for Commander and another for image generation, or separate Google accounts for
-Gemini LLM, image, video, and fallback vision. Logging out of one slot must not affect another.
+Every capability target is an independent login slot. A user may therefore use one ChatGPT account
+for Commander and another for image generation or fallback vision. Logging out of one slot must not
+affect another. Gemini remains available through its API-key providers and has no OAuth entry.
 
 ## Public contract
 
 ```ts
 type OAuthProviderTarget = {
-  provider: 'chatgpt' | 'gemini';
-  capability: 'llm' | 'image' | 'video' | 'vision';
+  provider: 'chatgpt';
+  capability: 'llm' | 'image' | 'vision';
 };
 
 window.lucidAPI.providerOAuth.status({ target }): Promise<OAuthProviderStatus>;
@@ -47,35 +46,13 @@ OAuth provider card never renders an API-key or password field.
 - Each generation/Commander execution uses an ephemeral thread. Image output is accepted only from
   the matching stable App Server item and after managed-root, symlink, size, and signature checks.
 - Commander dynamic tools are restricted to the exact host tools registered for the current step.
-  Tool execution returns through the existing ToolExecutor so approvals, `askUser`, workflow state,
+  Tool execution returns through the existing ToolExecutor so approvals, `askUser`, Task List state,
   evidence, and context updates remain authoritative. Built-in shell, file, network, permission, or
   unregistered tool requests fail the turn.
 
 The App Server `account/rateLimits/read` result is normalized into remaining percentage, window
 duration, reset time, and credits when supplied. If App Server omits usage, Settings says usage is
 unavailable; it must not invent a number or label subscription work as free.
-
-## Gemini boundary
-
-- Gemini uses Google's installed-desktop OAuth flow with loopback callback, PKCE S256, random state,
-  offline access, bounded login timeout, refresh, and revocation.
-- Release configuration is supplied only to the main process:
-
-  ```text
-  LUCID_GOOGLE_OAUTH_CLIENT_ID
-  LUCID_GOOGLE_OAUTH_CLIENT_SECRET
-  LUCID_GOOGLE_CLOUD_PROJECT
-  ```
-
-- Tokens are stored in the operating-system keychain under
-  `oauth:gemini:{llm|image|video|vision}`. Adapters receive only a main-process authorization-header
-  provider and send `Authorization: Bearer ...` plus `x-goog-user-project` to the verified Google
-  Generative Language host.
-- Gemini does not provide a reliable remaining-quota value through this OAuth scope. Settings states
-  that explicitly and links to the Google Cloud quota dashboard instead of showing a fabricated
-  percentage.
-- Missing application OAuth configuration produces an unavailable card with a setup link. There is
-  no hidden API-key fallback.
 
 ## Visual-analysis routing
 
@@ -98,8 +75,7 @@ list.
 | ------------------------------------------------------------------ | --------------------------------------------------------------------- |
 | OAuth URL has the wrong scheme or owner                            | Reject it in main and cancel the login                                |
 | Renderer response contains a token, auth URL, email, or local path | Contract validation fails                                             |
-| ChatGPT target is video                                            | Reject as unsupported; never substitute another provider              |
-| Google OAuth configuration is incomplete                           | Show unavailable and the setup link                                   |
+| Provider or capability is outside the ChatGPT contract             | Reject it during contract validation                                  |
 | Capability slot is signed out                                      | Show the matching login button; do not inspect keychain API-key state |
 | Current LLM supports images                                        | Reuse it; do not read or invoke the fallback vision credential        |
 | Current LLM is text-only                                           | Use the configured fallback vision provider                           |
@@ -120,10 +96,9 @@ pnpm run build
 ```
 
 Release builds must unpack `node_modules/@openai/codex-*/vendor/**` from ASAR and run
-`apps/desktop-main/build/verify-codex-binary.cjs`. Real provider login, quota display, generation,
-refresh, revocation, and account-isolation checks remain release smoke tests because they require
-live user accounts.
+`apps/desktop-main/build/verify-codex-binary.cjs`. Real ChatGPT login, quota display, generation,
+logout, and account-isolation checks remain release smoke tests because they require a live user
+account.
 
 Primary references: [Codex App Server](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md),
-[OpenAI API authentication](https://developers.openai.com/api/reference/overview#backwards-compatibility),
-and [Gemini OAuth](https://ai.google.dev/gemini-api/docs/oauth).
+and [OpenAI API authentication](https://developers.openai.com/api/reference/overview#backwards-compatibility).

@@ -17,6 +17,7 @@ function shotTrack<C extends PresetCategory>(
   category: C,
   presetName: string,
   intensity: number,
+  blendPresetName?: string,
 ): PresetTrack<C> {
   return {
     category,
@@ -29,6 +30,14 @@ function shotTrack<C extends PresetCategory>(
         params: {},
         order: 0,
         intensity,
+        blend: blendPresetName
+          ? {
+              category,
+              presetIdB: buildPresetId(category, blendPresetName),
+              factor: 50,
+              paramsB: {},
+            }
+          : undefined,
       },
     ],
   };
@@ -108,7 +117,8 @@ export const BUILT_IN_SHOT_TEMPLATES: ShotTemplate[] = [
     builtIn: true,
     tracks: {
       camera: shotTrack('camera', 'steadicam-follow', 80),
-      composition: shotTrack('composition', 'negative-space', 70),
+      lens: shotTrack('lens', 'wide-24mm', 80),
+      composition: shotTrack('composition', 'leading-lines', 70),
       emotion: shotTrack('emotion', 'triumphant', 75),
     },
   },
@@ -211,7 +221,7 @@ export const BUILT_IN_SHOT_TEMPLATES: ShotTemplate[] = [
     description: 'Pull-out camera with snap-zoom and ominous dread',
     builtIn: true,
     tracks: {
-      camera: shotTrack('camera', 'pull-out', 90),
+      camera: shotTrack('camera', 'pull-out', 90, 'snap-zoom'),
       emotion: shotTrack('emotion', 'ominous', 85),
     },
   },
@@ -221,7 +231,7 @@ export const BUILT_IN_SHOT_TEMPLATES: ShotTemplate[] = [
     description: 'Crane-up with pan and awe-inspiring establishing scale',
     builtIn: true,
     tracks: {
-      camera: shotTrack('camera', 'crane-up', 90),
+      camera: shotTrack('camera', 'crane-up', 90, 'pan-right'),
       scene: shotTrack('scene', 'volumetric-godrays', 75),
       emotion: shotTrack('emotion', 'awe', 85),
     },

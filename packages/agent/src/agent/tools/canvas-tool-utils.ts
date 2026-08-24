@@ -5,16 +5,19 @@ import {
   type Canvas,
   type CanvasEdge,
   type CanvasNode,
+  type CanvasPatch,
   type CanvasSettings,
   type PresetCategory,
   type PresetTrack,
   type PresetTrackEntry,
   type PresetTrackSet,
+  type PromptAssemblyOutputV1,
+  type PromptAssemblyRecord,
   type ResolutionIntent,
   type ResolutionPreflightResult,
 } from '@lucid-fin/contracts';
 import { isGeneratableMedia, isVisualMedia } from '@lucid-fin/shared-utils';
-import type { AgentTool } from '../tool-registry.js';
+import type { ToolDefinition } from '../tool-registry.js';
 export {
   ok,
   fail,
@@ -27,8 +30,48 @@ export {
   formatValidationError,
 } from './tool-result-helpers.js';
 
+export interface MediaProviderConfig {
+  baseUrl: string;
+  model: string;
+}
+
+export interface PrepareMediaTaskInput {
+  canvasId: string;
+  nodeId: string;
+  providerId?: string;
+  providerConfig?: MediaProviderConfig;
+  intent?: string;
+  parentAttemptId?: string;
+  feedback?: string;
+}
+
+export interface SubmitMediaPromptInput {
+  taskListId: string;
+  assemblyId: string;
+  assembly: PromptAssemblyOutputV1;
+}
+
+/**
+ * Durable canvas-media Task List projection. Kept structural so agent tools
+ * remain independent of the desktop host's service implementation.
+ */
+export interface MediaTaskView extends Record<string, unknown> {
+  id: string;
+  canvasId: string;
+  nodeId: string;
+  status: string;
+  taskStatus: string;
+  progress: number;
+  promptAssembly?: PromptAssemblyRecord;
+  attempt?: unknown;
+  evaluation?: unknown;
+  artifact?: unknown;
+  error?: string;
+}
+
 export interface CanvasToolDeps {
   getCanvas: (canvasId: string) => Promise<Canvas>;
+  patchCanvas: (canvasId: string, patch: CanvasPatch) => Promise<void>;
   deleteCanvas: (canvasId: string) => Promise<void>;
   addNode: (canvasId: string, node: CanvasNode) => Promise<void>;
   moveNode: (canvasId: string, nodeId: string, position: { x: number; y: number }) => Promise<void>;
@@ -37,27 +80,12 @@ export interface CanvasToolDeps {
   connectNodes: (canvasId: string, edge: CanvasEdge) => Promise<void>;
   setNodePresets: (canvasId: string, nodeId: string, presetTracks: PresetTrackSet) => Promise<void>;
   layoutNodes: (canvasId: string, direction: 'horizontal' | 'vertical' | 'auto') => Promise<void>;
-  triggerGeneration: (
-    canvasId: string,
-    nodeId: string,
-    providerId?: string,
-    variantCount?: number,
-    finalPrompt?: string,
-    promptInputMode?: 'base' | 'precompiled',
-  ) => Promise<void>;
-  /** Host-load the selected asset's exact provider prompt and append feedback. */
-  preparePromptRefinement?: (
-    canvasId: string,
-    nodeId: string,
-    feedback: string,
-  ) => Promise<{
-    sourceAssetHash: string;
-    basePrompt: string;
-    basePromptHash: string;
-    prompt: string;
-    promptHash: string;
-  }>;
-  cancelGeneration: (canvasId: string, nodeId: string) => Promise<void>;
+  prepareMediaTask: (input: PrepareMediaTaskInput) => Promise<MediaTaskView>;
+  getMediaTask: (taskListId: string) => Promise<MediaTaskView>;
+  getPromptAssembly?: (assemblyId: string) => Promise<PromptAssemblyRecord>;
+  submitMediaPrompt: (input: SubmitMediaPromptInput) => Promise<MediaTaskView>;
+  cancelMediaTask: (taskListId: string) => Promise<MediaTaskView>;
+  retryMediaEvaluation: (taskListId: string) => Promise<MediaTaskView>;
   deleteNode: (canvasId: string, nodeId: string) => Promise<void>;
   deleteEdge: (canvasId: string, edgeId: string) => Promise<void>;
   updateNodeData: (
@@ -84,8 +112,8 @@ export interface CanvasToolDeps {
     template: import('@lucid-fin/contracts').ShotTemplate,
   ) => Promise<import('@lucid-fin/contracts').ShotTemplate>;
   deleteShotTemplate: (templateId: string) => Promise<void>;
-  importWorkflow: (canvasId: string, json: string) => Promise<Canvas>;
-  exportWorkflow: (canvasId: string) => Promise<string>;
+  importCanvasDocument: (canvasId: string, json: string) => Promise<Canvas>;
+  exportCanvasDocument: (canvasId: string) => Promise<string>;
   setNodeColorTag: (canvasId: string, nodeId: string, color: string) => Promise<void>;
   toggleSeedLock: (canvasId: string, nodeId: string) => Promise<void>;
   selectVariant: (canvasId: string, nodeId: string, index: number) => Promise<void>;
@@ -96,18 +124,6 @@ export interface CanvasToolDeps {
     totalEstimatedCost: number;
     currency: string;
     nodeCosts: Array<{ nodeId: string; estimatedCost: number }>;
-  }>;
-  previewPrompt?: (
-    canvasId: string,
-    nodeId: string,
-  ) => Promise<{
-    prompt: string;
-    negativePrompt?: string;
-    segments: Array<{ source: string; text: string; trimmed: boolean }>;
-    wordCount: number;
-    diagnostics: Array<{ type: string; severity: string; message: string }>;
-    providerId: string;
-    mode: string;
   }>;
   addNote: (
     canvasId: string,
@@ -120,8 +136,6 @@ export interface CanvasToolDeps {
   ) => Promise<Array<Record<string, unknown>>>;
   updateNote: (canvasId: string, noteId: string, content: string) => Promise<void>;
   deleteNote: (canvasId: string, noteId: string) => Promise<void>;
-  undo: (canvasId: string) => Promise<void>;
-  redo: (canvasId: string) => Promise<void>;
   /** Check whether a media provider has an API key stored. */
   isProviderKeyConfigured?: (providerId: string) => Promise<boolean>;
   /** Get the user's default provider for a media group (image/video/audio). */
@@ -439,21 +453,17 @@ export async function replaceNodePreservingEdges(
   node: CanvasNode,
   changes: Partial<Pick<CanvasNode, 'bypassed' | 'locked'>>,
 ): Promise<CanvasNode> {
-  const canvas = await requireCanvas(deps, canvasId);
-  const connectedEdges = canvas.edges
-    .filter((edge) => edge.source === node.id || edge.target === node.id)
-    .map((edge) => structuredClone(edge) as CanvasEdge);
   const nextNode: CanvasNode = {
     ...(structuredClone(node) as CanvasNode),
     ...changes,
     updatedAt: Date.now(),
   };
-
-  await deps.deleteNode(canvasId, node.id);
-  await deps.addNode(canvasId, nextNode);
-  for (const edge of connectedEdges) {
-    await deps.connectNodes(canvasId, edge);
-  }
+  await deps.patchCanvas(canvasId, {
+    canvasId,
+    timestamp: Date.now(),
+    operations: ['updateNode'],
+    updatedNodes: [{ id: node.id, changes: nextNode as unknown as Record<string, unknown> }],
+  });
 
   return nextNode;
 }
@@ -526,8 +536,9 @@ export function createTrackSetWithPreset(
 
 export function buildDuplicatedNodes(canvas: Canvas, nodeIds: string[]): CanvasNode[] {
   const now = Date.now();
+  const nodesById = new Map(canvas.nodes.map((node) => [node.id, node]));
   return nodeIds.map((nodeId) => {
-    const node = canvas.nodes.find((entry) => entry.id === nodeId);
+    const node = nodesById.get(nodeId);
     if (!node) {
       throw new Error(`Node not found: ${nodeId}`);
     }
@@ -627,9 +638,15 @@ export async function layoutCanvasNodes(
       colIdx++;
     }
 
-    for (const item of positions) {
-      await deps.moveNode(canvasId, item.id, item.position);
-    }
+    await deps.patchCanvas(canvasId, {
+      canvasId,
+      timestamp: Date.now(),
+      operations: ['updateNode'],
+      updatedNodes: positions.map(({ id, position }) => ({
+        id,
+        changes: { position, updatedAt: Date.now() },
+      })),
+    });
     return positions;
   }
 
@@ -641,12 +658,20 @@ export async function layoutCanvasNodes(
     return { id: node.id, position };
   });
 
-  for (const item of positions) {
-    await deps.moveNode(canvasId, item.id, item.position);
-  }
+  const updatedAt = Date.now();
+  await deps.patchCanvas(canvasId, {
+    canvasId,
+    timestamp: updatedAt,
+    operations: ['updateNode'],
+    updatedNodes: positions.map(({ id, position }) => ({
+      id,
+      changes: { position, updatedAt },
+    })),
+  });
 
   return positions;
 }
 
-/** Re-export AgentTool for convenience in domain files */
-export type { AgentTool };
+/** Re-export ToolDefinition for convenience in domain files */
+export type { ToolDefinition };
+export { NO_TOOL_RESOURCE, meteredToolResource } from '../tool-registry.js';

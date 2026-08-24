@@ -25,8 +25,39 @@ CREATE TABLE canvases (
   image_provider_id    TEXT,
   video_provider_id    TEXT,
   audio_provider_id    TEXT,
+  delivery_sequence_json TEXT,
+  delivery_sequence_revision INTEGER NOT NULL DEFAULT 0,
+  archived_at          INTEGER,
   created_at           INTEGER NOT NULL,
   updated_at           INTEGER NOT NULL
+);
+
+CREATE TABLE task_lists (
+  id TEXT PRIMARY KEY,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT,
+  status TEXT NOT NULL,
+  metadata_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE commander_sessions (
+  id TEXT PRIMARY KEY,
+  default_canvas_id TEXT
+);
+
+CREATE TABLE commander_runs (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  default_canvas_id TEXT,
+  status TEXT NOT NULL
+);
+
+CREATE TABLE commander_run_canvases (
+  run_id TEXT NOT NULL,
+  canvas_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,
+  released_at INTEGER,
+  PRIMARY KEY (run_id, canvas_id)
 );
 
 CREATE TABLE canvas_nodes (
@@ -339,7 +370,7 @@ describe('CanvasRepository with CanvasNodeRepository integration', () => {
     expect(canvas!.nodes.map((n) => n.id)).toEqual(['n1', 'n3']);
   });
 
-  it('delete canvas cascades to canvas_nodes', () => {
+  it('archive preserves canvas_nodes and permanent delete removes them', () => {
     canvasRepo.upsert({
       id: 'c1',
       name: 'Test',
@@ -351,9 +382,11 @@ describe('CanvasRepository with CanvasNodeRepository integration', () => {
       updatedAt: 100,
     });
 
-    canvasRepo.delete('c1' as CanvasId);
-    const rows = db.prepare('SELECT * FROM canvas_nodes WHERE canvas_id = ?').all('c1');
-    expect(rows).toHaveLength(0);
+    canvasRepo.archive('c1' as CanvasId, 200);
+    expect(db.prepare('SELECT * FROM canvas_nodes WHERE canvas_id = ?').all('c1')).toHaveLength(2);
+
+    canvasRepo.deletePermanent('c1' as CanvasId);
+    expect(db.prepare('SELECT * FROM canvas_nodes WHERE canvas_id = ?').all('c1')).toHaveLength(0);
   });
 
   it('listFull loads nodes from canvas_nodes table', () => {

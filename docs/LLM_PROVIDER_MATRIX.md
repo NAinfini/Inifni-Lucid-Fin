@@ -32,16 +32,15 @@ as a second registry.
 keys and projects are not orphaned. They resolve to the same current Ark model. Existing Ollama
 model selections are never force-migrated because local availability is controlled by the user.
 
-## OAuth LLM entries
+## OAuth LLM entry
 
-| Settings entry        | Execution path          | Credential boundary                       | Visual input |
-| --------------------- | ----------------------- | ----------------------------------------- | ------------ |
-| ChatGPT (OAuth)       | Codex App Server        | Isolated `capability-llm` App Server home | Yes          |
-| Google Gemini (OAuth) | Gemini REST with bearer | `oauth:gemini:llm` OS-keychain slot       | Yes          |
+| Settings entry  | Execution path   | Credential boundary                       | Visual input |
+| --------------- | ---------------- | ----------------------------------------- | ------------ |
+| ChatGPT (OAuth) | Codex App Server | Isolated `capability-llm` App Server home | Yes          |
 
-These entries sit beside OpenAI and Google API-key entries; OAuth never replaces or impersonates an
-API key. ChatGPT OAuth is not sent to `api.openai.com`. Every media/vision OAuth capability has its
-own login slot, so selecting one account for the LLM does not force that account onto generation.
+This entry sits beside OpenAI and Google API-key entries; OAuth never replaces or impersonates an
+API key. ChatGPT OAuth is not sent to `api.openai.com`. Each ChatGPT media/vision OAuth capability
+has its own login slot, so selecting one account for the LLM does not force it onto generation.
 
 ## Vision defaults
 
@@ -167,5 +166,4 @@ Correct: migrate exact known historical defaults and preserve every unrecognized
 - [Ollama Qwen 3.5 tags](https://ollama.com/library/qwen3.5/tags)
 - [SiliconFlow models](https://www.siliconflow.cn/models)
 - [Together serverless models](https://docs.together.ai/docs/serverless-models)
-- [Gemini OAuth](https://ai.google.dev/gemini-api/docs/oauth)
 - [Codex App Server](https://github.com/openai/codex/blob/main/codex-rs/app-server/README.md)

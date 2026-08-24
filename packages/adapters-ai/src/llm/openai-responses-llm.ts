@@ -8,7 +8,7 @@ import type {
   LLMToolCall,
   ProviderProfile,
 } from '@lucid-fin/contracts';
-import { ErrorCode, LucidError } from '@lucid-fin/contracts';
+import { ErrorCode, LucidError, normalizeReasoningEffort } from '@lucid-fin/contracts';
 import { normalizeOpenAICompatibleBaseUrl } from './openai-compatible-base.js';
 import { oneShotStream } from './one-shot-stream.js';
 import { validateProviderUrl } from '../url-policy.js';
@@ -27,6 +27,7 @@ type OpenAIResponsesConfig = {
   defaultModel: string;
   authStyle?: LLMProviderAuthStyle;
   capabilities?: Capability[];
+  reasoningEffortsByModel?: Record<string, string[]>;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -119,6 +120,8 @@ export class OpenAIResponsesLLM implements LLMAdapter {
   private baseUrl: string;
   private model: string;
   private authStyle: LLMProviderAuthStyle;
+  private reasoningEffortsByModel?: Record<string, string[]>;
+  private reasoningEffort?: string;
 
   constructor(cfg: OpenAIResponsesConfig) {
     this.id = cfg.id;
@@ -126,6 +129,7 @@ export class OpenAIResponsesLLM implements LLMAdapter {
     this.baseUrl = normalizeResponsesBaseUrl(cfg.defaultBaseUrl);
     this.model = cfg.defaultModel;
     this.authStyle = cfg.authStyle ?? 'bearer';
+    this.reasoningEffortsByModel = cfg.reasoningEffortsByModel;
     this.profile = {
       providerId: cfg.id,
       charsPerToken: 4,
@@ -150,6 +154,19 @@ export class OpenAIResponsesLLM implements LLMAdapter {
       this.baseUrl = normalizeResponsesBaseUrl(options.baseUrl as string);
     }
     if (options?.model) this.model = options.model as string;
+    if (options?.reasoningEffortsByModel) {
+      this.reasoningEffortsByModel = options.reasoningEffortsByModel as Record<string, string[]>;
+    }
+    const reasoningEffort = normalizeReasoningEffort(
+      typeof options?.reasoningEffort === 'string' ? options.reasoningEffort : undefined,
+    );
+    const knownEfforts = this.reasoningEffortsByModel?.[this.model];
+    if (reasoningEffort && knownEfforts && !knownEfforts.includes(reasoningEffort)) {
+      throw new Error(
+        `${this.name} model "${this.model}" does not support reasoning effort "${reasoningEffort}".`,
+      );
+    }
+    this.reasoningEffort = reasoningEffort;
     if (typeof options?.contextWindow === 'number' && options.contextWindow > 0) {
       this.userContextWindow = options.contextWindow as number;
     }
@@ -267,6 +284,7 @@ export class OpenAIResponsesLLM implements LLMAdapter {
       input,
       max_output_tokens: opts?.maxTokens ?? 4096,
     };
+    if (this.reasoningEffort) body.reasoning = { effort: this.reasoningEffort };
 
     if (instructions) {
       body.instructions = instructions;

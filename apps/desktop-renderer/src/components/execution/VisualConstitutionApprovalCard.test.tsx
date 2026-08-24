@@ -4,11 +4,11 @@ import React, { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
 import type {
-  ApproveWorkflowGateResult,
+  ApprovePlanGateResult,
+  PlanApprovalContext,
+  TaskList,
+  VisualAuditionContext,
   VisualConstitutionSelectionResult,
-  WorkflowApprovalContext,
-  WorkflowRun,
-  WorkflowVisualAuditionContext,
 } from '@lucid-fin/contracts';
 import { t } from '../../i18n.js';
 import { VisualConstitutionApprovalCard } from './VisualConstitutionApprovalCard.js';
@@ -17,26 +17,20 @@ function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function setTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
-  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
-  setter?.call(textarea, value);
-  textarea.dispatchEvent(new Event('input', { bubbles: true }));
-}
-
-const run: WorkflowRun = {
+const taskList: TaskList = {
   id: 'wf-visual-1',
-  workflowType: 'movie.production.v2',
+  taskListType: 'movie.production.v2',
   entityType: 'canvas',
   entityId: 'canvas-1',
   triggerSource: 'commander',
   status: 'ready',
   summary: 'Choose a visual direction',
   progress: 20,
-  completedStages: 1,
-  totalStages: 6,
+  completedPhases: 1,
+  totalPhases: 6,
   completedTasks: 1,
   totalTasks: 6,
-  currentStageId: 'style-exploration',
+  currentPhaseKey: 'style-exploration',
   input: {},
   output: {},
   metadata: {},
@@ -79,6 +73,7 @@ function candidate(id: string, name: string, assetHash: string, score: number, s
       {
         attempt: 1,
         status: 'completed' as const,
+        promptAssemblyId: `assembly-${id}`,
         prompt: `${name} prompt`,
         promptHash: id.padEnd(64, 'a').slice(0, 64),
         providerId: 'image-provider',
@@ -113,11 +108,11 @@ function candidate(id: string, name: string, assetHash: string, score: number, s
   };
 }
 
-const auditionContext: WorkflowVisualAuditionContext = {
-  run,
+const auditionContext: VisualAuditionContext = {
+  taskList,
   document: {
     id: 'audition-doc-8',
-    workflowRunId: run.id,
+    taskListId: taskList.id,
     logicalKey: 'visual-auditions',
     documentType: 'visual_auditions',
     revision: 8,
@@ -152,12 +147,17 @@ const auditionContext: WorkflowVisualAuditionContext = {
   },
 };
 
-function visualApprovalContext(): WorkflowApprovalContext {
+function visualApprovalContext(): PlanApprovalContext {
   return {
-    run: { ...run, status: 'awaiting_approval', rowVersion: 5, currentGate: 'visual_constitution' },
+    taskList: {
+      ...taskList,
+      status: 'awaiting_approval',
+      rowVersion: 5,
+      currentGate: 'visual_constitution',
+    },
     approval: {
       id: 'approval-visual-1',
-      workflowRunId: run.id,
+      taskListId: taskList.id,
       gateKey: 'visual_constitution',
       subjectLogicalKey: 'visual-constitution',
       subjectRevision: 1,
@@ -169,7 +169,7 @@ function visualApprovalContext(): WorkflowApprovalContext {
     },
     document: {
       id: 'visual-doc-1',
-      workflowRunId: run.id,
+      taskListId: taskList.id,
       logicalKey: 'visual-constitution',
       documentType: 'visual_constitution',
       revision: 1,
@@ -181,6 +181,7 @@ function visualApprovalContext(): WorkflowApprovalContext {
         selectedBy: 'user',
         selectedPreview: {
           assetHash: 'asset-one',
+          promptAssemblyId: 'assembly-analog-horror',
           providerId: 'image-provider',
           model: 'image-model-v2',
           seed: 102,
@@ -225,9 +226,7 @@ describe('VisualConstitutionApprovalCard', () => {
     const onSelect = vi.fn(
       async () => ({ context, created: true }) as VisualConstitutionSelectionResult,
     );
-    const onApprove = vi.fn(
-      async () => ({ ok: true, code: 'approved' }) as ApproveWorkflowGateResult,
-    );
+    const onApprove = vi.fn(async () => ({ ok: true, code: 'approved' }) as ApprovePlanGateResult);
 
     await act(async () => {
       root.render(
@@ -253,6 +252,8 @@ describe('VisualConstitutionApprovalCard', () => {
       'The radio room and tungsten practical are both visible.',
     );
     expect(container.textContent).toContain('vision-grade');
+    expect(container.textContent).toContain('assembly-analog-horror');
+    expect(container.textContent).toContain('Analog Horror prompt');
     expect(onSelect).not.toHaveBeenCalled();
     expect(onApprove).not.toHaveBeenCalled();
 
@@ -274,25 +275,37 @@ describe('VisualConstitutionApprovalCard', () => {
     expect(onApprove).not.toHaveBeenCalled();
   });
 
-  it('requires a second explicit action to approve the already locked revision', async () => {
-    const approvalContext = visualApprovalContext();
-    const onApprove = vi.fn(
-      async () => ({ ok: true, code: 'approved' }) as ApproveWorkflowGateResult,
-    );
-    const onApproved = vi.fn();
-    const onRequestChanges = vi.fn(async () => undefined);
-    const onRequested = vi.fn();
+  it('leaves visual revision requests to Commander chat before a candidate is locked', async () => {
+    const onSelect = vi.fn();
 
     await act(async () => {
       root.render(
         <VisualConstitutionApprovalCard
-          auditionContext={{ ...auditionContext, run: approvalContext.run }}
+          auditionContext={auditionContext}
+          onSelect={onSelect}
+          onApprove={vi.fn(async () => ({ ok: true, code: 'approved' }) as ApprovePlanGateResult)}
+        />,
+      );
+      await flushPromises();
+    });
+
+    expect(container.querySelector('textarea')).toBeNull();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('requires a second explicit action to approve the already locked revision', async () => {
+    const approvalContext = visualApprovalContext();
+    const onApprove = vi.fn(async () => ({ ok: true, code: 'approved' }) as ApprovePlanGateResult);
+    const onApproved = vi.fn();
+
+    await act(async () => {
+      root.render(
+        <VisualConstitutionApprovalCard
+          auditionContext={{ ...auditionContext, taskList: approvalContext.taskList }}
           approvalContext={approvalContext}
           onSelect={vi.fn()}
           onApprove={onApprove}
           onApproved={onApproved}
-          onRequestChanges={onRequestChanges}
-          onRequested={onRequested}
         />,
       );
       await flushPromises();
@@ -300,28 +313,7 @@ describe('VisualConstitutionApprovalCard', () => {
 
     expect(container.textContent).toContain('e'.repeat(64));
     expect(onApprove).not.toHaveBeenCalled();
-    const requestChangesButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes(t('workflowApproval.requestChanges')),
-    );
-    await act(async () => {
-      requestChangesButton?.click();
-      await flushPromises();
-    });
-    const reason = container.querySelector<HTMLTextAreaElement>('textarea');
-    if (!reason) throw new Error('Expected a request-changes reason field');
-    await act(async () => {
-      setTextareaValue(reason, 'Keep the composition but try a warmer palette.');
-      await flushPromises();
-    });
-    const submitChanges = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes(t('workflowApproval.submitRequestChanges')),
-    );
-    await act(async () => {
-      submitChanges?.click();
-      await flushPromises();
-    });
-    expect(onRequestChanges).toHaveBeenCalledWith('Keep the composition but try a warmer palette.');
-    expect(onRequested).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('textarea')).toBeNull();
 
     const approveButton = Array.from(container.querySelectorAll('button')).find((button) =>
       button.textContent?.includes(t('visualConstitutionApproval.approve')),

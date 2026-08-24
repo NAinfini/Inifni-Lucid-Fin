@@ -101,9 +101,26 @@ export function registerLocationHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
     return loc;
   });
 
-  safeHandle(ipcMain, 'location:delete', async (_e, args: { id: string }) => {
-    if (!args || typeof args.id !== 'string') throw new Error('id is required');
-    db.repos.entities.deleteLocation(parseLocationId(args.id));
+  safeHandle(
+    ipcMain,
+    'location:copy',
+    async (_e, args: { ids: string[]; targetFolderId: string | null }) => {
+      if (!Array.isArray(args?.ids) || args.ids.length === 0) throw new Error('ids are required');
+      if (args.targetFolderId !== null && typeof args.targetFolderId !== 'string') {
+        throw new Error('targetFolderId must be a string or null');
+      }
+      const created = db.repos.entities.copyLocations(
+        args.ids.map(parseLocationId),
+        args.targetFolderId,
+      );
+      return { created };
+    },
+  );
+
+  safeHandle(ipcMain, 'location:delete', async (_e, args: { ids: string[] }) => {
+    if (!Array.isArray(args?.ids) || args.ids.length === 0) throw new Error('ids are required');
+    const deletedIds = db.repos.entities.deleteLocation(args.ids.map(parseLocationId));
+    return { deletedIds };
   });
 
   safeHandle(

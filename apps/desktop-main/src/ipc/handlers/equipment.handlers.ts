@@ -91,9 +91,25 @@ export function registerEquipmentHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
     return equip;
   });
 
-  ipcMain.handle('equipment:delete', async (_e, args: { id: string }) => {
-    if (!args || typeof args.id !== 'string') throw new Error('id is required');
-    db.repos.entities.deleteEquipment(parseEquipmentId(args.id));
+  ipcMain.handle(
+    'equipment:copy',
+    async (_e, args: { ids: string[]; targetFolderId: string | null }) => {
+      if (!Array.isArray(args?.ids) || args.ids.length === 0) throw new Error('ids are required');
+      if (args.targetFolderId !== null && typeof args.targetFolderId !== 'string') {
+        throw new Error('targetFolderId must be a string or null');
+      }
+      const created = db.repos.entities.copyEquipment(
+        args.ids.map(parseEquipmentId),
+        args.targetFolderId,
+      );
+      return { created };
+    },
+  );
+
+  ipcMain.handle('equipment:delete', async (_e, args: { ids: string[] }) => {
+    if (!Array.isArray(args?.ids) || args.ids.length === 0) throw new Error('ids are required');
+    const deletedIds = db.repos.entities.deleteEquipment(args.ids.map(parseEquipmentId));
+    return { deletedIds };
   });
 
   ipcMain.handle(

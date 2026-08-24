@@ -72,6 +72,7 @@ function createInitialState(): SettingsState {
       sceneOverrides: {},
     },
     bootstrapped: false,
+    initializationError: null,
     crashReporting: false,
     analyticsEnabled: false,
   };
@@ -136,6 +137,10 @@ export const settingsSlice = createSlice({
     },
     setBootstrapped(state) {
       state.bootstrapped = true;
+      state.initializationError = null;
+    },
+    setInitializationError(state, action: PayloadAction<string | null>) {
+      state.initializationError = action.payload;
     },
     setCrashReporting(state, action: PayloadAction<boolean>) {
       state.crashReporting = action.payload;
@@ -188,6 +193,7 @@ export const {
   updateProduction,
   setStyleGuide,
   setBootstrapped,
+  setInitializationError,
   setCrashReporting,
   setAnalyticsEnabled,
   restore,

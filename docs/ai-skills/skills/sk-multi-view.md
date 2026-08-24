@@ -13,7 +13,7 @@ Recommended rhythm:
 
 1. Rough in the sequence in Main view so order and dependencies are obvious.
 2. Jump to Edit view only when one node needs concentrated prompt, preset, or provider work.
-3. Use Audio view when dialogue timing, narration, music, or lip-sync relationships need review.
+3. Use Audio view when dialogue timing, narration, music, or sound-effect relationships need review.
 4. Return to Main view for continuity, missing-edge checks, and final sequencing decisions.
 5. Use Materials view for asset audit or retrieval tasks instead of cluttering the graph with library browsing.
 
@@ -21,7 +21,7 @@ Checks:
 
 - each view change has a purpose
 - you return to Main view before large batch actions
-- audio review happens before lip-sync-sensitive renders
+- audio review happens before timing-sensitive renders
 
 Avoid:
 

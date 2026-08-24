@@ -8,24 +8,22 @@ import {
   stopClipboardWatcher,
   setClipboardWatcherEnabled,
 } from './clipboard-watcher.js';
-import {
-  createAgentOrchestratorForRun,
-  JobQueue,
-  WorkflowEngine,
-  WorkflowRecovery,
-  registerDefaultWorkflows,
-} from '@lucid-fin/application';
-import { createStyleWorkflowHandlers } from './workflow/style-workflow-handlers.js';
-import { createRefImageWorkflowHandlers } from './workflow/ref-image-workflow-handlers.js';
+import { TaskExecutionEngine, registerDefaultTaskLists } from '@lucid-fin/application';
+import { createStyleTaskHandlers } from './task-execution/style-task-handlers.js';
+import { createAudioTaskHandler } from './task-execution/audio-task-handler.js';
+import { createMediaTaskHandler } from './task-execution/media-task-handler.js';
+import { createAudioTaskService } from './services/audio-task.service.js';
+import { createMediaTaskService } from './services/media-task.service.js';
+import { MediaGenerationService } from './services/media-generation.service.js';
+import { MediaEvaluationService } from './services/media-evaluation.service.js';
+import { createVisualAnalyzer } from './services/visual-analyzer.service.js';
+import { createPromptAssemblyService } from './services/prompt-assembly.service.js';
+import { resolveAdapter } from './ipc/handlers/generation-context.js';
+import { createCanvasStore } from './ipc/handlers/canvas.handlers.js';
+import { projectPresetCatalog } from './ipc/handlers/preset.handlers.js';
 import { initDb } from './bootstrap/init-db.js';
 import { initIpc } from './bootstrap/init-ipc.js';
-import {
-  initApp,
-  registerOAuthAdapters,
-  restoreAdapterKeys,
-  selectConfiguredLLMAdapter,
-} from './bootstrap/init-app.js';
-import { startApiServer, stopApiServer } from './api-server.js';
+import { initApp, registerOAuthAdapters, restoreAdapterKeys } from './bootstrap/init-app.js';
 import log, { getBufferedLogs, initLogger, setLogForwarder } from './logger.js';
 import { initCrashReporter } from './crash-reporter.js';
 import { startTrace } from './perf-trace.js';
@@ -40,6 +38,7 @@ import {
   loggerEntryChannel,
   pingChannel,
   healthPingChannel,
+  parseTaskId,
 } from '@lucid-fin/contracts-parse';
 import {
   initAutoUpdater,
@@ -52,6 +51,7 @@ import { initUpdateSafety, stopUpdateSafety } from './update-safety.js';
 import { startSessionCleanup, stopSessionCleanup } from './ipc/handlers/commander-registry.js';
 import { registerSettingsHandlers } from './ipc/handlers/settings.handlers.js';
 import { ProviderOAuthManager } from './oauth/provider-oauth-manager.js';
+import { completeGracefulShutdown, waitForRendererFlush } from './graceful-shutdown.js';
 
 const { app, BrowserWindow: BrowserWindowCtor, ipcMain, Menu, protocol, net, shell } = electron;
 
@@ -68,10 +68,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let mainWindow: BrowserWindow | null = null;
 let earlyIpcRegistered = false;
 let appDb: import('@lucid-fin/storage').SqliteIndex | null = null;
-let appJobQueue: import('@lucid-fin/application').JobQueue | null = null;
+let appAudioTaskService: import('./services/audio-task.service.js').AudioTaskService | null = null;
+let appMediaTaskService: import('./services/media-task.service.js').MediaTaskService | null = null;
 let appOAuthManager: ProviderOAuthManager | null = null;
-let oauthShutdownComplete = false;
-let oauthShutdownPromise: Promise<void> | null = null;
+let shutdownComplete = false;
+let shutdownPromise: Promise<void> | null = null;
 
 // Module-scope gateway bound to the current `mainWindow`. Used for the
 // app-level push channels (`app:ready`, `app:init-error`) that fire during
@@ -80,6 +81,29 @@ let oauthShutdownPromise: Promise<void> | null = null;
 const mainWindowGateway = createRendererPushGateway({
   getWindow: () => mainWindow,
 });
+
+type AppInitializationNotification =
+  | { status: 'ready' }
+  | { status: 'error'; message: string };
+
+let rendererDidFinishLoad = false;
+let pendingAppInitializationNotification: AppInitializationNotification | null = null;
+
+function flushAppInitializationNotification(): void {
+  if (!rendererDidFinishLoad || !pendingAppInitializationNotification) return;
+  const notification = pendingAppInitializationNotification;
+  pendingAppInitializationNotification = null;
+  if (notification.status === 'ready') {
+    mainWindowGateway.emit(appReadyChannel, undefined);
+  } else {
+    mainWindowGateway.emit(appInitErrorChannel, notification.message);
+  }
+}
+
+function publishAppInitializationNotification(notification: AppInitializationNotification): void {
+  pendingAppInitializationNotification = notification;
+  flushAppInitializationNotification();
+}
 
 function registerEarlyIpcHandlers(): void {
   if (earlyIpcRegistered) return;
@@ -150,14 +174,8 @@ export function attachWindowLogForwarder(window: BrowserWindow | null): void {
   });
 }
 
-export function logJobQueueRecovered(): void {
-  log.info('Job queue recovered and started', {
-    category: 'startup',
-  });
-}
-
-export function logWorkflowEngineRecovered(): void {
-  log.info('Workflow engine recovered', {
+export function logTaskExecutionEngineRecovered(): void {
+  log.info('Task execution engine recovered', {
     category: 'startup',
   });
 }
@@ -202,6 +220,11 @@ function createWindow(): BrowserWindow {
 
   // Skeleton-first: show window as soon as DOM is ready
   win.once('ready-to-show', () => win.show());
+  rendererDidFinishLoad = false;
+  win.webContents.once('did-finish-load', () => {
+    rendererDidFinishLoad = true;
+    setTimeout(flushAppInitializationNotification, 0);
+  });
 
   const isDev = !app.isPackaged;
   const shouldOpenDevTools = isDev && process.env.ELECTRON_IS_E2E !== '1';
@@ -218,8 +241,17 @@ function createWindow(): BrowserWindow {
   }
 
   win.on('closed', () => {
+    rendererDidFinishLoad = false;
     mainWindow = null;
   });
+
+  if (process.platform !== 'darwin') {
+    win.on('close', (event) => {
+      if (shutdownComplete) return;
+      event.preventDefault();
+      app.quit();
+    });
+  }
 
   return win;
 }
@@ -255,16 +287,8 @@ app.whenReady().then(async () => {
 
   // 2. Background async initialization
   try {
-    const {
-      db,
-      cas,
-      keychain,
-      adapterRegistry,
-      llmRegistry,
-      promptStore,
-      processPromptStore,
-      toolRegistry,
-    } = initApp();
+    const { db, cas, keychain, adapterRegistry, llmRegistry, promptStore, processPromptStore } =
+      initApp();
     const oauthManager = new ProviderOAuthManager({
       userDataPath: app.getPath('userData'),
       keychain,
@@ -351,72 +375,135 @@ app.whenReady().then(async () => {
 
     // Restore saved API keys to adapters
     await restoreAdapterKeys(keychain, adapterRegistry, llmRegistry);
-    let llmAdapter: import('@lucid-fin/contracts').LLMAdapter | null = null;
-    try {
-      llmAdapter = await selectConfiguredLLMAdapter(llmRegistry.list());
-    } catch {
-      /* no configured LLM adapter — AI features degrade gracefully until a key is set */
-      log.warn(
-        'No configured LLM adapter — AI features will be unavailable until an API key is set',
-      );
-    }
-    const agent = llmAdapter
-      ? createAgentOrchestratorForRun({
-          variant: 'production',
-          llmAdapter,
-          toolRegistry,
-          resolvePrompt: (code: string) => promptStore.resolve(code),
-          // No canvasStore here: this is the non-canvas AI orchestrator
-          // consumed by `registerAiHandlers`. Canvas-aware resolvers stay
-          // dormant; canvas-state-driven ProcessPromptSpecs are a no-op.
-        })
-      : null;
-
-    // Single JobQueue instance — shared across recovery and IPC handlers
-    const jobQueue = new JobQueue(() => db.repos.jobs, adapterRegistry);
-    await jobQueue.recover();
-    jobQueue.start();
-    logJobQueueRecovered();
-
     appDb = db;
-    appJobQueue = jobQueue;
 
-    const workflowRegistry = registerDefaultWorkflows();
-    const workflowEngine = new WorkflowEngine({
+    const canvasStore = createCanvasStore(db);
+    const taskListRegistry = registerDefaultTaskLists();
+    const promptAssemblyService = createPromptAssemblyService({ db });
+    const visualAnalyzer = createVisualAnalyzer({ cas, llmRegistry });
+    const mediaGenerationService = new MediaGenerationService({
       db,
-      registry: workflowRegistry,
+      cas,
+      promptAssemblyService,
+      resolveAdapter: async (attempt) => {
+        const task = db.repos.taskLists.getTask(parseTaskId(attempt.taskId));
+        const rawConfig = task?.input.providerConfig;
+        const providerConfigRecord =
+          rawConfig && typeof rawConfig === 'object' && !Array.isArray(rawConfig)
+            ? (rawConfig as Record<string, unknown>)
+            : undefined;
+        const providerConfig = providerConfigRecord
+          ? {
+              baseUrl:
+                typeof providerConfigRecord.baseUrl === 'string'
+                  ? providerConfigRecord.baseUrl.trim()
+                  : '',
+              model:
+                typeof providerConfigRecord.model === 'string'
+                  ? providerConfigRecord.model.trim()
+                  : '',
+            }
+          : undefined;
+        if (providerConfig && (!providerConfig.baseUrl || !providerConfig.model)) {
+          throw new Error('Stored media provider configuration is incomplete');
+        }
+        return resolveAdapter(
+          adapterRegistry,
+          attempt.providerId,
+          attempt.mediaType,
+          attempt.generationSpec.operation,
+          providerConfig,
+          keychain,
+          cas,
+        );
+      },
+    });
+    const mediaEvaluationService = new MediaEvaluationService({
+      db,
+      cas,
+      visualAnalyzer,
+    });
+    const taskExecutionEngine = new TaskExecutionEngine({
+      db,
+      registry: taskListRegistry,
       handlers: [
-        ...createStyleWorkflowHandlers({
+        ...createStyleTaskHandlers({
           cas,
           llmRegistry,
         }),
-        ...createRefImageWorkflowHandlers({
-          adapterRegistry,
+        createAudioTaskHandler({
           cas,
+          promptAssemblyService,
+          resolveAdapter: ({ providerId, subtype, providerConfig }) =>
+            resolveAdapter(
+              adapterRegistry,
+              providerId,
+              subtype,
+              subtype,
+              providerConfig,
+              keychain,
+              cas,
+            ),
+          resolveProcessPrompt: (processKey) =>
+            processPromptStore.getEffectiveValue(processKey) ?? undefined,
+        }),
+        createMediaTaskHandler({
+          generationDeps: {
+            adapterRegistry,
+            cas,
+            db,
+            canvasStore,
+            keychain,
+            getWindow: () => mainWindow,
+            resolvePresetCatalog: projectPresetCatalog.list,
+            promptAssemblyService,
+            resolveProcessPrompt: (processKey) =>
+              processPromptStore.getEffectiveValue(processKey) ?? undefined,
+          },
+          mediaGenerationService,
         }),
       ],
     });
-    const workflowRecovery = new WorkflowRecovery(workflowEngine);
-    await workflowRecovery.recover();
-    logWorkflowEngineRecovered();
+    await taskExecutionEngine.recover();
+    logTaskExecutionEngineRecovered();
+    const audioTaskService = createAudioTaskService({
+      db,
+      taskExecutionEngine,
+      promptAssemblyService,
+    });
+    audioTaskService.resumePending();
+    appAudioTaskService = audioTaskService;
+    const mediaTaskService = createMediaTaskService({
+      db,
+      canvasStore,
+      taskExecutionEngine,
+      promptAssemblyService,
+      mediaGenerationService,
+      mediaEvaluationService,
+    });
+    mediaTaskService.resumePending();
+    appMediaTaskService = mediaTaskService;
 
-    initIpc(() => mainWindow, {
+    await initIpc(() => mainWindow, {
       db,
       cas,
       keychain,
       registry: adapterRegistry,
-      jobQueue,
       llmRegistry,
-      workflowEngine,
-      agent,
+      taskExecutionEngine,
       promptStore,
       processPromptStore,
       oauthManager,
+      promptAssemblyService,
+      audioTaskService,
+      mediaTaskService,
+      mediaGenerationService,
+      mediaEvaluationService,
+      visualAnalyzer,
+      canvasStore,
     });
 
     startSessionCleanup();
-
-    startApiServer({ db });
 
     // Auto-updater init (hooks into already-registered IPC handlers)
     await initAutoUpdater(mainWindow);
@@ -448,63 +535,66 @@ app.whenReady().then(async () => {
 
     // Notify renderer that backend is ready
     mark('fully-loaded');
-    mainWindowGateway.emit(appReadyChannel, undefined);
+    publishAppInitializationNotification({ status: 'ready' });
     log.info('Lucid Fin initialized successfully');
     logStartupMetrics();
   } catch (err) {
     log.error('Initialization failed:', err);
-    mainWindowGateway.emit(appInitErrorChannel, String(err));
+    publishAppInitializationNotification({ status: 'error', message: String(err) });
   }
 });
 
 app.on('window-all-closed', () => {
   stopClipboardWatcher();
-  stopApiServer();
   stopSessionCleanup();
   stopUpdateSafety();
   if (process.platform !== 'darwin') {
-    if (appJobQueue) {
-      appJobQueue.stop();
-      appJobQueue = null;
-    }
-    if (appDb) {
-      appDb.close();
-      appDb = null;
-    }
     app.quit();
   }
 });
 
 app.on('before-quit', (event) => {
-  if (appOAuthManager && !oauthShutdownComplete) {
-    event.preventDefault();
-    if (!oauthShutdownPromise) {
+  if (shutdownComplete) return;
+  event.preventDefault();
+  if (shutdownPromise) return;
+
+  shutdownPromise = completeGracefulShutdown({
+    flushRenderer: async () => {
+      const window = mainWindow;
+      if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
+      await waitForRendererFlush({
+        subscribe: (complete) => {
+          const listener = (): void => complete();
+          ipcMain.once('app:flush-complete', listener);
+          return () => ipcMain.removeListener('app:flush-complete', listener);
+        },
+        request: () => window.webContents.send('app:flush-before-quit'),
+      });
+    },
+    stopOAuth: async () => {
       const manager = appOAuthManager;
-      oauthShutdownPromise = manager
-        .stop()
-        .catch((error: unknown) => {
-          log.warn('Codex App Server shutdown failed', {
-            category: 'provider',
-            providerId: 'oauth',
-            error: error instanceof Error ? error.message : String(error),
-          });
-        })
-        .finally(() => {
-          appOAuthManager = null;
-          oauthShutdownComplete = true;
-          app.quit();
-        });
-    }
-  }
-  stopUpdateSafety();
-  if (appJobQueue) {
-    appJobQueue.stop();
-    appJobQueue = null;
-  }
-  if (appDb) {
-    appDb.close();
-    appDb = null;
-  }
+      appOAuthManager = null;
+      await manager?.stop();
+    },
+    stopBackgroundTasks: () => {
+      const audioTasks = appAudioTaskService;
+      appAudioTaskService = null;
+      audioTasks?.stop();
+      const mediaTasks = appMediaTaskService;
+      appMediaTaskService = null;
+      mediaTasks?.stop();
+    },
+    closeDb: () => {
+      const db = appDb;
+      appDb = null;
+      db?.close();
+    },
+    log,
+  }).finally(() => {
+    stopUpdateSafety();
+    shutdownComplete = true;
+    app.quit();
+  });
 });
 
 app.on('activate', () => {

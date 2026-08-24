@@ -1,19 +1,26 @@
-﻿// @vitest-environment jsdom
+// @vitest-environment jsdom
 
 import React from 'react';
 import { configureStore } from '@reduxjs/toolkit';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
+import { VirtuosoGridMockContext } from 'react-virtuoso';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resetEntityClipboardForTests } from '../../hooks/useEntityClipboard.js';
 import { setLocale, t } from '../../i18n.js';
 import { assetsSlice } from '../../store/slices/assets.js';
 import { toastSlice } from '../../store/slices/toast.js';
 import { getAPI } from '../../utils/api.js';
 import { AssetBrowserPanel } from './AssetBrowserPanel.js';
 
-vi.mock('../../utils/api.js', () => ({
-  getAPI: vi.fn(),
-}));
+vi.mock('../../utils/api.js', () => ({ getAPI: vi.fn() }));
+
+const virtualGridMetrics = {
+  viewportHeight: 600,
+  viewportWidth: 900,
+  itemHeight: 160,
+  itemWidth: 160,
+};
 
 function createStore() {
   return configureStore({
@@ -24,331 +31,119 @@ function createStore() {
   });
 }
 
-function renderPanel() {
+function createEntry(id: string, displayName: string, hash = 'shared-hash') {
+  return {
+    id,
+    hash,
+    displayName,
+    type: 'image' as const,
+    format: 'png',
+    originalName: `${displayName}.png`,
+    fileSize: 128,
+    tags: [],
+    folderId: null,
+    createdAt: 1,
+    contentCreatedAt: 1,
+  };
+}
+
+function setup(entries = [createEntry('entry-1', 'Asset one')]) {
+  const query = vi.fn().mockResolvedValue(entries);
+  const copy = vi
+    .fn()
+    .mockResolvedValue([createEntry('entry-copy', entries[0]?.displayName ?? 'Copy')]);
+  const move = vi
+    .fn()
+    .mockImplementation(async (entryIds: string[]) => ({ movedEntryIds: entryIds }));
+  const api = {
+    assetEntry: {
+      query,
+      copy,
+      move,
+      rename: vi.fn(),
+      import: vi.fn(),
+      importBuffer: vi.fn(),
+      pickFile: vi.fn(),
+      delete: vi.fn(async (entryIds: string[]) => ({ deletedEntryIds: entryIds })),
+    },
+    assetContent: {
+      export: vi.fn(),
+      exportBatch: vi.fn(),
+      getPath: vi.fn(),
+    },
+  };
+  vi.mocked(getAPI).mockReturnValue(api as unknown as ReturnType<typeof getAPI>);
+
   const store = createStore();
-  const view = render(
-    <Provider store={store}>
-      <AssetBrowserPanel />
-    </Provider>,
+  render(
+    <VirtuosoGridMockContext.Provider value={virtualGridMetrics}>
+      <Provider store={store}>
+        <AssetBrowserPanel />
+      </Provider>
+    </VirtuosoGridMockContext.Provider>,
   );
-
-  return { store, ...view };
+  return { api, copy, move, query, store };
 }
 
-function createDroppedFile(path: string, name: string, type: string): File {
-  const file = new File(['content'], name, { type });
-  Object.defineProperty(file, 'path', {
-    configurable: true,
-    value: path,
-  });
-  return file;
-}
-
-describe('AssetBrowserPanel', () => {
+describe('AssetBrowserPanel logical entry clipboard', () => {
   beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
     vi.mocked(getAPI).mockReset();
+    resetEntityClipboardForTests();
     setLocale('en-US');
   });
 
   afterEach(() => {
     cleanup();
+    resetEntityClipboardForTests();
+    vi.unstubAllGlobals();
   });
 
-  it('shows an error toast when a dropped file import fails', async () => {
-    const query = vi.fn().mockResolvedValue([]);
-    const importAsset = vi.fn().mockRejectedValue(new Error('Import exploded'));
-
-    vi.mocked(getAPI).mockReturnValue({
-      asset: {
-        query,
-        import: importAsset,
-        pickFile: vi.fn(),
-        delete: vi.fn(),
-        exportBatch: vi.fn(),
-        export: vi.fn(),
-      },
-    } as unknown as ReturnType<typeof getAPI>);
-
-    const { store, container } = renderPanel();
-
-    await waitFor(() => {
-      expect(query).toHaveBeenCalledTimes(1);
-    });
-
-    const dropZone = container.querySelector('[class*="overflow-y-auto"]');
-    expect(dropZone).toBeTruthy();
-
-    const file = createDroppedFile('C:/tmp/bad.png', 'bad.png', 'image/png');
-
-    fireEvent.drop(dropZone as HTMLElement, {
-      dataTransfer: {
-        files: [file],
-        types: ['Files'],
-        getData: vi.fn(() => ''),
-      },
-    });
-
-    await waitFor(() => {
-      expect(importAsset).toHaveBeenCalledWith('C:/tmp/bad.png', 'image');
-    });
-
-    expect(store.getState().toast.items).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          variant: 'error',
-          message: expect.stringContaining('Import exploded'),
-        }),
-      ]),
-    );
-  });
-
-  it('shows an error toast when a dropped file cannot be imported from disk', async () => {
-    const query = vi.fn().mockResolvedValue([]);
-    const importAsset = vi.fn();
-
-    vi.mocked(getAPI).mockReturnValue({
-      asset: {
-        query,
-        import: importAsset,
-        pickFile: vi.fn(),
-        delete: vi.fn(),
-        exportBatch: vi.fn(),
-        export: vi.fn(),
-      },
-    } as unknown as ReturnType<typeof getAPI>);
-
-    const { store, container } = renderPanel();
-
-    await waitFor(() => {
-      expect(query).toHaveBeenCalledTimes(1);
-    });
-
-    const dropZone = container.querySelector('[class*="overflow-y-auto"]');
-    expect(dropZone).toBeTruthy();
-
-    const file = new File(['content'], 'missing-path.png', { type: 'image/png' });
-
-    fireEvent.drop(dropZone as HTMLElement, {
-      dataTransfer: {
-        files: [file],
-        types: ['Files'],
-        getData: vi.fn(() => ''),
-      },
-    });
-
-    await waitFor(() => {
-      expect(store.getState().toast.items).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            variant: 'error',
-            message: expect.stringContaining('missing-path.png'),
-          }),
-        ]),
-      );
-    });
-
-    expect(importAsset).not.toHaveBeenCalled();
-  });
-
-  it('shows an error toast when a dropped file type is unsupported', async () => {
-    const query = vi.fn().mockResolvedValue([]);
-    const importAsset = vi.fn();
-
-    vi.mocked(getAPI).mockReturnValue({
-      asset: {
-        query,
-        import: importAsset,
-        pickFile: vi.fn(),
-        delete: vi.fn(),
-        exportBatch: vi.fn(),
-        export: vi.fn(),
-      },
-    } as unknown as ReturnType<typeof getAPI>);
-
-    const { store, container } = renderPanel();
-
-    await waitFor(() => {
-      expect(query).toHaveBeenCalledTimes(1);
-    });
-
-    const dropZone = container.querySelector('[class*="overflow-y-auto"]');
-    expect(dropZone).toBeTruthy();
-
-    const file = createDroppedFile('C:/tmp/notes.txt', 'notes.txt', 'text/plain');
-
-    fireEvent.drop(dropZone as HTMLElement, {
-      dataTransfer: {
-        files: [file],
-        types: ['Files'],
-        getData: vi.fn(() => ''),
-      },
-    });
-
-    await waitFor(() => {
-      expect(store.getState().toast.items).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            variant: 'error',
-            message: expect.stringContaining('notes.txt'),
-          }),
-        ]),
-      );
-    });
-
-    expect(importAsset).not.toHaveBeenCalled();
-  });
-
-  it('shows an error toast when asset deletion fails', async () => {
-    const query = vi.fn().mockResolvedValue([
-      {
-        hash: 'asset-1',
-        name: 'Broken Asset',
-        type: 'image',
-        path: 'C:/tmp/broken.png',
-        tags: [],
-        global: false,
-        fileSize: 128,
-        createdAt: 1,
-      },
+  it('renders distinct logical entries that share one content hash', async () => {
+    const { store } = setup([
+      createEntry('entry-a', 'First entry'),
+      createEntry('entry-b', 'Second entry'),
     ]);
-    const deleteAsset = vi.fn().mockRejectedValue(new Error('Delete exploded'));
 
-    vi.mocked(getAPI).mockReturnValue({
-      asset: {
-        query,
-        import: vi.fn(),
-        pickFile: vi.fn(),
-        delete: deleteAsset,
-        exportBatch: vi.fn(),
-        export: vi.fn(),
-      },
-    } as unknown as ReturnType<typeof getAPI>);
-
-    const { store } = renderPanel();
-
-    const assetButton = await screen.findByRole('button', { name: /Broken Asset/i });
-    fireEvent.click(assetButton);
-
-    fireEvent.click(screen.getByRole('button', { name: t('action.delete') || 'Delete' }));
-
-    const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
-
-    await waitFor(() => {
-      expect(deleteAsset).toHaveBeenCalledWith('asset-1');
-    });
-
+    expect(await screen.findByRole('button', { name: /First entry/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Second entry/i })).toBeTruthy();
     expect(store.getState().assets.items).toEqual(
-      expect.arrayContaining([expect.objectContaining({ hash: 'asset-1' })]),
-    );
-    expect(store.getState().toast.items).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          variant: 'error',
-          message: expect.stringContaining('Delete exploded'),
-        }),
+        expect.objectContaining({ id: 'entry-a', hash: 'shared-hash' }),
+        expect.objectContaining({ id: 'entry-b', hash: 'shared-hash' }),
       ]),
     );
   });
 
-  it('shows an error toast when loading assets fails', async () => {
-    const query = vi.fn().mockRejectedValue(new Error('Query exploded'));
+  it('copy then paste uses one IPC and one batch state update', async () => {
+    const { copy, move, query, store } = setup();
+    fireEvent.click(await screen.findByRole('button', { name: /Asset one/i }));
+    fireEvent.click(screen.getByRole('button', { name: t('contextMenu.copy') }));
+    fireEvent.click(screen.getByRole('button', { name: t('contextMenu.paste') }));
 
-    vi.mocked(getAPI).mockReturnValue({
-      asset: {
-        query,
-        import: vi.fn(),
-        pickFile: vi.fn(),
-        delete: vi.fn(),
-        exportBatch: vi.fn(),
-        export: vi.fn(),
-      },
-    } as unknown as ReturnType<typeof getAPI>);
-
-    const { store } = renderPanel();
-
-    await waitFor(() => {
-      expect(query).toHaveBeenCalledTimes(1);
-    });
-
-    await waitFor(() => {
-      expect(store.getState().toast.items).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            variant: 'error',
-            title: t('assetBrowser.loadFailed'),
-            message: 'Query exploded',
-          }),
-        ]),
-      );
-    });
+    await waitFor(() => expect(copy).toHaveBeenCalledWith(['entry-1'], null));
+    expect(copy).toHaveBeenCalledOnce();
+    expect(query).toHaveBeenCalledOnce();
+    expect(move).not.toHaveBeenCalled();
+    expect(store.getState().assets.items.map(({ id }) => id)).toEqual(['entry-1', 'entry-copy']);
   });
 
-  it('localizes delete confirmation actions', async () => {
-    const query = vi.fn().mockResolvedValue([
-      {
-        hash: 'asset-1',
-        name: 'Localized Asset',
-        type: 'image',
-        path: 'C:/tmp/localized.png',
-        tags: [],
-        global: false,
-        fileSize: 128,
-        createdAt: 1,
-      },
-    ]);
+  it('cut then paste uses one IPC and does not reload the library', async () => {
+    const { copy, move, query } = setup();
+    fireEvent.click(await screen.findByRole('button', { name: /Asset one/i }));
+    fireEvent.click(screen.getByRole('button', { name: t('contextMenu.cut') }));
+    fireEvent.click(screen.getByRole('button', { name: t('contextMenu.paste') }));
 
-    vi.mocked(getAPI).mockReturnValue({
-      asset: {
-        query,
-        import: vi.fn(),
-        pickFile: vi.fn(),
-        delete: vi.fn(),
-        exportBatch: vi.fn(),
-        export: vi.fn(),
-      },
-    } as unknown as ReturnType<typeof getAPI>);
-
-    setLocale('zh-CN');
-    renderPanel();
-
-    const assetButton = await screen.findByRole('button', { name: /Localized Asset/i });
-    fireEvent.click(assetButton);
-    fireEvent.click(screen.getByRole('button', { name: t('action.delete') }));
-
-    const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByRole('button', { name: t('action.cancel') })).toBeTruthy();
-    expect(within(dialog).getByRole('button', { name: t('action.delete') })).toBeTruthy();
-  });
-
-  it('does not nest quick export buttons inside the asset selection control', async () => {
-    const query = vi.fn().mockResolvedValue([
-      {
-        hash: 'asset-1',
-        name: 'Exportable Asset',
-        type: 'image',
-        path: 'C:/tmp/exportable.png',
-        tags: [],
-        global: false,
-        fileSize: 128,
-        createdAt: 1,
-      },
-    ]);
-
-    vi.mocked(getAPI).mockReturnValue({
-      asset: {
-        query,
-        import: vi.fn(),
-        pickFile: vi.fn(),
-        delete: vi.fn(),
-        exportBatch: vi.fn(),
-        export: vi.fn(),
-      },
-    } as unknown as ReturnType<typeof getAPI>);
-
-    renderPanel();
-
-    const assetButton = await screen.findByRole('button', { name: /Exportable Asset/i });
-    expect(within(assetButton).queryByRole('button')).toBeNull();
+    await waitFor(() => expect(move).toHaveBeenCalledWith(['entry-1'], null));
+    expect(move).toHaveBeenCalledOnce();
+    expect(query).toHaveBeenCalledOnce();
+    expect(copy).not.toHaveBeenCalled();
   });
 });

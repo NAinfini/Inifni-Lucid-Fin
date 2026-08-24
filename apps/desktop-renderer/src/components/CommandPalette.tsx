@@ -50,30 +50,6 @@ export function CommandPalette() {
         action: () => navigate('/settings'),
       },
       {
-        id: 'nav-tasks',
-        label: t('nav.tasks'),
-        category: t('command.categories.navigation'),
-        action: () => navigate('/tasks'),
-      },
-      {
-        id: 'nav-audio',
-        label: t('nav.audio'),
-        category: t('command.categories.navigation'),
-        action: () => navigate('/audio'),
-      },
-      {
-        id: 'nav-export',
-        label: t('nav.export'),
-        category: t('command.categories.navigation'),
-        action: () => navigate('/export'),
-      },
-      {
-        id: 'nav-series',
-        label: t('nav.series'),
-        category: t('command.categories.navigation'),
-        action: () => navigate('/series'),
-      },
-      {
         id: 'edit-undo',
         label: t('action.undo'),
         category: t('command.categories.edit'),

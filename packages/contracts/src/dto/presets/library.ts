@@ -17,11 +17,10 @@ import {
   ASPECT_RATIO_BY_NAME,
   CATEGORY_DEFAULTS,
   CATEGORY_PARAM_DEFS,
-  CATEGORY_PROMPT_HINT,
   PRESET_NAME_LIBRARY,
+  buildFallbackPresetPrompt,
   buildPresetDescription,
   buildPresetId,
-  toTitleCase,
 } from './params.js';
 import { PRESET_PROMPT_LIBRARY } from './prompts.js';
 import type { PresetTemplateEntry } from './templates-types.js';
@@ -41,11 +40,92 @@ const PRESET_TEMPLATE_LIBRARY: Record<string, PresetTemplateEntry> = {
   ...PRESET_TEMPLATES_f,
 };
 
+const INTENSITY_LEVELS = {
+  0: 'barely perceptible',
+  25: 'subtle',
+  50: 'balanced',
+  75: 'strong',
+  100: 'dominant',
+} as const;
+
+function buildAudioPromptTemplate(
+  category: PresetCategory,
+  prompt: string,
+): PresetTemplateEntry | undefined {
+  if (category === 'voice-style') {
+    return {
+      template: `${prompt}; {pace} pacing; {intensity} vocal presence`,
+      paramDefs: [
+        {
+          key: 'pace',
+          label: 'Pace',
+          type: 'select',
+          default: 'moderate',
+          options: ['slow', 'moderate', 'fast'],
+        },
+        {
+          key: 'intensity',
+          label: 'Intensity',
+          type: 'intensity',
+          default: 100,
+          levels: INTENSITY_LEVELS,
+        },
+      ],
+    };
+  }
+  if (category === 'music-genre') {
+    return {
+      template: `${prompt}; {tempo} tempo; {intensity} arrangement energy`,
+      paramDefs: [
+        {
+          key: 'tempo',
+          label: 'Tempo',
+          type: 'select',
+          default: 'moderate',
+          options: ['slow', 'moderate', 'fast', 'variable'],
+        },
+        {
+          key: 'intensity',
+          label: 'Intensity',
+          type: 'intensity',
+          default: 100,
+          levels: INTENSITY_LEVELS,
+        },
+      ],
+    };
+  }
+  if (category === 'sfx-environment') {
+    return {
+      template: `${prompt}; {reverb}; {intensity} environmental presence`,
+      paramDefs: [
+        {
+          key: 'reverb',
+          label: 'Reverb',
+          type: 'intensity',
+          default: 40,
+          levels: {
+            0: 'dry, nearly reflection-free acoustics',
+            25: 'light natural room reverb',
+            50: 'moderate spatial reverb',
+            75: 'strong reverberant decay',
+            100: 'very long cavernous reverb',
+          },
+        },
+        {
+          key: 'intensity',
+          label: 'Intensity',
+          type: 'intensity',
+          default: 100,
+          levels: INTENSITY_LEVELS,
+        },
+      ],
+    };
+  }
+  return undefined;
+}
+
 function buildPresetPrompt(category: PresetCategory, name: string): string {
-  return (
-    PRESET_PROMPT_LIBRARY[`${category}:${name}`] ??
-    `${toTitleCase(name)}, ${CATEGORY_PROMPT_HINT[category]}`
-  );
+  return PRESET_PROMPT_LIBRARY[`${category}:${name}`] ?? buildFallbackPresetPrompt(category, name);
 }
 
 function buildDefaults(category: PresetCategory, name: string): PresetParamMap {
@@ -83,7 +163,8 @@ const builtInPresetLibrary = PRESET_CATEGORIES.flatMap((category) => {
     };
 
     const presetKey = `${category}:${name}`;
-    const templateEntry = PRESET_TEMPLATE_LIBRARY[presetKey];
+    const templateEntry =
+      PRESET_TEMPLATE_LIBRARY[presetKey] ?? buildAudioPromptTemplate(category, prompt);
     if (templateEntry) {
       preset.promptTemplate = templateEntry.template;
       preset.promptParamDefs = templateEntry.paramDefs;

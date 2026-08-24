@@ -8,7 +8,7 @@ import type { StoredSnapshot } from './snapshot-repository.js';
 const SCHEMA = `
 CREATE TABLE commander_sessions (
   id TEXT PRIMARY KEY,
-  canvas_id TEXT,
+  default_canvas_id TEXT,
   title TEXT NOT NULL,
   messages TEXT NOT NULL,
   created_at INTEGER NOT NULL,
@@ -56,7 +56,7 @@ function openDb(): BetterSqlite3.Database {
   const db = new BetterSqlite3(':memory:');
   db.exec(SCHEMA);
   db.prepare(
-    `INSERT INTO commander_sessions (id, canvas_id, title, messages, created_at, updated_at)
+    `INSERT INTO commander_sessions (id, default_canvas_id, title, messages, created_at, updated_at)
      VALUES (?, null, '', '[]', 1, 1)`,
   ).run('sess-1');
   return db;

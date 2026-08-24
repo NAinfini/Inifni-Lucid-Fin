@@ -14,6 +14,14 @@ export interface LLMProviderRuntimeConfig {
   authStyle: LLMProviderAuthStyle;
   credentialMode?: 'api-key' | 'oauth' | 'none';
   oauthTarget?: OAuthProviderTarget;
+  /** The adapter accepts a caller-selected model instead of only its built-in default. */
+  supportsModelOverride?: boolean;
+  /** The adapter accepts a provider-specific reasoning-effort string. */
+  supportsReasoningEffort?: boolean;
+  /** Optional provider/model-specific known values. Absence means the provider is open-ended. */
+  reasoningEffortsByModel?: Record<string, string[]>;
+  /** User-selected reasoning effort. Blank values are normalized to omission. */
+  reasoningEffort?: string;
   /** Explicit opt-in: the selected model accepts image inputs for visual analysis. */
   supportsVision?: boolean;
   /** User-configured context window in tokens. Overrides auto-detected value. */
@@ -53,6 +61,10 @@ export function normalizeLLMProviderRuntimeConfig(
         | 'authStyle'
         | 'credentialMode'
         | 'oauthTarget'
+        | 'supportsModelOverride'
+        | 'supportsReasoningEffort'
+        | 'reasoningEffortsByModel'
+        | 'reasoningEffort'
         | 'supportsVision'
         | 'contextWindow'
       >
@@ -60,6 +72,7 @@ export function normalizeLLMProviderRuntimeConfig(
 ): LLMProviderRuntimeConfig {
   const protocol = config.protocol ?? 'openai-compatible';
   const authStyle = config.authStyle ?? getDefaultAuthStyleForProtocol(protocol);
+  const reasoningEffort = normalizeReasoningEffort(config.reasoningEffort);
   return {
     id: config.id,
     name: config.name,
@@ -69,9 +82,42 @@ export function normalizeLLMProviderRuntimeConfig(
     authStyle,
     credentialMode: config.credentialMode ?? (authStyle === 'none' ? 'none' : 'api-key'),
     ...(config.oauthTarget ? { oauthTarget: { ...config.oauthTarget } } : {}),
+    supportsModelOverride: config.supportsModelOverride ?? true,
+    supportsReasoningEffort: config.supportsReasoningEffort ?? true,
+    ...(config.reasoningEffortsByModel
+      ? {
+          reasoningEffortsByModel: Object.fromEntries(
+            Object.entries(config.reasoningEffortsByModel).map(([model, efforts]) => [
+              model,
+              [...efforts],
+            ]),
+          ),
+        }
+      : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
     ...(config.supportsVision != null ? { supportsVision: config.supportsVision } : {}),
     ...(config.contextWindow != null && { contextWindow: config.contextWindow }),
   };
+}
+
+export function normalizeReasoningEffort(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed || undefined;
+}
+
+/** Rejects only combinations the declared adapter capabilities prove are unsupported. */
+export function assertLLMProviderConfiguration(config: LLMProviderRuntimeConfig): void {
+  const effort = normalizeReasoningEffort(config.reasoningEffort);
+  if (!effort) return;
+  if (!config.supportsReasoningEffort) {
+    throw new Error(`Provider "${config.name}" does not support reasoning effort.`);
+  }
+  const knownEfforts = config.reasoningEffortsByModel?.[config.model];
+  if (knownEfforts && !knownEfforts.includes(effort)) {
+    throw new Error(
+      `Provider "${config.name}" model "${config.model}" does not support reasoning effort "${effort}".`,
+    );
+  }
 }
 
 export const BUILTIN_LLM_PROVIDER_PRESETS: readonly LLMProviderPreset[] = [
@@ -120,19 +166,6 @@ export const BUILTIN_LLM_PROVIDER_PRESETS: readonly LLMProviderPreset[] = [
     supportsVision: true,
     contextWindow: 1_048_576,
     keyUrl: 'https://aistudio.google.com/apikey',
-  },
-  {
-    id: 'gemini-oauth',
-    name: 'Google Gemini (OAuth)',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    model: 'gemini-3.6-flash',
-    protocol: 'gemini',
-    authStyle: 'none',
-    credentialMode: 'oauth',
-    oauthTarget: { provider: 'gemini', capability: 'llm' },
-    supportsVision: true,
-    contextWindow: 1_048_576,
-    keyUrl: 'https://accounts.google.com',
   },
   {
     id: 'deepseek',
@@ -280,6 +313,7 @@ export const BUILTIN_LLM_PROVIDER_PRESETS: readonly LLMProviderPreset[] = [
     model: 'command-a-plus-05-2026',
     protocol: 'cohere',
     authStyle: 'bearer',
+    reasoningEffortsByModel: { 'command-a-plus-05-2026': ['none', 'high'] },
     contextWindow: 128_000,
     keyUrl: 'https://dashboard.cohere.com/api-keys',
   },
@@ -346,19 +380,6 @@ export const BUILTIN_VISION_PROVIDER_PRESETS: readonly VisionProviderPreset[] = 
     supportsVision: true,
     contextWindow: 1_048_576,
     keyUrl: 'https://aistudio.google.com/apikey',
-  },
-  {
-    id: 'gemini-vision-oauth',
-    name: 'Google Gemini (OAuth)',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-    model: 'gemini-3.6-flash',
-    protocol: 'gemini',
-    authStyle: 'none',
-    credentialMode: 'oauth',
-    oauthTarget: { provider: 'gemini', capability: 'vision' },
-    supportsVision: true,
-    contextWindow: 1_048_576,
-    keyUrl: 'https://accounts.google.com',
   },
   {
     id: 'claude-vision',

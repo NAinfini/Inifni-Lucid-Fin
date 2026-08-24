@@ -52,6 +52,7 @@ export class CohereLLMAdapter implements LLMAdapter {
   private apiKey = '';
   private baseUrl: string;
   private model: string;
+  private reasoningEffort?: 'none' | 'high';
 
   constructor(cfg: CohereAdapterConfig = {}) {
     this.id = cfg.id ?? 'cohere';
@@ -74,6 +75,13 @@ export class CohereLLMAdapter implements LLMAdapter {
       this.baseUrl = options.baseUrl as string;
     }
     if (options?.model) this.model = options.model as string;
+    const reasoningEffort =
+      typeof options?.reasoningEffort === 'string' ? options.reasoningEffort.trim() : '';
+    if (reasoningEffort && reasoningEffort !== 'none' && reasoningEffort !== 'high') {
+      throw new Error('Cohere reasoning strength must be "none" or "high".');
+    }
+    this.reasoningEffort =
+      reasoningEffort === 'none' || reasoningEffort === 'high' ? reasoningEffort : undefined;
     if (typeof options?.contextWindow === 'number' && options.contextWindow > 0) {
       this.userContextWindow = options.contextWindow as number;
     }
@@ -214,6 +222,9 @@ export class CohereLLMAdapter implements LLMAdapter {
       ...(opts?.temperature !== undefined && { temperature: opts.temperature }),
       ...(opts?.topP !== undefined && { p: opts.topP }),
       ...(opts?.stop !== undefined && { stop_sequences: opts.stop }),
+      ...(this.reasoningEffort && {
+        thinking: { type: this.reasoningEffort === 'none' ? 'disabled' : 'enabled' },
+      }),
     };
 
     if (opts?.tools?.length) {

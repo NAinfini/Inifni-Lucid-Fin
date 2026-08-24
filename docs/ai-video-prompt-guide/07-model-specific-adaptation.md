@@ -68,7 +68,6 @@ Kling 2.0 is the most well-rounded model for detailed cinematic prompts. It proc
 
 ### Unique Features
 
-- **Lip sync**: Native support for dialogue-synced video — provide audio alongside the prompt
 - **Multi-character control**: Improved in 2.0 — use spatial anchoring: `Character A on the left... Character B on the right...` or Chinese labels `左侧/右侧`
 - **Time-segment labels**: Multi-stage prompts with time markers: `[0-3s]: action A. [3-6s]: action B.`
 - **Camera control API**: 6-axis structured camera parameters separate from text prompt — overrides prompt-based camera instructions:
@@ -243,7 +242,7 @@ Luma excels at **physics-based rendering** and spatial understanding. It respond
 
 - **Physics simulation**: Best-in-class physical realism — liquid, cloth, fire, smoke, gravity all render naturally
 - **Spatial understanding**: Strong 3D scene comprehension and world model
-- **Keyframe interpolation**: Provide start image + end image — the model generates smooth transitions between them. Directly maps to Lucid Fin's canvas workflow
+- **Keyframe interpolation**: Provide start image + end image — the model generates smooth transitions between them. Directly maps to Lucid Fin's Canvas task flow
 - **Keyframe camera paths**: Define camera start and end positions for precise movement
 - **Loop generation**: Can generate seamless looping videos
 - **Material responsiveness**: Describing materials (silk, metal, water, glass) produces accurate physical rendering
@@ -322,7 +321,7 @@ Wan 2.1 is open-source with a bilingual T5 encoder. It genuinely understands sen
 - **Open source** (Apache 2.0): Run locally with ComfyUI or diffusers
 - **Bilingual T5 encoder**: Native Chinese + English understanding — not translation
 - **LoRA ecosystem**: Extensive community LoRAs for style, character consistency, and quality enhancement
-- **First-Last-Frame mode (FLF2V)**: Generate video connecting two keyframe images — directly maps to Lucid Fin's canvas workflow
+- **First-Last-Frame mode (FLF2V)**: Generate video connecting two keyframe images — directly maps to Lucid Fin's Canvas task flow
 - **Variable resolution**: Multiple aspect ratios at 480p/720p
 - **ComfyUI integration**: Deep workflow node integration for complex pipelines
 
@@ -498,7 +497,6 @@ Pika is the **"less is more"** model. Short, focused prompts outperform detailed
 - **Scene Ingredients** (2.1): Structured input — Subject, Scene, Action, Style as separate fields
 - **Modify Mode**: Edit existing video with natural language (`"make it rain"`, `"change shirt to blue"`)
 - **Extend Mode**: Continue a clip with follow-up prompt
-- **Lip Sync**: Audio + image/video → lip-synced talking head
 - **Sound Effects**: Automatic or prompted SFX generation
 
 ### Camera/Motion Control
@@ -812,12 +810,12 @@ const MODEL_WORD_BUDGETS: Record<string, { t2v: number; i2v: number }> = {
 };
 ```
 
-When the concatenated prompt exceeds the budget:
+When Commander's assembled final prompt exceeds the budget:
 
-1. Trim Quality preset text first (least impact)
-2. Trim Environment preset text second
-3. Trim Texture preset text third
-4. Never trim Camera, Motion, or Subject description
+1. Reduce optional Quality source detail first (least impact)
+2. Reduce optional Environment source detail second
+3. Reduce optional Texture source detail third
+4. Preserve required Camera, Motion, and Subject constraints, and record every source decision in the Prompt Assembly
 
 ### Negative Prompt Routing
 
@@ -849,4 +847,4 @@ For Wan 2.1 FLF2V mode (generating video between two keyframe images):
 1. Describe the JOURNEY between the two visual states
 2. Do not describe either image's appearance
 3. Focus on: motion trajectory, camera movement, atmospheric shift
-4. This directly maps to Lucid Fin's canvas workflow: Image A → Video → Image B
+4. This directly maps to Lucid Fin's Canvas task flow: Image A → Video → Image B

@@ -2,19 +2,26 @@
 
 import React from 'react';
 import { configureStore } from '@reduxjs/toolkit';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CanvasPage } from './CanvasPage.js';
 import { getAPI } from '../utils/api.js';
-import { canvasReducer } from '../store/slices/canvas/canvas.js';
-import { uiSlice } from '../store/slices/ui.js';
+import { addCanvas, canvasReducer, setActiveCanvas } from '../store/slices/canvas/canvas.js';
+import {
+  LEFT_CANVAS_PANEL_WIDTH_STORAGE_KEY,
+  RIGHT_CANVAS_PANEL_WIDTH_STORAGE_KEY,
+  setActivePanel,
+  setPanelWidth,
+  setRightPanel,
+  setRightPanelWidth,
+  uiSlice,
+} from '../store/slices/ui.js';
 import { settingsSlice, setBootstrapped } from '../store/slices/settings.js';
 import { presetsSlice } from '../store/slices/presets.js';
 import { loggerSlice } from '../store/slices/logger.js';
 import { commanderSlice } from '../store/slices/commander.js';
-import { workflowsSlice } from '../store/slices/workflows.js';
-import { t } from '../i18n.js';
+import { taskListsSlice } from '../store/slices/task-lists.js';
 
 let commanderPanelModuleLoads = 0;
 
@@ -59,12 +66,6 @@ vi.mock('../components/canvas/EquipmentManagerPanel.js', () => ({
 vi.mock('../components/canvas/LocationManagerPanel.js', () => ({
   LocationManagerPanel: () => <div>LocationManagerPanel</div>,
 }));
-vi.mock('../components/canvas/ExportRenderPanel.js', () => ({
-  ExportRenderPanel: () => <div>ExportRenderPanel</div>,
-}));
-vi.mock('../components/canvas/GenerationQueuePanel.js', () => ({
-  GenerationQueuePanel: () => <div>GenerationQueuePanel</div>,
-}));
 vi.mock('../components/canvas/HistoryPanel.js', () => ({
   HistoryPanel: () => <div>HistoryPanel</div>,
 }));
@@ -86,13 +87,8 @@ vi.mock('../components/layout/LeftToolbar.js', () => ({
 vi.mock('../components/layout/RightToolbar.js', () => ({
   RightToolbar: () => <div>RightToolbar</div>,
 }));
-vi.mock('../components/execution/ExecutionPanel.js', () => ({
-  ExecutionPanel: ({ entityId }: { entityId?: string }) => (
-    <div>{`ExecutionPanel ${entityId ?? ''}`}</div>
-  ),
-}));
 
-function createStore() {
+function createStore(bootstrapped = true) {
   const store = configureStore({
     reducer: {
       canvas: canvasReducer,
@@ -101,11 +97,11 @@ function createStore() {
       presets: presetsSlice.reducer,
       logger: loggerSlice.reducer,
       commander: commanderSlice.reducer,
-      workflows: workflowsSlice.reducer,
+      taskLists: taskListsSlice.reducer,
     },
   });
 
-  store.dispatch(setBootstrapped());
+  if (bootstrapped) store.dispatch(setBootstrapped());
 
   return store;
 }
@@ -113,7 +109,103 @@ function createStore() {
 describe('CanvasPage logger startup', () => {
   afterEach(() => {
     cleanup();
+    localStorage.clear();
     vi.clearAllMocks();
+    vi.restoreAllMocks();
+  });
+
+  it('shows only the selected left panel and keeps its width separate from the right panel', async () => {
+    vi.mocked(getAPI).mockReturnValue({
+      preset: { list: vi.fn().mockResolvedValue([]) },
+      logger: {
+        getRecent: vi.fn().mockResolvedValue([]),
+        onEntry: vi.fn(() => () => {}),
+      },
+      onReady: vi.fn(() => () => {}),
+    } as unknown as ReturnType<typeof getAPI>);
+
+    const store = createStore();
+    store.dispatch(
+      addCanvas({
+        id: 'canvas-panel-widths',
+        name: 'Canvas panel widths',
+        nodes: [],
+        edges: [],
+        notes: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+        createdAt: 1,
+        updatedAt: 1,
+      }),
+    );
+    store.dispatch(setActiveCanvas('canvas-panel-widths'));
+    store.dispatch(setActivePanel('history'));
+    store.dispatch(setRightPanel('inspector'));
+    store.dispatch(setPanelWidth(350));
+    store.dispatch(setRightPanelWidth(400));
+
+    render(
+      <Provider store={store}>
+        <CanvasPage />
+      </Provider>,
+    );
+
+    const leftPanel = (await screen.findByText('HistoryPanel')).parentElement;
+    expect(screen.queryByText('AssetBrowserPanel')).toBeNull();
+    const rightPanel = (await screen.findByText('InspectorPanel')).parentElement;
+    expect(leftPanel?.style.width).toBe('350px');
+    expect(rightPanel?.style.width).toBe('400px');
+
+    await act(async () => {
+      store.dispatch(setRightPanel('presets'));
+    });
+    expect(await screen.findByText('PresetManagerPanel')).toBeTruthy();
+    expect(screen.getByText('HistoryPanel')).toBeTruthy();
+
+    await act(async () => {
+      store.dispatch(setRightPanel('shotTemplates'));
+    });
+    expect(await screen.findByText('ShotTemplateManagerPanel')).toBeTruthy();
+
+    const handles = document.querySelectorAll('.cursor-col-resize');
+    fireEvent.mouseDown(handles[0]!, { clientX: 100 });
+    fireEvent.mouseMove(document, { clientX: 200 });
+    fireEvent.mouseUp(document);
+    fireEvent.mouseDown(handles[1]!, { clientX: 500 });
+    fireEvent.mouseMove(document, { clientX: 350 });
+    fireEvent.mouseUp(document);
+
+    await waitFor(() => {
+      expect(store.getState().ui.panelWidth).toBe(450);
+      expect(store.getState().ui.rightPanelWidth).toBe(500);
+    });
+    expect(localStorage.getItem(LEFT_CANVAS_PANEL_WIDTH_STORAGE_KEY)).toBe('450');
+    expect(localStorage.getItem(RIGHT_CANVAS_PANEL_WIDTH_STORAGE_KEY)).toBe('500');
+  });
+
+  it('keeps chat history hidden by default and can open it without a Canvas', async () => {
+    vi.mocked(getAPI).mockReturnValue({
+      canvas: { loadAll: vi.fn().mockResolvedValue([]) },
+      preset: { list: vi.fn().mockResolvedValue([]) },
+      logger: {
+        getRecent: vi.fn().mockResolvedValue([]),
+        onEntry: vi.fn(() => () => {}),
+      },
+      onReady: vi.fn(() => () => {}),
+    } as unknown as ReturnType<typeof getAPI>);
+
+    const store = createStore();
+    render(
+      <Provider store={store}>
+        <CanvasPage />
+      </Provider>,
+    );
+
+    expect(screen.queryByText('HistoryPanel')).toBeNull();
+    store.dispatch(setActivePanel('history'));
+    expect(await screen.findByText('HistoryPanel')).toBeTruthy();
+
+    store.dispatch(setActivePanel(null));
+    await waitFor(() => expect(screen.queryByText('HistoryPanel')).toBeNull());
   });
 
   it('does not load the commander panel module until it is opened', async () => {
@@ -224,6 +316,32 @@ describe('CanvasPage logger startup', () => {
     expect(loadAllCanvases).toHaveBeenCalledTimes(1);
   });
 
+  it('does not call Canvas IPC before the backend is ready', () => {
+    const createCanvas = vi.fn();
+    vi.mocked(getAPI).mockReturnValue({
+      canvas: { create: createCanvas },
+      preset: { list: vi.fn().mockResolvedValue([]) },
+      logger: {
+        getRecent: vi.fn().mockResolvedValue([]),
+        onEntry: vi.fn(() => () => {}),
+      },
+      onReady: vi.fn(() => () => {}),
+    } as unknown as ReturnType<typeof getAPI>);
+
+    render(
+      <Provider store={createStore(false)}>
+        <CanvasPage />
+      </Provider>,
+    );
+
+    const createButton = screen.getByRole('button', {
+      name: /starting workspace|正在启动工作区/i,
+    });
+    expect(createButton.hasAttribute('disabled')).toBe(true);
+    fireEvent.click(createButton);
+    expect(createCanvas).not.toHaveBeenCalled();
+  });
+
   it('deduplicates recent and streamed log entries and normalizes fatal entries to error', async () => {
     const store = createStore();
     let onEntryCallback:
@@ -307,23 +425,25 @@ describe('CanvasPage logger startup', () => {
     );
   });
 
-  it('loads active-canvas workflows and exposes the production panel without covering the canvas', async () => {
-    const listWorkflows = vi.fn().mockResolvedValue([
+  it('opens Commander once for a newly projected plan approval', async () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const listTaskLists = vi.fn().mockResolvedValue([
       {
-        id: 'workflow-canvas-1',
-        workflowType: 'movie.production.v2',
+        id: 'task-list-canvas-1',
+        taskListType: 'movie.production.v2',
         entityType: 'canvas',
         entityId: 'canvas-1',
         triggerSource: 'commander',
         status: 'awaiting_approval',
         summary: 'Production Plan awaiting approval',
         progress: 0,
-        completedStages: 0,
-        totalStages: 4,
+        completedPhases: 0,
+        totalPhases: 4,
         completedTasks: 0,
         totalTasks: 12,
         createdAt: 1,
         updatedAt: 2,
+        rowVersion: 1,
       },
     ]);
 
@@ -343,7 +463,7 @@ describe('CanvasPage logger startup', () => {
         ]),
       },
       preset: { list: vi.fn().mockResolvedValue([]) },
-      workflow: { list: listWorkflows },
+      taskLists: { list: listTaskLists },
       logger: {
         getRecent: vi.fn().mockResolvedValue([]),
         onEntry: vi.fn(() => () => {}),
@@ -351,21 +471,32 @@ describe('CanvasPage logger startup', () => {
       onReady: vi.fn(() => () => {}),
     } as unknown as ReturnType<typeof getAPI>);
 
+    const store = createStore();
     render(
-      <Provider store={createStore()}>
-        <CanvasPage />
-      </Provider>,
+      <React.StrictMode>
+        <Provider store={store}>
+          <CanvasPage />
+        </Provider>
+      </React.StrictMode>,
     );
 
     await waitFor(() => {
-      expect(listWorkflows).toHaveBeenCalledWith({ entityType: 'canvas' });
-      expect(screen.getByText('ExecutionPanel canvas-1')).toBeTruthy();
+      expect(listTaskLists).toHaveBeenCalledWith({ entityType: 'canvas' });
+      expect(screen.getByText('CommanderPanel')).toBeTruthy();
     });
 
-    const executionToggle = screen.getByRole('button', { name: t('layout.executionPanel') });
-    expect(executionToggle.getAttribute('aria-expanded')).toBe('true');
-    fireEvent.click(executionToggle);
-    expect(screen.queryByText('ExecutionPanel canvas-1')).toBeNull();
-    expect(screen.getByText('CanvasWorkspace')).toBeTruthy();
+    expect(store.getState().ui.rightPanel).toBeNull();
+    expect(store.getState().commander.open).toBe(true);
+    expect(
+      consoleWarn.mock.calls.filter(([message]) =>
+        String(message).includes('returned a different result'),
+      ),
+    ).toHaveLength(0);
+
+    await act(async () => {
+      store.dispatch(commanderSlice.actions.setCommanderOpen(false));
+    });
+    await waitFor(() => expect(screen.queryByText('CommanderPanel')).toBeNull());
+    expect(store.getState().commander.open).toBe(false);
   });
 });

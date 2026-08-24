@@ -4,10 +4,119 @@
  * This is the single schema source. Keep each `CREATE TABLE IF NOT EXISTS`
  * idempotent so the same statement can run during normal boot and repair.
  */
-export const WORKFLOW_PERSISTENCE_TABLES_SQL = `
-CREATE TABLE IF NOT EXISTS workflow_documents (
+export const TASK_EXECUTION_TABLES_SQL = `
+CREATE TABLE IF NOT EXISTS task_lists (
+  id                 TEXT PRIMARY KEY,
+  task_list_type     TEXT NOT NULL,
+  entity_type        TEXT NOT NULL,
+  entity_id          TEXT,
+  trigger_source     TEXT NOT NULL,
+  status             TEXT NOT NULL,
+  summary            TEXT NOT NULL DEFAULT '',
+  progress           REAL NOT NULL DEFAULT 0,
+  completed_phases   INTEGER NOT NULL DEFAULT 0,
+  total_phases       INTEGER NOT NULL DEFAULT 0,
+  completed_tasks    INTEGER NOT NULL DEFAULT 0,
+  total_tasks        INTEGER NOT NULL DEFAULT 0,
+  current_phase_key  TEXT,
+  current_task_id    TEXT,
+  input_json         TEXT NOT NULL DEFAULT '{}',
+  output_json        TEXT NOT NULL DEFAULT '{}',
+  error_text         TEXT,
+  metadata_json      TEXT NOT NULL DEFAULT '{}',
+  created_at         INTEGER NOT NULL,
+  started_at         INTEGER,
+  completed_at       INTEGER,
+  updated_at         INTEGER NOT NULL,
+  row_version        INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0),
+  current_gate       TEXT CHECK (current_gate IS NULL OR current_gate IN ('production_plan', 'visual_constitution', 'delivery')),
+  engine_version     TEXT NOT NULL DEFAULT 'legacy',
+  definition_version INTEGER NOT NULL DEFAULT 1 CHECK (definition_version > 0),
+  lease_owner        TEXT,
+  lease_token        INTEGER NOT NULL DEFAULT 0 CHECK (lease_token >= 0),
+  lease_expires_at   INTEGER,
+  heartbeat_at       INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_lists_status_updated
+  ON task_lists(status, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS tasks (
   id                  TEXT PRIMARY KEY,
-  workflow_run_id     TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  task_list_id        TEXT NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE,
+  phase_key           TEXT NOT NULL,
+  phase_name          TEXT NOT NULL,
+  phase_order         INTEGER NOT NULL CHECK (phase_order >= 0),
+  task_key            TEXT NOT NULL,
+  name                TEXT NOT NULL,
+  kind                TEXT NOT NULL,
+  status              TEXT NOT NULL,
+  provider            TEXT,
+  dependency_ids_json TEXT NOT NULL DEFAULT '[]',
+  attempts            INTEGER NOT NULL DEFAULT 0,
+  max_retries         INTEGER NOT NULL DEFAULT 0,
+  input_json          TEXT NOT NULL DEFAULT '{}',
+  output_json         TEXT NOT NULL DEFAULT '{}',
+  provider_task_id    TEXT,
+  asset_id            TEXT,
+  error_text          TEXT,
+  progress            REAL NOT NULL DEFAULT 0,
+  current_step        TEXT,
+  started_at          INTEGER,
+  completed_at        INTEGER,
+  updated_at          INTEGER NOT NULL,
+  UNIQUE (task_list_id, task_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tasks_list_status_updated
+  ON tasks(task_list_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_list_status_updated_asc
+  ON tasks(task_list_id, status, updated_at ASC, id ASC);
+CREATE INDEX IF NOT EXISTS idx_tasks_status_updated_id
+  ON tasks(status, updated_at ASC, id ASC);
+CREATE INDEX IF NOT EXISTS idx_tasks_phase_status
+  ON tasks(task_list_id, phase_key, status);
+CREATE INDEX IF NOT EXISTS idx_tasks_provider_task
+  ON tasks(provider_task_id);
+
+CREATE TABLE IF NOT EXISTS task_dependencies (
+  task_id            TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  depends_on_task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  PRIMARY KEY (task_id, depends_on_task_id),
+  CHECK (task_id <> depends_on_task_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_dependencies_depends_on
+  ON task_dependencies(depends_on_task_id);
+
+CREATE TABLE IF NOT EXISTS task_artifacts (
+  id            TEXT PRIMARY KEY,
+  task_list_id  TEXT NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE,
+  task_id       TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  attempt_id    TEXT REFERENCES task_attempts(id) ON DELETE CASCADE,
+  artifact_type TEXT NOT NULL,
+  entity_type   TEXT,
+  entity_id     TEXT,
+  asset_hash    TEXT,
+  path          TEXT,
+  metadata_json TEXT NOT NULL DEFAULT '{}',
+  created_at    INTEGER NOT NULL,
+  CHECK (artifact_type NOT IN ('media_submission', 'media_output') OR attempt_id IS NOT NULL)
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_artifacts_list_type
+  ON task_artifacts(task_list_id, artifact_type);
+CREATE INDEX IF NOT EXISTS idx_task_artifacts_entity
+  ON task_artifacts(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_task_artifacts_asset_hash
+  ON task_artifacts(asset_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_artifacts_attempt_type
+  ON task_artifacts(attempt_id, artifact_type)
+  WHERE attempt_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS plan_documents (
+  id                  TEXT PRIMARY KEY,
+  task_list_id        TEXT NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE,
   logical_key         TEXT NOT NULL,
   document_type       TEXT NOT NULL,
   revision            INTEGER NOT NULL CHECK (revision > 0),
@@ -17,22 +126,22 @@ CREATE TABLE IF NOT EXISTS workflow_documents (
   status              TEXT NOT NULL CHECK (status IN ('draft', 'active', 'superseded', 'invalidated')),
   created_at          INTEGER NOT NULL,
   updated_at          INTEGER NOT NULL,
-  UNIQUE (workflow_run_id, logical_key, revision)
+  UNIQUE (task_list_id, logical_key, revision)
 );
 
-CREATE INDEX IF NOT EXISTS idx_workflow_documents_latest
-  ON workflow_documents(workflow_run_id, logical_key, revision DESC);
+CREATE INDEX IF NOT EXISTS idx_plan_documents_latest
+  ON plan_documents(task_list_id, logical_key, revision DESC);
 
-CREATE TRIGGER IF NOT EXISTS trg_workflow_documents_immutable
-BEFORE UPDATE ON workflow_documents
+CREATE TRIGGER IF NOT EXISTS trg_plan_documents_immutable
+BEFORE UPDATE ON plan_documents
 BEGIN
-  SELECT RAISE(ABORT, 'workflow documents are immutable');
+  SELECT RAISE(ABORT, 'plan documents are immutable');
 END;
 
-CREATE TABLE IF NOT EXISTS workflow_approvals (
+CREATE TABLE IF NOT EXISTS plan_approvals (
   id                    TEXT PRIMARY KEY,
-  workflow_run_id       TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
-  gate_key              TEXT NOT NULL CHECK (gate_key IN ('production_plan', 'visual_constitution', 'final_export')),
+  task_list_id          TEXT NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE,
+  gate_key              TEXT NOT NULL CHECK (gate_key IN ('production_plan', 'visual_constitution', 'delivery')),
   subject_logical_key   TEXT NOT NULL,
   subject_revision      INTEGER NOT NULL CHECK (subject_revision > 0),
   subject_hash          TEXT NOT NULL,
@@ -42,14 +151,14 @@ CREATE TABLE IF NOT EXISTS workflow_approvals (
   created_at            INTEGER NOT NULL,
   updated_at            INTEGER NOT NULL,
   decided_at            INTEGER,
-  UNIQUE (workflow_run_id, gate_key, subject_revision)
+  UNIQUE (task_list_id, gate_key, subject_revision)
 );
 
-CREATE INDEX IF NOT EXISTS idx_workflow_approvals_pending
-  ON workflow_approvals(workflow_run_id, gate_key, status, subject_revision DESC);
+CREATE INDEX IF NOT EXISTS idx_plan_approvals_pending
+  ON plan_approvals(task_list_id, gate_key, status, subject_revision DESC);
 
-CREATE TABLE IF NOT EXISTS workflow_events (
-  workflow_run_id   TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS task_events (
+  task_list_id      TEXT NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE,
   seq               INTEGER NOT NULL CHECK (seq > 0),
   event_id          TEXT NOT NULL,
   actor             TEXT NOT NULL,
@@ -57,17 +166,17 @@ CREATE TABLE IF NOT EXISTS workflow_events (
   causation_id      TEXT,
   payload_json      TEXT NOT NULL,
   event_timestamp   INTEGER NOT NULL,
-  UNIQUE (workflow_run_id, seq),
+  UNIQUE (task_list_id, seq),
   UNIQUE (event_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_workflow_events_run_seq
-  ON workflow_events(workflow_run_id, seq);
+CREATE INDEX IF NOT EXISTS idx_task_events_list_seq
+  ON task_events(task_list_id, seq);
 
-CREATE TABLE IF NOT EXISTS workflow_decisions (
+CREATE TABLE IF NOT EXISTS task_decisions (
   id                  TEXT PRIMARY KEY,
-  workflow_run_id     TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
-  task_run_id         TEXT NOT NULL,
+  task_list_id        TEXT NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE,
+  task_id             TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   canvas_id           TEXT NOT NULL,
   question_id         TEXT NOT NULL,
   decision_key        TEXT NOT NULL,
@@ -82,98 +191,99 @@ CREATE TABLE IF NOT EXISTS workflow_decisions (
   created_at          INTEGER NOT NULL,
   updated_at          INTEGER NOT NULL,
   answered_at         INTEGER,
-  UNIQUE (workflow_run_id, decision_key, subject_revision)
+  UNIQUE (task_list_id, decision_key, subject_revision)
 );
 
-CREATE INDEX IF NOT EXISTS idx_workflow_decisions_pending
-  ON workflow_decisions(workflow_run_id, status, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_task_decisions_pending
+  ON task_decisions(task_list_id, status, created_at ASC);
 
-CREATE INDEX IF NOT EXISTS idx_workflow_decisions_canvas_question
-  ON workflow_decisions(canvas_id, question_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_decisions_canvas_question
+  ON task_decisions(canvas_id, question_id, created_at DESC);
 
-CREATE TABLE IF NOT EXISTS workflow_export_executions (
+CREATE TABLE IF NOT EXISTS task_attempts (
   id                  TEXT PRIMARY KEY,
-  workflow_run_id     TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
-  manifest_revision   INTEGER NOT NULL CHECK (manifest_revision > 0),
-  manifest_hash       TEXT NOT NULL,
+  task_list_id        TEXT NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE,
+  task_id             TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+  kind                TEXT NOT NULL CHECK (kind IN ('task', 'production_media', 'batch_export')),
+  manifest_revision   INTEGER CHECK (manifest_revision IS NULL OR manifest_revision > 0),
+  manifest_hash       TEXT,
   idempotency_key     TEXT NOT NULL UNIQUE,
-  status              TEXT NOT NULL CHECK (status IN (
-                        'queued', 'running', 'ready_to_publish', 'completed',
-                        'failed', 'cancelled', 'recovery_required'
-                      )),
+  status              TEXT NOT NULL,
   row_version         INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0),
   staging_path        TEXT,
-  destination_path    TEXT NOT NULL,
-  output_asset_hash   TEXT,
-  output_hash         TEXT,
-  output_size         INTEGER CHECK (output_size IS NULL OR output_size >= 0),
+  destination_path    TEXT,
+  package_hash        TEXT,
+  package_bytes       INTEGER CHECK (package_bytes IS NULL OR package_bytes >= 0),
+  file_count          INTEGER CHECK (file_count IS NULL OR file_count > 0),
   attempt             INTEGER NOT NULL DEFAULT 1 CHECK (attempt > 0),
-  error_text          TEXT,
-  created_at          INTEGER NOT NULL,
-  updated_at          INTEGER NOT NULL,
-  completed_at        INTEGER,
-  UNIQUE (workflow_run_id, manifest_revision, manifest_hash)
-);
-
-CREATE INDEX IF NOT EXISTS idx_workflow_export_executions_recovery
-  ON workflow_export_executions(status, updated_at ASC);
-
-CREATE INDEX IF NOT EXISTS idx_workflow_export_executions_run
-  ON workflow_export_executions(workflow_run_id, manifest_revision DESC);
-
-CREATE TABLE IF NOT EXISTS workflow_media_attempts (
-  id                        TEXT PRIMARY KEY,
-  workflow_run_id           TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
-  canvas_id                 TEXT NOT NULL,
-  node_id                   TEXT NOT NULL,
-  attempt                   INTEGER NOT NULL CHECK (attempt > 0),
-  idempotency_key           TEXT NOT NULL UNIQUE,
-  spec_hash                 TEXT NOT NULL,
-  generation_spec_json      TEXT NOT NULL,
+  canvas_id                 TEXT,
+  node_id                   TEXT,
+  scope                     TEXT CHECK (scope IS NULL OR scope IN ('canvas', 'style_audition', 'production')),
+  parent_attempt_id         TEXT REFERENCES task_attempts(id) ON DELETE SET NULL,
+  submission_purpose        TEXT CHECK (submission_purpose IS NULL OR submission_purpose IN ('initial', 'user_refine', 'evaluation_repair', 'regenerate')),
+  spec_hash                 TEXT,
+  generation_spec_json      TEXT,
   repair_delta_json         TEXT,
-  media_type                TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
-  status                    TEXT NOT NULL CHECK (status IN (
-                              'reserved', 'submitted', 'asset_ready', 'evaluating',
-                              'accepted', 'repair_required', 'regenerate_required',
-                              'human_review', 'failed', 'ambiguous', 'cancelled'
-                            )),
-  row_version               INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0),
-  provider_id               TEXT NOT NULL,
+  media_type                TEXT CHECK (media_type IS NULL OR media_type IN ('image', 'video')),
+  provider_id               TEXT,
   model                     TEXT,
-  prompt                    TEXT NOT NULL,
-  prompt_hash               TEXT NOT NULL,
+  prompt                    TEXT,
+  prompt_hash               TEXT,
   negative_prompt           TEXT,
   seed                      INTEGER,
-  estimated_cost_usd        REAL NOT NULL CHECK (estimated_cost_usd >= 0),
+  estimated_cost_usd        REAL CHECK (estimated_cost_usd IS NULL OR estimated_cost_usd >= 0),
   reported_actual_cost_usd  REAL CHECK (
                               reported_actual_cost_usd IS NULL OR reported_actual_cost_usd >= 0
                             ),
   provider_job_id           TEXT,
+  provider_receipt          TEXT,
   asset_hash                TEXT,
+  input_json                TEXT NOT NULL DEFAULT '{}',
+  output_json               TEXT NOT NULL DEFAULT '{}',
+  metadata_json             TEXT NOT NULL DEFAULT '{}',
   error_text                TEXT,
   created_at                INTEGER NOT NULL,
   submitted_at              INTEGER,
+  submission_started_at     INTEGER,
+  cancel_requested_at       INTEGER,
   asset_ready_at            INTEGER,
   evaluated_at              INTEGER,
   completed_at              INTEGER,
   updated_at                INTEGER NOT NULL,
-  UNIQUE (workflow_run_id, node_id, attempt)
+  CHECK (
+    (kind = 'batch_export' AND manifest_revision IS NOT NULL AND manifest_hash IS NOT NULL AND destination_path IS NOT NULL)
+    OR (kind = 'production_media' AND canvas_id IS NOT NULL AND node_id IS NOT NULL AND scope IS NOT NULL AND submission_purpose IS NOT NULL AND spec_hash IS NOT NULL AND generation_spec_json IS NOT NULL AND media_type IS NOT NULL AND provider_id IS NOT NULL AND model IS NOT NULL AND prompt IS NOT NULL AND prompt_hash IS NOT NULL AND estimated_cost_usd IS NOT NULL)
+    OR (kind = 'task' AND task_id IS NOT NULL)
+  )
 );
 
-CREATE INDEX IF NOT EXISTS idx_workflow_media_attempts_run
-  ON workflow_media_attempts(workflow_run_id, node_id, attempt DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_attempts_media_identity
+  ON task_attempts(task_list_id, node_id, attempt)
+  WHERE kind = 'production_media';
 
-CREATE INDEX IF NOT EXISTS idx_workflow_media_attempts_recovery
-  ON workflow_media_attempts(status, updated_at ASC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_task_attempts_batch_export_identity
+  ON task_attempts(task_list_id, manifest_revision, manifest_hash)
+  WHERE kind = 'batch_export';
 
-CREATE TABLE IF NOT EXISTS workflow_media_evaluations (
+CREATE INDEX IF NOT EXISTS idx_task_attempts_kind_recovery
+  ON task_attempts(kind, status, updated_at ASC);
+
+CREATE INDEX IF NOT EXISTS idx_task_attempts_list_kind
+  ON task_attempts(task_list_id, kind, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS task_evaluations (
   id                    TEXT PRIMARY KEY,
-  attempt_id            TEXT NOT NULL UNIQUE REFERENCES workflow_media_attempts(id) ON DELETE CASCADE,
-  workflow_run_id       TEXT NOT NULL REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  attempt_id            TEXT NOT NULL UNIQUE REFERENCES task_attempts(id) ON DELETE CASCADE,
+  task_list_id          TEXT NOT NULL REFERENCES task_lists(id) ON DELETE CASCADE,
+  task_id               TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+  kind                  TEXT NOT NULL CHECK (kind IN ('production_media')),
   canvas_id             TEXT NOT NULL,
   node_id               TEXT NOT NULL,
+  artifact_id           TEXT NOT NULL REFERENCES task_artifacts(id) ON DELETE RESTRICT,
   asset_hash            TEXT NOT NULL,
   media_type            TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
+  profile               TEXT NOT NULL CHECK (profile IN ('canvas_media.v1', 'style_audition.v1', 'production_media.v1')),
+  source_prompt_hash    TEXT NOT NULL,
   rubric_version        TEXT NOT NULL,
   evaluator_provider_id TEXT NOT NULL,
   evaluator_model       TEXT,
@@ -189,57 +299,94 @@ CREATE TABLE IF NOT EXISTS workflow_media_evaluations (
   created_at            INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_workflow_media_evaluations_run
-  ON workflow_media_evaluations(workflow_run_id, node_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_evaluations_list
+  ON task_evaluations(task_list_id, node_id, created_at DESC);
+`;
+
+/** Durable input/output ledger for Commander-owned final prompt assembly. */
+export const PROMPT_ASSEMBLY_TABLE_SQL = `
+CREATE TABLE IF NOT EXISTS prompt_assemblies (
+  id                        TEXT PRIMARY KEY,
+  canvas_id                 TEXT NOT NULL,
+  node_id                   TEXT NOT NULL,
+  node_updated_at           INTEGER NOT NULL,
+  media_type                TEXT NOT NULL CHECK (media_type IN ('image', 'video')),
+  mode                      TEXT NOT NULL CHECK (mode IN (
+                              'text-to-image', 'image-to-image',
+                              'text-to-video', 'image-to-video'
+                            )),
+  purpose                   TEXT NOT NULL CHECK (purpose IN (
+                              'initial', 'user_refine', 'evaluation_repair', 'regenerate'
+                            )),
+  authority_json            TEXT NOT NULL,
+  sources_json              TEXT NOT NULL,
+  conditioning_manifest_json TEXT NOT NULL,
+  provider_profile_json     TEXT NOT NULL,
+  host_constraints_json     TEXT NOT NULL,
+  input_json                TEXT NOT NULL,
+  input_hash                TEXT NOT NULL,
+  output_json               TEXT,
+  status                    TEXT NOT NULL CHECK (status IN (
+                              'prepared', 'assembled', 'submitted', 'failed', 'cancelled'
+                            )),
+  row_version               INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0),
+  llm_provider_id           TEXT,
+  llm_model                 TEXT,
+  task_list_id              TEXT REFERENCES task_lists(id) ON DELETE SET NULL,
+  task_id                   TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+  parent_assembly_id        TEXT REFERENCES prompt_assemblies(id) ON DELETE SET NULL,
+  source_attempt_id         TEXT,
+  source_asset_hash         TEXT,
+  source_evaluation_id      TEXT REFERENCES task_evaluations(id) ON DELETE SET NULL,
+  error_text                TEXT,
+  created_at                INTEGER NOT NULL,
+  assembled_at              INTEGER,
+  submitted_at              INTEGER,
+  terminal_at               INTEGER,
+  updated_at                INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_assemblies_canvas_node_created
+  ON prompt_assemblies(canvas_id, node_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_prompt_assemblies_parent
+  ON prompt_assemblies(parent_assembly_id, created_at DESC);
 `;
 
 export const SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS assets (
+CREATE TABLE IF NOT EXISTS asset_contents (
   hash        TEXT PRIMARY KEY,
   type        TEXT NOT NULL,
   format      TEXT NOT NULL,
-  tags        TEXT,
   prompt      TEXT,
   provider    TEXT,
-  folder_id   TEXT,
   created_at  INTEGER NOT NULL,
   file_size   INTEGER,
   width       INTEGER,
   height      INTEGER,
   duration    REAL,
+  has_audio   INTEGER CHECK (has_audio IS NULL OR has_audio IN (0, 1)),
   generation_metadata TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_assets_type_created
-  ON assets(type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_asset_contents_type_created
+  ON asset_contents(type, created_at DESC);
 
-CREATE TABLE IF NOT EXISTS jobs (
-  id            TEXT PRIMARY KEY,
-  segment_id    TEXT,
-  type          TEXT NOT NULL,
-  provider      TEXT NOT NULL,
-  status        TEXT NOT NULL,
-  priority      INTEGER DEFAULT 0,
-  prompt        TEXT,
-  params        TEXT,
-  result        TEXT,
-  cost          REAL,
-  attempts      INTEGER DEFAULT 0,
-  max_retries   INTEGER DEFAULT 3,
-  progress      REAL,
-  completed_steps INTEGER,
-  total_steps   INTEGER,
-  current_step  TEXT,
-  batch_id      TEXT,
-  batch_index   INTEGER,
-  created_at    INTEGER NOT NULL,
-  started_at    INTEGER,
-  completed_at  INTEGER,
-  error         TEXT
+CREATE TABLE IF NOT EXISTS asset_entries (
+  id           TEXT PRIMARY KEY,
+  asset_hash   TEXT NOT NULL REFERENCES asset_contents(hash) ON DELETE RESTRICT,
+  display_name TEXT NOT NULL CHECK (trim(display_name) <> ''),
+  tags         TEXT NOT NULL DEFAULT '[]',
+  folder_id    TEXT REFERENCES asset_folders(id) ON DELETE SET NULL,
+  created_at   INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_jobs_status_created
-  ON jobs(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_asset_entries_hash
+  ON asset_entries(asset_hash);
+CREATE INDEX IF NOT EXISTS idx_asset_entries_folder_created
+  ON asset_entries(folder_id, created_at DESC);
+
+${PROMPT_ASSEMBLY_TABLE_SQL}
 
 CREATE TABLE IF NOT EXISTS characters (
   id            TEXT PRIMARY KEY,
@@ -269,6 +416,12 @@ CREATE TABLE IF NOT EXISTS characters (
   updated_at    INTEGER
 );
 
+CREATE INDEX IF NOT EXISTS idx_characters_folder_id ON characters(folder_id);
+CREATE INDEX IF NOT EXISTS idx_characters_name ON characters(name);
+CREATE INDEX IF NOT EXISTS idx_characters_active
+  ON characters(id)
+  WHERE deleted_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS equipment (
   id            TEXT PRIMARY KEY,
   name          TEXT NOT NULL,
@@ -287,6 +440,12 @@ CREATE TABLE IF NOT EXISTS equipment (
   created_at    INTEGER NOT NULL,
   updated_at    INTEGER NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_equipment_folder_id ON equipment(folder_id);
+CREATE INDEX IF NOT EXISTS idx_equipment_name ON equipment(name);
+CREATE INDEX IF NOT EXISTS idx_equipment_active
+  ON equipment(id)
+  WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS locations (
   id               TEXT PRIMARY KEY,
@@ -309,6 +468,12 @@ CREATE TABLE IF NOT EXISTS locations (
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_locations_folder_id ON locations(folder_id);
+CREATE INDEX IF NOT EXISTS idx_locations_name ON locations(name);
+CREATE INDEX IF NOT EXISTS idx_locations_active
+  ON locations(id)
+  WHERE deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS character_folders (
   id         TEXT PRIMARY KEY,
@@ -384,127 +549,7 @@ CREATE TABLE IF NOT EXISTS color_styles (
   updated_at    INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS workflow_runs (
-  id                TEXT PRIMARY KEY,
-  workflow_type     TEXT NOT NULL,
-  entity_type       TEXT NOT NULL,
-  entity_id         TEXT,
-  trigger_source    TEXT NOT NULL,
-  status            TEXT NOT NULL,
-  summary           TEXT NOT NULL DEFAULT '',
-  progress          REAL NOT NULL DEFAULT 0,
-  completed_stages  INTEGER NOT NULL DEFAULT 0,
-  total_stages      INTEGER NOT NULL DEFAULT 0,
-  completed_tasks   INTEGER NOT NULL DEFAULT 0,
-  total_tasks       INTEGER NOT NULL DEFAULT 0,
-  current_stage_id  TEXT,
-  current_task_id   TEXT,
-  input_json        TEXT NOT NULL DEFAULT '{}',
-  output_json       TEXT NOT NULL DEFAULT '{}',
-  error_text        TEXT,
-  metadata_json     TEXT NOT NULL DEFAULT '{}',
-  created_at        INTEGER NOT NULL,
-  started_at        INTEGER,
-  completed_at      INTEGER,
-  updated_at        INTEGER NOT NULL,
-  row_version       INTEGER NOT NULL DEFAULT 0 CHECK (row_version >= 0),
-  current_gate      TEXT CHECK (current_gate IS NULL OR current_gate IN ('production_plan', 'visual_constitution', 'final_export')),
-  engine_version    TEXT NOT NULL DEFAULT 'legacy',
-  definition_version INTEGER NOT NULL DEFAULT 1 CHECK (definition_version > 0)
-);
-
-CREATE INDEX IF NOT EXISTS idx_workflow_runs_status_updated
-  ON workflow_runs(status, updated_at DESC);
-
-CREATE TABLE IF NOT EXISTS workflow_stage_runs (
-  id                TEXT PRIMARY KEY,
-  workflow_run_id   TEXT NOT NULL,
-  stage_id          TEXT NOT NULL,
-  name              TEXT NOT NULL,
-  status            TEXT NOT NULL,
-  stage_order       INTEGER NOT NULL,
-  progress          REAL NOT NULL DEFAULT 0,
-  completed_tasks   INTEGER NOT NULL DEFAULT 0,
-  total_tasks       INTEGER NOT NULL DEFAULT 0,
-  error_text        TEXT,
-  metadata_json     TEXT NOT NULL DEFAULT '{}',
-  started_at        INTEGER,
-  completed_at      INTEGER,
-  updated_at        INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_workflow_stage_runs_workflow_order
-  ON workflow_stage_runs(workflow_run_id, stage_order);
-CREATE INDEX IF NOT EXISTS idx_workflow_stage_runs_workflow_status
-  ON workflow_stage_runs(workflow_run_id, status);
-
-CREATE TABLE IF NOT EXISTS workflow_task_runs (
-  id                  TEXT PRIMARY KEY,
-  workflow_run_id     TEXT NOT NULL,
-  stage_run_id        TEXT NOT NULL,
-  task_id             TEXT NOT NULL,
-  name                TEXT NOT NULL,
-  kind                TEXT NOT NULL,
-  status              TEXT NOT NULL,
-  provider            TEXT,
-  dependency_ids_json TEXT NOT NULL DEFAULT '[]',
-  attempts            INTEGER NOT NULL DEFAULT 0,
-  max_retries         INTEGER NOT NULL DEFAULT 0,
-  input_json          TEXT NOT NULL DEFAULT '{}',
-  output_json         TEXT NOT NULL DEFAULT '{}',
-  provider_task_id    TEXT,
-  asset_id            TEXT,
-  error_text          TEXT,
-  progress            REAL NOT NULL DEFAULT 0,
-  current_step        TEXT,
-  started_at          INTEGER,
-  completed_at        INTEGER,
-  updated_at          INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_workflow_task_runs_workflow_status_updated
-  ON workflow_task_runs(workflow_run_id, status, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_workflow_task_runs_workflow_status_updated_asc
-  ON workflow_task_runs(workflow_run_id, status, updated_at ASC, id ASC);
-CREATE INDEX IF NOT EXISTS idx_workflow_task_runs_status_updated_id
-  ON workflow_task_runs(status, updated_at ASC, id ASC);
-CREATE INDEX IF NOT EXISTS idx_workflow_task_runs_stage_status
-  ON workflow_task_runs(stage_run_id, status);
-CREATE INDEX IF NOT EXISTS idx_workflow_task_runs_provider_task
-  ON workflow_task_runs(provider_task_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_task_runs_workflow_task
-  ON workflow_task_runs(workflow_run_id, task_id);
-
-CREATE TABLE IF NOT EXISTS workflow_task_dependencies (
-  task_run_id            TEXT NOT NULL,
-  depends_on_task_run_id TEXT NOT NULL,
-  PRIMARY KEY (task_run_id, depends_on_task_run_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_workflow_task_dependencies_depends_on
-  ON workflow_task_dependencies(depends_on_task_run_id);
-
-CREATE TABLE IF NOT EXISTS workflow_artifacts (
-  id              TEXT PRIMARY KEY,
-  workflow_run_id TEXT NOT NULL,
-  task_run_id     TEXT NOT NULL,
-  artifact_type   TEXT NOT NULL,
-  entity_type     TEXT,
-  entity_id       TEXT,
-  asset_hash      TEXT,
-  path            TEXT,
-  metadata_json   TEXT NOT NULL DEFAULT '{}',
-  created_at      INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_workflow_artifacts_workflow_type
-  ON workflow_artifacts(workflow_run_id, artifact_type);
-CREATE INDEX IF NOT EXISTS idx_workflow_artifacts_entity
-  ON workflow_artifacts(entity_type, entity_id);
-CREATE INDEX IF NOT EXISTS idx_workflow_artifacts_asset_hash
-  ON workflow_artifacts(asset_hash);
-
-${WORKFLOW_PERSISTENCE_TABLES_SQL}
+${TASK_EXECUTION_TABLES_SQL}
 
 CREATE TABLE IF NOT EXISTS project_settings (
   key         TEXT PRIMARY KEY,
@@ -532,12 +577,24 @@ CREATE TABLE IF NOT EXISTS canvases (
   image_provider_id    TEXT,
   video_provider_id    TEXT,
   audio_provider_id    TEXT,
+  delivery_sequence_json     TEXT,
+  delivery_sequence_revision INTEGER NOT NULL DEFAULT 0 CHECK (delivery_sequence_revision >= 0),
+  archived_at          INTEGER,
   created_at           INTEGER NOT NULL,
   updated_at           INTEGER NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_canvases_updated
   ON canvases(updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS delivery_asset_refs (
+  canvas_id  TEXT NOT NULL REFERENCES canvases(id) ON DELETE CASCADE,
+  asset_hash TEXT NOT NULL REFERENCES asset_contents(hash) ON DELETE RESTRICT,
+  PRIMARY KEY (canvas_id, asset_hash)
+) WITHOUT ROWID;
+
+CREATE INDEX IF NOT EXISTS idx_delivery_asset_refs_hash
+  ON delivery_asset_refs(asset_hash);
 
 CREATE TABLE IF NOT EXISTS canvas_nodes (
   id         TEXT PRIMARY KEY,
@@ -591,29 +648,6 @@ CREATE TABLE IF NOT EXISTS custom_shot_templates (
   updated_at  INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
 );
 
-CREATE TABLE IF NOT EXISTS series (
-  id            TEXT PRIMARY KEY,
-  title         TEXT NOT NULL,
-  description   TEXT DEFAULT '',
-  style_guide   TEXT DEFAULT '{}',
-  episode_ids   TEXT DEFAULT '[]',
-  created_at    INTEGER NOT NULL,
-  updated_at    INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS episodes (
-  id            TEXT PRIMARY KEY,
-  series_id     TEXT NOT NULL,
-  title         TEXT NOT NULL,
-  episode_order INTEGER NOT NULL DEFAULT 0,
-  status        TEXT DEFAULT 'draft',
-  created_at    INTEGER NOT NULL,
-  updated_at    INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_episodes_series
-  ON episodes(series_id, episode_order ASC);
-
 CREATE TABLE IF NOT EXISTS preset_overrides (
   id            TEXT PRIMARY KEY,
   preset_id     TEXT NOT NULL UNIQUE,
@@ -632,8 +666,8 @@ CREATE INDEX IF NOT EXISTS idx_preset_overrides_category
   ON preset_overrides(category);
 
 CREATE TABLE IF NOT EXISTS commander_sessions (
-  id          TEXT PRIMARY KEY,
-  canvas_id   TEXT,
+  id                TEXT PRIMARY KEY,
+  default_canvas_id TEXT,
   title       TEXT NOT NULL DEFAULT '',
   messages    TEXT NOT NULL DEFAULT '[]',
   context_graph_json TEXT,
@@ -644,8 +678,8 @@ CREATE TABLE IF NOT EXISTS commander_sessions (
 CREATE INDEX IF NOT EXISTS idx_commander_sessions_updated
   ON commander_sessions(updated_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_commander_sessions_canvas
-  ON commander_sessions(canvas_id);
+CREATE INDEX IF NOT EXISTS idx_commander_sessions_default_canvas
+  ON commander_sessions(default_canvas_id);
 
 CREATE TABLE IF NOT EXISTS snapshots (
   id              TEXT PRIMARY KEY,
@@ -668,10 +702,67 @@ CREATE TABLE IF NOT EXISTS commander_events (
   kind         TEXT    NOT NULL,
   step         INTEGER NOT NULL,
   emitted_at   INTEGER NOT NULL,
+  private_payload BLOB CHECK (private_payload IS NULL OR length(private_payload) > 0),
   payload      TEXT    NOT NULL,
   PRIMARY KEY (session_id, run_id, seq),
   FOREIGN KEY (session_id) REFERENCES commander_sessions(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS commander_runs (
+  id           TEXT PRIMARY KEY,
+  session_id   TEXT NOT NULL REFERENCES commander_sessions(id) ON DELETE CASCADE,
+  default_canvas_id TEXT,
+  work_type    TEXT NOT NULL DEFAULT 'agent' CHECK (work_type IN ('agent', 'subagent', 'tool_program')),
+  parent_run_id TEXT REFERENCES commander_runs(id) ON DELETE CASCADE,
+  retry_of_run_id TEXT REFERENCES commander_runs(id) ON DELETE SET NULL,
+  display_name TEXT,
+  objective    TEXT,
+  intent       TEXT NOT NULL,
+  status       TEXT NOT NULL CHECK (status IN ('accepted', 'running', 'paused', 'completed', 'failed', 'cancelled', 'blocked', 'max_steps')),
+  accepted_at  INTEGER NOT NULL,
+  started_at   INTEGER,
+  completed_at INTEGER,
+  last_seq     INTEGER NOT NULL DEFAULT 0 CHECK (last_seq >= 0),
+  error_text   TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_commander_runs_session_accepted
+  ON commander_runs(session_id, accepted_at DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_commander_runs_active_session
+  ON commander_runs(session_id)
+  WHERE parent_run_id IS NULL AND status IN ('accepted', 'running', 'paused');
+
+CREATE INDEX IF NOT EXISTS idx_commander_runs_parent
+  ON commander_runs(parent_run_id, accepted_at, id);
+
+CREATE INDEX IF NOT EXISTS idx_commander_runs_retry
+  ON commander_runs(retry_of_run_id);
+
+CREATE TABLE IF NOT EXISTS commander_run_canvases (
+  run_id      TEXT NOT NULL REFERENCES commander_runs(id) ON DELETE CASCADE,
+  canvas_id   TEXT NOT NULL,
+  ordinal     INTEGER NOT NULL CHECK (ordinal >= 0),
+  released_at INTEGER,
+  PRIMARY KEY (run_id, canvas_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_commander_run_canvases_active_canvas
+  ON commander_run_canvases(canvas_id)
+  WHERE released_at IS NULL;
+
+CREATE TABLE IF NOT EXISTS commander_run_attachments (
+  run_id       TEXT NOT NULL REFERENCES commander_runs(id) ON DELETE CASCADE,
+  ordinal      INTEGER NOT NULL CHECK (ordinal >= 0),
+  content_hash TEXT NOT NULL REFERENCES asset_contents(hash) ON DELETE RESTRICT,
+  role         TEXT NOT NULL CHECK (role = 'reference'),
+  original_name TEXT NOT NULL CHECK (trim(original_name) <> ''),
+  mime_type    TEXT NOT NULL CHECK (trim(mime_type) <> ''),
+  PRIMARY KEY (run_id, ordinal)
+);
+
+CREATE INDEX IF NOT EXISTS idx_commander_run_attachments_content
+  ON commander_run_attachments(content_hash);
 
 CREATE INDEX IF NOT EXISTS idx_commander_events_run
   ON commander_events(session_id, run_id, seq);
@@ -679,29 +770,33 @@ CREATE INDEX IF NOT EXISTS idx_commander_events_run
 CREATE INDEX IF NOT EXISTS idx_commander_events_kind
   ON commander_events(session_id, kind);
 
-CREATE TABLE IF NOT EXISTS asset_embeddings (
-  hash        TEXT PRIMARY KEY,
-  description TEXT NOT NULL,
-  tokens      TEXT NOT NULL,
-  model       TEXT NOT NULL,
-  created_at  INTEGER NOT NULL
+CREATE VIRTUAL TABLE IF NOT EXISTS asset_entries_fts USING fts5(
+  entry_id UNINDEXED, display_name, tags, prompt
 );
 
-CREATE VIRTUAL TABLE IF NOT EXISTS assets_fts USING fts5(
-  tags, prompt, content=assets, content_rowid=rowid
-);
-
-CREATE TRIGGER IF NOT EXISTS assets_ai AFTER INSERT ON assets BEGIN
-  INSERT INTO assets_fts(rowid, tags, prompt) VALUES (new.rowid, new.tags, new.prompt);
+CREATE TRIGGER IF NOT EXISTS asset_entries_ai AFTER INSERT ON asset_entries BEGIN
+  INSERT INTO asset_entries_fts(entry_id, display_name, tags, prompt)
+  SELECT new.id, new.display_name, new.tags, prompt
+    FROM asset_contents WHERE hash = new.asset_hash;
 END;
 
-CREATE TRIGGER IF NOT EXISTS assets_ad AFTER DELETE ON assets BEGIN
-  INSERT INTO assets_fts(assets_fts, rowid, tags, prompt) VALUES('delete', old.rowid, old.tags, old.prompt);
+CREATE TRIGGER IF NOT EXISTS asset_entries_ad AFTER DELETE ON asset_entries BEGIN
+  DELETE FROM asset_entries_fts WHERE entry_id = old.id;
 END;
 
-CREATE TRIGGER IF NOT EXISTS assets_au AFTER UPDATE ON assets BEGIN
-  INSERT INTO assets_fts(assets_fts, rowid, tags, prompt) VALUES('delete', old.rowid, old.tags, old.prompt);
-  INSERT INTO assets_fts(rowid, tags, prompt) VALUES (new.rowid, new.tags, new.prompt);
+CREATE TRIGGER IF NOT EXISTS asset_entries_au AFTER UPDATE ON asset_entries BEGIN
+  UPDATE asset_entries_fts
+     SET display_name = new.display_name,
+         tags = new.tags,
+         prompt = (SELECT prompt FROM asset_contents WHERE hash = new.asset_hash)
+   WHERE entry_id = old.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS asset_contents_prompt_au
+AFTER UPDATE OF prompt ON asset_contents BEGIN
+  UPDATE asset_entries_fts
+     SET prompt = new.prompt
+   WHERE entry_id IN (SELECT id FROM asset_entries WHERE asset_hash = new.hash);
 END;
 
 -- Soft-delete GC indexes

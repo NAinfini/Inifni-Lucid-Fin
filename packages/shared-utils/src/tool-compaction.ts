@@ -31,19 +31,16 @@ const TOOL_CATEGORIES: Record<string, ToolCompactionCategory> = {
   'canvas.getInfo': 'get',
   'prompt.get': 'get',
   'guide.get': 'get',
-  'series.get': 'get',
-  'series.listEpisodes': 'list',
 
   // ── Log / history tools ────────────────────────────────────
   'logger.list': 'log',
-  'job.list': 'log',
   'snapshot.list': 'log',
 
   // ── Meta / infrastructure tools ────────────────────────────
   'tool.get': 'meta',
   'tool.compact': 'meta',
   'commander.askUser': 'meta',
-  'todo.manage': 'meta',
+  'runChecklist.manage': 'meta',
 
   // ── Query / stateless transforms ───────────────────────────
   'text.analyze': 'query',
@@ -54,11 +51,11 @@ const TOOL_CATEGORIES: Record<string, ToolCompactionCategory> = {
   'colorStyle.manage': 'mutation',
   'provider.manage': 'mutation',
   'script.manage': 'mutation',
-  'workflow.manage': 'mutation',
-  'workflow.visual': 'mutation',
-  'workflow.media': 'mutation',
-  'workflow.mediaFeedback': 'mutation',
-  'workflow.finalExport': 'mutation',
+  'taskList.manage': 'mutation',
+  'task.visual': 'mutation',
+  'task.media': 'mutation',
+  'task.mediaFeedback': 'mutation',
+  'task.delivery': 'mutation',
   'shotTemplate.manage': 'mutation',
   'canvas.presetTracks': 'mutation',
 
@@ -77,8 +74,8 @@ const TOOL_CATEGORIES: Record<string, ToolCompactionCategory> = {
   'canvas.toggleSeedLock': 'mutation',
   'canvas.updateNodeData': 'mutation',
   'canvas.updateNodePresets': 'mutation',
-  'canvas.exportWorkflow': 'mutation',
-  'canvas.importWorkflow': 'mutation',
+  'canvas.exportDocument': 'mutation',
+  'canvas.importDocument': 'mutation',
   'canvas.generation': 'mutation',
   'canvas.updateNodes': 'mutation',
   'canvas.setNodeLayout': 'mutation',
@@ -88,8 +85,6 @@ const TOOL_CATEGORIES: Record<string, ToolCompactionCategory> = {
   'canvas.addNote': 'mutation',
   'canvas.updateNote': 'mutation',
   'canvas.deleteNote': 'mutation',
-  'canvas.undo': 'mutation',
-  'canvas.redo': 'mutation',
   'canvas.manageEdge': 'mutation',
   'canvas.setNodeRefs': 'mutation',
   'canvas.setVideoFrames': 'mutation',
@@ -99,7 +94,6 @@ const TOOL_CATEGORIES: Record<string, ToolCompactionCategory> = {
   'entity.create': 'mutation',
   'entity.update': 'mutation',
   'entity.delete': 'mutation',
-  'entity.generateRefImage': 'mutation',
   'entity.setRefImage': 'mutation',
   'entity.deleteRefImage': 'mutation',
   'entity.setRefImageFromNode': 'mutation',
@@ -110,11 +104,6 @@ const TOOL_CATEGORIES: Record<string, ToolCompactionCategory> = {
   'provider.addCustom': 'mutation',
   'provider.removeCustom': 'mutation',
 
-  // Render / generation (excluded from Commander AI)
-  'render.start': 'mutation',
-  'render.cancel': 'mutation',
-  'render.exportBundle': 'mutation',
-
   // Script (excluded from Commander AI)
   'script.import': 'mutation',
 
@@ -124,18 +113,11 @@ const TOOL_CATEGORIES: Record<string, ToolCompactionCategory> = {
   // Asset (excluded from Commander AI)
   'asset.import': 'mutation',
 
-  // Series (excluded from Commander AI)
-  'series.update': 'mutation',
-  'series.addEpisode': 'mutation',
-  'series.removeEpisode': 'mutation',
-  'series.reorderEpisodes': 'mutation',
-
   // Snapshot
   'snapshot.create': 'mutation',
   'snapshot.restore': 'mutation',
 
   // Job (excluded from Commander AI)
-  'job.control': 'mutation',
 };
 
 /**

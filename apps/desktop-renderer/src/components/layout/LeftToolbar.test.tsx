@@ -9,9 +9,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { t } from '../../i18n.js';
 import { canvasSlice } from '../../store/slices/canvas/canvas.js';
 import { commanderSlice } from '../../store/slices/commander.js';
-import { jobsSlice } from '../../store/slices/jobs.js';
 import { uiSlice } from '../../store/slices/ui.js';
-import { workflowsSlice } from '../../store/slices/workflows.js';
+import { taskListsSlice } from '../../store/slices/task-lists.js';
 import { LeftToolbar } from './LeftToolbar.js';
 
 function LocationProbe() {
@@ -25,8 +24,7 @@ function renderToolbar(pathname = '/') {
       ui: uiSlice.reducer,
       canvas: canvasSlice.reducer,
       commander: commanderSlice.reducer,
-      jobs: jobsSlice.reducer,
-      workflows: workflowsSlice.reducer,
+      taskLists: taskListsSlice.reducer,
     },
   });
 
@@ -68,16 +66,42 @@ describe('LeftToolbar', () => {
     expect(assetsButton.getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('renders and toggles the shot template manager button', () => {
+  it('keeps chats on the left and excludes right-side creation panels', () => {
     renderToolbar('/');
 
-    const shotTemplatesButton = screen.getByRole('button', { name: t('toolbar.shotTemplates') });
-    fireEvent.click(shotTemplatesButton);
+    const chats = screen.getByRole('button', { name: t('toolbar.history') });
+    expect(screen.queryByRole('button', { name: t('toolbar.shotTemplates') })).toBeNull();
+    expect(screen.queryByRole('button', { name: t('toolbar.presets') })).toBeNull();
+    expect(screen.queryByRole('button', { name: t('toolbar.advancedTools') })).toBeNull();
 
-    expect(shotTemplatesButton.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(chats);
+    expect(chats.getAttribute('aria-pressed')).toBe('true');
+  });
 
-    fireEvent.click(shotTemplatesButton);
-    expect(shotTemplatesButton.getAttribute('aria-pressed')).toBe('false');
+  it('places Chats directly after Canvases', () => {
+    renderToolbar('/');
+
+    const buttons = Array.from(
+      screen.getByRole('toolbar').querySelectorAll<HTMLButtonElement>('button'),
+    );
+    const canvases = screen.getByRole('button', {
+      name: t('toolbar.canvases'),
+    }) as HTMLButtonElement;
+    const chats = screen.getByRole('button', { name: 'Chats' }) as HTMLButtonElement;
+
+    expect(t('toolbar.history')).toBe('Chats');
+    expect(buttons.indexOf(chats)).toBe(buttons.indexOf(canvases) + 1);
+  });
+
+  it('moves keyboard focus through direct panel buttons', () => {
+    renderToolbar('/');
+
+    const canvases = screen.getByRole('button', { name: t('toolbar.canvases') });
+    const chats = screen.getByRole('button', { name: t('toolbar.history') });
+    canvases.focus();
+    fireEvent.keyDown(canvases, { key: 'ArrowDown' });
+
+    expect(document.activeElement).toBe(chats);
   });
 
   it('navigates to settings and marks route buttons active', () => {

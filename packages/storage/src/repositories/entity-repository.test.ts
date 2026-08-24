@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import BetterSqlite3 from 'better-sqlite3';
 import type {
   Character,
@@ -143,7 +143,7 @@ describe('EntityRepository', () => {
 
   it('character: delete removes the row', () => {
     repo.upsertCharacter({ id: 'c1', name: 'Alice' });
-    repo.deleteCharacter('c1' as CharacterId);
+    repo.deleteCharacter(['c1' as CharacterId]);
     expect(repo.getCharacter('c1' as CharacterId)).toBeUndefined();
   });
 
@@ -193,7 +193,7 @@ describe('EntityRepository', () => {
 
   it('equipment: delete removes the row', () => {
     repo.upsertEquipment({ id: 'e1', name: 'Sword' });
-    repo.deleteEquipment('e1' as EquipmentId);
+    repo.deleteEquipment(['e1' as EquipmentId]);
     expect(repo.getEquipment('e1' as EquipmentId)).toBeUndefined();
   });
 
@@ -240,7 +240,7 @@ describe('EntityRepository', () => {
 
   it('location: delete removes the row', () => {
     repo.upsertLocation({ id: 'l1', name: 'Hall' });
-    repo.deleteLocation('l1' as LocationId);
+    repo.deleteLocation(['l1' as LocationId]);
     expect(repo.getLocation('l1' as LocationId)).toBeUndefined();
   });
 
@@ -259,6 +259,86 @@ describe('EntityRepository', () => {
   });
 
   // ── Transactions ─────────────────────────────────────────────
+
+  it('copies each entity kind in one transaction and rolls back a missing source', () => {
+    repo.upsertCharacter({ id: 'c1', name: 'Alice' });
+    repo.upsertCharacter({ id: 'c2', name: 'Bob' });
+    repo.upsertEquipment({ id: 'e1', name: 'Sword', functionDesc: 'cut' });
+    repo.upsertLocation({ id: 'l1', name: 'Hall', mood: 'quiet' });
+    const transaction = vi.spyOn(db, 'transaction');
+
+    const characters = repo.copyCharacters(
+      ['c1' as CharacterId, 'c1' as CharacterId, 'c2' as CharacterId],
+      'folder-copy',
+    );
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(characters).toHaveLength(2);
+    expect(characters.map(({ name }) => name)).toEqual(['Alice', 'Bob']);
+    expect(characters.every(({ folderId }) => folderId === 'folder-copy')).toBe(true);
+
+    transaction.mockClear();
+    const equipment = repo.copyEquipment(['e1' as EquipmentId], null);
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(equipment[0]).toMatchObject({ name: 'Sword', function: 'cut', folderId: null });
+
+    transaction.mockClear();
+    const locations = repo.copyLocations(['l1' as LocationId], 'folder-copy');
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(locations[0]).toMatchObject({ name: 'Hall', mood: 'quiet', folderId: 'folder-copy' });
+
+    const before = repo
+      .listCharacters()
+      .rows.map(({ id }) => id)
+      .sort();
+    transaction.mockClear();
+    expect(() =>
+      repo.copyCharacters(['c1' as CharacterId, 'missing' as CharacterId], null),
+    ).toThrow('Character not found: missing');
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(
+      repo
+        .listCharacters()
+        .rows.map(({ id }) => id)
+        .sort(),
+    ).toEqual(before);
+  });
+
+  it('moves and deletes deduplicated entity IDs atomically', () => {
+    repo.upsertCharacter({ id: 'c1', name: 'Alice' });
+    repo.upsertCharacter({ id: 'c2', name: 'Bob' });
+    repo.upsertEquipment({ id: 'e1', name: 'Sword' });
+    repo.upsertLocation({ id: 'l1', name: 'Hall' });
+    const transaction = vi.spyOn(db, 'transaction');
+
+    expect(
+      repo.setCharacterFolder(
+        ['c1' as CharacterId, 'c1' as CharacterId, 'c2' as CharacterId],
+        'folder-a',
+      ),
+    ).toEqual(['c1', 'c2']);
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(repo.getCharacter('c1' as CharacterId)?.folderId).toBe('folder-a');
+    expect(repo.getCharacter('c2' as CharacterId)?.folderId).toBe('folder-a');
+
+    transaction.mockClear();
+    expect(() =>
+      repo.setEquipmentFolder(['e1' as EquipmentId, 'missing' as EquipmentId], 'folder-b'),
+    ).toThrow('Equipment not found: missing');
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(repo.getEquipment('e1' as EquipmentId)?.folderId).toBeNull();
+
+    transaction.mockClear();
+    expect(() => repo.deleteLocation(['l1' as LocationId, 'missing' as LocationId])).toThrow(
+      'Location not found: missing',
+    );
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(repo.getLocation('l1' as LocationId)?.name).toBe('Hall');
+
+    transaction.mockClear();
+    expect(repo.deleteCharacter(['c1' as CharacterId, 'c2' as CharacterId])).toEqual(['c1', 'c2']);
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(repo.listCharacters().rows).toEqual([]);
+  });
 
   it('accepts Tx argument on upserts', () => {
     const tx = db.transaction(() => {

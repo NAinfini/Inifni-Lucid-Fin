@@ -151,9 +151,10 @@ export function computeInverseAction(
     case 'canvas/moveNodes': {
       const entries = payload as Array<{ id: string; position: { x: number; y: number } }>;
       if (!prevCanvas || !Array.isArray(entries)) return null;
+      const nodesById = new Map(prevCanvas.nodes.map((node) => [node.id, node]));
       const prevEntries: Array<{ id: string; position: { x: number; y: number } }> = [];
       for (const entry of entries) {
-        const prevNode = prevCanvas.nodes.find((n) => n.id === entry.id);
+        const prevNode = nodesById.get(entry.id);
         if (!prevNode) return null;
         prevEntries.push({ id: entry.id, position: prevNode.position });
       }
@@ -260,6 +261,17 @@ export function computeInverseAction(
         payload: { id: p.id, content: prevNote.content },
       } as UnknownAction;
     }
+
+    // Delivery edits keep a single ordered sequence. Snapshotting the canvas
+    // slice preserves a coherent sequence for undo and CAS persistence.
+    case 'canvas/addDeliveryItem':
+    case 'canvas/replaceDeliveryItem':
+    case 'canvas/reorderDeliveryItem':
+    case 'canvas/trimDeliveryItem':
+    case 'canvas/setDeliveryEmbeddedAudio':
+    case 'canvas/removeDeliveryItems':
+    case 'canvas/synchronizeDeliverySequenceRevision':
+      return null;
 
     default:
       return null;

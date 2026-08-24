@@ -36,7 +36,7 @@ export function Settings() {
   const theme = useSelector((state: RootState) => state.ui.theme);
   const skills = useSelector((state: RootState) => state.skillDefinitions.skills);
   const [locale, setLocaleState] = useState<Locale>(getLocale());
-  const [activeTab, setActiveTab] = useState<SettingsTab>('commander');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('providers');
   const [providerSubTab, setProviderSubTab] = useState<APIGroup>('llm');
 
   useEffect(() => {
@@ -86,7 +86,7 @@ export function Settings() {
     activeTab === 'guides'
       ? translateOrFallback(
           'settings.guides.subtitle',
-          'Prompt templates and workflow guides that Commander can read on demand.',
+          'Prompt templates and task-list guides that Commander can read on demand.',
         )
       : activeTab === 'processGuides'
         ? translateOrFallback(

@@ -6,13 +6,9 @@
  *  - `apps/desktop-main/src/electron.ts` (session recovery path)
  *  - `evals/commander-study/harness/run-single.ts` (study harness)
  *
- * Each wired a different subset of resolvers, which is why the 04-19
- * commander-study runs found `style-plate-lock` never activating in the
- * harness — the harness never wired `resolveCanvasSettings`. Phase D makes
- * the factory the ONLY supported construction path so drift of this shape
- * becomes impossible; an ESLint `no-restricted-syntax` rule (added
- * alongside the factory) fails the build on any `new AgentOrchestrator(...)`
- * outside this module.
+ * Phase D makes the factory the ONLY supported construction path; an ESLint
+ * `no-restricted-syntax` rule (added alongside the factory) fails the build
+ * on any `new AgentOrchestrator(...)` outside this module.
  *
  * The factory also owns the "study-harness" affordance: when
  * `variant === 'study-harness'` the caller can supply `mockGenerationInstaller`
@@ -20,28 +16,12 @@
  * invokes that hook.
  */
 
-import type { CanvasVisualStylePolicy, LLMAdapter, ProviderProfile } from '@lucid-fin/contracts';
+import type { LLMAdapter, ProviderProfile } from '@lucid-fin/contracts';
 import { AgentOrchestrator, type AgentOptions } from './agent-orchestrator.js';
-import type { AgentToolRegistry } from './tool-registry.js';
-import { TodoRunStore } from './tools/todo-run-store.js';
+import type { ToolRegistry } from './tool-registry.js';
+import { RunChecklistStore } from './tools/run-checklist-store.js';
+import { bindRunChecklistToolDefinition } from './tools/run-checklist-tools.js';
 import { randomUUID } from 'node:crypto';
-
-/**
- * Minimal canvas-store surface the factory needs. Both production's
- * `CanvasStore` and the harness's in-memory seed implement this structurally.
- */
-export interface CanvasLookup {
-  get: (canvasId: string) =>
-    | {
-        nodes: ReadonlyArray<{ id: string; type: string }>;
-        settings?: {
-          visualStylePolicy?: CanvasVisualStylePolicy;
-          stylePlate?: string | null;
-        } | null;
-      }
-    | null
-    | undefined;
-}
 
 export type OrchestratorVariant = 'production' | 'study-harness';
 
@@ -52,33 +32,26 @@ export interface OrchestratorFactoryInput {
   /** Required: the adapter used for LLM calls this run. */
   llmAdapter: LLMAdapter;
   /** Required: pre-populated tool registry (callers invoke registerAllTools first). */
-  toolRegistry: AgentToolRegistry;
+  toolRegistry: ToolRegistry;
   /** Required: prompt-code resolver (`(code) => string`). */
   resolvePrompt: (code: string) => string;
-  /**
-   * Canvas lookup used to derive `resolveCanvasNodeType` and
-   * `resolveCanvasSettings`. Omit for non-canvas AI flows (e.g. the
-   * electron.ts standalone AI orchestrator used by `ai.*` handlers); the
-   * factory then skips those resolvers and any canvas-state-driven
-   * ProcessPromptSpec stays dormant, which is the correct no-op.
-   */
-  canvasStore?: CanvasLookup;
-
   /** Optional knob bag. Merged over the factory's defaults. */
   options?: Pick<
     AgentOptions,
-    | 'maxSteps'
+    | 'resourceBudget'
+    | 'resourceCarryIn'
+    | 'resourceNow'
     | 'temperature'
     | 'maxOutputTokens'
     | 'contextWindowTokens'
     | 'profile'
-    | 'qualityGateBehavior'
-    | 'requireStylePlateBeforeRefImage'
     | 'onBeforeCompact'
     | 'onPostCompact'
     | 'resolvePersistentContext'
-    | 'onWorkflowAskUser'
+    | 'onTaskDecision'
     | 'onContextRecoveryReport'
+    | 'toolProgramLifecycleFactory'
+    | 'subagentToolHostFactory'
   >;
 
   /**
@@ -97,38 +70,19 @@ export interface OrchestratorFactoryInput {
 export function createAgentOrchestratorForRun(input: OrchestratorFactoryInput): AgentOrchestrator {
   const profile = input.options?.profile ?? input.llmAdapter.profile;
 
-  const canvasStore = input.canvasStore;
-  const todoStore = new TodoRunStore({
+  const runChecklistStore = new RunChecklistStore({
     generateId: (kind) => `${kind}-${randomUUID().slice(0, 8)}`,
   });
+  const runChecklistDefinition = input.toolRegistry.get('runChecklist.manage');
+  if (runChecklistDefinition) {
+    input.toolRegistry.register(
+      bindRunChecklistToolDefinition(runChecklistDefinition, runChecklistStore),
+    );
+  }
 
   const agentOptions: AgentOptions = {
     ...(input.options ?? {}),
     profile: profile as ProviderProfile | undefined,
-    todoStore,
-    resolveCanvasNodeType: canvasStore
-      ? (canvasId: string, nodeId: string) => {
-          const canvas = canvasStore.get(canvasId);
-          if (!canvas) return null;
-          const node = canvas.nodes.find((n) => n.id === nodeId);
-          if (!node) return null;
-          if (node.type === 'image' || node.type === 'backdrop') return 'image';
-          if (node.type === 'video') return 'video';
-          if (node.type === 'audio') return 'audio';
-          return null;
-        }
-      : undefined,
-    resolveCanvasSettings: canvasStore
-      ? (canvasId: string) => {
-          const canvas = canvasStore.get(canvasId);
-          if (!canvas) return null;
-          return {
-            hasVisualStylePolicy: Boolean(canvas.settings?.visualStylePolicy),
-            stylePlate:
-              canvas.settings?.visualStylePolicy?.summary ?? canvas.settings?.stylePlate ?? null,
-          };
-        }
-      : undefined,
   };
 
   const orchestrator = new AgentOrchestrator(

@@ -36,10 +36,8 @@ import {
   isRemoteUrl,
   extensionFromUrl,
   inferRemoteExtension,
-  requireGenerateArgs,
-  requireEstimateArgs,
-  requireCancelArgs,
   materializeAsset,
+  probeGeneratedAsset,
   resolveImg2ImgSourcePath,
   materializeGenerationRequest,
   mergeVariants,
@@ -52,8 +50,26 @@ import {
   MAX_VARIANTS,
   MAX_ACCUMULATED_VARIANTS,
   DEFAULT_STYLE_GUIDE,
-  STYLE_GUIDE_LIGHTING_PRESETS,
+  STYLE_GUIDE_LIGHTING_PRESET_NAMES,
 } from './generation-helpers.js';
+
+describe('probeGeneratedAsset', () => {
+  it('preserves the authoritative embedded-audio result for generated video', async () => {
+    const probe = vi.fn(async () => ({
+      durationSeconds: 6.25,
+      width: 1920,
+      height: 1080,
+      hasAudio: true,
+    }));
+
+    await expect(probeGeneratedAsset('generated.mp4', 'video', probe)).resolves.toEqual({
+      width: 1920,
+      height: 1080,
+      duration: 6.25,
+      hasAudio: true,
+    });
+  });
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -92,12 +108,12 @@ describe('constants', () => {
     expect(DEFAULT_STYLE_GUIDE.sceneOverrides).toEqual({});
   });
 
-  it('STYLE_GUIDE_LIGHTING_PRESETS maps lighting modes to scene tokens', () => {
-    expect(STYLE_GUIDE_LIGHTING_PRESETS.natural).toBeUndefined();
-    expect(STYLE_GUIDE_LIGHTING_PRESETS.studio).toBe('scene:high-key');
-    expect(STYLE_GUIDE_LIGHTING_PRESETS.dramatic).toBe('scene:low-key');
-    expect(STYLE_GUIDE_LIGHTING_PRESETS.neon).toBe('scene:neon-noir');
-    expect(STYLE_GUIDE_LIGHTING_PRESETS.custom).toBeUndefined();
+  it('STYLE_GUIDE_LIGHTING_PRESET_NAMES maps lighting modes to semantic preset names', () => {
+    expect(STYLE_GUIDE_LIGHTING_PRESET_NAMES.natural).toBeUndefined();
+    expect(STYLE_GUIDE_LIGHTING_PRESET_NAMES.studio).toBe('high-key');
+    expect(STYLE_GUIDE_LIGHTING_PRESET_NAMES.dramatic).toBe('low-key');
+    expect(STYLE_GUIDE_LIGHTING_PRESET_NAMES.neon).toBe('neon-noir');
+    expect(STYLE_GUIDE_LIGHTING_PRESET_NAMES.custom).toBeUndefined();
   });
 });
 
@@ -279,119 +295,6 @@ describe('inferRemoteExtension', () => {
     );
     expect(inferRemoteExtension('https://cdn.example.com/asset', 'video/mp4; codecs=avc1')).toBe(
       'mp4',
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// requireGenerateArgs
-// ---------------------------------------------------------------------------
-
-describe('requireGenerateArgs', () => {
-  it('returns canvasId and nodeId for valid args', () => {
-    const result = requireGenerateArgs({ canvasId: 'canvas-1', nodeId: 'node-1' });
-    expect(result).toEqual({ canvasId: 'canvas-1', nodeId: 'node-1' });
-  });
-
-  it('trims whitespace from ids', () => {
-    const result = requireGenerateArgs({ canvasId: '  canvas-1  ', nodeId: '  node-1  ' });
-    expect(result).toEqual({ canvasId: 'canvas-1', nodeId: 'node-1' });
-  });
-
-  it('throws when args are undefined', () => {
-    expect(() => requireGenerateArgs(undefined)).toThrow('canvas:generate request is required');
-  });
-
-  it('throws when canvasId is missing or blank', () => {
-    expect(() => requireGenerateArgs({ canvasId: '', nodeId: 'node-1' })).toThrow(
-      'canvasId and nodeId are required',
-    );
-    expect(() => requireGenerateArgs({ canvasId: '  ', nodeId: 'node-1' })).toThrow(
-      'canvasId and nodeId are required',
-    );
-  });
-
-  it('throws when nodeId is missing or blank', () => {
-    expect(() => requireGenerateArgs({ canvasId: 'canvas-1', nodeId: '' })).toThrow(
-      'canvasId and nodeId are required',
-    );
-    expect(() => requireGenerateArgs({ canvasId: 'canvas-1', nodeId: '   ' })).toThrow(
-      'canvasId and nodeId are required',
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// requireEstimateArgs
-// ---------------------------------------------------------------------------
-
-describe('requireEstimateArgs', () => {
-  it('returns canvasId, nodeId, and providerId for valid args', () => {
-    const result = requireEstimateArgs({
-      canvasId: 'canvas-1',
-      nodeId: 'node-1',
-      providerId: 'provider-1',
-    });
-    expect(result).toEqual({
-      canvasId: 'canvas-1',
-      nodeId: 'node-1',
-      providerId: 'provider-1',
-      providerConfig: undefined,
-    });
-  });
-
-  it('passes through providerConfig when present', () => {
-    const config = { baseUrl: 'https://api.example.com', model: 'my-model' };
-    const result = requireEstimateArgs({
-      canvasId: 'canvas-1',
-      nodeId: 'node-1',
-      providerId: 'provider-1',
-      providerConfig: config,
-    });
-    expect(result.providerConfig).toEqual(config);
-  });
-
-  it('throws when args are undefined', () => {
-    expect(() => requireEstimateArgs(undefined)).toThrow('canvas:estimateCost request is required');
-  });
-
-  it('throws when any required field is missing', () => {
-    expect(() =>
-      requireEstimateArgs({ canvasId: '', nodeId: 'node-1', providerId: 'provider-1' }),
-    ).toThrow('canvasId, nodeId and providerId are required');
-
-    expect(() =>
-      requireEstimateArgs({ canvasId: 'canvas-1', nodeId: '', providerId: 'provider-1' }),
-    ).toThrow('canvasId, nodeId and providerId are required');
-
-    expect(() =>
-      requireEstimateArgs({ canvasId: 'canvas-1', nodeId: 'node-1', providerId: '' }),
-    ).toThrow('canvasId, nodeId and providerId are required');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// requireCancelArgs
-// ---------------------------------------------------------------------------
-
-describe('requireCancelArgs', () => {
-  it('returns canvasId and nodeId for valid args', () => {
-    const result = requireCancelArgs({ canvasId: 'canvas-1', nodeId: 'node-1' });
-    expect(result).toEqual({ canvasId: 'canvas-1', nodeId: 'node-1' });
-  });
-
-  it('throws when args are undefined', () => {
-    expect(() => requireCancelArgs(undefined)).toThrow(
-      'canvas:cancelGeneration request is required',
-    );
-  });
-
-  it('throws when canvasId or nodeId is blank', () => {
-    expect(() => requireCancelArgs({ canvasId: '', nodeId: 'node-1' })).toThrow(
-      'canvasId and nodeId are required',
-    );
-    expect(() => requireCancelArgs({ canvasId: 'canvas-1', nodeId: '' })).toThrow(
-      'canvasId and nodeId are required',
     );
   });
 });

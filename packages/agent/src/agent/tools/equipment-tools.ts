@@ -1,48 +1,18 @@
-import {
-  equipmentViewToSlot,
-  type Canvas,
-  type Equipment,
-  type EquipmentRefImageView,
-  type EquipmentType,
-} from '@lucid-fin/contracts';
-import type { AgentTool } from '../tool-registry.js';
-import { createRefImageTools } from './ref-image-factory.js';
+import type { Equipment, EquipmentType } from '@lucid-fin/contracts';
+import { NO_TOOL_RESOURCE, toolResultSchema, type ToolDefinition } from '../tool-registry.js';
+import { arraySchema, equipmentSchema, numberSchema, objectSchema } from './tool-runtime-schemas.js';
 import {
   extractSet,
   warnExtraKeys,
   requireString,
   requireSetString,
 } from './tool-result-helpers.js';
-import { buildEquipmentRefImagePrompt } from './equipment-prompt.js';
-
-function parseEquipmentView(raw: unknown): EquipmentRefImageView {
-  if (raw === undefined || raw === null) return { kind: 'ortho-grid' };
-  if (typeof raw !== 'object') {
-    throw new Error(
-      'view must be an object: { kind: "ortho-grid" | "extra-angle", angle?: string }',
-    );
-  }
-  const obj = raw as Record<string, unknown>;
-  const kind = obj.kind;
-  if (kind === 'ortho-grid') return { kind: 'ortho-grid' };
-  if (kind === 'extra-angle') {
-    if (typeof obj.angle !== 'string' || obj.angle.trim().length === 0) {
-      throw new Error('view.angle is required when kind=extra-angle');
-    }
-    return { kind: 'extra-angle', angle: obj.angle.trim() };
-  }
-  throw new Error(`view.kind must be "ortho-grid" or "extra-angle" (got ${String(kind)})`);
-}
+import { authorityFact, contextProjector, records, resultRecord } from './context-replay.js';
 
 export interface EquipmentToolDeps {
   listEquipment: () => Promise<Equipment[]>;
   saveEquipment: (equipment: Equipment) => Promise<void>;
   deleteEquipment: (id: string) => Promise<void>;
-  generateImage?: (
-    prompt: string,
-    options?: { providerId?: string; width?: number; height?: number },
-  ) => Promise<{ assetHash: string }>;
-  getCanvas?: (canvasId: string) => Promise<Canvas>;
 }
 
 const EQUIPMENT_TYPES: EquipmentType[] = [
@@ -56,13 +26,28 @@ const EQUIPMENT_TYPES: EquipmentType[] = [
   'other',
 ];
 
-export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
-  const equipmentList: AgentTool = {
+export function createEquipmentTools(deps: EquipmentToolDeps): ToolDefinition[] {
+  const equipmentList: ToolDefinition = {
     name: 'equipment.list',
+    process: 'entity-management',
+    category: 'query',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description: 'List all equipment items in the current project.',
     tags: ['equipment', 'read', 'search'],
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(objectSchema({
+      total: numberSchema,
+      offset: numberSchema,
+      limit: numberSchema,
+      equipment: arraySchema(equipmentSchema),
+    })),
+    projectPublicResult: contextProjector((result) =>
+      records(resultRecord(result)?.equipment).map((item) =>
+        authorityFact('equipment', 'read', item.id),
+      ),
+    ),
+    inputSchema: {
       type: 'object',
       properties: {
         query: {
@@ -110,13 +95,21 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     },
   };
 
-  const equipmentCreate: AgentTool = {
+  const equipmentCreate: ToolDefinition = {
     name: 'equipment.create',
+    process: 'entity-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description:
-      'Create a new equipment item in the current project. To update an existing item, use equipment.update instead. To generate a reference image, use entity.generateRefImage after creation.',
+      'Create a new equipment item in the current project. To update an existing item, use equipment.update instead. Generate reference images as Canvas image nodes through canvas.generation, then attach an accepted result with entity.setRefImageFromNode.',
     tags: ['equipment', 'mutate'],
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(equipmentSchema),
+    projectPublicResult: contextProjector((result) => [
+      authorityFact('equipment', 'created', resultRecord(result)?.id),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'The equipment name.' },
@@ -172,13 +165,21 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     },
   };
 
-  const equipmentUpdate: AgentTool = {
+  const equipmentUpdate: ToolDefinition = {
     name: 'equipment.update',
+    process: 'entity-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description:
       'Update an existing equipment item by ID. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched. To create a new item, use equipment.create instead.',
     tags: ['equipment', 'mutate'],
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(equipmentSchema),
+    projectPublicResult: contextProjector((result, args) => [
+      authorityFact('equipment', 'updated', resultRecord(result)?.id ?? args.id),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         id: {
@@ -245,19 +246,27 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
           updatedAt: Date.now(),
         };
         await deps.saveEquipment(updated);
-        return { success: true, data: updated, ...(warnings.length > 0 && { warnings }) };
+        return { success: true, data: { ...updated, ...(warnings.length > 0 && { warnings }) } };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
   };
 
-  const equipmentDelete: AgentTool = {
+  const equipmentDelete: ToolDefinition = {
     name: 'equipment.delete',
+    process: 'entity-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description: 'Delete an equipment item by ID.',
     tags: ['equipment', 'mutate'],
     tier: 3,
-    parameters: {
+    outputSchema: toolResultSchema(),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('equipment', 'deleted', args.id),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         id: {
@@ -278,27 +287,5 @@ export function createEquipmentTools(deps: EquipmentToolDeps): AgentTool[] {
     },
   };
 
-  const equipmentRefImages = createRefImageTools<Equipment, EquipmentRefImageView>({
-    toolNamePrefix: 'equipment',
-    entityLabel: 'equipment',
-    tags: ['equipment', 'generation', 'mutate'],
-    description:
-      'Manage reference images for an equipment item. ' +
-      'Default view kind "ortho-grid" produces ONE composite image with front/back/left/right + macro detail on a single sheet. ' +
-      'Use view={kind:"extra-angle", angle:"<free form>"} for rare custom needs (in-use shot, cutaway, etc). ' +
-      'Always pass canvasId so the canonical Canvas visual-style draft is compiled into the prompt.',
-    getEntity: async (id) => {
-      const items = await deps.listEquipment();
-      return items.find((e) => e.id === id) ?? null;
-    },
-    saveEntity: deps.saveEquipment,
-    generateImage: deps.generateImage,
-    getCanvas: deps.getCanvas,
-    parseView: parseEquipmentView,
-    buildPrompt: buildEquipmentRefImagePrompt,
-    viewToSlot: equipmentViewToSlot,
-    kindEnum: ['ortho-grid', 'extra-angle'],
-  });
-
-  return [equipmentList, equipmentCreate, equipmentUpdate, equipmentDelete, ...equipmentRefImages];
+  return [equipmentList, equipmentCreate, equipmentUpdate, equipmentDelete];
 }

@@ -6,7 +6,7 @@
  * prompt/provider/meta tools, scripts, presets, etc.) intact — the harness
  * is studying *agent decision flow*, not generation output quality.
  */
-import type { AgentToolRegistry, AgentTool } from '@lucid-fin/application';
+import type { ToolRegistry, ToolDefinition } from '@lucid-fin/application';
 import { randomUUID } from 'node:crypto';
 
 export interface MockStats {
@@ -23,13 +23,15 @@ export const MOCKED_TOOL_NAMES = [
 function stubTool(
   name: string,
   description: string,
-  tier: AgentTool['tier'],
+  tier: ToolDefinition['tier'],
   buildResult: (args: Record<string, unknown>) => Record<string, unknown>,
   stats: MockStats,
-): AgentTool {
+): ToolDefinition {
   return {
     name,
     description: `[MOCKED by fake-user harness] ${description}`,
+    process: name.startsWith('entity.') ? 'entity-ref-image-generation' : 'image-node-generation',
+    category: name === 'canvas.previewPrompt' ? 'query' : 'mutation',
     tier,
     // Minimal schema — the real tool's schema is still what the LLM sees at
     // turn N because we only override AFTER the registry has been queried for
@@ -47,10 +49,10 @@ function stubTool(
   };
 }
 
-export function installMockGeneration(registry: AgentToolRegistry): MockStats {
+export function installMockGeneration(registry: ToolRegistry): MockStats {
   const stats: MockStats = { calls: {} };
 
-  const register = (t: AgentTool) => registry.register(t);
+  const register = (t: ToolDefinition) => registry.register(t);
 
   // canvas.generation — returns immediately with a fake jobId.
   register(

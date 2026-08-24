@@ -1,11 +1,5 @@
 import path from 'node:path';
 import { MAX_ACCUMULATED_VARIANTS } from './generation-constants.js';
-import type {
-  CancelArgs,
-  EstimateArgs,
-  GenerateArgs,
-  ProviderConfigOverride,
-} from './generation-types.js';
 
 export function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
@@ -97,42 +91,4 @@ export function inferRemoteExtension(url: string, contentType: string | null): s
     default:
       return 'bin';
   }
-}
-
-export function requireGenerateArgs(value: GenerateArgs | undefined): {
-  canvasId: string;
-  nodeId: string;
-} {
-  if (!value) throw new Error('canvas:generate request is required');
-  const canvasId = normalizeOptionalString(value.canvasId);
-  const nodeId = normalizeOptionalString(value.nodeId);
-  if (!canvasId || !nodeId) throw new Error('canvasId and nodeId are required');
-  return { canvasId, nodeId };
-}
-
-export function requireEstimateArgs(value: EstimateArgs | undefined): {
-  canvasId: string;
-  nodeId: string;
-  providerId: string;
-  providerConfig?: ProviderConfigOverride;
-} {
-  if (!value) throw new Error('canvas:estimateCost request is required');
-  const canvasId = normalizeOptionalString(value.canvasId);
-  const nodeId = normalizeOptionalString(value.nodeId);
-  const providerId = normalizeOptionalString(value.providerId);
-  if (!canvasId || !nodeId || !providerId) {
-    throw new Error('canvasId, nodeId and providerId are required');
-  }
-  return { canvasId, nodeId, providerId, providerConfig: value.providerConfig };
-}
-
-export function requireCancelArgs(value: CancelArgs | undefined): {
-  canvasId: string;
-  nodeId: string;
-} {
-  if (!value) throw new Error('canvas:cancelGeneration request is required');
-  const canvasId = normalizeOptionalString(value.canvasId);
-  const nodeId = normalizeOptionalString(value.nodeId);
-  if (!canvasId || !nodeId) throw new Error('canvasId and nodeId are required');
-  return { canvasId, nodeId };
 }

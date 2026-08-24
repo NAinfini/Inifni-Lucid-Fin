@@ -1,11 +1,11 @@
 /**
- * ShotTemplateRepository — Phase G1-2.9.
+ * Shot template persistence.
  *
  * Wraps `custom_shot_templates` CRUD behind the `ShotTemplateId` brand and
  * fault-soft reads. `tracks` is stored as serialized JSON; the repository
  * parses and returns typed objects via `parseOrDegrade`.
  *
- * Table column names flow through `CustomShotTemplatesTable` (G1-1) — schema
+ * Table column names flow through `CustomShotTemplatesTable` — schema
  * drift fails at compile time.
  *
  * Only user-authored (`builtIn: false`) templates live in this table;

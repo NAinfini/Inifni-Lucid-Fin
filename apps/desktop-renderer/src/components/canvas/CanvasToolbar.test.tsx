@@ -26,8 +26,8 @@ describe('CanvasToolbar', () => {
         onToggleSearch={vi.fn()}
         onToggleMinimap={vi.fn()}
         onToggleSnapToGrid={vi.fn()}
-        onExportWorkflow={vi.fn()}
-        onImportWorkflow={vi.fn()}
+        onExportCanvas={vi.fn()}
+        onImportCanvas={vi.fn()}
       />,
     );
 
@@ -49,8 +49,8 @@ describe('CanvasToolbar', () => {
         onToggleSearch={onToggleSearch}
         onToggleMinimap={vi.fn()}
         onToggleSnapToGrid={vi.fn()}
-        onExportWorkflow={vi.fn()}
-        onImportWorkflow={vi.fn()}
+        onExportCanvas={vi.fn()}
+        onImportCanvas={vi.fn()}
       />,
     );
 

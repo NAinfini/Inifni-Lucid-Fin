@@ -1,8 +1,8 @@
 # Technology Stack / 技术栈
 
-Snapshot date: **2026-08-09**. This file documents the supported development, runtime, media, and CI baseline. Exact dependency ranges live in the workspace `package.json` files; exact resolved versions live in the canonical `pnpm-lock.yaml`.
+Snapshot date: **2026-08-10**. This file documents the supported development, runtime, media, and CI baseline. Exact dependency ranges live in the workspace `package.json` files; exact resolved versions live in the canonical `pnpm-lock.yaml`.
 
-快照日期：**2026-08-09**。本文件记录受支持的开发、运行、媒体与 CI 基线；各 workspace 的 `package.json` 定义直接依赖范围，`pnpm-lock.yaml` 记录精确解析版本。
+快照日期：**2026-08-10**。本文件记录受支持的开发、运行、媒体与 CI 基线；各 workspace 的 `package.json` 定义直接依赖范围，`pnpm-lock.yaml` 记录精确解析版本。
 
 ## Canonical sources / 唯一事实源
 
@@ -11,9 +11,10 @@ Snapshot date: **2026-08-09**. This file documents the supported development, ru
 - **Removed legacy lock:** `package-lock.json` has been deleted; do not regenerate or reintroduce it.
 - **Runtime engines:** the root `engines` field and GitHub Actions workflows.
 - **FFmpeg payloads:** `packages/media-engine/ffmpeg-checksums.json` and `resources/bin/README.md`.
-- **Provider OAuth:** `docs/PROVIDER_OAUTH.md`; ChatGPT/Gemini capability isolation, safe status, usage reporting, visual routing, and Codex native packaging must be upgraded together.
+- **Provider OAuth:** `docs/PROVIDER_OAUTH.md`; ChatGPT capability isolation, safe status, usage reporting, visual routing, and Codex native packaging must be upgraded together.
 - **Media provider runtime:** `docs/MEDIA_PROVIDER_MATRIX.md`; the shared provider catalog is the source of truth for Settings, adapters, credentials, and host allowlisting.
 - **LLM and vision runtime:** `docs/LLM_PROVIDER_MATRIX.md`; `packages/contracts/src/llm-provider.ts` is the executable source of truth for model IDs, protocols, and context windows.
+- **Image/video prompt authority:** `docs/PROMPT_ASSEMBLY.md`; `prompt_assemblies` persists the exact Commander input/output lineage, while provider, resolution, references, budget, retries, and approvals remain host-owned.
 - **TypeScript exception:** every workspace remains on TypeScript 6.0.2 by product decision. Do not update its range or resolved version while upgrading other dependencies.
 - **Install scripts:** `pnpm-workspace.yaml` controls builds through `allowBuilds`: it permits `better-sqlite3`, `keytar`, `electron-winstaller`, and the `esbuild` binary used by `tsx`, while blocking Electron's installer in favor of the verified repository installer; do not approve packages globally.
 
@@ -125,7 +126,7 @@ Release CI passes `--win|--mac|--linux` and exactly one `--x64|--arm64` argument
 
 ### 6. Tests Required
 
-- Manifest/YAML check: parse all 13 package manifests and all workflow YAML files; assert every manifest is MIT licensed and the TypeScript lock entry is exactly 6.0.2.
+- Manifest/YAML check: parse all 13 package manifests and all GitHub Actions YAML files; assert every manifest is MIT licensed and the TypeScript lock entry is exactly 6.0.2.
 - Dependency check: assert `pnpm outdated --recursive --json` contains no package other than the approved TypeScript exception.
 - Compatibility check: run the export-handler test covering `ZipArchive`, then the full build and test suite.
 - Runtime check: run Electron E2E and assert all smoke scenarios pass after the Electron ABI rebuild.

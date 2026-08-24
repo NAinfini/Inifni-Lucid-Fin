@@ -4,8 +4,7 @@
  * Phase A: the five typed primitives + exhaustiveness helpers.
  * Phase B: EvidenceLedger, intent classifier, decision engine, default
  *          info-answer contract.
- * Phase C: contract registry + one-file-per-workflow contracts + declarative
- *          process-prompt specs (style-plate-lock among them).
+ * Phase C: contract registry + one-file-per-task-list contracts.
  *
  * Phase D will add the shared orchestrator factory that production + study
  * harness both consume.
@@ -31,47 +30,15 @@ export {
 
 export { EvidenceLedger } from './evidence-ledger.js';
 
-export { classifyIntent, type ClassifyIntentContext } from './intent-classifier.js';
-
 export { decide, type DecideInput } from './exit-decision-engine.js';
 
-// Phase C — registry + contracts + specs.
+// Phase C — registry + contracts.
 // Importing `./contracts/index.js` is the side-effect that registers every
-// workflow contract + the `info-answer` fallback. Keep this import before
+// task-list contract + the `info-answer` fallback. Keep this import before
 // `contractRegistry` is used at runtime.
 export { contractRegistry } from './contract-registry.js';
 export {
   infoAnswerContract,
   mutationExecutionContract,
-  workflowExecutionContract,
+  taskListExecutionContract,
 } from './contracts/index.js';
-
-export type {
-  ProcessPromptSpec,
-  ProcessPromptLifecycle,
-  ActivationContext,
-  ProcessPromptEvaluationResult,
-} from './process-prompt-spec.js';
-export { evaluateProcessPromptSpecs } from './process-prompt-spec.js';
-export {
-  createStylePlateLockSpec,
-  stylePlateLockPredicate,
-  isGenerationTool,
-} from './specs/style-plate-lock.js';
-export {
-  createEntitiesBeforeGenerationSpec,
-  entitiesBeforeGenerationPredicate,
-} from './specs/entities-before-generation.js';
-export {
-  createBatchCreateGuidanceSpec,
-  batchCreateGuidancePredicate,
-} from './specs/batch-create-guidance.js';
-export {
-  createPromptQualityGateSpec,
-  promptQualityGatePredicate,
-  type QualityGateBehavior,
-} from './specs/prompt-quality-gate.js';
-export {
-  createStoryWorkflowPhaseSpec,
-  storyWorkflowPhasePredicate,
-} from './specs/story-workflow-phase.js';

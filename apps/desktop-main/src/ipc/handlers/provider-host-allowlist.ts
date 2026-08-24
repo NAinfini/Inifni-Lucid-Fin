@@ -44,8 +44,6 @@ const PROVIDER_ALLOWED_HOSTS: Record<string, readonly string[]> = {
   claude: ['api.anthropic.com'],
   anthropic: ['api.anthropic.com'],
   gemini: ['generativelanguage.googleapis.com'],
-  'gemini-oauth': ['generativelanguage.googleapis.com'],
-  'gemini-vision-oauth': ['generativelanguage.googleapis.com'],
   'chatgpt-vision-oauth': ['chatgpt.com'],
   cohere: ['api.cohere.com'],
   deepseek: ['api.deepseek.com'],

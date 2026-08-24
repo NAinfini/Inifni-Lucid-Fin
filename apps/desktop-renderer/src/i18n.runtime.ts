@@ -131,13 +131,9 @@ export function localizeProcessPromptDescription(processKey: string, fallback: s
   return localizeWithFallback('processPromptDescriptions.' + processKey, fallback);
 }
 
-export function localizeWorkflowDefinitionName(id: string, fallback: string): string {
-  return localizeWithFallback('workflowDefinitionNames.' + id, fallback);
-}
-
 /**
  * Localize a guide/skill display name by checking all three name maps
- * (promptTemplateNames, workflowDefinitionNames, workflowGuideNames)
+ * (promptTemplateNames, taskSkillNames, taskListGuideNames)
  * for a built-in id. Returns the fallback (usually the raw English
  * name) when no localized entry exists — this preserves user-renamed
  * custom skills and any id we haven't translated yet.
@@ -145,8 +141,8 @@ export function localizeWorkflowDefinitionName(id: string, fallback: string): st
 export function localizeSkillName(id: string, fallback: string): string {
   const candidates = [
     'promptTemplateNames.' + id,
-    'workflowDefinitionNames.' + id,
-    'workflowGuideNames.' + id,
+    'taskSkillNames.' + id,
+    'taskListGuideNames.' + id,
   ];
   for (const key of candidates) {
     const translated = localizeWithFallback(key, key);
@@ -157,6 +153,20 @@ export function localizeSkillName(id: string, fallback: string): string {
 
 export function localizeToolName(toolName: string): string {
   return localizeFlatMapEntry('toolNames', toolName, toolName);
+}
+
+export function localizeTaskLabel(
+  key: string | undefined,
+  fallback: string,
+  relatedEntityLabel?: string,
+): string {
+  if (!key) return fallback;
+  const localized = localizeWithFallback(key, fallback);
+  return relatedEntityLabel
+    ? localized.replace(/\{name\}/g, relatedEntityLabel)
+    : localized.includes('{name}')
+      ? fallback
+      : localized;
 }
 
 export function localizeSettingsCategory(category: string): string {

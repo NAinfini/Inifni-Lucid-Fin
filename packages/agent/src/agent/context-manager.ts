@@ -1,11 +1,4 @@
-import type {
-  LLMAdapter,
-  LLMMessage,
-  LLMToolDefinition,
-  LLMToolParameter,
-} from '@lucid-fin/contracts';
-import type { AgentToolRegistry } from './tool-registry.js';
-import type { WorkflowToolPolicy } from './workflow-tool-policy.js';
+import type { LLMAdapter, LLMMessage } from '@lucid-fin/contracts';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -15,8 +8,6 @@ const HISTORY_TOKEN_BUDGET = 200000;
 const ESTIMATED_CHARS_PER_TOKEN = 3.5;
 const HISTORY_CHAR_BUDGET = Math.floor(HISTORY_TOKEN_BUDGET * ESTIMATED_CHARS_PER_TOKEN);
 const CONTEXT_EXTRA_VALUE_CHAR_LIMIT = 600;
-/** v2: Tools not used within this many steps get evicted (binary: loaded or evicted). */
-const TOOL_EVICT_AFTER_STEPS = 5;
 /** Max chars for in-loop messages. Triggers mid-loop pruning. */
 const DEFAULT_IN_LOOP_CHAR_BUDGET = 120000;
 const COMPACT_RESULT_THRESHOLD = 300;
@@ -24,66 +15,6 @@ const COMPACT_KEEP_RECENT_GROUPS = 4;
 
 const QUERY_TOOL_PATTERN =
   /\.(list|get|getNode|listNodes|listEdges|describe|getInfo|previewPrompt|resolveResolution)/;
-
-/**
- * Protected phase-core tool catalog. A run loads only the subset returned by
- * `selectContextualToolSet`; tools in this catalog are protected from
- * adaptive eviction once loaded. Remaining tools stay discoverable through
- * `tool.get`.
- */
-export const TIER_A_TOOLS = [
-  // ── Meta (3) ──────────────────────────────────────────────────
-  'tool.get',
-  'commander.askUser',
-  'guide.get',
-
-  // ── Canvas reads (4) ──────────────────────────────────────────
-  'canvas.getInfo',
-  'canvas.listNodes',
-  'canvas.getNode',
-  'canvas.listEdges',
-
-  // ── Canvas mutation (7) ───────────────────────────────────────
-  'canvas.createNodes',
-  'canvas.updateNodes',
-  'canvas.deleteNode',
-  'canvas.connectNodes',
-  'canvas.manage',
-  'canvas.setNodeRefs',
-  'canvas.configureNode',
-
-  // ── Canvas generation (5) ─────────────────────────────────────
-  'canvas.generation',
-  'canvas.setMediaParams',
-  'provider.resolveResolution',
-  'canvas.previewPrompt',
-  'canvas.presetTracks',
-
-  // ── Entity (5) ────────────────────────────────────────────────
-  'entity.list',
-  'entity.create',
-  'entity.update',
-  'entity.delete',
-  'entity.generateRefImage',
-  'entity.setRefImageFromNode',
-
-  // ── Domain manage (3) ─────────────────────────────────────────
-  'preset.manage',
-  'provider.manage',
-  // Primary application entrypoint; do not make one-line video ideas depend
-  // on a successful discovery round-trip before they can be persisted.
-  'workflow.manage',
-  // Filtered by the host-derived workflow phase before every model request.
-  'workflow.visual',
-  'workflow.media',
-  'workflow.mediaFeedback',
-  'workflow.finalExport',
-  'render.start',
-  'render.cancel',
-] as const;
-
-/** @deprecated Use TIER_A_TOOLS instead. Alias kept for backward compatibility during migration. */
-export const ALWAYS_LOADED_TOOLS = TIER_A_TOOLS;
 
 export { ESTIMATED_CHARS_PER_TOKEN, DEFAULT_IN_LOOP_CHAR_BUDGET };
 
@@ -161,6 +92,7 @@ export function trimObjectStrings(value: unknown, limit = 300, depth = 0): unkno
 // ---------------------------------------------------------------------------
 
 export type HistoryEntry =
+  | { role: 'system'; content: string }
   | {
       role: 'user' | 'assistant';
       content: string;
@@ -175,7 +107,7 @@ export type HistoryEntry =
   | { role: 'tool'; content: string; toolCallId: string };
 
 export function pruneHistory(
-  history: HistoryEntry[] | undefined,
+  history: readonly HistoryEntry[] | undefined,
   charBudget = HISTORY_CHAR_BUDGET,
 ): HistoryEntry[] {
   if (!history || history.length === 0) return [];
@@ -188,23 +120,25 @@ export function pruneHistory(
     return n;
   };
 
-  const pruned: HistoryEntry[] = [];
+  const newestFirst: HistoryEntry[] = [];
   let totalChars = 0;
 
   for (let index = history.length - 1; index >= 0; index -= 1) {
     const entry = history[index];
     const entryChars = entrySize(entry);
 
-    if (pruned.length > 0 && totalChars + entryChars > charBudget) break;
-    pruned.unshift(entry);
+    if (newestFirst.length > 0 && totalChars + entryChars > charBudget) break;
+    newestFirst.push(entry);
     totalChars += entryChars;
     if (totalChars >= charBudget) break;
   }
 
+  let pruned = newestFirst.reverse();
+
   // Ensure we don't start with a dangling tool result
-  while (pruned.length > 0 && pruned[0].role === 'tool') {
-    pruned.shift();
-  }
+  let startIndex = 0;
+  while (pruned[startIndex]?.role === 'tool') startIndex += 1;
+  if (startIndex > 0) pruned = pruned.slice(startIndex);
 
   // If first message is assistant with toolCalls, ensure ALL referenced
   // tool results are present. Drop the entire exchange if any are missing.
@@ -221,29 +155,33 @@ export function pruneHistory(
       );
       const allPresent = [...requiredIds].every((id) => presentIds.has(id));
       if (!allPresent) {
-        while (pruned.length > 0 && (pruned[0].role === 'assistant' || pruned[0].role === 'tool')) {
-          const dropped = pruned.shift()!;
-          if (dropped.role !== 'tool' && dropped.role !== 'assistant') break;
+        let dropCount = 0;
+        while (
+          dropCount < pruned.length &&
+          (pruned[dropCount]!.role === 'assistant' || pruned[dropCount]!.role === 'tool')
+        ) {
+          const dropped = pruned[dropCount]!;
           if (
             dropped.role === 'assistant' &&
             !(dropped as { toolCalls?: unknown[] }).toolCalls?.length
           ) {
-            pruned.unshift(dropped);
             break;
           }
+          dropCount += 1;
         }
+        if (dropCount > 0) pruned = pruned.slice(dropCount);
       }
     }
   }
 
-  return pruned;
+  return structuredClone(pruned);
 }
 
 // ---------------------------------------------------------------------------
 // Mid-loop context compaction
 // ---------------------------------------------------------------------------
 
-export function measureMessageChars(messages: LLMMessage[]): number {
+export function measureMessageChars(messages: readonly LLMMessage[]): number {
   return messages.reduce((total, message) => {
     let chars = message.content.length;
     if (message.role === 'assistant' && message.toolCalls) {
@@ -267,11 +205,18 @@ function isQueryTool(toolName: string): boolean {
     QUERY_TOOL_PATTERN.test(toolName) ||
     toolName.startsWith('tool.') ||
     toolName.startsWith('guide.') ||
-    toolName.startsWith('todo.')
+    toolName.startsWith('runChecklist.')
   );
 }
 
-export function truncateOldToolResults(messages: LLMMessage[]): number {
+export interface ToolTruncationResult {
+  view: LLMMessage[];
+  truncated: number;
+}
+
+export function truncateOldToolResults(
+  messages: readonly LLMMessage[],
+): ToolTruncationResult {
   const groups: Array<{ startIndex: number; endIndex: number; toolNames: string[] }> = [];
   let idx = 1;
   while (idx < messages.length) {
@@ -308,56 +253,56 @@ export function truncateOldToolResults(messages: LLMMessage[]): number {
     }
   }
 
-  for (let i = 1; i < messages.length; i++) {
-    if (recentIndices.has(i)) continue;
-    const msg = messages[i];
+  const truncatedView = messages.map((msg, index) => {
+    if (recentIndices.has(index)) return cloneMessage(msg);
 
-    // Compact old assistant arguments
+    // Compact old assistant arguments.
     if (msg.role === 'assistant' && msg.toolCalls) {
-      for (const tc of msg.toolCalls) {
-        const argStr = safeStringify(tc.arguments);
-        if (argStr.length > COMPACT_RESULT_THRESHOLD) {
-          const kept: Record<string, unknown> = {};
-          for (const key of ['canvasId', 'nodeId', 'id', 'name', 'title']) {
-            if (key in tc.arguments && tc.arguments[key] != null) {
-              kept[key] = tc.arguments[key];
-            }
-          }
-          tc.arguments =
-            Object.keys(kept).length > 0 ? { ...kept, _compacted: true } : { _compacted: true };
-          truncatedCount++;
+      const toolCalls = msg.toolCalls.map((toolCall) => {
+        if (safeStringify(toolCall.arguments).length <= COMPACT_RESULT_THRESHOLD) {
+          return structuredClone(toolCall);
         }
-      }
-      if (msg.content.length > 500) {
-        msg.content = msg.content.slice(0, 200) + '... [compacted]';
-      }
-      continue;
+
+        const kept: Record<string, unknown> = {};
+        for (const key of ['canvasId', 'nodeId', 'id', 'name', 'title']) {
+          if (key in toolCall.arguments && toolCall.arguments[key] != null) {
+            kept[key] = structuredClone(toolCall.arguments[key]);
+          }
+        }
+        truncatedCount++;
+        return {
+          ...structuredClone(toolCall),
+          arguments:
+            Object.keys(kept).length > 0 ? { ...kept, _compacted: true } : { _compacted: true },
+        };
+      });
+      return {
+        ...cloneMessage(msg),
+        content:
+          msg.content.length > 500 ? msg.content.slice(0, 200) + '... [compacted]' : msg.content,
+        toolCalls,
+      };
     }
 
-    if (msg.role !== 'tool') continue;
+    if (msg.role !== 'tool') return cloneMessage(msg);
 
-    // Determine if this tool result is from a query tool
-    const toolCallId = (msg as { toolCallId?: string }).toolCallId;
-    const toolName = toolCallId ? toolCallIdToName.get(toolCallId) : undefined;
-
-    // Query tool results → remove entirely (replace with minimal marker)
+    const toolName = msg.toolCallId ? toolCallIdToName.get(msg.toolCallId) : undefined;
     if (toolName && isQueryTool(toolName)) {
-      msg.content = `{"_removed":"query result compacted","tool":"${toolName}"}`;
       truncatedCount++;
-      continue;
+      return {
+        ...cloneMessage(msg),
+        content: `{"_removed":"query result compacted","tool":"${toolName}"}`,
+      };
     }
 
-    // Mutation tool results → structured summary with key fields
-    if (msg.content.length <= COMPACT_RESULT_THRESHOLD) continue;
+    if (msg.content.length <= COMPACT_RESULT_THRESHOLD) return cloneMessage(msg);
 
+    let content: string;
     try {
       const parsed = JSON.parse(msg.content) as Record<string, unknown>;
       const compact: Record<string, unknown> = { success: parsed.success ?? true };
 
-      // Preserve error info
-      if (parsed.error) {
-        compact.error = truncateString(String(parsed.error), 200);
-      }
+      if (parsed.error) compact.error = truncateString(String(parsed.error), 200);
 
       if (isRecord(parsed.data)) {
         const kept: Record<string, unknown> = {};
@@ -379,26 +324,19 @@ export function truncateOldToolResults(messages: LLMMessage[]): number {
             kept[key] = summarizeScalar(parsed.data[key]);
           }
         }
-        if (Array.isArray(parsed.data)) {
-          compact.data = `[${parsed.data.length} items]`;
-        } else if (Object.keys(kept).length > 0) {
-          compact.data = kept;
-        } else {
-          compact.data = '[compacted]';
-        }
+        compact.data = Object.keys(kept).length > 0 ? kept : '[compacted]';
       } else if (Array.isArray(parsed.data)) {
         compact.data = `[${parsed.data.length} items]`;
       } else {
         compact.data = '[compacted]';
       }
-
-      msg.content = safeStringify(compact);
-      truncatedCount++;
+      content = safeStringify(compact);
     } catch {
-      msg.content = msg.content.slice(0, 200) + '... [compacted]';
-      truncatedCount++;
+      content = msg.content.slice(0, 200) + '... [compacted]';
     }
-  }
+    truncatedCount++;
+    return { ...cloneMessage(msg), content };
+  });
 
   // Phase 2: Collapse fully-compacted old groups into single summary messages.
   const MAX_COMPACTED_GROUP_CHARS = 120;
@@ -408,7 +346,7 @@ export function truncateOldToolResults(messages: LLMMessage[]): number {
     const group = groups[g];
     let allSmall = true;
     for (let i = group.startIndex; i <= group.endIndex; i++) {
-      const m = messages[i];
+      const m = truncatedView[i];
       if (m.role === 'tool' && m.content.length > MAX_COMPACTED_GROUP_CHARS) {
         allSmall = false;
         break;
@@ -421,94 +359,26 @@ export function truncateOldToolResults(messages: LLMMessage[]): number {
     if (allSmall) collapsibleGroups.push(group);
   }
 
-  for (let g = collapsibleGroups.length - 1; g >= 0; g--) {
-    const group = collapsibleGroups[g];
-    const assistantMsg = messages[group.startIndex];
+  const collapsibleByStart = new Map(collapsibleGroups.map((group) => [group.startIndex, group]));
+  const view: LLMMessage[] = [];
+  for (let index = 0; index < truncatedView.length; index++) {
+    const group = collapsibleByStart.get(index);
+    if (!group) {
+      view.push(truncatedView[index]!);
+      continue;
+    }
+
+    const assistantMsg = truncatedView[group.startIndex]!;
     const toolCount = group.endIndex - group.startIndex;
-    const summary = `[${toolCount} tool calls compacted]`;
-    messages.splice(group.startIndex, group.endIndex - group.startIndex + 1, {
+    view.push({
       role: 'user',
-      content: `[Compacted block] ${assistantMsg.content.slice(0, 100)}... — ${summary}`,
+      content: `[Compacted block] ${assistantMsg.content.slice(0, 100)}... — [${toolCount} tool calls compacted]`,
     });
     truncatedCount += toolCount;
+    index = group.endIndex;
   }
 
-  return truncatedCount;
-}
-
-// ---------------------------------------------------------------------------
-// Tool definition compaction
-// ---------------------------------------------------------------------------
-
-function compactToolParameter(parameter: LLMToolParameter): LLMToolParameter {
-  const compacted: LLMToolParameter = {
-    type: parameter.type,
-    description: '',
-  };
-  if (parameter.enum?.length) compacted.enum = [...parameter.enum];
-  if (parameter.properties) {
-    compacted.properties = Object.fromEntries(
-      Object.entries(parameter.properties).map(([key, value]) => [
-        key,
-        compactToolParameter(value),
-      ]),
-    );
-  }
-  if (parameter.items) compacted.items = compactToolParameter(parameter.items);
-  return compacted;
-}
-
-export function compactNamedToolDefinitions(
-  tools: AgentToolRegistry,
-  toolNames: string[],
-  contextPage?: string,
-): LLMToolDefinition[] {
-  const sourceTools = contextPage ? tools.forContext(contextPage) : tools.list();
-  return sourceTools
-    .filter((tool) => toolNames.includes(tool.name))
-    .map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: {
-        type: 'object' as const,
-        required: tool.parameters.required,
-        properties: Object.fromEntries(
-          Object.entries(tool.parameters.properties).map(([key, value]) => [
-            key,
-            compactToolParameter(value),
-          ]),
-        ),
-      },
-    }));
-}
-
-/**
- * v2: Binary tool compaction — tools are either fully loaded or evicted.
- * Tier A tools are never evicted. Other tools are evicted after
- * TOOL_EVICT_AFTER_STEPS steps without use (re-discoverable via tool.get).
- */
-export function adaptiveToolCompaction(
-  tools: LLMToolDefinition[],
-  toolLastUsedStep: Map<string, number>,
-  currentStep: number,
-  _messageChars: number,
-  _charBudget: number,
-): { tools: LLMToolDefinition[]; evictedNames: string[] } {
-  const tierA = new Set<string>(TIER_A_TOOLS);
-  const evictedNames: string[] = [];
-
-  const result = tools.filter((tool) => {
-    if (tierA.has(tool.name)) return true;
-    const lastUsed = toolLastUsedStep.get(tool.name) ?? 0;
-    const stepsAgo = currentStep - lastUsed;
-    if (stepsAgo >= TOOL_EVICT_AFTER_STEPS) {
-      evictedNames.push(tool.name);
-      return false;
-    }
-    return true;
-  });
-
-  return { tools: result, evictedNames };
+  return { view, truncated: truncatedCount };
 }
 
 // ---------------------------------------------------------------------------
@@ -528,120 +398,6 @@ export interface AgentContext {
   page?: string;
   characterId?: string;
   extra?: Record<string, unknown>;
-}
-
-// ---------------------------------------------------------------------------
-// Context-aware tool set selection  (1B)
-// ---------------------------------------------------------------------------
-
-/** Workspace, intent, and host-authoritative workflow inputs for tool loading. */
-export interface ToolSelectionInput {
-  /** Number of canvas nodes (0 = empty canvas). */
-  nodeCount: number;
-  /** Total characters + locations + equipment. */
-  entityCount: number;
-  /** Whether the canvas has a non-empty stylePlate. */
-  hasStylePlate: boolean;
-  /** Whether the user has selected nodes in the canvas. */
-  hasSelectedNodes: boolean;
-  /** Raw user message text — no longer used for keyword matching. */
-  userMessage: string;
-  /** Classified intent kind: 'execution' | 'informational'. */
-  intentKind: string;
-  /** Optional detected workflow hint. */
-  intentWorkflow?: string;
-  /** Host-derived persistent workflow phase. Omitted when the canvas is unbound. */
-  workflowPhase?: WorkflowToolPolicy['phase'];
-}
-
-/**
- * Return the exact phase-core tools that should be loaded on step 1.
- * SQLite-derived workflow phase, rather than prompt wording, controls which
- * paid or mutating workflow tools the model can see. Non-core tools remain
- * discoverable via `tool.get` and are still checked again at execution time.
- *
- * Pure function — no side-effects, no registry mutation.
- */
-export function selectContextualToolSet(input: ToolSelectionInput): Set<string> {
-  const selected = new Set<string>([
-    'tool.get',
-    'commander.askUser',
-    'guide.get',
-    'canvas.getInfo',
-    'canvas.listNodes',
-    'canvas.getNode',
-    'canvas.listEdges',
-    'workflow.manage',
-  ]);
-  const add = (names: readonly string[]): void => {
-    for (const name of names) selected.add(name);
-  };
-
-  const canvasMutations = [
-    'canvas.createNodes',
-    'canvas.updateNodes',
-    'canvas.deleteNode',
-    'canvas.connectNodes',
-    'canvas.manage',
-    'canvas.setNodeRefs',
-    'canvas.configureNode',
-  ] as const;
-  const mediaConfiguration = [
-    'canvas.setMediaParams',
-    'provider.resolveResolution',
-    'canvas.previewPrompt',
-    'canvas.presetTracks',
-  ] as const;
-
-  const phase = input.workflowPhase ?? 'unbound';
-  if (phase === 'unbound') {
-    add(canvasMutations);
-    add(mediaConfiguration);
-    add([
-      'canvas.generation',
-      'entity.list',
-      'entity.create',
-      'entity.update',
-      'entity.delete',
-      'entity.generateRefImage',
-      'preset.manage',
-      'provider.manage',
-    ]);
-    return selected;
-  }
-
-  if (phase === 'style_exploration') {
-    selected.add('workflow.visual');
-    return selected;
-  }
-
-  if (phase === 'preproduction' || phase === 'media_generation') {
-    add(canvasMutations);
-    add(mediaConfiguration);
-    add(['entity.list', 'entity.create', 'entity.update', 'entity.setRefImageFromNode']);
-    add(['workflow.media', 'workflow.mediaFeedback']);
-    return selected;
-  }
-
-  if (phase === 'assembly') {
-    add(canvasMutations);
-    selected.add('canvas.presetTracks');
-    selected.add('workflow.mediaFeedback');
-    return selected;
-  }
-
-  if (phase === 'final_export_preparation') {
-    selected.add('workflow.finalExport');
-    return selected;
-  }
-
-  if (phase === 'final_export_approved') {
-    add(['render.start', 'render.cancel']);
-    return selected;
-  }
-
-  if (phase === 'blocked') selected.add('render.cancel');
-  return selected;
 }
 
 // ---------------------------------------------------------------------------
@@ -665,6 +421,15 @@ export interface ContextCompactionResult {
   truncated: number;
   /** False when no attempt ran (already under budget or auto-throttled). */
   attempted: boolean;
+  /** Provider-ready derived view. The source messages are never mutated. */
+  view: LLMMessage[];
+}
+
+class PostCompactReloadError extends Error {
+  constructor(readonly original: unknown) {
+    super(original instanceof Error ? original.message : String(original));
+    this.name = 'PostCompactReloadError';
+  }
 }
 
 export class ContextManager {
@@ -740,13 +505,9 @@ export class ContextManager {
       for (const [k, v] of Object.entries(context.extra)) {
         if (k === 'masterIndex') continue;
         if (k === 'workspaceSnapshot') continue;
-        if (k === 'workflowManifest') continue;
+        if (k === 'taskListManifest') continue;
         if (k === 'autoInjectGuides') continue;
         if (step && step > 5 && k === 'promptGuides') continue;
-        if (k === 'classifiedIntent') {
-          contextLines.push(`Classified intent: ${String(v)}`);
-          continue;
-        }
         contextLines.push(`${k}: ${stringifyContextExtraValue(v)}`);
       }
     }
@@ -759,9 +520,9 @@ export class ContextManager {
       prompt += `\n\n## Workspace Snapshot\n${workspaceSnapshot}`;
     }
 
-    const workflowManifest = context.extra?.workflowManifest;
-    if (typeof workflowManifest === 'string' && workflowManifest.trim().length > 0) {
-      prompt += `\n\n## Persistent Workflow Manifest\n${workflowManifest}`;
+    const taskListManifest = context.extra?.taskListManifest;
+    if (typeof taskListManifest === 'string' && taskListManifest.trim().length > 0) {
+      prompt += `\n\n## Persistent Task List Manifest\n${taskListManifest}`;
     }
 
     // ── Layer 3: Scratchpad (persistent across compaction) ──────────
@@ -770,7 +531,7 @@ export class ContextManager {
     }
 
     // ── Layer 4: User guides (auto-injected, budget-limited) ────────
-    // After the opening steps retain only workflow-critical guides. Selection
+    // After the opening steps retain only task-list-critical guides. Selection
     // and the hard character budget are enforced by the host context builder.
     const stripGuides = step != null && step > 5;
     const rawAutoInjectGuides = context.extra?.autoInjectGuides;
@@ -780,7 +541,7 @@ export class ContextManager {
             (guide) =>
               guide &&
               typeof guide === 'object' &&
-              (guide as { retention?: unknown }).retention === 'workflow',
+              (guide as { retention?: unknown }).retention === 'task_list',
           )
         : rawAutoInjectGuides;
     if (Array.isArray(autoInjectGuides) && autoInjectGuides.length > 0) {
@@ -804,19 +565,28 @@ export class ContextManager {
   /**
    * Phase 1 only: fast rule-based compaction (truncate old tool results).
    * No LLM call. Used proactively at 75% utilization.
-   * Returns true if any changes were made.
+   * Returns the derived view and compaction statistics.
    */
-  compactPhase1(messages: LLMMessage[], currentTurn?: number): boolean {
-    if (!this._beginAutoCompaction(currentTurn)) return false;
-    const before = measureMessageChars(messages);
-    const snapshot = cloneMessages(messages);
-    truncateOldToolResults(messages);
-    const after = measureMessageChars(messages);
-    if (before <= 0 || (before - after) / before < ContextManager.MIN_COMPACTION_YIELD) {
-      messages.splice(0, messages.length, ...snapshot);
-      return false;
+  compactPhase1(
+    messages: readonly LLMMessage[],
+    currentTurn?: number,
+  ): ContextCompactionResult {
+    const sourceView = cloneMessages(messages);
+    if (!this._beginAutoCompaction(currentTurn)) {
+      return { changed: false, truncated: 0, attempted: false, view: sourceView };
     }
-    return true;
+    const before = measureMessageChars(messages);
+    const truncation = truncateOldToolResults(messages);
+    const after = measureMessageChars(truncation.view);
+    if (before <= 0 || (before - after) / before < ContextManager.MIN_COMPACTION_YIELD) {
+      return { changed: false, truncated: 0, attempted: true, view: sourceView };
+    }
+    return {
+      changed: true,
+      truncated: truncation.truncated,
+      attempted: true,
+      view: truncation.view,
+    };
   }
 
   /** Flush and validate durable state before a critical deterministic prune. */
@@ -829,18 +599,17 @@ export class ContextManager {
    * with [entities] section for ID preservation. 1200 token limit.
    */
   async compactWithLLM(
-    messages: LLMMessage[],
+    messages: readonly LLMMessage[],
     charBudget: number,
     currentTurn?: number,
-  ): Promise<boolean> {
-    const result = await this.compactWithLLMResult(messages, charBudget, currentTurn);
-    return result.changed;
+  ): Promise<ContextCompactionResult> {
+    return this.compactWithLLMResult(messages, charBudget, currentTurn);
   }
 
   /** Detailed variant used by the orchestrator to distinguish a real failed
    * recovery attempt from an automatic-compaction throttle no-op. */
   async compactWithLLMResult(
-    messages: LLMMessage[],
+    messages: readonly LLMMessage[],
     charBudget: number,
     currentTurn?: number,
   ): Promise<ContextCompactionResult> {
@@ -848,32 +617,35 @@ export class ContextManager {
   }
 
   private async _compactWithLLM(
-    messages: LLMMessage[],
+    messages: readonly LLMMessage[],
     charBudget: number,
     currentTurn: number | undefined,
     explicit: boolean,
   ): Promise<ContextCompactionResult> {
+    const sourceView = cloneMessages(messages);
     const totalChars = measureMessageChars(messages);
-    if (totalChars <= charBudget) return { changed: false, truncated: 0, attempted: false };
+    if (totalChars <= charBudget) {
+      return { changed: false, truncated: 0, attempted: false, view: sourceView };
+    }
     if (!explicit && !this._beginAutoCompaction(currentTurn)) {
-      return { changed: false, truncated: 0, attempted: false };
+      return { changed: false, truncated: 0, attempted: false, view: sourceView };
     }
     if (!this._checkpointDurableFacts()) {
-      return { changed: false, truncated: 0, attempted: true };
+      return { changed: false, truncated: 0, attempted: true, view: sourceView };
     }
-
-    const snapshot = cloneMessages(messages);
 
     // Run Tier 1 in the same attempt. Calling the public method here would
     // consume the throttle twice and silently skip rule-based pruning.
-    const truncated = truncateOldToolResults(messages);
+    const truncation = truncateOldToolResults(messages);
+    const truncated = truncation.truncated;
+    let view = truncation.view;
 
-    const afterTruncation = measureMessageChars(messages);
+    const afterTruncation = measureMessageChars(view);
     if (afterTruncation <= charBudget) {
-      this._appendPostCompactReload(messages);
+      view = this._appendPostCompactReload(view);
       return this._finishCompactionAttempt(
-        messages,
-        snapshot,
+        view,
+        sourceView,
         totalChars,
         truncated,
         false,
@@ -883,8 +655,8 @@ export class ContextManager {
 
     if (this._llmCompactionDisabled && !explicit) {
       return this._finishCompactionAttempt(
-        messages,
-        snapshot,
+        view,
+        sourceView,
         totalChars,
         truncated,
         false,
@@ -895,9 +667,9 @@ export class ContextManager {
     // Identify boundary between "old" and "recent" content.
     const COMPACT_KEEP_RECENT_CHARS = 80_000;
     let keptChars = 0;
-    let keepFromIndex = messages.length;
-    for (let i = messages.length - 1; i > 0; i--) {
-      const msgChars = messages[i].content.length;
+    let keepFromIndex = view.length;
+    for (let i = view.length - 1; i > 0; i--) {
+      const msgChars = view[i].content.length;
       if (keptChars + msgChars > COMPACT_KEEP_RECENT_CHARS) break;
       keptChars += msgChars;
       keepFromIndex = i;
@@ -905,11 +677,11 @@ export class ContextManager {
 
     // Ensure at least the last 4 complete tool exchange groups intact
     let groupCount = 0;
-    for (let i = messages.length - 1; i > 0; i--) {
+    for (let i = view.length - 1; i > 0; i--) {
       if (
-        messages[i].role === 'assistant' &&
-        messages[i].toolCalls &&
-        messages[i].toolCalls!.length > 0
+        view[i].role === 'assistant' &&
+        view[i].toolCalls &&
+        view[i].toolCalls!.length > 0
       ) {
         groupCount++;
         if (groupCount >= COMPACT_KEEP_RECENT_GROUPS) {
@@ -921,17 +693,17 @@ export class ContextManager {
 
     // Preserve all recent user messages
     for (let i = keepFromIndex - 1; i > 0; i--) {
-      if (messages[i].role === 'user') {
+      if (view[i].role === 'user') {
         keepFromIndex = i;
         break;
       }
     }
 
-    const oldMessages = messages.slice(1, keepFromIndex);
+    const oldMessages = view.slice(1, keepFromIndex);
     if (oldMessages.length === 0) {
       return this._finishCompactionAttempt(
-        messages,
-        snapshot,
+        view,
+        sourceView,
         totalChars,
         truncated,
         false,
@@ -980,10 +752,10 @@ export class ContextManager {
         ) {
           break;
         }
-        keptCompactionLines.unshift(line);
+        keptCompactionLines.push(line);
         keptCompactionChars += line.length;
       }
-      const compactionInput = keptCompactionLines.join('\n');
+      const compactionInput = keptCompactionLines.reverse().join('\n');
 
       const compactionPrompt =
         'You are performing a CONTEXT CHECKPOINT COMPACTION. Create a structured handoff summary.\n\n' +
@@ -1014,30 +786,35 @@ export class ContextManager {
           ? `\n\n--- WORKSPACE CONTEXT RELOAD (fresh from current state) ---\n${reloadBlock}`
           : '';
 
-      messages.splice(1, keepFromIndex - 1, {
-        role: 'user',
-        content:
-          `[Context compacted — ${oldMessages.length} messages summarized by AI]\n` +
-          'The AI assistant previously worked on this task and produced the following summary. ' +
-          'Use this to build on the work already done and avoid duplicating effort.\n\n' +
-          summary +
-          reloadSuffix,
-      });
+      view = [
+        view[0]!,
+        {
+          role: 'user',
+          content:
+            `[Context compacted — ${oldMessages.length} messages summarized by AI]\n` +
+            'The AI assistant previously worked on this task and produced the following summary. ' +
+            'Use this to build on the work already done and avoid duplicating effort.\n\n' +
+            summary +
+            reloadSuffix,
+        },
+        ...view.slice(keepFromIndex),
+      ];
 
       return this._finishCompactionAttempt(
-        messages,
-        snapshot,
+        view,
+        sourceView,
         totalChars,
         truncated,
         true,
         explicit,
       );
-    } catch {
+    } catch (error) {
+      if (error instanceof PostCompactReloadError) throw error.original;
       // LLM summary failed. Keep deterministic pruning only when it produced
-      // a meaningful reduction; otherwise restore the exact prior model view.
+      // a meaningful reduction; otherwise return the original model view.
       return this._finishCompactionAttempt(
-        messages,
-        snapshot,
+        view,
+        sourceView,
         totalChars,
         truncated,
         true,
@@ -1059,56 +836,63 @@ export class ContextManager {
     try {
       const reload = this._opts?.onPostCompact?.();
       return reload && reload.trim().length > 0 ? reload : null;
-    } catch {
-      return null;
+    } catch (error) {
+      throw new PostCompactReloadError(error);
     }
   }
 
-  private _appendPostCompactReload(messages: LLMMessage[]): void {
+  private _appendPostCompactReload(messages: readonly LLMMessage[]): LLMMessage[] {
     const reloadBlock = this._readPostCompactReload();
-    if (!reloadBlock) return;
-    messages.push({
-      role: 'user',
-      content: `--- WORKSPACE CONTEXT RELOAD (fresh from current state) ---\n${reloadBlock}`,
-    });
+    if (!reloadBlock) return [...messages];
+    return [
+      ...messages,
+      {
+        role: 'user',
+        content: `--- WORKSPACE CONTEXT RELOAD (fresh from current state) ---\n${reloadBlock}`,
+      },
+    ];
   }
 
   private _finishCompactionAttempt(
-    messages: LLMMessage[],
-    snapshot: LLMMessage[],
+    view: LLMMessage[],
+    sourceView: LLMMessage[],
     beforeChars: number,
     truncated: number,
     llmAttempted: boolean,
     explicit: boolean,
   ): ContextCompactionResult {
-    const afterChars = measureMessageChars(messages);
+    const afterChars = measureMessageChars(view);
     const yieldRatio = beforeChars > 0 ? (beforeChars - afterChars) / beforeChars : 0;
     const meaningful = yieldRatio >= ContextManager.MIN_COMPACTION_YIELD;
 
     if (!meaningful && !explicit) {
-      messages.splice(0, messages.length, ...snapshot);
       if (llmAttempted) {
         this._lowYieldLlmCompactions += 1;
         if (this._lowYieldLlmCompactions >= 2) this._llmCompactionDisabled = true;
       }
-      return { changed: false, truncated: 0, attempted: true };
+      return { changed: false, truncated: 0, attempted: true, view: sourceView };
     }
 
     if (meaningful && llmAttempted) this._lowYieldLlmCompactions = 0;
-    return { changed: afterChars < beforeChars, truncated, attempted: true };
+    return { changed: afterChars < beforeChars, truncated, attempted: true, view };
   }
 
   /**
    * Trigger context compaction from outside (e.g. tool.compact, UI button).
-   * Phase 1: truncate large tool results in-place (fast, no LLM).
+   * Phase 1: derive truncated tool results (fast, no LLM).
    * Phase 2: LLM-based group summarization if still over budget.
    */
   async compactNow(
-    messages: LLMMessage[] | null,
+    messages: readonly LLMMessage[] | null,
     instructions?: string,
-  ): Promise<{ freedChars: number; messageCount: number; toolCount: number }> {
+  ): Promise<{
+    freedChars: number;
+    messageCount: number;
+    toolCount: number;
+    view: LLMMessage[];
+  }> {
     if (!messages || messages.length === 0) {
-      return { freedChars: 0, messageCount: 0, toolCount: 0 };
+      return { freedChars: 0, messageCount: 0, toolCount: 0, view: [] };
     }
 
     if (instructions) this._compactInstructions = instructions;
@@ -1117,21 +901,20 @@ export class ContextManager {
     const targetBudget = Math.floor(before * 0.5);
     const result = await this._compactWithLLM(messages, targetBudget, undefined, true);
 
-    const after = measureMessageChars(messages);
+    const after = measureMessageChars(result.view);
     return {
       freedChars: Math.max(0, before - after),
-      messageCount: messages.length,
+      messageCount: result.view.length,
       toolCount: result.truncated,
+      view: result.view,
     };
   }
 }
 
-function cloneMessages(messages: LLMMessage[]): LLMMessage[] {
-  return messages.map((message) => ({
-    ...message,
-    toolCalls: message.toolCalls?.map((toolCall) => ({
-      ...toolCall,
-      arguments: { ...toolCall.arguments },
-    })),
-  }));
+function cloneMessage(message: LLMMessage): LLMMessage {
+  return structuredClone(message);
+}
+
+function cloneMessages(messages: readonly LLMMessage[]): LLMMessage[] {
+  return messages.map(cloneMessage);
 }

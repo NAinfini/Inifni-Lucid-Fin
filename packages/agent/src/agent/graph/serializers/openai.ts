@@ -7,19 +7,17 @@
  *
  *  1. Subtract `reserveTokensForOutput` + `toolSchemaTokens` from the budget
  *     before trimming history.
- *  2. Process prompts have their own budget (30k chars), take priority over
- *     history, and sit between the primary system prompt and history.
- *  3. The graph's entity-cache projection (when non-empty) is appended to
+ *  2. The graph's entity-cache projection (when non-empty) is appended to
  *     the primary system prompt. Counted against budget.
- *  4. Fully-stubbed assistant+tool groups (every result === `{"_cached":true}`)
+ *  3. Fully-stubbed assistant+tool groups (every result === `{"_cached":true}`)
  *     are skipped atomically.
- *  5. Fully-cached assistant+tool groups (every tool call's result is still
+ *  4. Fully-cached assistant+tool groups (every tool call's result is still
  *     in the graph's tool-result index) are also skipped.
- *  6. No dangling tool message at the start of the retained window.
- *  7. If the first kept assistant has `toolCalls`, every referenced tool
+ *  5. No dangling tool message at the start of the retained window.
+ *  6. If the first kept assistant has `toolCalls`, every referenced tool
  *     result must be present later — otherwise drop the broken exchange.
- *  8. Tool-name sanitization (`.`→`_`) when `profile.sanitizeToolNames`.
- *  9. Orphan tool messages (no matching earlier assistant call id in the
+ *  7. Tool-name sanitization (`.`→`_`) when `profile.sanitizeToolNames`.
+ *  8. Orphan tool messages (no matching earlier assistant call id in the
  *     retained window) are dropped.
  */
 
@@ -30,7 +28,6 @@ import type { ContextItem, ContextItemId } from '@lucid-fin/contracts';
 import type { ContextGraph } from '../context-graph.js';
 
 const STUB_CONTENT = '{"_cached":true}';
-const PROCESS_PROMPT_BUDGET_CHARS = 30_000;
 
 export interface SerializeInput {
   graph: ContextGraph;
@@ -98,8 +95,8 @@ function messageChars(m: LLMMessage): number {
 
 /**
  * Serialize a single ContextItem to zero or more LLMMessage entries.
- * `guide` items are handled at the top level (prepended); `system-message`
- * items ride inline at their insertion point.
+ * `guide` items are handled at the top level (prepended); all other items
+ * ride inline at their insertion point.
  */
 function itemToMessages(
   item: ContextItem,
@@ -141,8 +138,6 @@ function itemToMessages(
       return [];
 
     case 'system-message':
-      // Emitted inline at original position; process prompts handled
-      // separately at the top level.
       return [{ role: 'system', content: item.content }];
 
     case 'session-summary':
@@ -206,64 +201,63 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
 
   // ── 3. Separate graph items into buckets ─────────────────────
   // Guides → single collected leading system message.
-  // system-message (process prompt) → its own budgeted bucket.
   // Everything else → body (history).
   const guideContent: string[] = [];
-  const processPromptCandidates: ContextItem[] = [];
   const bodyItems: ContextItem[] = [];
 
   for (const item of input.graph) {
     if (item.kind === 'guide') {
       guideContent.push(item.content);
-    } else if (item.kind === 'system-message' && item.content.startsWith('[[process-prompt:')) {
-      processPromptCandidates.push(item);
     } else {
       bodyItems.push(item);
     }
   }
 
-  // ── 4. Process-prompt budget (30k chars cap) ─────────────────
-  // Walk newest first; keep newest prompts while within budget. Preserve
-  // insertion order in final output.
-  const keptProcessPromptIds = new Set<ContextItemId>();
-  let processPromptChars = 0;
-  for (let i = processPromptCandidates.length - 1; i >= 0; i--) {
-    const item = processPromptCandidates[i]!;
-    if (item.kind !== 'system-message') continue;
-    const chars = item.content.length;
-    if (keptProcessPromptIds.size > 0 && processPromptChars + chars > PROCESS_PROMPT_BUDGET_CHARS) {
+  // ── 5. Identify fully-stubbed + fully-cached assistant groups ─
+  // Tool-result positions are indexed once. Provider fallback ids are not
+  // always globally unique, so skips are tracked by body index rather than
+  // by call id.
+  const toolResultsByCallId = new Map<string, Array<{ bodyIndex: number; isStub: boolean }>>();
+  for (let bodyIndex = 0; bodyIndex < bodyItems.length; bodyIndex += 1) {
+    const item = bodyItems[bodyIndex]!;
+    if (item.kind !== 'tool-result' || !item.toolCallId) continue;
+    const content = typeof item.content === 'string' ? item.content : safeStringify(item.content);
+    const results = toolResultsByCallId.get(item.toolCallId) ?? [];
+    results.push({ bodyIndex, isStub: content === STUB_CONTENT });
+    toolResultsByCallId.set(item.toolCallId, results);
+  }
+
+  const firstToolResultAfter = (toolCallId: string, assistantIndex: number) => {
+    const results = toolResultsByCallId.get(toolCallId);
+    if (!results) return undefined;
+    let low = 0;
+    let high = results.length;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (results[mid]!.bodyIndex <= assistantIndex) low = mid + 1;
+      else high = mid;
+    }
+    return results[low];
+  };
+
+  // Only the final non-system exchange can be a trailing assistant group.
+  let trailingAssistantIndex: number | undefined;
+  const trailingToolResultIds: Array<string | undefined> = [];
+  for (let bodyIndex = bodyItems.length - 1; bodyIndex >= 0; bodyIndex -= 1) {
+    const item = bodyItems[bodyIndex]!;
+    if (item.kind === 'system-message' || item.kind === 'guide') continue;
+    if (item.kind === 'tool-result') {
+      trailingToolResultIds.push(item.toolCallId);
       continue;
     }
-    keptProcessPromptIds.add(item.itemId);
-    processPromptChars += chars;
-  }
-  const processPromptTokens = processPromptChars > 0 ? estimateTokens(processPromptChars, cpt) : 0;
-
-  // ── 5. Identify fully-stubbed + fully-cached assistant groups ─
-  // Build a list of (assistant-turn, [tool-result]) groups over bodyItems
-  // in insertion order. A group is fully-stubbed/cached if EVERY tool call
-  // is satisfied by a stub result or a cache-covered call respectively.
-  //
-  // Legacy behavior: a group is ONLY preserved (exempt from skip) when it
-  // is the trailing assistant+tool block — i.e. everything after it is
-  // either the group's own tool-results or system items. A fully-cached
-  // group followed by an injected user/assistant message IS skipped, to
-  // match `shouldPreserveAssistantToolGroup` in message-constructor.
-  const isTrailingAssistantToolGroup = (assistantIdx: number): boolean => {
-    const a = bodyItems[assistantIdx]!;
-    if (a.kind !== 'assistant-turn' || !a.toolCalls) return false;
-    const ownIds = new Set(a.toolCalls.map((tc) => tc.id));
-    for (let k = assistantIdx + 1; k < bodyItems.length; k++) {
-      const after = bodyItems[k]!;
-      // system-message / guide are ignored (they sit alongside without
-      // breaking the trailing property)
-      if (after.kind === 'system-message' || after.kind === 'guide') continue;
-      if (after.kind === 'tool-result' && after.toolCallId && ownIds.has(after.toolCallId))
-        continue;
-      return false;
+    if (item.kind === 'assistant-turn' && item.toolCalls?.length) {
+      const ownIds = new Set(item.toolCalls.map((toolCall) => toolCall.id));
+      if (trailingToolResultIds.every((toolCallId) => toolCallId && ownIds.has(toolCallId))) {
+        trailingAssistantIndex = bodyIndex;
+      }
     }
-    return true;
-  };
+    break;
+  }
 
   // ── 5a. Entity-cache projection (injected into primary system prompt) ─
   // Compute BEFORE the skip loop so `allCached` can gate on what
@@ -275,21 +269,13 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
   const cacheCoveredKeys = cacheProjection.coveredKeys;
   const cacheTokens = cacheContent ? estimateTokens(cacheContent.length, cpt) : 0;
 
-  const skippedToolCallIds = new Set<string>();
+  const skippedBodyIndices = new Set<number>();
   for (let i = 0; i < bodyItems.length; i++) {
     const a = bodyItems[i]!;
     if (a.kind !== 'assistant-turn' || !a.toolCalls || a.toolCalls.length === 0) continue;
 
-    const allStubbed = a.toolCalls.every((tc) => {
-      for (let j = i + 1; j < bodyItems.length; j++) {
-        const r = bodyItems[j]!;
-        if (r.kind !== 'tool-result') continue;
-        if (r.toolCallId !== tc.id) continue;
-        const c = typeof r.content === 'string' ? r.content : safeStringify(r.content);
-        return c === STUB_CONTENT;
-      }
-      return false;
-    });
+    const resultEntries = a.toolCalls.map((toolCall) => firstToolResultAfter(toolCall.id, i));
+    const allStubbed = resultEntries.every((result) => result?.isStub === true);
 
     // A group is fully-cached only when every tool call is a projected-
     // cache category (get/list) AND its identity made it into the
@@ -309,9 +295,15 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
     //  - Trailing fully-stubbed group: STILL SKIPPED (stubs carry no info).
     //  - Non-trailing fully-stubbed/cached group: SKIPPED.
     if (allStubbed) {
-      for (const tc of a.toolCalls) skippedToolCallIds.add(tc.id);
-    } else if (allCached && !isTrailingAssistantToolGroup(i)) {
-      for (const tc of a.toolCalls) skippedToolCallIds.add(tc.id);
+      skippedBodyIndices.add(i);
+      for (const result of resultEntries) {
+        if (result) skippedBodyIndices.add(result.bodyIndex);
+      }
+    } else if (allCached && i !== trailingAssistantIndex) {
+      skippedBodyIndices.add(i);
+      for (const result of resultEntries) {
+        if (result) skippedBodyIndices.add(result.bodyIndex);
+      }
     }
   }
 
@@ -323,25 +315,17 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
   // ── 8. Compute remaining history budget ──────────────────────
   const historyBudgetTokens = Math.max(
     0,
-    totalBudgetTokens - primarySystemTokens - processPromptTokens - toolSchemaTokens - cacheTokens,
+    totalBudgetTokens - primarySystemTokens - toolSchemaTokens - cacheTokens,
   );
   const historyBudgetChars = historyBudgetTokens * cpt;
 
-  // ── 9. Serialize body items (excluding process-prompts handled above) ──
+  // ── 9. Serialize body items ──────────────────────────────────
   // and walk backwards from end to find cut point.
   const bodySerialized: Array<{ msgs: LLMMessage[]; chars: number; item: ContextItem }> = [];
-  for (const item of bodyItems) {
+  for (let bodyIndex = 0; bodyIndex < bodyItems.length; bodyIndex += 1) {
+    const item = bodyItems[bodyIndex]!;
     // Skip fully-stubbed/cached assistant turns and their tool-result followers
-    if (
-      item.kind === 'assistant-turn' &&
-      item.toolCalls?.length &&
-      item.toolCalls.every((tc) => skippedToolCallIds.has(tc.id))
-    ) {
-      continue;
-    }
-    if (item.kind === 'tool-result' && item.toolCallId && skippedToolCallIds.has(item.toolCallId)) {
-      continue;
-    }
+    if (skippedBodyIndices.has(bodyIndex)) continue;
     const msgs = itemToMessages(item, input.graph, new Set<ContextItemId>(), sanitizeToolName);
     const chars = msgs.reduce((s, m) => s + messageChars(m), 0);
     bodySerialized.push({ msgs, chars, item });
@@ -376,13 +360,12 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
   }
 
   // ── 11. Tool-call pairing guard ──────────────────────────────
-  // If first kept assistant has toolCalls, every required (non-skipped) id
+  // If first kept assistant has toolCalls, every required id
   // must have a matching tool-result later in the retained window.
   if (cutIdx < bodySerialized.length) {
     const firstItem = bodySerialized[cutIdx]!.item;
     if (firstItem.kind === 'assistant-turn' && firstItem.toolCalls?.length) {
       const required = new Set(firstItem.toolCalls.map((tc) => tc.id));
-      for (const id of skippedToolCallIds) required.delete(id);
       const present = new Set<string>();
       for (let j = cutIdx + 1; j < bodySerialized.length; j++) {
         const nextItem = bodySerialized[j]!.item;
@@ -417,13 +400,6 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
       ? `${primarySystemContent}\n\n${cacheContent}`
       : primarySystemContent;
     wireMessages.push({ role: 'system', content: systemContent });
-  }
-
-  // Process prompts (kept ones, in original insertion order)
-  for (const pp of processPromptCandidates) {
-    if (keptProcessPromptIds.has(pp.itemId) && pp.kind === 'system-message') {
-      wireMessages.push({ role: 'system', content: pp.content });
-    }
   }
 
   // Body (from cut point to end)
@@ -481,7 +457,6 @@ export function serializeForOpenAI(input: SerializeInput): SerializeResult {
 
   const estimatedTokensUsed =
     primarySystemTokens +
-    processPromptTokens +
     toolSchemaTokens +
     cacheTokens +
     estimateTokens(historyChars, cpt);

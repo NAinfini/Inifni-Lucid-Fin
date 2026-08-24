@@ -24,8 +24,35 @@ vi.mock('../../logger.js', () => ({
   fatal: scopedLogger.fatal,
 }));
 
-import { runningSessions, setLastToolRegistry } from './commander-registry.js';
+import { runningSessions } from './commander-registry.js';
 import { registerCommanderMetaHandlers } from './commander-meta.handlers.js';
+
+function runningSession(runId: string, orchestrator?: Record<string, unknown>) {
+  return {
+    aborted: false,
+    sessionId: 'session-1',
+    defaultCanvasId: 'canvas-1',
+    authorizedCanvasIds: ['canvas-1'],
+    runId,
+    lastActivity: Date.now(),
+    ...(orchestrator ? { orchestrator: orchestrator as never } : {}),
+  };
+}
+
+function durableEngine(
+  answerAskUserDecisionFromUser: ReturnType<typeof vi.fn>,
+  hasPendingDecision = true,
+) {
+  return {
+    listPendingDecisions: vi.fn(() =>
+      hasPendingDecision
+        ? [{ questionId: 'question-1', canvasId: 'canvas-1', taskListId: 'task-list-1' }]
+        : [],
+    ),
+    get: vi.fn(() => ({ metadata: { commanderSessionId: 'session-1' } })),
+    answerAskUserDecisionFromUser,
+  } as never;
+}
 
 describe('registerCommanderMetaHandlers', () => {
   let handlers: Map<string, (...args: unknown[]) => unknown>;
@@ -36,83 +63,77 @@ describe('registerCommanderMetaHandlers', () => {
     handlers = new Map();
   });
 
-  it('logs and marks an active session as aborted when cancel is requested', async () => {
+  it('leaves Run lifecycle controls to the unified dispatcher', () => {
     registerCommanderMetaHandlers({
       handle(channel: string, handler: (...args: unknown[]) => unknown) {
         handlers.set(channel, handler);
       },
     } as never);
 
-    runningSessions.set('canvas-1', { aborted: false, canvasId: 'canvas-1' });
-    const cancel = handlers.get('commander:cancel');
-
-    await expect(cancel?.({}, { canvasId: 'canvas-1' })).resolves.toBeUndefined();
-
-    expect(runningSessions.has('canvas-1')).toBe(false);
-    expect(scopedLogger.info).toHaveBeenCalledWith(
-      'Commander cancel requested',
-      expect.objectContaining({
-        canvasId: 'canvas-1',
-        hasSession: true,
-      }),
-    );
+    expect(handlers.has('commander:cancel')).toBe(false);
+    expect(handlers.has('commander:cancel-step')).toBe(false);
+    expect(handlers.has('commander:inject-message')).toBe(false);
   });
 
-  it('warns and throws when inject-message targets a missing session', async () => {
+  it('waits for cold recovery before delivering decisions, answers, and compaction', async () => {
+    let release!: () => void;
+    const recoveryReady = new Promise<void>((resolve) => { release = resolve; });
+    const confirmTool = vi.fn(() => true);
+    runningSessions.set('run-1', runningSession('run-1', { confirmTool }));
     registerCommanderMetaHandlers({
       handle(channel: string, handler: (...args: unknown[]) => unknown) {
         handlers.set(channel, handler);
       },
-    } as never);
+    } as never, { taskExecutionEngine: durableEngine(vi.fn(), false), recoveryReady });
 
-    const inject = handlers.get('commander:inject-message');
-
-    await expect(inject?.({}, { canvasId: 'canvas-1', message: 'continue' })).rejects.toThrow(
-      'Commander has no active session',
-    );
-
-    expect(scopedLogger.warn).toHaveBeenCalledWith(
-      'Commander message injection requested with no active session',
-      expect.objectContaining({
-        canvasId: 'canvas-1',
-      }),
-    );
+    const pending = handlers.get('commander:tool:decision')?.({}, {
+      sessionId: 'session-1', runId: 'run-1', toolCallId: 'call-1', approved: true,
+    });
+    await Promise.resolve();
+    expect(confirmTool).not.toHaveBeenCalled();
+    release();
+    await pending;
+    expect(confirmTool).toHaveBeenCalledOnce();
   });
 
-  it('logs tool decisions and answers, warning when no active session is available', async () => {
+  it('returns explicit ACKs for active and missing tool sessions', async () => {
     registerCommanderMetaHandlers({
       handle(channel: string, handler: (...args: unknown[]) => unknown) {
         handlers.set(channel, handler);
       },
     } as never);
 
-    const confirmTool = vi.fn();
-    const answerQuestion = vi.fn();
-    runningSessions.set('canvas-1', {
-      aborted: false,
-      canvasId: 'canvas-1',
-      orchestrator: {
+    const confirmTool = vi.fn(() => true);
+    const answerQuestion = vi.fn(() => true);
+    const hasPendingQuestion = vi.fn(() => true);
+    runningSessions.set(
+      'run-1',
+      runningSession('run-1', {
         confirmTool,
         answerQuestion,
-      } as never,
-    });
+        hasPendingQuestion,
+      }),
+    );
 
     const decide = handlers.get('commander:tool:decision');
     const answer = handlers.get('commander:tool:answer');
 
     await expect(
-      decide?.({}, { canvasId: 'canvas-1', toolCallId: 'call-1', approved: true }),
-    ).resolves.toBeUndefined();
+      decide?.(
+        {},
+        { sessionId: 'session-1', runId: 'run-1', toolCallId: 'call-1', approved: true },
+      ),
+    ).resolves.toEqual({ accepted: true, delivery: 'active_run' });
     await expect(
-      answer?.({}, { canvasId: 'canvas-1', toolCallId: 'call-2', answer: 'yes' }),
-    ).resolves.toBeUndefined();
+      answer?.({}, { sessionId: 'session-1', runId: 'run-1', toolCallId: 'call-2', answer: 'yes' }),
+    ).resolves.toEqual({ accepted: true, delivery: 'active_run' });
 
     expect(confirmTool).toHaveBeenCalledWith('call-1', true);
     expect(answerQuestion).toHaveBeenCalledWith('call-2', 'yes');
     expect(scopedLogger.info).toHaveBeenCalledWith(
       'Commander tool decision received',
       expect.objectContaining({
-        canvasId: 'canvas-1',
+        sessionId: 'session-1',
         toolCallId: 'call-1',
         approved: true,
       }),
@@ -120,7 +141,7 @@ describe('registerCommanderMetaHandlers', () => {
     expect(scopedLogger.info).toHaveBeenCalledWith(
       'Commander tool answer received',
       expect.objectContaining({
-        canvasId: 'canvas-1',
+        sessionId: 'session-1',
         toolCallId: 'call-2',
       }),
     );
@@ -128,74 +149,205 @@ describe('registerCommanderMetaHandlers', () => {
     runningSessions.clear();
 
     await expect(
-      decide?.({}, { canvasId: 'canvas-2', toolCallId: 'call-3', approved: false }),
-    ).resolves.toBeUndefined();
+      decide?.(
+        {},
+        { sessionId: 'session-2', runId: 'run-2', toolCallId: 'call-3', approved: false },
+      ),
+    ).resolves.toEqual({ accepted: false, code: 'no_active_session' });
     await expect(
-      answer?.({}, { canvasId: 'canvas-2', toolCallId: 'call-4', answer: 'no' }),
-    ).resolves.toBeUndefined();
+      answer?.({}, { sessionId: 'session-2', runId: 'run-2', toolCallId: 'call-4', answer: 'no' }),
+    ).resolves.toEqual({ accepted: false, code: 'no_active_session' });
 
     expect(scopedLogger.warn).toHaveBeenCalledWith(
       'Commander tool decision received with no active session',
       expect.objectContaining({
-        canvasId: 'canvas-2',
+        sessionId: 'session-2',
         toolCallId: 'call-3',
       }),
     );
     expect(scopedLogger.warn).toHaveBeenCalledWith(
       'Commander tool answer received with no active session',
       expect.objectContaining({
-        canvasId: 'canvas-2',
+        sessionId: 'session-2',
         toolCallId: 'call-4',
       }),
     );
   });
 
-  it('returns tool list and search results with request logs', async () => {
+  it('rejects stale and non-pending tool calls with explicit ACKs', async () => {
     registerCommanderMetaHandlers({
       handle(channel: string, handler: (...args: unknown[]) => unknown) {
         handlers.set(channel, handler);
       },
     } as never);
-
-    const tools = [
-      { name: 'canvas.createNodes', description: 'Add node', tags: ['canvas'], tier: 1 },
-      { name: 'guide.get', description: 'Fetch guide', tags: ['guide'], tier: 0 },
-    ];
-    setLastToolRegistry({
-      list: () => tools,
-    } as never);
-
-    const list = handlers.get('commander:tool-list');
-    const search = handlers.get('commander:tool-search');
-
-    await expect(list?.({})).resolves.toEqual(tools);
-    await expect(search?.({}, { query: 'guide' })).resolves.toEqual([
-      { name: 'guide.get', description: 'Fetch guide' },
-    ]);
-
-    expect(scopedLogger.info).toHaveBeenCalledWith(
-      'Commander tool list requested',
-      expect.objectContaining({
-        toolCount: 2,
-      }),
+    const confirmTool = vi.fn(() => false);
+    const answerQuestion = vi.fn(() => false);
+    const hasPendingQuestion = vi.fn(() => false);
+    runningSessions.set(
+      'run-current',
+      runningSession('run-current', { confirmTool, answerQuestion, hasPendingQuestion }),
     );
-    expect(scopedLogger.info).toHaveBeenCalledWith(
-      'Commander tool search requested',
-      expect.objectContaining({
-        query: 'guide',
-        resultCount: 1,
-      }),
-    );
+
+    await expect(
+      handlers.get('commander:tool:decision')?.(
+        {},
+        { sessionId: 'session-1', runId: 'run-stale', toolCallId: 'call-1', approved: true },
+      ),
+    ).resolves.toEqual({ accepted: false, code: 'stale_run' });
+    await expect(
+      handlers.get('commander:tool:decision')?.(
+        {},
+        { sessionId: 'session-1', runId: 'run-current', toolCallId: 'call-1', approved: true },
+      ),
+    ).resolves.toEqual({ accepted: false, code: 'not_pending' });
+    await expect(
+      handlers.get('commander:tool:answer')?.(
+        {},
+        { sessionId: 'session-1', runId: 'run-current', toolCallId: 'call-2', answer: 'yes' },
+      ),
+    ).resolves.toEqual({ accepted: false, code: 'not_pending' });
+    expect(confirmTool).toHaveBeenCalledTimes(1);
+    expect(answerQuestion).not.toHaveBeenCalled();
   });
 
-  it('persists a workflow-bound answer without an active Commander and marks recovery required', async () => {
+  it('ACKs a persisted Task List answer only after scheduling its continuation', async () => {
     const answerAskUserDecisionFromUser = vi.fn(() => ({
       answered: true,
       decision: {
         id: 'decision-1',
-        workflowRunId: 'workflow-1',
-        status: 'recovery_required',
+        taskListId: 'task-list-1',
+        status: 'answered',
       },
+    }));
+    const requestTaskContinuation = vi.fn();
+    registerCommanderMetaHandlers(
+      {
+        handle(channel: string, handler: (...args: unknown[]) => unknown) {
+          handlers.set(channel, handler);
+        },
+      } as never,
+      {
+        taskExecutionEngine: durableEngine(answerAskUserDecisionFromUser),
+        requestTaskContinuation,
+      },
+    );
+
+    await expect(
+      handlers.get('commander:tool:answer')?.(
+        {},
+        { sessionId: 'session-1', runId: 'run-1', toolCallId: 'question-1', answer: 'Analog' },
+      ),
+    ).resolves.toEqual({
+      accepted: true,
+      delivery: 'task_list_continuation',
+      taskListId: 'task-list-1',
+    });
+
+    expect(answerAskUserDecisionFromUser).toHaveBeenCalledWith({
+      canvasId: 'canvas-1',
+      questionId: 'question-1',
+      answer: 'Analog',
+      status: 'answered',
+    });
+    expect(requestTaskContinuation).toHaveBeenCalledWith(
+      'task-list-1',
+      'durable-question-answered',
+    );
+  });
+
+  it('does not persist a durable answer when the active question is no longer pending', async () => {
+    const answerAskUserDecisionFromUser = vi.fn();
+    const answerQuestion = vi.fn(() => false);
+    const hasPendingQuestion = vi.fn(() => false);
+    runningSessions.set('run-1', runningSession('run-1', { answerQuestion, hasPendingQuestion }));
+    registerCommanderMetaHandlers(
+      {
+        handle(channel: string, handler: (...args: unknown[]) => unknown) {
+          handlers.set(channel, handler);
+        },
+      } as never,
+      { taskExecutionEngine: durableEngine(answerAskUserDecisionFromUser, false) },
+    );
+
+    await expect(
+      handlers.get('commander:tool:answer')?.(
+        {},
+        { sessionId: 'session-1', runId: 'run-1', toolCallId: 'question-1', answer: 'Analog' },
+      ),
+    ).resolves.toEqual({ accepted: false, code: 'not_pending' });
+
+    expect(answerAskUserDecisionFromUser).not.toHaveBeenCalled();
+    expect(answerQuestion).not.toHaveBeenCalled();
+  });
+
+  it('does not consume a durable answer when no run or continuation can receive it', async () => {
+    const answerAskUserDecisionFromUser = vi.fn();
+    registerCommanderMetaHandlers(
+      {
+        handle(channel: string, handler: (...args: unknown[]) => unknown) {
+          handlers.set(channel, handler);
+        },
+      } as never,
+      { taskExecutionEngine: durableEngine(answerAskUserDecisionFromUser) },
+    );
+
+    await expect(
+      handlers.get('commander:tool:answer')?.(
+        {},
+        { sessionId: 'session-1', runId: 'run-1', toolCallId: 'question-1', answer: 'Analog' },
+      ),
+    ).resolves.toEqual({ accepted: false, code: 'no_active_session' });
+
+    expect(answerAskUserDecisionFromUser).not.toHaveBeenCalled();
+  });
+
+  it('schedules Task List continuation when an active resolver no longer accepts a durable answer', async () => {
+    const answerAskUserDecisionFromUser = vi.fn(() => ({
+      answered: true,
+      decision: {
+        id: 'decision-1',
+        taskListId: 'task-list-1',
+        status: 'answered',
+      },
+    }));
+    const requestTaskContinuation = vi.fn();
+    const answerQuestion = vi.fn(() => false);
+    const hasPendingQuestion = vi.fn(() => false);
+    runningSessions.set('run-1', runningSession('run-1', { answerQuestion, hasPendingQuestion }));
+    registerCommanderMetaHandlers(
+      {
+        handle(channel: string, handler: (...args: unknown[]) => unknown) {
+          handlers.set(channel, handler);
+        },
+      } as never,
+      {
+        taskExecutionEngine: durableEngine(answerAskUserDecisionFromUser),
+        requestTaskContinuation,
+      },
+    );
+
+    await expect(
+      handlers.get('commander:tool:answer')?.(
+        {},
+        { sessionId: 'session-1', runId: 'run-1', toolCallId: 'question-1', answer: 'Analog' },
+      ),
+    ).resolves.toEqual({
+      accepted: true,
+      delivery: 'task_list_continuation',
+      taskListId: 'task-list-1',
+    });
+
+    expect(answerQuestion).toHaveBeenCalledWith('question-1', 'Analog');
+    expect(requestTaskContinuation).toHaveBeenCalledWith(
+      'task-list-1',
+      'durable-question-answered',
+    );
+  });
+
+  it('returns already_resolved for a durable answer that was previously accepted', async () => {
+    const answerAskUserDecisionFromUser = vi.fn(() => ({
+      answered: false,
+      decision: { id: 'decision-1', taskListId: 'task-list-1', status: 'answered' },
     }));
     registerCommanderMetaHandlers(
       {
@@ -203,30 +355,17 @@ describe('registerCommanderMetaHandlers', () => {
           handlers.set(channel, handler);
         },
       } as never,
-      { workflowEngine: { answerAskUserDecisionFromUser } as never },
+      {
+        taskExecutionEngine: durableEngine(answerAskUserDecisionFromUser),
+        requestTaskContinuation: vi.fn(),
+      },
     );
 
     await expect(
       handlers.get('commander:tool:answer')?.(
         {},
-        { canvasId: 'canvas-1', toolCallId: 'question-1', answer: 'Analog' },
+        { sessionId: 'session-1', runId: 'run-1', toolCallId: 'question-1', answer: 'Analog' },
       ),
-    ).resolves.toBeUndefined();
-
-    expect(answerAskUserDecisionFromUser).toHaveBeenCalledWith({
-      canvasId: 'canvas-1',
-      questionId: 'question-1',
-      answer: 'Analog',
-      status: 'recovery_required',
-    });
-    expect(scopedLogger.warn).toHaveBeenCalledWith(
-      'Workflow decision answer persisted without an active Commander continuation',
-      expect.objectContaining({
-        canvasId: 'canvas-1',
-        workflowRunId: 'workflow-1',
-        questionId: 'question-1',
-        recoveryRequired: true,
-      }),
-    );
+    ).resolves.toEqual({ accepted: false, code: 'already_resolved' });
   });
 });

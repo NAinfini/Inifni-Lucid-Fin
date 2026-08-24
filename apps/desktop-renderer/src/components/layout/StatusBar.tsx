@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
 import type { RootState } from '../../store/index.js';
-import { Activity, Check, Loader2 } from 'lucide-react';
+import { Check, Loader2 } from 'lucide-react';
 import { t } from '../../i18n.js';
 import { getAPI } from '../../utils/api.js';
 import { getCanvasSaveStatus } from '../../store/middleware/persist.js';
@@ -12,7 +12,6 @@ export function StatusBar() {
     if (!id) return null;
     return s.canvas.canvases.entities[id]?.name ?? null;
   });
-  const { activeCount } = useSelector((s: RootState) => s.jobs);
   const [version, setVersion] = useState('');
   const [saveStatus, setSaveStatus] = useState<{ lastSavedAt: number; pending: boolean }>({
     lastSavedAt: 0,
@@ -55,12 +54,6 @@ export function StatusBar() {
         )}
       </div>
       <div className="flex items-center gap-3">
-        {activeCount > 0 && (
-          <span className="flex items-center gap-1">
-            <Activity className="w-3 h-3 text-primary animate-pulse" />
-            {activeCount} {t('statusBar.jobsRunning')}
-          </span>
-        )}
         <span>Lucid Fin {version ? `v${version}` : ''}</span>
       </div>
     </footer>

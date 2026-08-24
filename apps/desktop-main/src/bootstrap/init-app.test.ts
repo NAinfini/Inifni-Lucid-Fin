@@ -5,7 +5,8 @@ import {
   type LLMAdapter,
 } from '@lucid-fin/contracts';
 import type { Keychain } from '@lucid-fin/storage';
-import { AdapterRegistry, listBuiltinLLMProviderPresets } from '@lucid-fin/adapters-ai';
+import { AdapterRegistry, LLMRegistry, listBuiltinLLMProviderPresets } from '@lucid-fin/adapters-ai';
+import type { ProviderOAuthManager } from '../oauth/provider-oauth-manager.js';
 
 const logger = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock('../logger.js', () => ({
 import {
   createAdapterRegistry,
   createLLMRegistry,
+  registerOAuthAdapters,
   restoreAdapterKeys,
   selectConfiguredLLMAdapter,
 } from './init-app.js';
@@ -126,6 +128,25 @@ describe('createLLMRegistry', () => {
         .map((preset) => preset.id)
         .sort(),
     );
+  });
+});
+
+describe('registerOAuthAdapters', () => {
+  it('registers ChatGPT OAuth only and leaves Google providers on API-key runtimes', () => {
+    const adapterRegistry = new AdapterRegistry();
+    const llmRegistry = new LLMRegistry();
+    const manager = {
+      getCodexRuntime: vi.fn(() => ({})),
+      getGoogleAuthorizationHeaders: vi.fn(),
+    } as unknown as ProviderOAuthManager;
+
+    registerOAuthAdapters(manager, adapterRegistry, llmRegistry);
+
+    expect(adapterRegistry.list().map((adapter) => adapter.id)).toEqual(['codex-imagegen']);
+    expect(llmRegistry.list().map((adapter) => adapter.id)).toEqual([
+      'chatgpt-oauth',
+      'chatgpt-vision-oauth',
+    ]);
   });
 });
 

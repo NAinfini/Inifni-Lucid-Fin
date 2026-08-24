@@ -5,15 +5,16 @@ export * from './dto/equipment.js';
 export * from './dto/location.js';
 export * from './dto/asset.js';
 export * from './dto/folder.js';
-export * from './dto/job.js';
+export * from './dto/generation.js';
 export * from './dto/resolution.js';
 export * from './dto/adapter.js';
 export * from './dto/provider-profile.js';
-export * from './dto/timeline.js';
+export * from './dto/ordered-delivery.js';
 export * from './dto/script.js';
 export * from './dto/color-style.js';
 export * from './dto/visual-style.js';
-export * from './dto/workflow.js';
+export * from './dto/task-execution.js';
+export * from './dto/prompt-assembly.js';
 export * from './dto/canvas.js';
 export * from './dto/presets/index.js';
 export * from './llm-provider.js';
@@ -32,19 +33,43 @@ export * from './error.js';
 export type { IpcChannelMap, IpcStoredSession, IpcSnapshotMeta, IpcProcessPrompt } from './ipc.js';
 export type { IpcChannel, IpcRequest, IpcResponse } from './ipc-helpers.js';
 export type {
-  CommanderChatRequest,
+  CommanderStartRequest,
+  CommanderStartResponse,
+  CommanderRunIntent,
+  CommanderAttachmentInput,
+  CommanderAttachmentRole,
+  CommanderRunAttachment,
+  CommanderRunRecord,
+  CommanderRunStatus,
+  CommanderRunControlAction,
+  CommanderRunControlRequest,
+  CommanderRunControlResponse,
+  CommanderRunTreeRequest,
+  CommanderRunTreeResponse,
+  PublicContextItem,
+  CommanderContextCacheRun,
+  CommanderContextCache,
+  CommanderRunGetRequest,
+  CommanderRunGetResponse,
+  CommanderEventsHydrateRequest,
+  CommanderEventsHydrateResponse,
   CommanderStreamPayload,
-  CommanderIntentPayload,
-  CommanderEvidencePayload,
-  CommanderBlockerPayload,
-  CommanderExitDecisionPayload,
   CommanderProcessBehaviorSettings,
   CommanderPromptGuide,
   CommanderPromptGuideRetention,
   CommanderQualityGateBehavior,
-  CommanderWorkflowGuidePhase,
+  CommanderToolActionResponse,
+  CommanderToolAnswerRequest,
+  CommanderToolAnswerResponse,
+  CommanderToolDecisionRequest,
+  CommanderToolDecisionResponse,
+  CommanderTaskListGuidePhase,
 } from './ipc/channels/batch-09.js';
 export { COMMANDER_GUIDE_LIMITS } from './ipc/channels/batch-09.js';
+export type {
+  CanvasDeliveryUpdateRequest,
+  CanvasDeliveryUpdateResponse,
+} from './ipc/channels/batch-07.js';
 
 // ── Phase A: Type Foundation ───────────────────────────────────
 
@@ -57,19 +82,16 @@ export type {
   LocationId,
   ProviderId,
   AdapterId,
-  JobId,
   SessionId,
-  WorkflowRunId,
-  WorkflowStageId,
-  WorkflowTaskId,
+  TaskListId,
+  TaskId,
   SnapshotId,
   AssetHash,
+  AssetEntryId,
   PresetId,
   ShotTemplateId,
   ProcessPromptKey,
   PromptCode,
-  SeriesId,
-  EpisodeId,
   IpcInvocationId,
   ToolKey,
   // IpcChannelBrand — not exported yet; Phase B replaces old IpcChannel
@@ -123,8 +145,7 @@ export type {
   AnyChannelType,
 } from './types/channel-types.js';
 
-// Tool definition type shape (pure type — factory in contracts-parse)
-export type { ToolDefinitionType, UiEffect } from './types/tool-types.js';
+export type { UiEffect } from './types/tool-types.js';
 
 // Table definition type shape (pure type — factory in contracts-parse)
 export type { TableDef, ColumnDef } from './types/table-types.js';
@@ -147,13 +168,6 @@ export type { TableDef, ColumnDef } from './types/table-types.js';
 // produce malformed IPC payloads that fail schema validation at runtime.
 export type { LucidAPI, LucidAPIInfrastructure } from './ipc/lucid-api.generated.js';
 
-// ── Phase C-1: Tool catalog aggregator (pure types) ────────────
-// `ToolKey` is re-exported as `CatalogToolKey` to avoid colliding with the
-// legacy branded `ToolKey` above. Consumers that want the agent namespace
-// should import from '@lucid-fin/contracts/agent' (via dist) or pick names
-// explicitly. The branded `ToolKey` is slated for removal in a later phase.
-export type { ToolCatalog, ProcessCategory } from './agent/tool-catalog-type.js';
-export type { ToolKey as CatalogToolKey } from './agent/tool-catalog-type.js';
 export { ENTITY_REFRESH_TOOL_ENTITY } from './agent/entity-refresh-map.js';
 
 // ── Commander wire envelope (v2-only) ──────────────────────────
@@ -174,12 +188,38 @@ export type {
   TimelineEvent,
   TimelineEventKind,
   TimelineExitDecisionMeta,
+  RunResourceBudget,
+  ResourceAmount,
+  ResourceRemaining,
+  RunResourceUsage,
+  RunResourceRemainder,
+  RunResourceClock,
+  RunBlocker,
+  ResourceStateCause,
   PhaseNoteCode,
   RunStartEvent,
+  RunPausedEvent,
+  RunResumedEvent,
+  CommanderWorkType,
+  CatalogFrozenEvent,
+  RunCapabilityCatalogEntry,
   RunEndEvent,
   UserMessageEvent,
   AssistantTextEvent,
-  ThinkingEvent,
+  PublicProgressEvent,
+  ResourceUsageEvent,
+  ResourceStateEvent,
+  PublicToolDetailValue,
+  PublicToolDetails,
+  PublicChecklistArtifact,
+  PublicAssetArtifact,
+  PublicCanvasNodeArtifact,
+  PublicToolArtifact,
+  ContextAuthority,
+  ContextFactRelation,
+  PublicContextFact,
+  ContextFactSource,
+  ContextFactEvent,
   ToolCallEvent,
   ToolResultEvent,
   ToolConfirmPromptEvent,

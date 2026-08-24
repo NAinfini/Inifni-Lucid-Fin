@@ -1,4 +1,4 @@
-import type { GenerationResult } from '../dto/job.js';
+import type { GenerationResult } from '../dto/generation.js';
 
 export interface JobProgressEvent {
   jobId: string;

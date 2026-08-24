@@ -1,11 +1,13 @@
+import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { Virtuoso } from 'react-virtuoso';
 import {
   Check,
   ChevronDown,
   Flame,
   Image as ImageIcon,
+  Layers,
   Lock,
-  MapPin,
   Paperclip,
   Pencil,
   Play,
@@ -24,7 +26,12 @@ import {
   removeQueuedMessage,
   dequeueMessage,
   enqueueMessage,
+  selectActiveCommanderSession,
+  selectMessageQueue,
+  selectMessageQueueCursor,
+  selectMessageQueueFirstIndex,
 } from '../../../store/slices/commander.js';
+import { selectCanvasMetadataList } from '../../../store/slices/canvas/canvas-selectors.js';
 import { useCommander } from '../../../hooks/useCommander.js';
 import { cn } from '../../../lib/utils.js';
 import { getAPI } from '../../../utils/api.js';
@@ -34,12 +41,13 @@ import { useCommanderCtx } from './CommanderContext.js';
 interface FileAttachment {
   type: 'file';
   name: string;
-  hash: string;
+  assetEntryId: string;
 }
 interface NodeAttachment {
   type: 'node';
   id: string;
   title: string;
+  canvasId: string;
 }
 export type Attachment = FileAttachment | NodeAttachment;
 
@@ -70,37 +78,59 @@ export function CommanderInputBar() {
     executeSlashCommand,
     SLASH_COMMANDS,
     canvasNodes,
+    viewedCanvasId,
     userScrolledUpRef,
     isBackendReady,
+    submitMessage,
     t,
   } = useCommanderCtx();
   const dispatch = useDispatch();
-  const { sendMessage, cancel, isStreaming } = useCommander();
+  const { sendIntent, cancel, isStreaming } = useCommander();
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [extraCanvasIds, setExtraCanvasIds] = useState<string[]>([]);
   const providerId = useSelector((state: RootState) => state.commander.providerId);
   const permissionMode = useSelector((state: RootState) => state.commander.permissionMode);
-  const messageQueue = useSelector(
-    (state: RootState) => state.commander.messageQueue,
-    (a, b) => a === b,
-  );
+  const activeSession = useSelector(selectActiveCommanderSession);
+  const activeSessionId = activeSession?.id ?? null;
+  const defaultCanvasId = activeSession?.defaultCanvasId ?? null;
+  const canvases = useSelector(selectCanvasMetadataList);
+  const messageQueue = useSelector(selectMessageQueue, (a, b) => a === b);
+  const messageQueueCursor = useSelector(selectMessageQueueCursor);
+  const messageQueueFirstIndex = useSelector(selectMessageQueueFirstIndex);
   const llmSettings = useSelector((state: RootState) => state.settings.llm);
 
   const providers = llmSettings?.providers ?? [];
   const activeProvider = providers.find((p) => p.id === providerId) ?? providers[0];
   const inputHasText = input.trim().length > 0;
+  const queuedMessageCount = messageQueue.length - messageQueueCursor;
+  const firstQueuedMessageIndex = messageQueueFirstIndex + messageQueueCursor;
+  const extraCanvasOptions = canvases.filter(
+    (canvas) => canvas.id !== defaultCanvasId && canvas.archivedAt === undefined,
+  );
+  const selectedExtraCanvases = extraCanvasOptions.filter((canvas) =>
+    extraCanvasIds.includes(canvas.id),
+  );
+  const selectedExtraCanvasIds = selectedExtraCanvases.map((canvas) => canvas.id);
+
+  useEffect(() => setExtraCanvasIds([]), [activeSessionId, defaultCanvasId]);
 
   const handleAttachFile = async () => {
     const api = getAPI();
     if (!api) return;
-    const ref = (await api.asset.pickFile('image')) as { hash: string; name?: string } | null;
+    const ref = await api.assetEntry.pickFile('image');
     if (ref)
       setAttachments((prev) => [
         ...prev,
-        { type: 'file', name: ref.name ?? ref.hash.slice(0, 8), hash: ref.hash },
+        { type: 'file', name: ref.displayName, assetEntryId: ref.id },
       ]);
   };
 
   const handleAttachNode = (node: { id: string; title: string }) => {
-    setAttachments((prev) => [...prev, { type: 'node', id: node.id, title: node.title }]);
+    if (!viewedCanvasId) return;
+    setAttachments((prev) => [
+      ...prev,
+      { type: 'node', id: node.id, title: node.title, canvasId: viewedCanvasId },
+    ]);
     setNodePickerOpen(false);
   };
 
@@ -110,41 +140,82 @@ export function CommanderInputBar() {
 
   const handleAddToQueue = () => {
     if (!isBackendReady) return;
+    if (attachments.length > 0) return;
     const value = input.trim();
     if (!value) return;
-    dispatch(enqueueMessage(value));
+    if (!activeSessionId) return;
+    dispatch(
+      enqueueMessage({
+        sessionId: activeSessionId,
+        content: value,
+        extraCanvasIds: selectedExtraCanvasIds.length > 0 ? selectedExtraCanvasIds : undefined,
+      }),
+    );
     setInput('');
-    setAttachments([]);
+    setExtraCanvasIds([]);
   };
+
+  const attachedResources = () => ({
+    attachments: attachments.flatMap((attachment) =>
+      attachment.type === 'file'
+        ? [{ assetEntryId: attachment.assetEntryId, role: 'reference' as const }]
+        : [],
+    ),
+    selectedNodes: attachments.flatMap((attachment) =>
+      attachment.type === 'node' ? [{ canvasId: attachment.canvasId, nodeId: attachment.id }] : [],
+    ),
+    extraCanvasIds: selectedExtraCanvasIds,
+  });
 
   const handleSendNow = async () => {
     if (!isBackendReady) return;
     const value = input.trim();
     userScrolledUpRef.current = false;
-    if (value) {
-      if (value.startsWith('/')) {
-        const cmdName = value.slice(1).toLowerCase();
-        const matched = SLASH_COMMANDS.find((cmd) => cmd.name === cmdName);
-        if (matched) {
-          void executeSlashCommand(matched.name);
-          return;
+    setSubmissionError(null);
+    try {
+      if (value) {
+        if (value.startsWith('/')) {
+          const cmdName = value.slice(1).toLowerCase();
+          const matched = SLASH_COMMANDS.find((cmd) => cmd.name === cmdName);
+          if (matched) {
+            void executeSlashCommand(matched.name);
+            return;
+          }
+        }
+        const accepted = await submitMessage(value, attachedResources());
+        if (accepted) {
+          setInput('');
+          setAttachments([]);
+          setExtraCanvasIds([]);
+        }
+      } else if (queuedMessageCount > 0) {
+        const next = messageQueue[messageQueueCursor];
+        const accepted = next.intent
+          ? await sendIntent(next.intent, {
+              ...attachedResources(),
+              extraCanvasIds: next.extraCanvasIds,
+            })
+          : await submitMessage(next.content, {
+              ...attachedResources(),
+              extraCanvasIds: next.extraCanvasIds,
+            });
+        if (accepted) {
+          if (activeSessionId) dispatch(dequeueMessage(activeSessionId));
+          setAttachments([]);
+          setExtraCanvasIds([]);
         }
       }
-      setInput('');
-      setAttachments([]);
-      await sendMessage(value);
-    } else if (messageQueue.length > 0) {
-      const next = messageQueue[0];
-      dispatch(dequeueMessage());
-      await sendMessage(next.content);
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : String(error));
     }
   };
 
   const handlePushQueueItem = async (index: number) => {
-    const msg = messageQueue[index];
-    if (!msg || !isStreaming) return;
-    dispatch(removeQueuedMessage(index));
-    await sendMessage(msg.content);
+    const msg = messageQueue[messageQueueCursor + index];
+    if (!msg || msg.intent || !isStreaming) return;
+    if (!activeSessionId) return;
+    const accepted = await submitMessage(msg.content, { extraCanvasIds: msg.extraCanvasIds });
+    if (accepted) dispatch(removeQueuedMessage({ sessionId: activeSessionId, index }));
   };
 
   const fmtK = (n: number) => {
@@ -156,20 +227,16 @@ export function CommanderInputBar() {
   };
 
   return (
-    <footer className="relative shrink-0 border-t border-border/60">
+    <footer className="relative shrink-0 border-t border-border/60 bg-card/95">
       {/* Attachment preview chips */}
-      {attachments.length > 0 && (
+      {(attachments.length > 0 || selectedExtraCanvases.length > 0) && (
         <div className="flex flex-wrap gap-1 px-3 pt-2">
           {attachments.map((att, i) => (
             <span
               key={i}
               className="inline-flex items-center gap-1 rounded bg-muted/80 px-1.5 py-0.5 text-[10px]"
             >
-              {att.type === 'file' ? (
-                <Paperclip className="h-2.5 w-2.5" />
-              ) : (
-                <MapPin className="h-2.5 w-2.5" />
-              )}
+              <Paperclip className="h-2.5 w-2.5" />
               {att.type === 'file' ? att.name : att.title}
               <button
                 type="button"
@@ -181,98 +248,162 @@ export function CommanderInputBar() {
               </button>
             </span>
           ))}
+          {selectedExtraCanvases.map((canvas) => (
+            <span
+              key={canvas.id}
+              className="inline-flex max-w-full items-center gap-1 rounded bg-muted/80 px-1.5 py-0.5 text-[10px]"
+            >
+              <Layers aria-hidden="true" className="h-2.5 w-2.5 shrink-0" />
+              <span className="max-w-40 truncate">
+                {t('commander.canvasContext')}: {canvas.name}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setExtraCanvasIds((ids) => ids.filter((canvasId) => canvasId !== canvas.id))
+                }
+                aria-label={`${t('action.remove')} ${canvas.name}`}
+                className="shrink-0 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                <X aria-hidden="true" className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
         </div>
       )}
 
       {/* Message Queue */}
-      {messageQueue.length > 0 && (
+      {queuedMessageCount > 0 && (
         <div className="mx-2 mb-1 rounded-lg border border-border/60 bg-muted/30 text-xs">
           <div className="flex items-center justify-between px-2 py-1 text-[10px] text-muted-foreground border-b border-border/40">
             <span>
-              {t('commander.queue')} ({messageQueue.length})
+              {t('commander.queue')} ({queuedMessageCount})
             </span>
             <button
               type="button"
-              onClick={() => dispatch(clearQueue())}
+              onClick={() => activeSessionId && dispatch(clearQueue(activeSessionId))}
               className="text-muted-foreground hover:text-destructive"
               title={t('commander.clearQueue')}
             >
               {t('commander.clearQueue')}
             </button>
           </div>
-          {messageQueue.map((msg, i) => (
-            <div
-              key={msg.id}
-              className="flex items-center gap-1 px-2 py-1 border-b border-border/20 last:border-0"
-            >
-              {editingQueueIndex === i ? (
-                <>
-                  <input
-                    className="flex-1 bg-background rounded px-1 py-0.5 text-xs outline-none border border-primary/40"
-                    value={editingQueueText}
-                    onChange={(e) => setEditingQueueText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        dispatch(editQueuedMessage({ index: i, content: editingQueueText }));
-                        setEditingQueueIndex(null);
-                      } else if (e.key === 'Escape') {
-                        setEditingQueueIndex(null);
-                      }
-                    }}
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      dispatch(editQueuedMessage({ index: i, content: editingQueueText }));
-                      setEditingQueueIndex(null);
-                    }}
-                    className="text-primary hover:opacity-70"
-                  >
-                    <Check className="h-3 w-3" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <span className="flex-1 truncate text-muted-foreground">
-                    {i + 1}. {msg.content}
-                  </span>
-                  {isStreaming && (
-                    <button
-                      type="button"
-                      onClick={() => void handlePushQueueItem(i)}
-                      className="text-primary hover:opacity-70"
-                      title={t('commander.pushToSession')}
-                    >
-                      <SendHorizonal className="h-3 w-3" />
-                    </button>
+          <Virtuoso
+            style={{ height: Math.min(192, queuedMessageCount * 30) }}
+            totalCount={queuedMessageCount}
+            firstItemIndex={firstQueuedMessageIndex}
+            fixedItemHeight={30}
+            computeItemKey={(index) => messageQueue[index - messageQueueFirstIndex]!.id}
+            itemContent={(index) => {
+              const queueOffset = index - firstQueuedMessageIndex;
+              const msg = messageQueue[index - messageQueueFirstIndex]!;
+              return (
+                <div
+                  data-queue-message-id={msg.id}
+                  className="flex h-[30px] items-center gap-1 px-2 border-b border-border/20 last:border-0"
+                >
+                  {editingQueueIndex === queueOffset ? (
+                    <>
+                      <input
+                        className="flex-1 bg-background rounded px-1 py-0.5 text-xs outline-none border border-primary/40"
+                        value={editingQueueText}
+                        onChange={(e) => setEditingQueueText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            if (activeSessionId)
+                              dispatch(
+                                editQueuedMessage({
+                                  sessionId: activeSessionId,
+                                  index: queueOffset,
+                                  content: editingQueueText,
+                                }),
+                              );
+                            setEditingQueueIndex(null);
+                          } else if (e.key === 'Escape') {
+                            setEditingQueueIndex(null);
+                          }
+                        }}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (activeSessionId)
+                            dispatch(
+                              editQueuedMessage({
+                                sessionId: activeSessionId,
+                                index: queueOffset,
+                                content: editingQueueText,
+                              }),
+                            );
+                          setEditingQueueIndex(null);
+                        }}
+                        className="text-primary hover:opacity-70"
+                        aria-label={t('action.confirm')}
+                      >
+                        <Check className="h-3 w-3" />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 truncate text-muted-foreground">
+                        {queueOffset + 1}. {msg.content}
+                      </span>
+                      {isStreaming && !msg.intent && (
+                        <button
+                          type="button"
+                          onClick={() => void handlePushQueueItem(queueOffset)}
+                          className="text-primary hover:opacity-70"
+                          title={t('commander.pushToSession')}
+                        >
+                          <SendHorizonal className="h-3 w-3" />
+                        </button>
+                      )}
+                      {!msg.intent ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingQueueIndex(queueOffset);
+                            setEditingQueueText(msg.content);
+                          }}
+                          className="text-muted-foreground hover:text-foreground"
+                          aria-label={t('action.edit')}
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          activeSessionId &&
+                          dispatch(
+                            removeQueuedMessage({ sessionId: activeSessionId, index: queueOffset }),
+                          )
+                        }
+                        className="text-muted-foreground hover:text-destructive"
+                        aria-label={t('action.remove')}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingQueueIndex(i);
-                      setEditingQueueText(msg.content);
-                    }}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => dispatch(removeQueuedMessage(i))}
-                    className="text-muted-foreground hover:text-destructive"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </>
-              )}
-            </div>
-          ))}
+                </div>
+              );
+            }}
+          />
         </div>
       )}
 
       {/* Input area */}
       <div className="relative">
+        {submissionError ? (
+          <div
+            role="alert"
+            className="mx-3 mt-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+          >
+            {submissionError}
+          </div>
+        ) : null}
         {/* Slash command popup */}
         {slashMenuOpen && (
           <div
@@ -294,8 +425,13 @@ export function CommanderInputBar() {
                 }}
               >
                 <Slash className="h-3 w-3 shrink-0 text-muted-foreground" />
-                <span className="font-medium">{cmd.name}</span>
-                <span className="truncate text-muted-foreground">{cmd.desc}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">{cmd.label}</span>
+                  <span className="block truncate text-[10px] text-muted-foreground">
+                    {cmd.desc}
+                  </span>
+                </span>
+                <code className="shrink-0 text-[10px] text-muted-foreground">/{cmd.name}</code>
               </button>
             ))}
           </div>
@@ -351,26 +487,86 @@ export function CommanderInputBar() {
           }}
           rows={1}
           placeholder={t('commander.sendMessageHint')}
-          className="w-full resize-none border-0 bg-transparent px-3 pt-2 pb-1 text-xs outline-none placeholder:text-muted-foreground/60 overflow-y-auto"
-          style={{ minHeight: '32px', maxHeight: '120px' }}
+          className="w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pb-2 pt-3 text-sm leading-5 outline-none placeholder:text-muted-foreground/60"
+          style={{ minHeight: '48px', maxHeight: '140px' }}
           disabled={!isBackendReady}
         />
 
         {/* Bottom toolbar */}
-        <div className="flex items-center gap-0.5 border-t border-border/40 px-2 py-1">
+        <div className="flex min-h-12 flex-wrap items-center gap-x-1.5 gap-y-1 border-t border-border/40 px-3 py-2">
           {/* + Add resource button */}
           <div className="relative" data-dropdown-menu>
             <button
               type="button"
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               onClick={() => setNodePickerOpen(!nodePickerOpen)}
-              title={t('commander.attachNode')}
+              aria-controls="commander-add-context"
+              aria-expanded={nodePickerOpen}
+              aria-label={t('commander.addContext')}
+              title={t('commander.addContext')}
             >
-              <span className="text-sm font-bold">+</span>
+              <span aria-hidden="true" className="text-base font-medium">
+                +
+              </span>
             </button>
             {nodePickerOpen && (
-              <div className="absolute bottom-8 left-0 z-50 w-52 rounded-lg border border-border bg-card shadow-xl">
+              <div
+                id="commander-add-context"
+                role="group"
+                aria-label={t('commander.addContext')}
+                className="absolute bottom-8 left-0 z-50 w-60 rounded-lg border border-border bg-card shadow-xl"
+              >
                 <div className="border-b border-border/60 px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {t('commander.addContext')}
+                </div>
+                <div
+                  role="group"
+                  aria-label={`${t('commander.canvasScope')}: ${t('commander.canvasScopeNextTurn')}`}
+                  className="border-b border-border/60"
+                >
+                  <div className="flex items-center justify-between gap-2 px-2 pt-1.5 text-[10px] text-muted-foreground">
+                    <span className="font-medium">{t('commander.canvasScope')}</span>
+                    <span>{t('commander.canvasScopeNextTurn')}</span>
+                  </div>
+                  <div className="max-h-32 overflow-auto p-1">
+                    {extraCanvasOptions.length === 0 ? (
+                      <div className="px-2 py-1 text-[10px] text-muted-foreground">
+                        {t('commander.noExtraCanvases')}
+                      </div>
+                    ) : (
+                      extraCanvasOptions.map((canvas) => {
+                        const selected = extraCanvasIds.includes(canvas.id);
+                        return (
+                          <button
+                            key={canvas.id}
+                            type="button"
+                            aria-pressed={selected}
+                            className={cn(
+                              'flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+                              selected && 'bg-primary/10 text-primary',
+                            )}
+                            onClick={() =>
+                              setExtraCanvasIds((ids) =>
+                                selected
+                                  ? ids.filter((canvasId) => canvasId !== canvas.id)
+                                  : [...ids, canvas.id],
+                              )
+                            }
+                          >
+                            <Check
+                              aria-hidden="true"
+                              className={cn('h-3 w-3 shrink-0', !selected && 'opacity-0')}
+                            />
+                            <span className="min-w-0 truncate" title={canvas.name}>
+                              {canvas.name}
+                            </span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+                <div className="px-2 pt-1.5 text-[10px] font-medium text-muted-foreground">
                   {t('commander.attachNode')}
                 </div>
                 <div className="max-h-40 overflow-auto p-1">
@@ -425,10 +621,25 @@ export function CommanderInputBar() {
           {/* Separator */}
           <div className="mx-0.5 h-4 w-px bg-border/60" />
 
+          <button
+            type="button"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            aria-label={t('commander.commands')}
+            onClick={() => {
+              setInput('/');
+              requestAnimationFrame(() => inputRef.current?.focus());
+            }}
+          >
+            <span>{t('commander.commands')}</span>
+            <kbd className="rounded border border-border/70 px-1 text-[10px] text-muted-foreground">
+              /
+            </kbd>
+          </button>
+
           {/* Context indicator — attached count */}
-          {attachments.length > 0 && (
+          {attachments.length + selectedExtraCanvasIds.length > 0 && (
             <span className="text-[10px] text-muted-foreground">
-              {`${attachments.length} ${t('commander.attachedCount')}`}
+              {`${attachments.length + selectedExtraCanvasIds.length} ${t('commander.attachedCount')}`}
             </span>
           )}
 
@@ -461,6 +672,7 @@ export function CommanderInputBar() {
                       <button
                         type="button"
                         onClick={() => void triggerCompact()}
+                        aria-label={t('commander.slashCommand.compact')}
                         className="shrink-0 rounded p-0.5 hover:bg-muted transition-colors"
                       >
                         <svg width="16" height="16" viewBox="0 0 16 16">
@@ -539,11 +751,11 @@ export function CommanderInputBar() {
           <div className="relative" data-dropdown-menu>
             <button
               type="button"
-              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={() => setModelPickerOpen(!modelPickerOpen)}
             >
               <span className="max-w-[80px] truncate">{activeProvider?.name ?? 'LLM'}</span>
-              <ChevronDown className="h-2.5 w-2.5" />
+              <ChevronDown className="h-3 w-3" />
             </button>
             {modelPickerOpen && (
               <div className="absolute bottom-7 right-0 z-50 w-48 rounded-lg border border-border bg-card p-1 shadow-xl max-h-48 overflow-y-auto">
@@ -581,17 +793,17 @@ export function CommanderInputBar() {
           <div className="relative" data-dropdown-menu>
             <button
               type="button"
-              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
               onClick={() => setPermPickerOpen(!permPickerOpen)}
             >
-              {permissionMode === 'danger' && <Flame className="h-2.5 w-2.5 text-red-400" />}
-              {permissionMode === 'auto' && <Sparkles className="h-2.5 w-2.5 text-sky-400" />}
+              {permissionMode === 'danger' && <Flame className="h-3.5 w-3.5 text-red-400" />}
+              {permissionMode === 'auto' && <Sparkles className="h-3.5 w-3.5 text-sky-400" />}
               {permissionMode === 'normal' && (
-                <ShieldCheck className="h-2.5 w-2.5 text-emerald-400" />
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
               )}
-              {permissionMode === 'strict' && <Lock className="h-2.5 w-2.5 text-amber-400" />}
+              {permissionMode === 'strict' && <Lock className="h-3.5 w-3.5 text-amber-400" />}
               <span>{t(`commander.permissionMode.${permissionMode}`)}</span>
-              <ChevronDown className="h-2.5 w-2.5" />
+              <ChevronDown className="h-3 w-3" />
             </button>
             {permPickerOpen && (
               <div className="absolute bottom-7 right-0 z-50 w-44 rounded-lg border border-border bg-card p-1 shadow-xl">
@@ -634,17 +846,17 @@ export function CommanderInputBar() {
           {/* Single smart button: Send / Queue / Cancel */}
           {isStreaming && inputHasText ? (
             <button
-              className="flex h-6 items-center gap-1 rounded-md bg-primary px-2 text-[10px] text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
+              className="flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
               onClick={handleAddToQueue}
               title={t('commander.addToQueue')}
-              disabled={!isBackendReady}
+              disabled={!isBackendReady || attachments.length > 0}
             >
-              <Play className="h-3 w-3" />
+              <Play className="h-3.5 w-3.5" />
               {t('commander.addToQueue')}
             </button>
           ) : isStreaming ? (
             <button
-              className="flex h-6 w-6 items-center justify-center rounded-md bg-destructive/20 text-destructive hover:bg-destructive/30"
+              className="flex h-8 w-8 items-center justify-center rounded-md bg-destructive/20 text-destructive hover:bg-destructive/30"
               onClick={() => void cancel()}
               title={t('commander.cancel')}
             >
@@ -652,12 +864,12 @@ export function CommanderInputBar() {
             </button>
           ) : (
             <button
-              className="flex h-6 items-center gap-1 rounded-md bg-primary px-2 text-[10px] text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
+              className="flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
               onClick={() => void handleSendNow()}
-              disabled={!isBackendReady || (!inputHasText && messageQueue.length === 0)}
+              disabled={!isBackendReady || (!inputHasText && queuedMessageCount === 0)}
               title={isBackendReady ? t('commander.sendNow') : t('commander.backendNotReady')}
             >
-              <Play className="h-3 w-3" />
+              <Play className="h-3.5 w-3.5" />
               {t('commander.sendNow')}
             </button>
           )}

@@ -23,6 +23,7 @@ export type ResolutionPreset = {
 };
 
 export const CUSTOM_RESOLUTION_VALUE = 'custom' as const;
+export const CUSTOM_DURATION_VALUE = 'custom-duration' as const;
 export const INHERIT_CANVAS_RESOLUTION_VALUE = 'inherit-canvas' as const;
 export const PROVIDER_DEFAULT_RESOLUTION_VALUE = 'provider-default' as const;
 export const DEFAULT_IMAGE_RESOLUTION = { width: 1024, height: 1024 } as const;

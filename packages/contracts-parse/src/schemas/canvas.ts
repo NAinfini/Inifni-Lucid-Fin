@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { ResolutionPolicySchema } from '../dto/resolution.js';
 import { CanvasVisualStylePolicySchema } from '../dto/visual-style.js';
+import { OrderedDeliverySequenceSchema } from '../dto/ordered-delivery.js';
 
 const PositionSchema = z
   .object({
@@ -98,6 +99,8 @@ export const StrictCanvasSchema = z
     viewport: CanvasViewportSchema,
     notes: z.array(CanvasNoteSchema),
     settings: CanvasSettingsSchema.optional(),
+    deliverySequence: OrderedDeliverySequenceSchema.optional(),
+    archivedAt: z.number().int().nonnegative().optional(),
     createdAt: z.number().int().nonnegative(),
     updatedAt: z.number().int().nonnegative(),
   })
@@ -137,11 +140,17 @@ export const CanvasPatchSchema = z
     canvasId: z.string().min(1),
     timestamp: z.number().int().nonnegative(),
     schemaVersion: z.number().int().positive().optional(),
-    operations: z
-      .array(
-        z.enum(['addNode', 'updateNode', 'removeNode', 'addEdge', 'removeEdge', 'renameCanvas']),
-      )
-      .optional(),
+    operations: z.array(
+      z.enum([
+        'addNode',
+        'updateNode',
+        'removeNode',
+        'addEdge',
+        'updateEdge',
+        'removeEdge',
+        'renameCanvas',
+      ]),
+    ),
     nameChange: z.string().optional(),
     addedNodes: z.array(StrictCanvasNodeSchema).optional(),
     removedNodeIds: z.array(z.string().min(1)).optional(),
@@ -157,6 +166,16 @@ export const CanvasPatchSchema = z
       .optional(),
     addedEdges: z.array(StrictCanvasEdgeSchema).optional(),
     removedEdgeIds: z.array(z.string().min(1)).optional(),
+    updatedEdges: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1),
+            edge: StrictCanvasEdgeSchema,
+          })
+          .strict(),
+      )
+      .optional(),
   })
   .strict();
 

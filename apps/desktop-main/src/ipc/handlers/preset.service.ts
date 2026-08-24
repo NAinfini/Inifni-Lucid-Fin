@@ -6,6 +6,7 @@
  */
 import {
   BUILT_IN_PRESET_LIBRARY,
+  buildFallbackPresetPrompt,
   type PresetCategory,
   type PresetDefinition,
   type PresetLibraryExportPayload,
@@ -149,13 +150,18 @@ export function resolvePreset(state: ProjectPresetState, id: string): PresetDefi
         modified: false,
       };
     }
+    const resolvedOverride = clonePreset(override);
+    const inheritedLegacyPrompt =
+      resolvedOverride.prompt.trim() ===
+      buildFallbackPresetPrompt(builtIn.category, builtIn.name).trim();
     return {
       ...base,
-      ...clonePreset(override),
+      ...resolvedOverride,
       id: builtIn.id,
       category: builtIn.category,
       builtIn: true,
       modified: true,
+      prompt: inheritedLegacyPrompt ? base.prompt : resolvedOverride.prompt,
       defaultPrompt: builtIn.defaultPrompt ?? builtIn.prompt,
       defaultParams: builtIn.defaultParams ?? builtIn.defaults,
     };

@@ -139,6 +139,45 @@ describe('presets DTO', () => {
     ]);
   });
 
+  it('keeps every parameterized prompt aligned with its editable schema and defaults', () => {
+    for (const preset of BUILT_IN_PRESET_LIBRARY) {
+      if (!preset.promptTemplate || !preset.promptParamDefs?.length) continue;
+
+      const tokens = new Set(
+        Array.from(preset.promptTemplate.matchAll(/\{([^{}]+)\}/g), (match) => match[1]),
+      );
+      const promptKeys = new Set(preset.promptParamDefs.map((param) => param.key));
+      expect(tokens, preset.id).toEqual(promptKeys);
+
+      for (const param of preset.promptParamDefs) {
+        expect(param.default, preset.id + ':' + param.key).not.toBeUndefined();
+      }
+    }
+  });
+
+  it('parameterizes every built-in audio preset with its editable defaults', () => {
+    const expectedKeys = {
+      'voice-style': ['pace', 'intensity'],
+      'music-genre': ['tempo', 'intensity'],
+      'sfx-environment': ['reverb', 'intensity'],
+    } as const;
+
+    for (const [category, keys] of Object.entries(expectedKeys)) {
+      const presets = BUILT_IN_PRESET_LIBRARY.filter((preset) => preset.category === category);
+      expect(presets).toHaveLength(10);
+      for (const preset of presets) {
+        expect(preset.promptTemplate, preset.id).toBeTruthy();
+        expect(
+          preset.promptParamDefs?.map((param) => param.key),
+          preset.id,
+        ).toEqual(keys);
+        for (const param of preset.promptParamDefs ?? []) {
+          expect(param.default, `${preset.id}:${param.key}`).toBe(preset.defaults[param.key]);
+        }
+      }
+    }
+  });
+
   it('exports built-in shot templates that resolve to library presets', () => {
     expect(BUILT_IN_SHOT_TEMPLATES.length).toBeGreaterThan(0);
 
@@ -161,7 +200,28 @@ describe('presets DTO', () => {
           intensity: track?.intensity,
         });
         expect(presetIds.has(track!.entries[0].presetId)).toBe(true);
+        if (track?.entries[0].blend) {
+          expect(presetIds.has(track.entries[0].blend.presetIdB)).toBe(true);
+        }
       }
     }
+  });
+
+  it('encodes compound camera templates instead of only describing the missing movement', () => {
+    const dollyZoom = BUILT_IN_SHOT_TEMPLATES.find(
+      (template) => template.id === 'builtin-tmpl-dolly-zoom',
+    );
+    const cranePan = BUILT_IN_SHOT_TEMPLATES.find(
+      (template) => template.id === 'builtin-tmpl-crane-pan-reveal',
+    );
+
+    expect(dollyZoom?.tracks.camera?.entries[0]).toMatchObject({
+      presetId: 'builtin-camera-pull-out',
+      blend: { presetIdB: 'builtin-camera-snap-zoom', factor: 50 },
+    });
+    expect(cranePan?.tracks.camera?.entries[0]).toMatchObject({
+      presetId: 'builtin-camera-crane-up',
+      blend: { presetIdB: 'builtin-camera-pan-right', factor: 50 },
+    });
   });
 });

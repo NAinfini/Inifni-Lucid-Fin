@@ -171,14 +171,14 @@ const collectFromLocations: HashCollector = (db, hashes) => {
   return 'locations.reference_images';
 };
 
-const collectFromWorkflowArtifacts: HashCollector = (db, hashes) => {
+const collectFromTaskArtifacts: HashCollector = (db, hashes) => {
   const rows = db
-    .prepare('SELECT asset_hash FROM workflow_artifacts WHERE asset_hash IS NOT NULL')
+    .prepare('SELECT asset_hash FROM task_artifacts WHERE asset_hash IS NOT NULL')
     .all() as Array<{ asset_hash: string }>;
   for (const row of rows) {
     if (isValidHash(row.asset_hash)) hashes.add(row.asset_hash);
   }
-  return 'workflow_artifacts.asset_hash';
+  return 'task_artifacts.asset_hash';
 };
 
 const collectFromColorStyles: HashCollector = (db, hashes) => {
@@ -191,20 +191,34 @@ const collectFromColorStyles: HashCollector = (db, hashes) => {
   return 'color_styles.source_asset';
 };
 
-const collectFromAssetEmbeddings: HashCollector = (db, hashes) => {
-  const rows = db.prepare('SELECT hash FROM asset_embeddings').all() as Array<{ hash: string }>;
+const collectFromAssetEntries: HashCollector = (db, hashes) => {
+  const rows = db.prepare('SELECT asset_hash FROM asset_entries').all() as Array<{
+    asset_hash: string;
+  }>;
   for (const row of rows) {
-    if (isValidHash(row.hash)) hashes.add(row.hash);
+    if (isValidHash(row.asset_hash)) hashes.add(row.asset_hash);
   }
-  return 'asset_embeddings.hash';
+  return 'asset_entries.asset_hash';
 };
 
-const collectFromAssets: HashCollector = (db, hashes) => {
-  const rows = db.prepare('SELECT hash FROM assets').all() as Array<{ hash: string }>;
+const collectFromCommanderRunAttachments: HashCollector = (db, hashes) => {
+  const rows = db.prepare('SELECT content_hash FROM commander_run_attachments').all() as Array<{
+    content_hash: string;
+  }>;
   for (const row of rows) {
-    if (isValidHash(row.hash)) hashes.add(row.hash);
+    if (isValidHash(row.content_hash)) hashes.add(row.content_hash);
   }
-  return 'assets.hash';
+  return 'commander_run_attachments.content_hash';
+};
+
+const collectFromDeliveryAssetRefs: HashCollector = (db, hashes) => {
+  const rows = db.prepare('SELECT asset_hash FROM delivery_asset_refs').all() as Array<{
+    asset_hash: string;
+  }>;
+  for (const row of rows) {
+    if (isValidHash(row.asset_hash)) hashes.add(row.asset_hash);
+  }
+  return 'delivery_asset_refs.asset_hash';
 };
 
 /**
@@ -212,14 +226,15 @@ const collectFromAssets: HashCollector = (db, hashes) => {
  * table that stores CAS hashes, append a collector here.
  */
 const ALL_COLLECTORS: HashCollector[] = [
-  collectFromAssets,
+  collectFromAssetEntries,
+  collectFromCommanderRunAttachments,
+  collectFromDeliveryAssetRefs,
   collectFromCanvasNodes,
   collectFromCharacters,
   collectFromEquipment,
   collectFromLocations,
-  collectFromWorkflowArtifacts,
+  collectFromTaskArtifacts,
   collectFromColorStyles,
-  collectFromAssetEmbeddings,
 ];
 
 // ---------------------------------------------------------------------------
@@ -351,6 +366,11 @@ export function collectGarbage(
 
   // Step 5: Delete orphans if not dry-run
   if (!dryRun) {
+    const totalFilesByHash = new Map<string, number>();
+    const deletedFilesByHash = new Map<string, number>();
+    for (const file of casFiles) {
+      totalFilesByHash.set(file.hash, (totalFilesByHash.get(file.hash) ?? 0) + 1);
+    }
     for (const orphan of orphans) {
       try {
         fs.rmSync(orphan.filePath, { force: true });
@@ -360,9 +380,23 @@ export function collectGarbage(
         if (fs.existsSync(metaPath)) {
           fs.rmSync(metaPath, { force: true });
         }
+        deletedFilesByHash.set(orphan.hash, (deletedFilesByHash.get(orphan.hash) ?? 0) + 1);
       } catch {
         // Best-effort deletion; a subsequent GC run will retry.
       }
+    }
+
+    const deletedHashes = [...deletedFilesByHash].flatMap(([hash, count]) =>
+      count === totalFilesByHash.get(hash) ? [hash] : [],
+    );
+    if (deletedHashes.length > 0) {
+      const deleteMetadata = db.transaction(() => {
+        const deleteContent = db.prepare('DELETE FROM asset_contents WHERE hash = ?');
+        for (const hash of deletedHashes) {
+          deleteContent.run(hash);
+        }
+      });
+      deleteMetadata();
     }
   }
 

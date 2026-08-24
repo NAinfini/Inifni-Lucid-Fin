@@ -92,6 +92,19 @@ describe('diffCanvas', () => {
       addedEdges: [expect.objectContaining({ id: 'edge-2' })],
     });
   });
+
+  it('ignores delivery-only changes because delivery persistence is CAS-backed', () => {
+    const prev = createCanvas();
+    const next = createCanvas({
+      deliverySequence: {
+        revision: 1,
+        items: [],
+        updatedAt: 2,
+      },
+    });
+
+    expect(diffCanvas(prev, next)).toBeNull();
+  });
 });
 
 describe('shouldUsePatch', () => {

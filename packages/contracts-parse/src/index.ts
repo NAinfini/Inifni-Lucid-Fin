@@ -21,15 +21,6 @@ export {
   type ReplyChannelDef,
 } from './channels.js';
 
-// Tool factory
-export {
-  defineTool,
-  defineToolMeta,
-  type ToolDef,
-  type ToolRunContext,
-  type ToolEvent,
-} from './tools.js';
-
 // Table factory
 export { defineTable, col } from './tables.js';
 
@@ -58,9 +49,8 @@ export * from './ipc/channels/batch-03.js';
 export * from './ipc/channels/batch-04.js';
 
 // Batch 5 — job
-export * from './ipc/channels/batch-05.js';
 
-// Batch 6 — workflow
+// Batch 6 — task execution
 export * from './ipc/channels/batch-06.js';
 
 // Batch 7 — canvas core (non-generation)
@@ -73,7 +63,7 @@ export * from './ipc/channels/batch-08.js';
 export * from './ipc/channels/batch-09.js';
 
 // Batch 10 — tail of Phase B-1 (app/ai/asset/clipboard/export/ffmpeg/
-// import/ipc/keychain/lipsync/logger/render/session/shell/snapshot/
+// import/ipc/keychain/logger/render/session/shell/snapshot/
 // updater/video/vision + refimage push + settings push)
 export * from './ipc/channels/batch-10.js';
 
@@ -83,17 +73,17 @@ export * from './ipc/channels/batch-13.js';
 // Batch 14 — capability-scoped provider OAuth
 export * from './ipc/channels/batch-14.js';
 
-// ── Phase C-1: Agent / tool catalog ────────────────────────────
-// `defineTool` and its types are re-exported above from `./tools.js`; the
-// agent barrel adds `createCatalog` on top without duplicating them.
-export { createCatalog } from './agent/catalog.js';
-
 // ── Phase D-2: Branded-ID parsers ──────────────────────────────
 export { parseProviderId, tryProviderId } from './brands/provider-id.js';
 
 // ── Phase G1-2.1: SessionId parser + StoredSession DTO ─────────
 export { parseSessionId, trySessionId } from './brands/session-id.js';
-export { StoredSessionSchema, type StoredSessionDto } from './dto/stored-session.js';
+export {
+  StoredSessionSchema,
+  StoredSessionSummarySchema,
+  type StoredSessionDto,
+  type StoredSessionSummaryDto,
+} from './dto/stored-session.js';
 
 // ── Phase G1-2.2: ProcessPromptKey parser + ProcessPromptRecord DTO ─
 export { parseProcessPromptKey, tryProcessPromptKey } from './brands/process-prompt-key.js';
@@ -102,17 +92,14 @@ export {
   type ProcessPromptRecordDto,
 } from './dto/process-prompt-record.js';
 
-// ── Phase G1-2.3: JobId parser + Job DTO ───────────────────────
-export { parseJobId, tryJobId } from './brands/job-id.js';
-export { JobSchema, type JobDto } from './dto/job.js';
-
-// ── Phase G1-2.4: AssetHash parser + AssetMeta / Embedding DTOs ─
+// ── Phase G1-2.4: AssetHash parser + AssetMeta DTOs ────────────
 export { parseAssetHash, tryAssetHash } from './brands/asset-hash.js';
+export { parseAssetEntryId, tryAssetEntryId } from './brands/asset-entry-id.js';
 export {
   AssetMetaSchema,
-  EmbeddingRecordSchema,
+  AssetEntrySchema,
   type AssetMetaDto,
-  type EmbeddingRecordDto,
+  type AssetEntryDto,
 } from './dto/asset.js';
 
 // ── Phase G1-2.5: CanvasId parser + Canvas DTO ─────────────────
@@ -125,6 +112,12 @@ export {
   type CanvasDto,
   type CanvasSettingsDto,
 } from './dto/canvas.js';
+export {
+  OrderedDeliveryItemSchema,
+  OrderedDeliverySequenceSchema,
+  type OrderedDeliveryItemDto,
+  type OrderedDeliverySequenceDto,
+} from './dto/ordered-delivery.js';
 export {
   ResolutionIntentSchema,
   ResolutionPolicySchema,
@@ -155,11 +148,6 @@ export {
   type LocationDto,
 } from './dto/entity.js';
 
-// ── Phase G1-2.7: SeriesId + EpisodeId parsers + Series/Episode DTOs ─
-export { parseSeriesId, trySeriesId } from './brands/series-id.js';
-export { parseEpisodeId, tryEpisodeId } from './brands/episode-id.js';
-export { SeriesSchema, EpisodeSchema, type SeriesDto, type EpisodeDto } from './dto/series.js';
-
 // ── Phase G1-2.8: PresetId parser + PresetOverride DTO ─────────
 export { parsePresetId, tryPresetId } from './brands/preset-id.js';
 export { PresetOverrideSchema, type PresetOverrideDto } from './dto/preset.js';
@@ -172,23 +160,24 @@ export { ShotTemplateSchema, type ShotTemplateDto } from './dto/shot-template.js
 export { parseSnapshotId, trySnapshotId } from './brands/snapshot-id.js';
 export { StoredSnapshotSchema, type StoredSnapshotDto } from './dto/snapshot.js';
 
-// ── Phase G1-2.11: Workflow-domain ID parsers + run/stage/task DTOs ─
+// ── Durable task-execution IDs and DTOs ────────────────────────
 export {
-  parseWorkflowRunId,
-  tryWorkflowRunId,
-  parseWorkflowStageId,
-  tryWorkflowStageId,
-  parseWorkflowTaskId,
-  tryWorkflowTaskId,
-} from './brands/workflow-ids.js';
+  parseTaskListId,
+  tryTaskListId,
+  parseTaskId,
+  tryTaskId,
+} from './brands/task-execution-ids.js';
 export {
-  WorkflowRunRecordSchema,
-  WorkflowStageRunRecordSchema,
-  WorkflowTaskRunRecordSchema,
-  type WorkflowRunRecordDto,
-  type WorkflowStageRunRecordDto,
-  type WorkflowTaskRunRecordDto,
-} from './dto/workflow.js';
+  TaskListRecordSchema,
+  TaskRecordSchema,
+  DeliveryNamingPolicySchema,
+  DeliveryProvenanceSchema,
+  DeliveryManifestItemSchema,
+  DeliveryManifestSchema,
+  type TaskListRecordDto,
+  type TaskRecordDto,
+  type DeliveryManifestDto,
+} from './dto/task-execution.js';
 
 // ── Phase G2a-1: ContextItemId brand parsers + ContextItemSchema ─
 export {

@@ -82,6 +82,9 @@ function normalizeMetadata(
     keyUrl: provider.keyUrl,
     credentialMode: provider.credentialMode,
     oauthTarget: provider.oauthTarget,
+    supportsModelOverride: provider.supportsModelOverride,
+    supportsReasoningEffort: provider.supportsReasoningEffort,
+    reasoningEffortsByModel: provider.reasoningEffortsByModel,
     supportsVision: provider.capabilities?.includes('image-understanding'),
     modelExample: provider.modelExample,
     capabilities,
@@ -109,6 +112,10 @@ function createLLMProvider(provider: ProviderDraft): BuiltinProviderConfig {
     authStyle: provider.authStyle,
     credentialMode: provider.credentialMode,
     oauthTarget: provider.oauthTarget,
+    supportsModelOverride: provider.supportsModelOverride,
+    supportsReasoningEffort: provider.supportsReasoningEffort,
+    reasoningEffortsByModel: provider.reasoningEffortsByModel,
+    reasoningEffort: provider.reasoningEffort,
     supportsVision: capabilities.includes('image-understanding'),
   });
 
@@ -118,6 +125,10 @@ function createLLMProvider(provider: ProviderDraft): BuiltinProviderConfig {
     protocol: runtime.protocol,
     authStyle: runtime.authStyle,
     supportsVision: runtime.supportsVision,
+    supportsModelOverride: runtime.supportsModelOverride,
+    supportsReasoningEffort: runtime.supportsReasoningEffort,
+    reasoningEffortsByModel: runtime.reasoningEffortsByModel,
+    reasoningEffort: runtime.reasoningEffort,
     hasKey: false,
     isCustom: false,
   };
@@ -246,21 +257,6 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       keyUrl: 'https://aistudio.google.com/apikey',
     }),
     createLLMProvider({
-      id: 'gemini-oauth',
-      name: 'Google Gemini (OAuth)',
-      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-      model: 'gemini-3.6-flash',
-      protocol: 'gemini',
-      authStyle: 'none',
-      credentialMode: 'oauth',
-      oauthTarget: { provider: 'gemini', capability: 'llm' },
-      supportsVision: true,
-      contextWindow: 1_048_576,
-      kind: 'official',
-      docsUrl: 'https://ai.google.dev/gemini-api/docs/oauth',
-      keyUrl: 'https://accounts.google.com',
-    }),
-    createLLMProvider({
       id: 'grok',
       name: 'xAI',
       baseUrl: 'https://api.x.ai/v1',
@@ -303,6 +299,7 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       model: 'command-a-plus-05-2026',
       protocol: 'cohere',
       authStyle: 'bearer',
+      reasoningEffortsByModel: { 'command-a-plus-05-2026': ['none', 'high'] },
       contextWindow: 128_000,
       kind: 'official',
       docsUrl: 'https://docs.cohere.com/',
@@ -615,20 +612,6 @@ export const PROVIDER_REGISTRY: Record<APIGroup, BuiltinProviderConfig[]> = {
       keyUrl: 'https://aistudio.google.com/apikey',
     }),
     createVisionProvider({
-      id: 'gemini-vision-oauth',
-      name: 'Google Gemini (OAuth)',
-      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
-      model: 'gemini-3.6-flash',
-      protocol: 'gemini',
-      authStyle: 'none',
-      credentialMode: 'oauth',
-      oauthTarget: { provider: 'gemini', capability: 'vision' },
-      kind: 'official',
-      contextWindow: 1_048_576,
-      docsUrl: 'https://ai.google.dev/gemini-api/docs/oauth',
-      keyUrl: 'https://accounts.google.com',
-    }),
-    createVisionProvider({
       id: 'claude-vision',
       name: 'Anthropic Claude',
       baseUrl: 'https://api.anthropic.com',
@@ -787,6 +770,10 @@ function toProviderConfig(provider: BuiltinProviderConfig): ProviderConfig {
     authStyle: provider.authStyle,
     credentialMode: provider.credentialMode,
     oauthTarget: provider.oauthTarget,
+    supportsModelOverride: provider.supportsModelOverride,
+    supportsReasoningEffort: provider.supportsReasoningEffort,
+    reasoningEffortsByModel: provider.reasoningEffortsByModel,
+    reasoningEffort: provider.reasoningEffort,
     ...(provider.contextWindow ? { contextWindow: provider.contextWindow } : {}),
   };
 }
@@ -817,6 +804,9 @@ export function getProviderMetadata(
     keyUrl: provider.keyUrl,
     credentialMode: provider.credentialMode,
     oauthTarget: provider.oauthTarget,
+    supportsModelOverride: provider.supportsModelOverride,
+    supportsReasoningEffort: provider.supportsReasoningEffort,
+    reasoningEffortsByModel: provider.reasoningEffortsByModel,
     modelExample: provider.modelExample,
     capabilities: provider.capabilities,
     supportsReferenceImage: provider.supportsReferenceImage,
@@ -930,12 +920,20 @@ function normalizeSavedProvider(group: APIGroup, provider: ProviderConfig): Prov
     model: provider.model,
     protocol: provider.protocol,
     authStyle: provider.authStyle,
+    supportsModelOverride: provider.supportsModelOverride,
+    supportsReasoningEffort: provider.supportsReasoningEffort,
+    reasoningEffortsByModel: provider.reasoningEffortsByModel,
+    reasoningEffort: provider.reasoningEffort,
   });
 
   return {
     ...provider,
     protocol: runtime.protocol,
     authStyle: runtime.authStyle,
+    supportsModelOverride: runtime.supportsModelOverride,
+    supportsReasoningEffort: runtime.supportsReasoningEffort,
+    reasoningEffortsByModel: runtime.reasoningEffortsByModel,
+    reasoningEffort: runtime.reasoningEffort,
   };
 }
 
@@ -970,6 +968,7 @@ function mergeBuiltinProvider(
     ...defaults,
     baseUrl: savedBaseUrl,
     model: savedModel,
+    reasoningEffort: savedProvider.reasoningEffort?.trim() || undefined,
     // Never restore a stale OAuth readiness bit. The capability-scoped
     // providerOAuth status call is the only authority after startup.
     hasKey: defaults.credentialMode === 'oauth' ? false : savedProvider.hasKey,
@@ -986,17 +985,19 @@ function mergeProviderDefaults(
 ): ProviderCollectionConfig {
   const defaults = getDefaultProviders(group);
   const savedProviders = savedGroup?.providers ?? [];
+  const savedProvidersById = new Map(savedProviders.map((provider) => [provider.id, provider]));
   const mergedDefaults = defaults.map((provider) =>
-    mergeBuiltinProvider(
-      group,
-      provider,
-      savedProviders.find((savedProvider) => savedProvider.id === provider.id),
-    ),
+    mergeBuiltinProvider(group, provider, savedProvidersById.get(provider.id)),
   );
+  const defaultProviderIds = new Set(defaults.map((provider) => provider.id));
+  const seenCustomProviderIds = new Set<string>();
   const customProviders = savedProviders
     .filter((provider) => provider.isCustom)
-    .filter((provider, index, all) => all.findIndex((entry) => entry.id === provider.id) === index)
-    .filter((provider) => !defaults.some((entry) => entry.id === provider.id))
+    .filter((provider) => {
+      if (seenCustomProviderIds.has(provider.id)) return false;
+      seenCustomProviderIds.add(provider.id);
+      return !defaultProviderIds.has(provider.id);
+    })
     .map((provider) => normalizeSavedProvider(group, provider));
   const providers = [...mergedDefaults, ...customProviders];
 
@@ -1021,6 +1022,7 @@ export function mergeSavedSettings(
     production: { ...initialState.production },
     styleGuide: { ...initialState.styleGuide },
     bootstrapped: false,
+    initializationError: null,
     crashReporting: saved.crashReporting ?? false,
     analyticsEnabled: saved.analyticsEnabled ?? false,
   };

@@ -23,10 +23,10 @@ import {
   ReplicateAdapter,
 } from '@lucid-fin/adapters-ai';
 import {
-  AgentToolRegistry,
+  ToolRegistry,
   JobQueue,
-  WorkflowEngine,
-  registerDefaultWorkflows,
+  TaskExecutionEngine,
+  registerDefaultTaskLists,
 } from '@lucid-fin/application';
 import type { Canvas } from '@lucid-fin/contracts';
 
@@ -49,8 +49,8 @@ export interface TestEnv {
   promptStore: PromptStore;
   processPromptStore: ProcessPromptStore;
   jobQueue: JobQueue;
-  workflowEngine: WorkflowEngine;
-  toolRegistry: AgentToolRegistry;
+  taskExecutionEngine: TaskExecutionEngine;
+  toolRegistry: ToolRegistry;
   close: () => Promise<void>;
 }
 
@@ -97,14 +97,14 @@ export async function createTestEnv(
   await jobQueue.recover();
   jobQueue.start();
 
-  const workflowEngine = new WorkflowEngine({
+  const taskExecutionEngine = new TaskExecutionEngine({
     db,
-    registry: registerDefaultWorkflows(),
-    // Harness mocks every media-gen tool; workflow handlers aren't needed.
+    registry: registerDefaultTaskLists(),
+    // Harness mocks every media-gen tool; task handlers aren't needed.
     handlers: [],
   });
 
-  const toolRegistry = new AgentToolRegistry();
+  const toolRegistry = new ToolRegistry();
 
   const now = Date.now();
   const canvasId = randomUUID();
@@ -131,7 +131,7 @@ export async function createTestEnv(
     promptStore,
     processPromptStore,
     jobQueue,
-    workflowEngine,
+    taskExecutionEngine,
     toolRegistry,
     close: async () => {
       try {

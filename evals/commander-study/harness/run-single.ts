@@ -3,7 +3,7 @@
  *
  * Flow:
  *   1. `test-env.createTestEnv` → fresh sqlite + canvas.
- *   2. `guide-loader.loadBuiltinPromptGuides` → same 35 skills renderer ships.
+ *   2. Four explicit Markdown fixtures → on-demand guidance cases.
  *   3. `registerAllTools` → full production tool graph (works because of the
  *      electron-shim).
  *   4. `installMockGeneration` → overrides canvas.generate + ref-image tools
@@ -22,15 +22,19 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import {
-  AgentToolRegistry,
+  ToolRegistry,
   createAgentOrchestratorForRun,
   type AgentContext,
   type StampedStreamEvent,
 } from '@lucid-fin/application';
-import { DEFAULT_PROVIDER_PROFILE, type LLMAdapter, type Canvas } from '@lucid-fin/contracts';
+import {
+  DEFAULT_PROVIDER_PROFILE,
+  type LLMAdapter,
+  type Canvas,
+  type CommanderPromptGuide,
+} from '@lucid-fin/contracts';
 
 import { createTestEnv, type TestEnvWithCanvas } from './test-env.js';
-import { loadBuiltinPromptGuides } from './guide-loader.js';
 import { installMockGeneration, type MockStats } from './mock-generation.js';
 import { type Persona } from './personas.js';
 import type { CodexProviderSpec } from './provider-config.js';
@@ -39,11 +43,47 @@ import { scoreSession, type QualityReport } from './quality-scoring.js';
 
 // The desktop-main handler lives behind the electron shim; imported here
 // AFTER the shim has been registered at the run-all entrypoint.
-import {
-  registerAllTools,
-  mergePromptGuidesWithBuiltIns,
-} from '../../../apps/desktop-main/src/ipc/handlers/commander-tool-deps/index.js';
+import { registerAllTools } from '../../../apps/desktop-main/src/ipc/handlers/commander-tool-deps/index.js';
 import { buildContext } from '../../../apps/desktop-main/src/ipc/handlers/commander.handlers.js';
+
+/**
+ * Explicit study fixture for the persona prompts that request guidance. This
+ * intentionally does not mirror the application's full guide catalog.
+ */
+const STUDY_PROMPT_GUIDES: CommanderPromptGuide[] = [
+  {
+    id: 'task-methods',
+    name: 'Task Planning Methods',
+    content: fs.readFileSync(
+      new URL('../../../docs/ai-video-prompt-guide/06-task-methods.md', import.meta.url),
+      'utf8',
+    ),
+  },
+  {
+    id: 'task-guide-style-transfer',
+    name: 'Style Transfer (Commander)',
+    content: fs.readFileSync(
+      new URL('../../../docs/ai-skills/task-list-guides/style-transfer.md', import.meta.url),
+      'utf8',
+    ),
+  },
+  {
+    id: 'task-guide-continuity-check',
+    name: 'Continuity Check + Batch Re-Prompt (Commander)',
+    content: fs.readFileSync(
+      new URL('../../../docs/ai-skills/task-list-guides/continuity-check.md', import.meta.url),
+      'utf8',
+    ),
+  },
+  {
+    id: 'task-guide-audio-production',
+    name: 'Audio Production — Voice (Commander)',
+    content: fs.readFileSync(
+      new URL('../../../docs/ai-skills/task-list-guides/audio-production.md', import.meta.url),
+      'utf8',
+    ),
+  },
+];
 
 export interface SessionResult {
   personaIndex: number;
@@ -114,12 +154,10 @@ export interface RunSingleOptions {
   persona: Persona;
   spec: CodexProviderSpec;
   outDir: string;
-  maxSteps?: number;
   maxPromptTokens?: number;
   genericFallback?: string;
 }
 
-const DEFAULT_MAX_STEPS = 200;
 const DEFAULT_MAX_PROMPT_TOKENS = 400_000;
 const DEFAULT_FALLBACK = 'You choose.';
 
@@ -128,7 +166,6 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
     persona,
     spec,
     outDir,
-    maxSteps = DEFAULT_MAX_STEPS,
     maxPromptTokens = DEFAULT_MAX_PROMPT_TOKENS,
     genericFallback = DEFAULT_FALLBACK,
   } = options;
@@ -150,16 +187,14 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
   // LLM adapter (real, via keychain).
   const llmAdapter: LLMAdapter = await buildCodexAdapter(spec);
 
-  // Prompt guides (bundled from disk — same as renderer).
-  const rawGuides = loadBuiltinPromptGuides();
-  const promptGuides = mergePromptGuidesWithBuiltIns(rawGuides);
+  const promptGuides = STUDY_PROMPT_GUIDES;
 
   // Build full tool registry using the production wiring. We pass a null
   // `getWindow` — any code path that hard-requires a window (real
   // triggerGeneration / cancelGeneration) would throw, but the harness
   // overrides canvas.generate with a mock right after, so we never reach
   // those paths.
-  const registry = new AgentToolRegistry();
+  const registry = new ToolRegistry();
   const sessionId = randomUUID();
   registerAllTools(
     registry,
@@ -169,7 +204,7 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
       canvasStore: env.canvasStore,
       presetLibrary: [],
       jobQueue: env.jobQueue,
-      workflowEngine: env.workflowEngine,
+      taskExecutionEngine: env.taskExecutionEngine,
       db: env.db,
       cas: env.cas,
       keychain: env.keychain,
@@ -190,19 +225,13 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
   const context: AgentContext = buildContext(canvas, [], [], env.db, promptGuides);
 
   // Orchestrator — factory is the only supported construction path (Phase D).
-  // Wiring `canvasStore` here is what the pre-Phase-D harness was missing,
-  // which is why the 04-19 study runs showed `style-plate-lock` never
-  // activating in the harness: without a canvas resolver the predicate has
-  // no settings snapshot to inspect.
   const profile = llmAdapter.profile ?? DEFAULT_PROVIDER_PROFILE;
   const orchestrator = createAgentOrchestratorForRun({
     variant: 'study-harness',
     llmAdapter,
     toolRegistry: registry,
     resolvePrompt: (code: string) => env.promptStore.resolve(code),
-    canvasStore: env.canvasStore,
     options: {
-      maxSteps,
       profile,
     },
   });
@@ -347,7 +376,6 @@ export async function runSingle(options: RunSingleOptions): Promise<SessionResul
   let error: string | undefined;
   try {
     await orchestrator.execute(persona.opener, context, emit, {
-      history: [],
       isAborted: () => aborted,
       permissionMode: 'auto',
     });

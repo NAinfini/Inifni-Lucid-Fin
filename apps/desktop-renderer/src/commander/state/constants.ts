@@ -15,10 +15,11 @@ export const MAX_MESSAGES_PER_SESSION = 200;
 /** Approx byte budget for the serialised session blob (4 MB leaves headroom). */
 export const MAX_STORAGE_BYTES = 4 * 1024 * 1024;
 
-export const DEFAULT_MAX_STEPS = 50;
 export const DEFAULT_TEMPERATURE = 0.7;
-export const DEFAULT_MAX_TOKENS = 200000;
-export const DEFAULT_LLM_RETRIES = 2;
+export const MAX_COMMANDER_CONTEXT_TOKENS = 200_000;
+export const DEFAULT_CONTEXT_WINDOW_TOKENS = MAX_COMMANDER_CONTEXT_TOKENS;
+export const MAX_COMMANDER_OUTPUT_TOKENS = 200_000;
+export const DEFAULT_MAX_OUTPUT_TOKENS = 4_096;
 export const DEFAULT_MAX_SESSIONS = 50;
 export const DEFAULT_MAX_MESSAGES_PER_SESSION = 200;
 export const DEFAULT_UNDO_STACK_DEPTH = 100;
@@ -30,3 +31,5 @@ export const DEFAULT_CLIPBOARD_MIN_LENGTH = 100;
 export const DEFAULT_GENERATION_CONCURRENCY = 1;
 export const DEFAULT_QUALITY_GATE_BEHAVIOR = 'auto-expand';
 export const DEFAULT_REQUIRE_STYLE_PLATE_BEFORE_REF_IMAGE = true;
+export const DEFAULT_COMMANDER_PANEL_WIDTH = 520;
+export const DEFAULT_COMMANDER_PANEL_HEIGHT = 720;

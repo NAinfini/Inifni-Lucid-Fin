@@ -54,8 +54,12 @@ CREATE TABLE locations (
   name TEXT NOT NULL,
   folder_id TEXT
 );
-CREATE TABLE assets (
-  hash TEXT PRIMARY KEY,
+CREATE TABLE asset_contents (
+  hash TEXT PRIMARY KEY
+);
+CREATE TABLE asset_entries (
+  id TEXT PRIMARY KEY,
+  asset_hash TEXT NOT NULL,
   folder_id TEXT
 );
 `;
@@ -230,17 +234,42 @@ describe('FolderRepository', () => {
       }
     });
 
-    it('asset kind clears folder_id on assets (hash PK)', () => {
+    it('asset kind clears folder_id on logical entries', () => {
       const a = repo.create('asset', { parentId: null, name: 'Renders' });
-      db.prepare('INSERT INTO assets (hash, folder_id) VALUES (?, ?)').run('h1', a.id);
+      db.prepare('INSERT INTO asset_contents (hash) VALUES (?)').run('h1');
+      db.prepare('INSERT INTO asset_entries (id, asset_hash, folder_id) VALUES (?, ?, ?)').run(
+        'entry-1',
+        'h1',
+        a.id,
+      );
       repo.delete('asset', a.id);
-      const row = db.prepare('SELECT folder_id FROM assets WHERE hash = ?').get('h1') as
+      const row = db.prepare('SELECT folder_id FROM asset_entries WHERE id = ?').get('entry-1') as
         { folder_id: string | null } | undefined;
       expect(row?.folder_id).toBeNull();
     });
 
     it('is a no-op on unknown id', () => {
       expect(() => repo.delete('character', 'nonexistent')).not.toThrow();
+    });
+
+    it('collects a subtree with one recursive query', () => {
+      const statements: string[] = [];
+      const observedDb = new BetterSqlite3(':memory:', {
+        verbose: (sql) => statements.push(sql),
+      });
+      observedDb.pragma('foreign_keys = ON');
+      observedDb.exec(SCHEMA);
+      const observedRepo = new FolderRepository(observedDb);
+      const root = observedRepo.create('character', { parentId: null, name: 'Root' });
+      const child = observedRepo.create('character', { parentId: root.id, name: 'Child' });
+      observedRepo.create('character', { parentId: child.id, name: 'Grandchild' });
+      statements.length = 0;
+
+      observedRepo.delete('character', root.id);
+
+      expect(statements.filter((sql) => /WITH RECURSIVE/i.test(sql))).toHaveLength(1);
+      expect(statements.filter((sql) => /WHERE parent_id =/i.test(sql))).toHaveLength(0);
+      observedDb.close();
     });
   });
 });

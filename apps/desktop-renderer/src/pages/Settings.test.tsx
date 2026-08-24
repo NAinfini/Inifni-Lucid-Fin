@@ -11,6 +11,7 @@ import { addCustomProvider, settingsSlice, type SettingsState } from '../store/s
 import { skillDefinitionsSlice, setCustomContent } from '../store/slices/skillDefinitions.js';
 import { uiSlice } from '../store/slices/ui.js';
 import { commanderSlice } from '../store/slices/commander.js';
+import { toastSlice } from '../store/slices/toast.js';
 import { getAPI } from '../utils/api.js';
 import { setLocale, t } from '../i18n.js';
 
@@ -37,6 +38,7 @@ function createStore(preloadedSettings?: SettingsState) {
       skillDefinitions: skillDefinitionsSlice.reducer,
       ui: uiSlice.reducer,
       commander: commanderSlice.reducer,
+      toast: toastSlice.reducer,
     },
     preloadedState: preloadedSettings ? { settings: preloadedSettings } : undefined,
   });
@@ -52,6 +54,13 @@ function renderSettings(store = createStore()) {
   );
 
   return store;
+}
+
+function openAdvancedSettings() {
+  const advancedToggle = screen.getByRole('button', { name: t('settings.nav.groupAdvanced') });
+  if (advancedToggle.getAttribute('aria-expanded') !== 'true') {
+    fireEvent.click(advancedToggle);
+  }
 }
 
 function findProviderCard(title: string): HTMLElement {
@@ -114,6 +123,7 @@ describe('Settings updater UI', () => {
 
     renderSettings();
 
+    openAdvancedSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Guides' }));
 
     await waitFor(() => {
@@ -185,6 +195,7 @@ describe('Settings updater UI', () => {
 
     renderSettings();
 
+    openAdvancedSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Run Guides' }));
 
     await waitFor(() => {
@@ -203,7 +214,9 @@ describe('Settings updater UI', () => {
       expect(screen.getByText('Node Preset Tracks')).toBeTruthy();
       expect(screen.getByText('Provider Management')).toBeTruthy();
       expect(screen.getAllByText(t('settings.processGuides.triggeredBy'))).toHaveLength(4);
-      expect(screen.getByText('Generate Ref Image')).toBeTruthy();
+      expect(screen.getByText('Create Nodes')).toBeTruthy();
+      expect(screen.getByText('Configure Node')).toBeTruthy();
+      expect(screen.getByText('Set Ref Image from Node')).toBeTruthy();
       expect(screen.getByText('Create Entity')).toBeTruthy();
       expect(screen.getByText('Preset Tracks')).toBeTruthy();
       expect(screen.getByText('Provider')).toBeTruthy();
@@ -243,6 +256,7 @@ describe('Settings updater UI', () => {
 
     renderSettings();
 
+    openAdvancedSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Run Guides' }));
 
     // Wait for data to load, then expand the group
@@ -258,7 +272,7 @@ describe('Settings updater UI', () => {
     expect(screen.getAllByText('Run Guides')).toHaveLength(2);
   });
 
-  it('localizes the merged guides tab in zh-CN and shows both template and workflow guides', async () => {
+  it('localizes the merged guides tab in zh-CN and shows both template and task-list guides', async () => {
     setLocale('zh-CN');
 
     vi.mocked(getAPI).mockReturnValue({
@@ -277,13 +291,14 @@ describe('Settings updater UI', () => {
 
     renderSettings();
 
+    openAdvancedSettings();
     fireEvent.click(screen.getByRole('button', { name: t('settings.nav.guides') }));
 
     await waitFor(() => {
       expect(screen.getAllByText(t('settings.guides.title')).length).toBeGreaterThan(0);
       expect(screen.getByText(t('settings.guides.subtitle'))).toBeTruthy();
-      expect(screen.getByText(t('workflowDefinitionNames.wf-video-clone'))).toBeTruthy();
-      expect(screen.getByText(t('workflowDefinitionNames.sk-reverse-prompt'))).toBeTruthy();
+      expect(screen.getByText(t('taskSkillNames.task-style-transfer'))).toBeTruthy();
+      expect(screen.getByText(t('taskSkillNames.sk-reverse-prompt'))).toBeTruthy();
       expect(screen.getAllByText(t('settings.builtIn')).length).toBeGreaterThan(0);
     });
   });
@@ -305,6 +320,7 @@ describe('Settings updater UI', () => {
 
     renderSettings();
 
+    openAdvancedSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Guides' }));
 
     await waitFor(() => {
@@ -333,6 +349,7 @@ describe('Settings updater UI', () => {
 
     const store = renderSettings();
 
+    openAdvancedSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Guides' }));
     fireEvent.click(screen.getByText('Meta-Prompt (AI Instructor)').closest('button')!);
 
@@ -386,6 +403,7 @@ describe('Settings updater UI', () => {
 
     renderSettings(store);
 
+    openAdvancedSettings();
     fireEvent.click(screen.getByRole('button', { name: t('settings.nav.guides') }));
     expect(screen.getAllByText(t('settings.customized')).length).toBeGreaterThan(0);
   });
@@ -582,32 +600,33 @@ describe('Settings updater UI', () => {
     });
   });
 
-  it('offers Gemini OAuth in the LLM tab and links to quota details when usage is unavailable', async () => {
-    const target: OAuthProviderTarget = { provider: 'gemini', capability: 'llm' };
-    const dashboardUrl =
-      'https://console.cloud.google.com/apis/api/generativelanguage.googleapis.com/quotas';
-    const status: OAuthProviderStatus = {
+  it('uses editable OAuth model and strength fields and omits blank strength', async () => {
+    const target: OAuthProviderTarget = { provider: 'chatgpt', capability: 'llm' };
+    const ready: OAuthProviderStatus = {
       target,
       state: 'ready',
-      usage: {
-        state: 'unavailable',
-        reason: 'Gemini does not expose a reliable remaining-quota value to this OAuth scope.',
-        dashboardUrl,
+      planType: 'Plus',
+      usage: { state: 'unavailable', reason: 'not reported' },
+      modelCapabilities: {
+        supportsModelOverride: true,
+        supportsReasoningEffort: true,
+        models: [
+          { id: 'codex', model: 'codex', supportedReasoningEfforts: ['high'] },
+          {
+            id: 'gpt-5.6-sol',
+            model: 'gpt-5.6-sol',
+            supportedReasoningEfforts: ['high', 'xhigh'],
+          },
+        ],
       },
+      version: '0.145.0',
     };
-    const isConfigured = vi.fn().mockResolvedValue(false);
-    const openExternal = vi.fn().mockResolvedValue(undefined);
 
     vi.mocked(getAPI).mockReturnValue({
       onReady: mockOnReady(),
-      openExternal,
-      keychain: { isConfigured },
+      keychain: { isConfigured: vi.fn().mockResolvedValue(false) },
       providerOAuth: {
-        status: vi.fn(async ({ target: requested }) => {
-          return requested.provider === 'gemini' && requested.capability === 'llm'
-            ? status
-            : ({ target: requested, state: 'signedOut' } satisfies OAuthProviderStatus);
-        }),
+        status: vi.fn().mockResolvedValue(ready),
         login: vi.fn(),
         cancelLogin: vi.fn(),
         logout: vi.fn(),
@@ -615,20 +634,121 @@ describe('Settings updater UI', () => {
       },
     } as unknown as ReturnType<typeof getAPI>);
 
-    renderSettings();
+    const store = renderSettings();
     fireEvent.click(screen.getByRole('button', { name: /Providers/i }));
-    const card = findProviderCard('Google Gemini (OAuth)');
-    fireEvent.click(within(card).getByRole('button', { name: 'Expand' }));
+    const card = findProviderCard('ChatGPT (OAuth)');
+    await waitFor(() => expect(within(card).getByText('Ready')).toBeTruthy());
+    fireEvent.click(within(card).getByLabelText('Expand'));
 
+    const inputs = await within(card).findAllByRole('textbox');
+    expect(inputs).toHaveLength(2);
+    expect((inputs[0] as HTMLInputElement).value).toBe('codex');
+    expect((inputs[1] as HTMLInputElement).value).toBe('');
+
+    fireEvent.change(inputs[0], { target: { value: 'gpt-5.6-sol' } });
+    fireEvent.change(inputs[1], { target: { value: 'xhigh' } });
+    fireEvent.click(within(card).getByRole('button', { name: 'Save' }));
     await waitFor(() => {
-      expect(within(card).getByText(/does not expose a reliable remaining-quota/i)).toBeTruthy();
-      expect(within(card).getByRole('button', { name: 'Open quota dashboard' })).toBeTruthy();
+      const provider = store
+        .getState()
+        .settings.llm.providers.find((entry) => entry.id === 'chatgpt-oauth');
+      expect(provider).toMatchObject({ model: 'gpt-5.6-sol', reasoningEffort: 'xhigh' });
     });
-    expect(within(card).queryByText('API Key')).toBeNull();
-    expect(isConfigured).not.toHaveBeenCalledWith('gemini-oauth');
 
-    fireEvent.click(within(card).getByRole('button', { name: 'Open quota dashboard' }));
-    expect(openExternal).toHaveBeenCalledWith(dashboardUrl);
+    fireEvent.change(inputs[1], { target: { value: '' } });
+    fireEvent.click(within(card).getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      const provider = store
+        .getState()
+        .settings.llm.providers.find((entry) => entry.id === 'chatgpt-oauth');
+      expect(provider?.reasoningEffort).toBeUndefined();
+    });
+
+    fireEvent.change(inputs[0], { target: { value: 'not-a-chatgpt-model' } });
+    fireEvent.click(within(card).getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      expect(store.getState().toast.items.at(-1)).toMatchObject({
+        variant: 'error',
+        title: 'Provider configuration is invalid',
+        message:
+          'That model is unavailable for this ChatGPT account. Choose a model listed for this account and try again.',
+      });
+    });
+  });
+
+  it('shows model and optional strength for supported official API providers only', async () => {
+    vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+        getMasked: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    const store = renderSettings();
+    fireEvent.click(screen.getByRole('button', { name: /Providers/i }));
+
+    const grokCard = findProviderCard('xAI');
+    fireEvent.click(within(grokCard).getByLabelText('Expand'));
+    expect(within(grokCard).getByText('Reasoning Strength')).toBeTruthy();
+    const grokTextInputs = grokCard.querySelectorAll<HTMLInputElement>('input[type="text"]');
+    expect(grokTextInputs).toHaveLength(2);
+
+    fireEvent.change(grokTextInputs[0]!, { target: { value: 'grok-reasoning' } });
+    fireEvent.change(grokTextInputs[1]!, { target: { value: 'high' } });
+    fireEvent.click(within(grokCard).getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      expect(
+        store.getState().settings.llm.providers.find((provider) => provider.id === 'grok'),
+      ).toMatchObject({ model: 'grok-reasoning', reasoningEffort: 'high' });
+    });
+
+    const cohereCard = findProviderCard('Cohere');
+    fireEvent.click(within(cohereCard).getByLabelText('Expand'));
+    expect(within(cohereCard).getByDisplayValue('command-a-plus-05-2026')).toBeTruthy();
+    expect(within(cohereCard).getByText('Reasoning Strength')).toBeTruthy();
+  });
+
+  it('always saves model and optional strength for custom API providers', async () => {
+    vi.mocked(getAPI).mockReturnValue({
+      onReady: mockOnReady(),
+      keychain: {
+        isConfigured: vi.fn().mockResolvedValue(false),
+        getMasked: vi.fn().mockResolvedValue(null),
+        set: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
+      },
+    } as unknown as ReturnType<typeof getAPI>);
+
+    const store = createStore();
+    store.dispatch(
+      addCustomProvider({ group: 'llm', id: 'custom-reasoning', name: 'Custom Reasoning' }),
+    );
+    renderSettings(store);
+    fireEvent.click(screen.getByRole('button', { name: /Providers/i }));
+
+    const card = findProviderCard('Custom Reasoning');
+    fireEvent.click(within(card).getByLabelText('Expand'));
+    expect(within(card).getByText('Reasoning Strength')).toBeTruthy();
+    const textInputs = card.querySelectorAll<HTMLInputElement>('input[type="text"]');
+    expect(textInputs).toHaveLength(3);
+
+    fireEvent.change(textInputs[1]!, { target: { value: 'vendor-model' } });
+    fireEvent.change(textInputs[2]!, { target: { value: 'vendor-depth' } });
+    fireEvent.click(within(card).getByRole('button', { name: 'Save' }));
+    await waitFor(() => {
+      expect(
+        store
+          .getState()
+          .settings.llm.providers.find((provider) => provider.id === 'custom-reasoning'),
+      ).toMatchObject({
+        model: 'vendor-model',
+        protocol: 'openai-compatible',
+        reasoningEffort: 'vendor-depth',
+      });
+    });
   });
 
   it('explains that the Vision tab is fallback-only for text-only LLMs', async () => {
@@ -1022,6 +1142,7 @@ describe('Settings updater UI', () => {
 
     renderSettings();
 
+    openAdvancedSettings();
     fireEvent.click(screen.getByRole('button', { name: '梦鱼 AI' }));
 
     await waitFor(() => {
@@ -1032,7 +1153,7 @@ describe('Settings updater UI', () => {
     });
   });
 
-  it('commits manual commander setting values beyond slider range', async () => {
+  it('allows optional Commander run budgets, including an explicit zero', async () => {
     setLocale('en-US');
 
     vi.mocked(getAPI).mockReturnValue({
@@ -1051,16 +1172,15 @@ describe('Settings updater UI', () => {
 
     const store = renderSettings();
 
+    openAdvancedSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Commander AI' }));
 
-    const input = await screen.findByRole('spinbutton', { name: 'Max Steps value' });
-    fireEvent.change(input, { target: { value: '350' } });
-    fireEvent.blur(input);
+    const toolCalls = await screen.findByRole('spinbutton', { name: 'Tool calls per run' });
+    fireEvent.change(toolCalls, { target: { value: '0' } });
+    fireEvent.blur(toolCalls);
 
-    expect(store.getState().commander.maxSteps).toBe(350);
-    expect((screen.getByRole('slider', { name: 'Max Steps' }) as HTMLInputElement).value).toBe(
-      '200',
-    );
+    expect(store.getState().commander.resourceBudget).toEqual({ maxToolCalls: 0 });
+    expect(screen.getAllByText(/Leave blank for no user limit\./).length).toBeGreaterThan(0);
   });
 
   it('updates commander process behavior settings', async () => {
@@ -1082,6 +1202,7 @@ describe('Settings updater UI', () => {
 
     const store = renderSettings();
 
+    openAdvancedSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Commander AI' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Block generation' }));
     fireEvent.click(

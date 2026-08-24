@@ -49,7 +49,7 @@ export function CharacterEditor({
       try {
         const api = getAPI();
         if (!api) return;
-        const asset = (await api.asset.pickFile('image')) as { hash: string } | null;
+        const asset = await api.assetEntry.pickFile('image');
         if (!asset) return;
         const refImage = (await api.character.setRefImage(
           selectedChar.id,

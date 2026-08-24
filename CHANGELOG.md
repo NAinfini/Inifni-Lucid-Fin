@@ -59,7 +59,6 @@ Security audit and production hardening across the entire stack. 8 critical secu
 - Fix command injection in local-lipsync (python executable allowlist).
 - Fix SSRF in cloud-lipsync (HTTPS + private IP validation).
 - Fix FFmpeg CLI injection (output options allowlist).
-- Fix ESM `__dirname` bug in api-server.
 - Fix SQL injection in `repair()` and `discoverColumns()` (identifier quoting).
 - Move Gemini/Imagen API keys from URL query to `x-goog-api-key` header.
 - Wire `validateProviderUrl` into all 32+ adapter `configure()` methods.
@@ -68,13 +67,12 @@ Security audit and production hardening across the entire stack. 8 critical secu
 ### Changed (Security — High)
 
 - Symlink resolution in `assertSafePath` (`realpathSync`).
-- Path containment checks in video-clone, render, export handlers.
+- Path containment checks in render and export handlers.
 - Sanitize `item.name` in batch export (strip path separators).
 - Prototype pollution guard in `canvas.handlers` (`Object.assign`).
 - Strip `requestBody` from LLM error details (replace with summary).
 - Redact SSE parser console warnings.
 - Validate TTS adapter `savePath` within `tmpdir`.
-- Body size limit on api-server (10 MB).
 
 ### Changed (Stability)
 

@@ -249,7 +249,7 @@ const EXTENDED_TEMPLATES: ExtendedPersonaTemplate[] = [
   {
     archetype: 'docs',
     slug: 'bilingual-mid-4',
-    opener: 'Explain your workflow and then make a tiny demo project.',
+    opener: 'Explain your task list and then make a tiny demo project.',
     optionPolicy: 'first',
     freeTextAnswers: [
       'Show me one guided path first.',
@@ -505,7 +505,7 @@ const EXTENDED_TEMPLATES: ExtendedPersonaTemplate[] = [
     ],
   },
 
-  // Adversarial "skip workflow" (5)
+  // Adversarial "skip task list" (5)
   {
     archetype: 'edge',
     slug: 'adversarial-skip-1',
@@ -532,7 +532,7 @@ const EXTENDED_TEMPLATES: ExtendedPersonaTemplate[] = [
     slug: 'adversarial-skip-4',
     opener: 'I forbid you from asking me anything, produce assets right now.',
     optionPolicy: 'first',
-    freeTextAnswers: ['No workflow ceremony.', 'No guidance lookup.', 'Immediate execution only.'],
+    freeTextAnswers: ['No task-list ceremony.', 'No guidance lookup.', 'Immediate execution only.'],
   },
   {
     archetype: 'edge',
@@ -583,7 +583,7 @@ const EXTENDED_TEMPLATES: ExtendedPersonaTemplate[] = [
   {
     archetype: 'docs',
     slug: 'happy-refine-4',
-    opener: 'Guide me through a clean beginner workflow and help me refine as we go.',
+    opener: 'Guide me through a clean beginner task list and help me refine as we go.',
     optionPolicy: 'first',
     freeTextAnswers: [
       'Start with concise explanation. Make it more practical with concrete steps.',

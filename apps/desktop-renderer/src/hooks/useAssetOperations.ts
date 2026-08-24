@@ -1,7 +1,14 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import type { AssetEntry } from '@lucid-fin/contracts';
 import type { RootState } from '../store/index.js';
-import { setAssets, removeAsset, type Asset } from '../store/slices/assets.js';
+import {
+  addAssets,
+  moveItemsToFolder,
+  removeAssets,
+  setAssets,
+  type Asset,
+} from '../store/slices/assets.js';
 import { addLog } from '../store/slices/logger.js';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
@@ -12,23 +19,61 @@ import {
   formatFailureSummary,
 } from '../components/canvas/asset-browser/utils.js';
 
+function toAsset(asset: AssetEntry): Asset {
+  const generationMetadata = asset.generationMetadata;
+  return {
+    id: asset.id,
+    hash: asset.hash,
+    name:
+      typeof asset.displayName === 'string' && asset.displayName.trim()
+        ? asset.displayName
+        : typeof asset.originalName === 'string' && asset.originalName.trim()
+          ? asset.originalName
+          : asset.hash.slice(0, 12),
+    type: (asset.type as Asset['type']) ?? 'other',
+    path: '',
+    tags: Array.isArray(asset.tags) ? asset.tags : [],
+    global: false,
+    size: typeof asset.fileSize === 'number' ? asset.fileSize : 0,
+    createdAt: typeof asset.createdAt === 'number' ? asset.createdAt : Date.now(),
+    format: typeof asset.format === 'string' ? asset.format : undefined,
+    width: typeof asset.width === 'number' ? asset.width : undefined,
+    height: typeof asset.height === 'number' ? asset.height : undefined,
+    duration: typeof asset.duration === 'number' ? asset.duration : undefined,
+    provider: typeof asset.provider === 'string' ? asset.provider : undefined,
+    prompt:
+      typeof generationMetadata?.prompt === 'string'
+        ? generationMetadata.prompt
+        : typeof asset.prompt === 'string'
+          ? asset.prompt
+          : undefined,
+    negativePrompt:
+      typeof generationMetadata?.negativePrompt === 'string'
+        ? generationMetadata.negativePrompt
+        : undefined,
+    promptAssemblyId:
+      typeof generationMetadata?.promptAssemblyId === 'string'
+        ? generationMetadata.promptAssemblyId
+        : undefined,
+    folderId: typeof asset.folderId === 'string' ? asset.folderId : null,
+  };
+}
+
 /**
- * Encapsulates asset CRUD operations (load, import, drop-import, delete, export, copy-hash, reindex).
+ * Encapsulates asset CRUD operations (load, import, drop-import, delete, export, copy-hash).
  * Used by AssetBrowserPanel to keep the component focused on rendering.
  */
 export function useAssetOperations() {
   const dispatch = useDispatch();
   const { error: showErrorToast } = useToast();
   const allAssets = useSelector((state: RootState) => state.assets.items);
+  const assetsById = useMemo(
+    () => new Map(allAssets.map((asset) => [asset.id, asset])),
+    [allAssets],
+  );
   const { filterType } = useSelector((state: RootState) => state.assets);
 
   const [loading, setLoading] = useState(false);
-  const [semanticIndexing, setSemanticIndexing] = useState(false);
-  const [semanticResults, setSemanticResults] = useState<
-    { hash: string; score: number; description: string }[]
-  >([]);
-  const semanticSearchTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-
   const logAssetFailure = useCallback(
     (message: string, error: unknown) => {
       dispatch(
@@ -43,41 +88,10 @@ export function useAssetOperations() {
     setLoading(true);
     try {
       const api = getAPI();
-      const result = await api?.asset.query(filterType === 'all' ? {} : { type: filterType });
+      const result = await api?.assetEntry.query(filterType === 'all' ? {} : { type: filterType });
       if (!Array.isArray(result)) return;
 
-      dispatch(
-        setAssets(
-          result.map((asset) => ({
-            id: asset.hash,
-            hash: asset.hash,
-            name:
-              typeof asset.name === 'string'
-                ? asset.name
-                : typeof asset.originalName === 'string'
-                  ? asset.originalName
-                  : asset.hash.slice(0, 12),
-            type: (asset.type as Asset['type']) ?? 'other',
-            path: typeof asset.path === 'string' ? asset.path : '',
-            tags: Array.isArray(asset.tags) ? (asset.tags as string[]) : [],
-            global: Boolean(asset.global),
-            size:
-              typeof asset.fileSize === 'number'
-                ? asset.fileSize
-                : typeof asset.size === 'number'
-                  ? asset.size
-                  : 0,
-            createdAt: typeof asset.createdAt === 'number' ? asset.createdAt : Date.now(),
-            format: typeof asset.format === 'string' ? asset.format : undefined,
-            width: typeof asset.width === 'number' ? asset.width : undefined,
-            height: typeof asset.height === 'number' ? asset.height : undefined,
-            duration: typeof asset.duration === 'number' ? asset.duration : undefined,
-            provider: typeof asset.provider === 'string' ? asset.provider : undefined,
-            prompt: typeof asset.prompt === 'string' ? asset.prompt : undefined,
-            folderId: typeof asset.folderId === 'string' ? asset.folderId : null,
-          })),
-        ),
-      );
+      dispatch(setAssets(result.map(toAsset)));
     } catch (error) {
       const title = t('assetBrowser.loadFailed');
       logAssetFailure(title, error);
@@ -91,8 +105,15 @@ export function useAssetOperations() {
   const handleImport = useCallback(async () => {
     const api = getAPI();
     if (!api) return;
+    if (filterType === 'all') {
+      showErrorToast({
+        title: t('assetBrowser.importFailed'),
+        message: t('assetBrowser.selectImportType'),
+      });
+      return;
+    }
     try {
-      const ref = await api.asset.pickFile('image');
+      const ref = await api.assetEntry.pickFile(filterType);
       if (!ref) return;
       await loadAssets();
     } catch (error) {
@@ -100,7 +121,7 @@ export function useAssetOperations() {
       logAssetFailure(title, error);
       showErrorToast({ title, message: getErrorMessage(error) });
     }
-  }, [loadAssets, logAssetFailure, showErrorToast]);
+  }, [filterType, loadAssets, logAssetFailure, showErrorToast]);
 
   // --- Drop import ---
   const handleDropImport = useCallback(
@@ -135,7 +156,7 @@ export function useAssetOperations() {
         const filePath = (file as { path?: string }).path ?? '';
         if (filePath) {
           importPromises.push(
-            api.asset
+            api.assetEntry
               .import(filePath, type)
               .then(() => undefined)
               .catch((error: unknown) => {
@@ -144,11 +165,11 @@ export function useAssetOperations() {
                 dispatch(addLog({ level: 'error', category: 'asset', message: msg }));
               }),
           );
-        } else if (api.asset.importBuffer) {
+        } else if (api.assetEntry.importBuffer) {
           importPromises.push(
             file
               .arrayBuffer()
-              .then((buf) => api.asset.importBuffer!(buf, file.name, type!))
+              .then((buf) => api.assetEntry.importBuffer(buf, file.name, type!))
               .then(() => undefined)
               .catch((error: unknown) => {
                 const msg = `${file.name}: ${getErrorMessage(error)}`;
@@ -178,58 +199,61 @@ export function useAssetOperations() {
 
   // --- Delete ---
   const executeDelete = useCallback(
-    async (pendingDeleteHashes: Set<string>) => {
+    async (pendingDeleteEntryIds: Set<string>) => {
       const api = getAPI();
       if (!api) return new Set<string>();
-      const deletedHashes = new Set<string>();
-      const failedDeletes: string[] = [];
-      for (const hash of pendingDeleteHashes) {
-        const asset = allAssets.find((entry) => entry.hash === hash);
-        try {
-          await api.asset.delete(hash);
-          deletedHashes.add(hash);
-          if (asset) dispatch(removeAsset(asset.id));
-        } catch (error) {
-          const msg = `${asset?.name ?? hash}: ${getErrorMessage(error)}`;
-          failedDeletes.push(msg);
-          dispatch(addLog({ level: 'error', category: 'asset', message: msg }));
-        }
-      }
-      if (failedDeletes.length > 0) {
-        const summary = failedDeletes[0] ?? t('toast.error.unknownError');
-        const extraCount = failedDeletes.length - 1;
+      const entryIds = [...pendingDeleteEntryIds];
+      if (entryIds.length === 0) return new Set<string>();
+      try {
+        const { deletedEntryIds } = await api.assetEntry.delete(entryIds);
+        dispatch(removeAssets(deletedEntryIds));
+        return new Set(deletedEntryIds);
+      } catch (error) {
+        const names = entryIds.map((id) => assetsById.get(id)?.name ?? id).join(', ');
+        const message = `${names}: ${getErrorMessage(error)}`;
+        dispatch(addLog({ level: 'error', category: 'asset', message }));
         showErrorToast({
           title: t('assetBrowser.deleteFailed'),
-          message: formatFailureSummary(summary, extraCount),
+          message,
         });
+        return new Set<string>();
       }
-      return deletedHashes;
     },
-    [allAssets, dispatch, showErrorToast],
+    [assetsById, dispatch, showErrorToast],
+  );
+
+  const executeMove = useCallback(
+    async (entryIds: string[], folderId: string | null) => {
+      if (entryIds.length === 0) return [];
+      const api = getAPI();
+      if (!api) return [];
+      const { movedEntryIds } = await api.assetEntry.move(entryIds, folderId);
+      dispatch(moveItemsToFolder({ ids: movedEntryIds, folderId }));
+      return movedEntryIds;
+    },
+    [dispatch],
+  );
+
+  const executeCopy = useCallback(
+    async (entryIds: string[], targetFolderId: string | null) => {
+      if (entryIds.length === 0) return [];
+      const api = getAPI();
+      if (!api) return [];
+      const copied = await api.assetEntry.copy(entryIds, targetFolderId);
+      const created = copied.map(toAsset);
+      dispatch(addAssets(created));
+      return created;
+    },
+    [dispatch],
   );
 
   // --- Export ---
-  const handleExportSelected = useCallback(
-    async (items: Array<{ hash: string; type: 'image' | 'video' | 'audio'; name: string }>) => {
-      const api = getAPI();
-      if (!api || items.length === 0) return;
-      try {
-        await api.asset.exportBatch({ items });
-      } catch (error) {
-        const title = t('assetBrowser.exportFailed');
-        logAssetFailure(title, error);
-        showErrorToast({ title, message: getErrorMessage(error) });
-      }
-    },
-    [logAssetFailure, showErrorToast],
-  );
-
   const handleQuickExport = useCallback(
     async (asset: Asset, exportConfig: { type: 'image' | 'video' | 'audio'; format: string }) => {
       const api = getAPI();
       if (!api) return;
       try {
-        await api.asset.export({
+        await api.assetContent.export({
           hash: asset.hash,
           type: exportConfig.type,
           format: exportConfig.format,
@@ -258,76 +282,15 @@ export function useAssetOperations() {
     [logAssetFailure, showErrorToast],
   );
 
-  // --- Semantic search ---
-  const handleSemanticSearch = useCallback(
-    async (query: string) => {
-      if (!query.trim()) {
-        setSemanticResults([]);
-        return;
-      }
-      const api = getAPI();
-      if (!api?.embedding) return;
-      try {
-        const results = await api.embedding.search(query, 50);
-        setSemanticResults(results);
-      } catch (error) {
-        dispatch(
-          addLog({
-            level: 'error',
-            category: 'asset',
-            message: 'Semantic search failed',
-            detail: getErrorDetail(error),
-          }),
-        );
-        setSemanticResults([]);
-      }
-    },
-    [dispatch],
-  );
-
-  const handleReindex = useCallback(async () => {
-    const api = getAPI();
-    if (!api?.embedding) return;
-    setSemanticIndexing(true);
-    try {
-      await api.embedding.reindex();
-    } catch (error) {
-      dispatch(
-        addLog({
-          level: 'error',
-          category: 'asset',
-          message: 'Re-index failed',
-          detail: getErrorDetail(error),
-        }),
-      );
-    } finally {
-      setSemanticIndexing(false);
-    }
-  }, [dispatch]);
-
-  /** Schedule a debounced semantic search (for typing in search box) */
-  const scheduleSemanticSearch = useCallback(
-    (query: string) => {
-      clearTimeout(semanticSearchTimerRef.current);
-      semanticSearchTimerRef.current = setTimeout(() => void handleSemanticSearch(query), 350);
-    },
-    [handleSemanticSearch],
-  );
-
   return {
     loading,
-    semanticIndexing,
-    semanticResults,
-    setSemanticResults,
     loadAssets,
     handleImport,
     handleDropImport,
     executeDelete,
-    handleExportSelected,
+    executeMove,
+    executeCopy,
     handleQuickExport,
     handleCopyHash,
-    handleSemanticSearch,
-    handleReindex,
-    scheduleSemanticSearch,
   };
 }

@@ -2,8 +2,8 @@
  * Phase F — end-to-end plugin test.
  *
  * Verifies that a third-party contract registered at runtime via the
- * public `contractRegistry.register()` surface flows through `classify
- * → select → decide` and produces the expected `ExitDecision`, without
+ * public `contractRegistry.register()` surface flows through
+ * `select → decide` and produces the expected `ExitDecision`, without
  * touching orchestrator internals.
  *
  * This is the "Phase F is done" sanity check: if this breaks, the
@@ -39,10 +39,10 @@ describe('plugin extensibility (Phase F)', () => {
     contractRegistry.unregister(PLUGIN_CONTRACT_ID);
   });
 
-  it('registers a third-party contract, selects it by workflow id, and decides satisfied', () => {
+  it('registers a third-party contract, selects it by task-list id, and decides satisfied', () => {
     contractRegistry.register(pluginContract);
 
-    const intent: RunIntent = { kind: 'execution', workflow: PLUGIN_CONTRACT_ID };
+    const intent: RunIntent = { kind: 'execution', taskList: PLUGIN_CONTRACT_ID };
     const picked = contractRegistry.select(intent);
     expect(picked.id).toBe(PLUGIN_CONTRACT_ID);
 
@@ -68,13 +68,16 @@ describe('plugin extensibility (Phase F)', () => {
   it('returns unsatisfied when the plugin contract requires a commit that never fired', () => {
     contractRegistry.register(pluginContract);
 
-    const intent: RunIntent = { kind: 'execution', workflow: PLUGIN_CONTRACT_ID };
+    const intent: RunIntent = { kind: 'execution', taskList: PLUGIN_CONTRACT_ID };
     const picked = contractRegistry.select(intent);
-    // Seed the ledger with a read-only / unrelated event so we get past the
-    // `empty_narration` short-circuit (which fires when ledger is empty AND
-    // lastAssistantText is set). We want `missing_commit` specifically.
     const ledger: readonly CompletionEvidence[] = [
-      { kind: 'guide_loaded', guideId: 'some-guide', at: Date.now() },
+      {
+        kind: 'mutation_commit',
+        toolName: 'canvas.customPluginWrite',
+        args: {},
+        resultOk: false,
+        at: Date.now(),
+      },
     ];
     const verdict = decide({
       contract: picked,

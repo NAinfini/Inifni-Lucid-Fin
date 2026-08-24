@@ -1,9 +1,9 @@
 /**
- * ColorStyleRepository — Phase G1-4.10.
+ * Color style persistence.
  *
  * Wraps `color_styles` CRUD. JSON-serialized blobs (palette, gradients,
  * exposure, tags) are parsed back to typed objects on read. Column names
- * flow through `ColorStylesTable` (G1-1) so schema drift fails at compile
+ * flow through `ColorStylesTable` so schema drift fails at compile
  * time.
  */
 

@@ -4,14 +4,12 @@ import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+import { publicMarkdownContent } from './public-markdown-content.js';
 
 const BLOCKED_PROTOCOLS = ['javascript:', 'data:', 'vbscript:', 'blob:'];
 
 // Strip raw HTML tags that LLMs sometimes emit instead of Markdown.
 const htmlTagRe = /<\/?[a-z][a-z0-9]*(?:\s[^>]*)?\/?>/gi;
-
-// DeepSeek R1 reasoning traces: <think>...</think>
-const thinkBlockRe = /<think>([\s\S]*?)<\/think>/gi;
 
 // Allow node:// protocol in addition to react-markdown's default safe protocols.
 function urlTransform(url: string): string {
@@ -19,17 +17,13 @@ function urlTransform(url: string): string {
   return defaultUrlTransform(url);
 }
 
-function preprocess(raw: string): { content: string; thinkBlocks: string[] } {
-  const thinkBlocks: string[] = [];
-  let content = raw.replace(thinkBlockRe, (_m, inner: string) => {
-    thinkBlocks.push(inner.trim());
-    return '';
-  });
+function preprocess(raw: string): string {
+  let content = publicMarkdownContent(raw);
   content = content.replace(htmlTagRe, '');
   // Normalize literal escape sequences that come from JSX string attributes
   // (e.g. content="...\n..." passes backslash-n, not a real newline).
   content = content.replace(/\\n/g, '\n').replace(/\\t/g, '\t');
-  return { content: content.trim(), thinkBlocks };
+  return content.trim();
 }
 
 function DefaultLinkRenderer({ href, children, ...props }: ComponentPropsWithoutRef<'a'>) {
@@ -175,33 +169,21 @@ export default memo(function Markdown({ content, onNodeClick }: MarkdownProps) {
 
   if (!content) return null;
 
-  const { content: cleaned, thinkBlocks } = preprocess(content);
+  const cleaned = preprocess(content);
 
-  if (!cleaned && thinkBlocks.length === 0) return null;
+  if (!cleaned) return null;
 
   return (
     <div data-testid="markdown" className="commander-markdown min-w-0 break-words">
-      {thinkBlocks.length > 0 && (
-        <details className="my-1 rounded border border-border/40 bg-muted/20 text-xs">
-          <summary className="cursor-pointer px-2 py-1 text-muted-foreground select-none">
-            Reasoning ({thinkBlocks.length})
-          </summary>
-          <div className="px-2 py-1 text-muted-foreground whitespace-pre-wrap">
-            {thinkBlocks.join('\n\n---\n\n')}
-          </div>
-        </details>
-      )}
-      {cleaned && (
-        <ReactMarkdown
-          remarkPlugins={remarkPlugins}
-          rehypePlugins={rehypePlugins}
-          skipHtml
-          urlTransform={urlTransform}
-          components={dynamicComponents}
-        >
-          {cleaned}
-        </ReactMarkdown>
-      )}
+      <ReactMarkdown
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
+        skipHtml
+        urlTransform={urlTransform}
+        components={dynamicComponents}
+      >
+        {cleaned}
+      </ReactMarkdown>
     </div>
   );
 });

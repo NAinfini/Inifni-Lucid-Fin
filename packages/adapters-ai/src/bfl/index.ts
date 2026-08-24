@@ -94,7 +94,7 @@ export class BFLFluxAdapter implements AIProviderAdapter {
   }
 
   async checkStatus(jobId: string): Promise<JobStatus> {
-    const result = await this.getResult(
+    const result = await this.fetchPollingResult(
       `${this.baseUrl}/get_result?id=${encodeURIComponent(jobId)}`,
     );
     return mapBflStatus(firstString(result['status']) ?? '');
@@ -147,7 +147,7 @@ export class BFLFluxAdapter implements AIProviderAdapter {
     callbacks?: SubscribeCallbacks,
   ): Promise<GenerationResult> {
     for (let attempt = 0; attempt < this.maxPollAttempts; attempt += 1) {
-      const task = await this.getResult(pollingUrl);
+      const task = await this.fetchPollingResult(pollingUrl);
       const status = firstString(task['status']) ?? '';
       const jobStatus = mapBflStatus(status);
       const progress = numberInRange(task['progress'], 0, 100);
@@ -188,7 +188,7 @@ export class BFLFluxAdapter implements AIProviderAdapter {
     );
   }
 
-  private async getResult(url: string): Promise<Record<string, unknown>> {
+  private async fetchPollingResult(url: string): Promise<Record<string, unknown>> {
     const res = await fetch(url, {
       headers: { accept: 'application/json', 'x-key': this.apiKey },
     });

@@ -6,6 +6,8 @@
  * real DTO types once the DTOs themselves are contract-owned.
  */
 
+import type { Location } from '../../dto/location.js';
+
 // ── location:list ────────────────────────────────────────────
 export interface LocationListRequest {
   type?: string;
@@ -23,10 +25,20 @@ export type LocationSaveRequest = unknown;
 export type LocationSaveResponse = unknown;
 
 // ── location:delete ──────────────────────────────────────────
-export interface LocationDeleteRequest {
-  id: string;
+export interface LocationCopyRequest {
+  ids: string[];
+  targetFolderId: string | null;
 }
-export type LocationDeleteResponse = void;
+export interface LocationCopyResponse {
+  created: Location[];
+}
+
+export interface LocationDeleteRequest {
+  ids: string[];
+}
+export interface LocationDeleteResponse {
+  deletedIds: string[];
+}
 
 // ── location:setRefImage ─────────────────────────────────────
 export interface LocationSetRefImageRequest {
@@ -52,19 +64,6 @@ export type StyleSaveResponse = void;
 export type StyleLoadRequest = Record<string, never>;
 export type StyleLoadResponse = unknown;
 
-// ── entity:generateReferenceImage ────────────────────────────
-export interface EntityGenerateReferenceImageRequest {
-  entityType: 'character' | 'equipment' | 'location';
-  entityId: string;
-  description: string;
-  provider: string;
-  variantCount?: number;
-  seed?: number;
-}
-export interface EntityGenerateReferenceImageResponse {
-  variants: string[];
-}
-
 // ── colorStyle:list ──────────────────────────────────────────
 export type ColorStyleListRequest = Record<string, never>;
 export type ColorStyleListResponse = unknown[];
@@ -85,5 +84,5 @@ export interface ColorStyleExtractRequest {
   assetType: 'image' | 'video';
 }
 export interface ColorStyleExtractResponse {
-  workflowRunId: string;
+  taskListId: string;
 }

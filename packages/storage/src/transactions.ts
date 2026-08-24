@@ -1,9 +1,8 @@
 /**
- * Transaction coordinator (Phase G1-3).
+ * Transaction coordinator.
  *
  * `withTx(db, fn)` opens a better-sqlite3 transaction around `fn` and
- * exposes a `Tx` handle. Repositories (introduced in subsequent G1
- * sub-tasks) accept an optional `Tx` parameter so application services
+ * exposes a `Tx` handle. Repositories accept an optional `Tx` parameter so application services
  * can batch multi-repository writes into a single atomic tx from the
  * outside, rather than every repository method opening its own.
  *

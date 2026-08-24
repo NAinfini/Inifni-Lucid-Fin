@@ -64,6 +64,7 @@ export class GeminiLLMAdapter implements LLMAdapter {
   private apiKey = '';
   private baseUrl: string;
   private model: string;
+  private reasoningEffort?: string;
   private readonly authorizationHeaders?: () => Promise<Record<string, string>>;
 
   constructor(cfg: GeminiAdapterConfig = {}) {
@@ -90,6 +91,9 @@ export class GeminiLLMAdapter implements LLMAdapter {
       this.baseUrl = options.baseUrl as string;
     }
     if (options?.model) this.model = options.model as string;
+    const reasoningEffort =
+      typeof options?.reasoningEffort === 'string' ? options.reasoningEffort.trim() : '';
+    this.reasoningEffort = reasoningEffort || undefined;
     if (typeof options?.contextWindow === 'number' && options.contextWindow > 0) {
       this.userContextWindow = options.contextWindow as number;
     }
@@ -196,6 +200,9 @@ export class GeminiLLMAdapter implements LLMAdapter {
         ...(!omitsGeminiSamplingParameters(this.model) &&
           opts?.topP !== undefined && { topP: opts.topP }),
         ...(opts?.stop !== undefined && { stopSequences: opts.stop }),
+        ...(this.reasoningEffort && {
+          thinkingConfig: { thinkingLevel: this.reasoningEffort },
+        }),
       },
     };
 

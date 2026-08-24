@@ -14,7 +14,7 @@
     { "path": "../shared-utils" },
     { "path": "../storage" },
     { "path": "../adapters-ai" },
-    { "path": "../workflows" },
+    { "path": "../task-execution" },
     { "path": "../agent" }
   ]
 }

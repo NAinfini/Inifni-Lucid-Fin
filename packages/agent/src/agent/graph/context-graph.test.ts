@@ -214,7 +214,7 @@ describe('ContextGraph', () => {
       const graph = new ContextGraph();
       const u = mkUserMessage(0);
       const a = mkAssistantTurn(1);
-      const g = mkGuide('workflow-1');
+      const g = mkGuide('task-list-1');
       graph.add(u);
       graph.add(a);
       graph.add(g);
@@ -323,6 +323,28 @@ describe('ContextGraph', () => {
       graph.invalidateForMutation('canvas.updateNodeData', { nodeId: 'n1' });
       expect(graph.hasToolResult('entity.list', '{}')).toBe(true);
     });
+
+    it('invalidates multiple mutation scopes without changing domain semantics', () => {
+      const graph = new ContextGraph();
+      graph.add(
+        mkToolResult('canvas.getNode', '{"nodeId":"n1"}', 1, { success: true, data: { id: 'n1' } }),
+      );
+      graph.add(
+        mkToolResult('canvas.getNode', '{"nodeId":"n2"}', 1, { success: true, data: { id: 'n2' } }),
+      );
+      graph.add(mkToolResult('canvas.listNodes', '{}', 1, { success: true, data: [] }));
+      graph.add(mkToolResult('entity.list', '{}', 1, { success: true, data: [] }));
+
+      graph.invalidateForMutations([
+        { toolName: 'canvas.updateNodeData', args: { nodeId: 'n1' } },
+        { toolName: 'canvas.updateNodeData', args: { nodeId: 'n2' } },
+      ]);
+
+      expect(graph.hasToolResult('canvas.getNode', '{"nodeId":"n1"}')).toBe(false);
+      expect(graph.hasToolResult('canvas.getNode', '{"nodeId":"n2"}')).toBe(false);
+      expect(graph.hasToolResult('canvas.listNodes', '{}')).toBe(false);
+      expect(graph.hasToolResult('entity.list', '{}')).toBe(true);
+    });
   });
 
   describe('clearToolResults (G2b-5)', () => {
@@ -333,6 +355,21 @@ describe('ContextGraph', () => {
       graph.clearToolResults();
       expect(graph.countToolResults()).toBe(0);
       expect(graph.hasToolResult('canvas.getNode', '{"nodeId":"n1"}')).toBe(false);
+    });
+
+    it('keeps survivor insertion order after clearing a large result set', () => {
+      const graph = new ContextGraph();
+      const before = mkUserMessage(1, 'before');
+      const after = mkUserMessage(2, 'after');
+      graph.add(before);
+      for (let index = 0; index < 1_000; index += 1) {
+        graph.add(mkToolResult('canvas.createNodes', `{"index":${index}}`, index));
+      }
+      graph.add(after);
+
+      graph.clearToolResults();
+
+      expect(graph.serialize().map((item) => item.itemId)).toEqual([before.itemId, after.itemId]);
     });
   });
 

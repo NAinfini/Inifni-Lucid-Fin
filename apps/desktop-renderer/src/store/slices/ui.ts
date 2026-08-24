@@ -2,21 +2,20 @@ import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import type { NodeKind, NodeStatus } from '@lucid-fin/contracts';
 
 export type LeftPanelId =
-  | 'add'
-  | 'assets'
-  | 'characters'
-  | 'equipment'
-  | 'locations'
-  | 'shotTemplates'
-  | 'presets'
-  | 'canvases';
+  'history' | 'add' | 'assets' | 'characters' | 'equipment' | 'locations' | 'canvases';
 
 export type RightPanelId =
-  'inspector' | 'logger' | 'dependencies' | 'queue' | 'history' | 'notes' | 'export';
+  'inspector' | 'dependencies' | 'notes' | 'shotTemplates' | 'presets' | 'logger';
 
 export type Theme = 'light' | 'dark' | 'high-contrast' | 'auto';
 
-export type CanvasViewMode = 'main' | 'edit' | 'audio' | 'materials';
+export type CanvasViewMode = 'main' | 'delivery';
+
+export const MIN_CANVAS_PANEL_WIDTH = 200;
+export const MAX_CANVAS_PANEL_WIDTH = 500;
+export const DEFAULT_CANVAS_PANEL_WIDTH = 380;
+export const LEFT_CANVAS_PANEL_WIDTH_STORAGE_KEY = 'lucid-fin:left-canvas-panel-width';
+export const RIGHT_CANVAS_PANEL_WIDTH_STORAGE_KEY = 'lucid-fin:right-canvas-panel-width';
 
 export interface UIState {
   activePanel: LeftPanelId | null;
@@ -33,7 +32,6 @@ export interface UIState {
   hoveredDependencyNodeId: string | null;
   onboardingComplete: boolean;
   canvasViewMode: CanvasViewMode;
-  editViewFocusedNodeId: string | null;
 }
 
 export function resolveEffectiveTheme(theme: Theme): 'light' | 'dark' | 'high-contrast' {
@@ -79,11 +77,33 @@ function loadOnboardingComplete(): boolean {
   return false;
 }
 
+function clampCanvasPanelWidth(width: number): number {
+  if (!Number.isFinite(width)) return DEFAULT_CANVAS_PANEL_WIDTH;
+  return Math.max(MIN_CANVAS_PANEL_WIDTH, Math.min(MAX_CANVAS_PANEL_WIDTH, width));
+}
+
+function loadCanvasPanelWidth(storageKey: string): number {
+  try {
+    const stored = localStorage.getItem(storageKey);
+    return stored === null ? DEFAULT_CANVAS_PANEL_WIDTH : clampCanvasPanelWidth(Number(stored));
+  } catch {
+    return DEFAULT_CANVAS_PANEL_WIDTH;
+  }
+}
+
+function persistCanvasPanelWidth(storageKey: string, width: number): void {
+  try {
+    localStorage.setItem(storageKey, String(width));
+  } catch {
+    /* localStorage unavailable */
+  }
+}
+
 const initialState: UIState = {
   activePanel: null,
-  panelWidth: 320,
+  panelWidth: loadCanvasPanelWidth(LEFT_CANVAS_PANEL_WIDTH_STORAGE_KEY),
   rightPanel: null,
-  rightPanelWidth: 320,
+  rightPanelWidth: loadCanvasPanelWidth(RIGHT_CANVAS_PANEL_WIDTH_STORAGE_KEY),
   searchPanelOpen: false,
   canvasSearchQuery: '',
   canvasTypeFilters: [],
@@ -94,7 +114,6 @@ const initialState: UIState = {
   hoveredDependencyNodeId: null,
   onboardingComplete: loadOnboardingComplete(),
   canvasViewMode: 'main',
-  editViewFocusedNodeId: null,
 };
 
 export const uiSlice = createSlice({
@@ -108,7 +127,8 @@ export const uiSlice = createSlice({
       state.activePanel = state.activePanel === action.payload ? null : action.payload;
     },
     setPanelWidth(state, action: PayloadAction<number>) {
-      state.panelWidth = action.payload;
+      state.panelWidth = clampCanvasPanelWidth(action.payload);
+      persistCanvasPanelWidth(LEFT_CANVAS_PANEL_WIDTH_STORAGE_KEY, state.panelWidth);
     },
     setRightPanel(state, action: PayloadAction<RightPanelId | null>) {
       state.rightPanel = action.payload;
@@ -117,7 +137,8 @@ export const uiSlice = createSlice({
       state.rightPanel = state.rightPanel === action.payload ? null : action.payload;
     },
     setRightPanelWidth(state, action: PayloadAction<number>) {
-      state.rightPanelWidth = action.payload;
+      state.rightPanelWidth = clampCanvasPanelWidth(action.payload);
+      persistCanvasPanelWidth(RIGHT_CANVAS_PANEL_WIDTH_STORAGE_KEY, state.rightPanelWidth);
     },
     setSearchPanelOpen(state, action: PayloadAction<boolean>) {
       state.searchPanelOpen = action.payload;
@@ -182,13 +203,14 @@ export const uiSlice = createSlice({
       }
     },
     restore(_state, action: PayloadAction<UIState>) {
-      return action.payload;
+      return {
+        ...action.payload,
+        panelWidth: clampCanvasPanelWidth(action.payload.panelWidth),
+        rightPanelWidth: clampCanvasPanelWidth(action.payload.rightPanelWidth),
+      };
     },
     setCanvasViewMode(state, action: PayloadAction<CanvasViewMode>) {
       state.canvasViewMode = action.payload;
-    },
-    setEditViewFocusedNodeId(state, action: PayloadAction<string | null>) {
-      state.editViewFocusedNodeId = action.payload;
     },
   },
 });
@@ -215,5 +237,4 @@ export const {
   setOnboardingComplete,
   restore,
   setCanvasViewMode,
-  setEditViewFocusedNodeId,
 } = uiSlice.actions;

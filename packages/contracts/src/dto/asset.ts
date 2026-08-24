@@ -30,8 +30,11 @@ export interface AssetGenerationMetadata {
   generationTimeMs?: number;
   cost?: number;
   /** Persistent production-media provenance. */
-  workflowRunId?: string;
+  taskListId?: string;
+  taskId?: string;
   attemptId?: string;
+  /** Exact Commander-owned prompt assembly used for this generated asset. */
+  promptAssemblyId?: string;
   specHash?: string;
   promptHash?: string;
   referenceAssetHashes?: string[];
@@ -55,12 +58,24 @@ export interface AssetMeta {
   width?: number;
   height?: number;
   duration?: number;
+  /** Authoritative probe result for video content. Undefined for non-video or not yet probed. */
+  hasAudio?: boolean;
   prompt?: string;
   provider?: string;
-  tags: string[];
-  folderId?: string | null;
   createdAt: number;
   generationMetadata?: AssetGenerationMetadata;
+}
+
+/** A user-managed library entry pointing at immutable CAS content. */
+export interface AssetEntry extends Omit<AssetMeta, 'createdAt'> {
+  id: string;
+  displayName: string;
+  tags: string[];
+  folderId: string | null;
+  /** When this logical library entry was created. */
+  createdAt: number;
+  /** When the underlying CAS content was first recorded. */
+  contentCreatedAt: number;
 }
 
 export interface AssetRef {

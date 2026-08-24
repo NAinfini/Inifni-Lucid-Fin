@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -13,482 +12,291 @@ const logger = vi.hoisted(() => ({
   error: vi.fn(),
   fatal: vi.fn(),
 }));
-
 const showOpenDialog = vi.hoisted(() => vi.fn());
 const showSaveDialog = vi.hoisted(() => vi.fn());
+const probeMedia = vi.hoisted(() => vi.fn());
 
-vi.mock('../../logger.js', () => ({
-  default: logger,
-  debug: logger.debug,
-  info: logger.info,
-  warn: logger.warn,
-  error: logger.error,
-  fatal: logger.fatal,
-}));
-
-vi.mock('electron', () => ({
-  dialog: {
-    showOpenDialog,
-    showSaveDialog,
-  },
-}));
+vi.mock('../../logger.js', () => ({ default: logger }));
+vi.mock('electron', () => ({ dialog: { showOpenDialog, showSaveDialog } }));
+vi.mock('@lucid-fin/media-engine', () => ({ probeMedia }));
 
 import { registerAssetHandlers } from './asset.handlers.js';
 
-function resetCommon() {
-  vi.restoreAllMocks();
-  vi.clearAllMocks();
-  showOpenDialog.mockReset();
-  showSaveDialog.mockReset();
-}
+type Handler = (...args: unknown[]) => unknown;
 
-function wrapAssetRepo(flatDb: Record<string, unknown>): Record<string, unknown> {
-  const insert = flatDb.insertAsset as ReturnType<typeof vi.fn> | undefined;
-  const del = flatDb.deleteAsset as ReturnType<typeof vi.fn> | undefined;
-  const search = flatDb.searchAssets as ReturnType<typeof vi.fn> | undefined;
-  const query = flatDb.queryAssets as ReturnType<typeof vi.fn> | undefined;
-  const repair = flatDb.repairAssetSizes as ReturnType<typeof vi.fn> | undefined;
+function createEntry(id: string, hash = 'hash-1') {
   return {
-    ...flatDb,
-    repos: {
-      assets: {
-        insert: insert ?? vi.fn(),
-        delete: del ?? vi.fn(),
-        // Handlers call `.rows` on query/search results; wrap the flat array
-        // spies so existing `toHaveBeenCalledWith(...)` assertions keep working
-        // while the handler receives { rows } shape.
-        query:
-          search || query
-            ? vi.fn((...args: unknown[]) => ({ rows: query ? (query(...args) ?? []) : [] }))
-            : vi.fn(() => ({ rows: [] })),
-        search: search
-          ? vi.fn((...args: unknown[]) => ({ rows: search(...args) ?? [] }))
-          : vi.fn(() => ({ rows: [] })),
-        repairSizes: repair ?? vi.fn().mockReturnValue(0),
-      },
-    },
+    id,
+    hash,
+    displayName: `${id}.png`,
+    tags: [],
+    folderId: null,
+    type: 'image',
+    format: 'png',
+    originalName: `${id}.png`,
+    fileSize: 10,
+    createdAt: 1,
+    contentCreatedAt: 1,
   };
 }
 
-function registerHandlers(cas?: Record<string, unknown>, db?: Record<string, unknown>) {
-  const handlers = new Map<string, (...args: unknown[]) => unknown>();
-
-  const effectiveDb = db ?? {
-    insertAsset: vi.fn(),
+function setup(overrides?: { cas?: Record<string, unknown>; assets?: Record<string, unknown> }) {
+  vi.clearAllMocks();
+  const handlers = new Map<string, Handler>();
+  const cas = {
+    importAsset: vi.fn(),
+    importBuffer: vi.fn(),
+    getAssetPath: vi.fn((hash: string, type: string, ext: string) =>
+      path.join(CAS_ROOT, type, `${hash}.${ext}`),
+    ),
+    getAssetsRoot: vi.fn(() => CAS_ROOT),
     deleteAsset: vi.fn(),
-    searchAssets: vi.fn(),
-    queryAssets: vi.fn(),
-    repairAssetSizes: vi.fn().mockReturnValue(0),
+    ...overrides?.cas,
+  };
+  const assets = {
+    insert: vi.fn(),
+    query: vi.fn(() => ({ rows: [] })),
+    search: vi.fn(() => ({ rows: [] })),
+    copyEntries: vi.fn(() => []),
+    moveEntry: vi.fn(),
+    renameEntry: vi.fn(),
+    deleteEntry: vi.fn(),
+    findByHash: vi.fn(),
+    updateTechnicalMetadata: vi.fn(),
+    repairSizes: vi.fn(() => 0),
+    ...overrides?.assets,
   };
 
   registerAssetHandlers(
-    {
-      handle(channel: string, handler: (...args: unknown[]) => unknown) {
-        handlers.set(channel, handler);
-      },
-    } as never,
-    (cas ?? {
-      importAsset: vi.fn(),
-      importBuffer: vi.fn(),
-      getAssetPath: vi.fn(),
-      getAssetsRoot: vi.fn(() => CAS_ROOT),
-      deleteAsset: vi.fn(),
-    }) as never,
-    wrapAssetRepo(effectiveDb) as never,
+    { handle: (channel: string, handler: Handler) => handlers.set(channel, handler) } as never,
+    cas as never,
+    { repos: { assets } } as never,
   );
 
-  return handlers;
+  return { handlers, cas, assets };
 }
 
 describe('registerAssetHandlers', () => {
-  it('registers all asset IPC handlers', () => {
-    resetCommon();
-    const handlers = registerHandlers();
+  it('registers only canonical entry and content product channels', () => {
+    const { handlers } = setup();
 
     expect([...handlers.keys()].sort()).toEqual([
-      'asset:delete',
-      'asset:export',
-      'asset:exportBatch',
-      'asset:getPath',
-      'asset:import',
-      'asset:importBuffer',
-      'asset:pickFile',
-      'asset:query',
+      'assetContent:export',
+      'assetContent:getPath',
+      'assetContent:inspect',
+      'assetEntry:copy',
+      'assetEntry:delete',
+      'assetEntry:import',
+      'assetEntry:importBuffer',
+      'assetEntry:move',
+      'assetEntry:pickFile',
+      'assetEntry:query',
+      'assetEntry:rename',
     ]);
+    expect([...handlers.keys()].some((channel) => channel.startsWith('asset:'))).toBe(false);
   });
 
-  it('imports a file asset, associates the current project, and logs the import', async () => {
-    resetCommon();
-    const cas = {
-      importAsset: vi.fn(async () => ({
-        ref: { hash: 'hash-asset-1' },
-        meta: { hash: 'hash-asset-1', type: 'image', mimeType: 'image/png', size: 128 },
-      })),
-      importBuffer: vi.fn(),
-      getAssetPath: vi.fn(),
-      getAssetsRoot: vi.fn(() => CAS_ROOT),
-      deleteAsset: vi.fn(),
+  it('imports CAS content and returns the created logical entry', async () => {
+    const entry = createEntry('entry-import', 'hash-import');
+    const meta = {
+      hash: 'hash-import',
+      type: 'image',
+      format: 'png',
+      originalName: 'hero.png',
+      fileSize: 10,
+      createdAt: 1,
     };
-    const db = {
-      insertAsset: vi.fn(),
-      deleteAsset: vi.fn(),
-      searchAssets: vi.fn(),
-      queryAssets: vi.fn(),
-      repairAssetSizes: vi.fn().mockReturnValue(0),
-    };
-    const handlers = registerHandlers(cas, db);
-
-    const importAsset = handlers.get('asset:import');
-    const testFilePath = path.join(os.tmpdir(), 'hero.png');
-    const result = await importAsset?.({}, { filePath: testFilePath, type: 'image' });
-
-    expect(result).toEqual({ hash: 'hash-asset-1' });
-    expect(cas.importAsset).toHaveBeenCalledWith(testFilePath, 'image');
-    expect(db.insertAsset).toHaveBeenCalledWith(
-      expect.objectContaining({
-        hash: 'hash-asset-1',
-      }),
-    );
-    expect(logger.info).toHaveBeenCalledWith(
-      'Asset imported',
-      expect.objectContaining({
-        category: 'asset',
-        hash: 'hash-asset-1',
-        filePath: testFilePath,
-      }),
-    );
-  });
-
-  it('imports a buffer asset and records the uploaded size', async () => {
-    resetCommon();
-    const cas = {
-      importAsset: vi.fn(),
-      importBuffer: vi.fn(async () => ({
-        ref: { hash: 'hash-buffer-1' },
-        meta: { hash: 'hash-buffer-1', type: 'audio', mimeType: 'audio/wav', size: 3 },
-      })),
-      getAssetPath: vi.fn(),
-      getAssetsRoot: vi.fn(() => CAS_ROOT),
-      deleteAsset: vi.fn(),
-    };
-    const db = {
-      insertAsset: vi.fn(),
-      deleteAsset: vi.fn(),
-      searchAssets: vi.fn(),
-      queryAssets: vi.fn(),
-      repairAssetSizes: vi.fn().mockReturnValue(0),
-    };
-    const handlers = registerHandlers(cas, db);
-    const importBuffer = handlers.get('asset:importBuffer');
-
-    const buffer = new Uint8Array([1, 2, 3]).buffer;
-    const result = await importBuffer?.(
-      {},
-      {
-        buffer,
-        fileName: 'voice.wav',
-        type: 'audio',
-      },
-    );
-
-    expect(result).toEqual({ hash: 'hash-buffer-1' });
-    expect(cas.importBuffer).toHaveBeenCalledWith(expect.any(Buffer), 'voice.wav', 'audio');
-    expect(db.insertAsset).toHaveBeenCalledWith(
-      expect.objectContaining({
-        hash: 'hash-buffer-1',
-      }),
-    );
-    expect(logger.info).toHaveBeenCalledWith(
-      'Asset imported from buffer',
-      expect.objectContaining({
-        category: 'asset',
-        hash: 'hash-buffer-1',
-        fileName: 'voice.wav',
-        size: 3,
-      }),
-    );
-  });
-
-  it('rejects invalid importBuffer arguments before touching CAS', async () => {
-    resetCommon();
-    const cas = {
-      importAsset: vi.fn(),
-      importBuffer: vi.fn(),
-      getAssetPath: vi.fn(),
-      deleteAsset: vi.fn(),
-    };
-    const handlers = registerHandlers(cas);
-    const importBuffer = handlers.get('asset:importBuffer');
+    const { handlers, cas, assets } = setup({
+      cas: { importAsset: vi.fn(async () => ({ ref: { hash: 'hash-import' }, meta })) },
+      assets: { insert: vi.fn(() => entry) },
+    });
+    const filePath = path.join(os.tmpdir(), 'hero.png');
 
     await expect(
-      importBuffer?.({}, { buffer: undefined, fileName: '', type: 'image' }),
-    ).rejects.toThrow('buffer and fileName are required');
+      handlers.get('assetEntry:import')?.({}, { filePath, type: 'image' }),
+    ).resolves.toEqual(entry);
+    expect(cas.importAsset).toHaveBeenCalledWith(filePath, 'image');
+    expect(assets.insert).toHaveBeenCalledWith(meta);
+    expect(logger.info).toHaveBeenCalledWith(
+      'Asset imported',
+      expect.objectContaining({ hash: 'hash-import', entryId: 'entry-import' }),
+    );
+  });
 
+  it('persists authoritative embedded-audio facts when importing a video', async () => {
+    probeMedia.mockResolvedValue({
+      durationSeconds: 12.5,
+      width: 1920,
+      height: 1080,
+      hasAudio: true,
+    });
+    const entry = { ...createEntry('entry-video', 'hash-video'), type: 'video', format: 'mp4' };
+    const meta = {
+      hash: 'hash-video',
+      type: 'video',
+      format: 'mp4',
+      originalName: 'scene.mp4',
+      fileSize: 10,
+      createdAt: 1,
+    };
+    const videoPath = path.join(CAS_ROOT, 'video', 'hash-video.mp4');
+    const { handlers, assets } = setup({
+      cas: {
+        importAsset: vi.fn(async () => ({ ref: { hash: 'hash-video', path: videoPath }, meta })),
+      },
+      assets: { insert: vi.fn(() => entry) },
+    });
+
+    await expect(
+      handlers.get('assetEntry:import')?.({}, { filePath: path.join(os.tmpdir(), 'scene.mp4'), type: 'video' }),
+    ).resolves.toEqual(entry);
+    expect(probeMedia).toHaveBeenCalledWith(videoPath);
+    expect(assets.insert).toHaveBeenCalledWith({
+      ...meta,
+      width: 1920,
+      height: 1080,
+      duration: 12.5,
+      hasAudio: true,
+    });
+  });
+
+  it('re-inspects existing audio/video content and persists technical metadata', async () => {
+    probeMedia.mockResolvedValue({
+      durationSeconds: 8,
+      width: 1280,
+      height: 720,
+      hasAudio: false,
+    });
+    const asset = {
+      hash: 'hash-inspect',
+      type: 'video',
+      format: 'mp4',
+      originalName: 'inspect.mp4',
+      fileSize: 10,
+      createdAt: 1,
+    };
+    const inspected = { ...asset, width: 1280, height: 720, duration: 8, hasAudio: false };
+    const { handlers, cas, assets } = setup({
+      assets: {
+        findByHash: vi.fn(() => asset),
+        updateTechnicalMetadata: vi.fn(() => inspected),
+      },
+    });
+
+    await expect(
+      handlers.get('assetContent:inspect')?.({}, { hash: 'hash-inspect' }),
+    ).resolves.toEqual(inspected);
+    expect(cas.getAssetPath).toHaveBeenCalledWith('hash-inspect', 'video', 'mp4');
+    expect(assets.updateTechnicalMetadata).toHaveBeenCalledWith('hash-inspect', {
+      width: 1280,
+      height: 720,
+      duration: 8,
+      hasAudio: false,
+    });
+  });
+
+  it('copies entries without duplicating CAS content', async () => {
+    const copies = [createEntry('entry-copy', 'shared-hash')];
+    const { handlers, cas, assets } = setup({
+      assets: { copyEntries: vi.fn(() => copies) },
+    });
+
+    await expect(
+      handlers.get('assetEntry:copy')?.(
+        {},
+        { entryIds: ['entry-source'], targetFolderId: 'folder-target' },
+      ),
+    ).resolves.toEqual(copies);
+    expect(assets.copyEntries).toHaveBeenCalledWith(['entry-source'], 'folder-target');
+    expect(cas.importAsset).not.toHaveBeenCalled();
     expect(cas.importBuffer).not.toHaveBeenCalled();
   });
 
-  it('returns null when the asset picker is cancelled', async () => {
-    resetCommon();
-    showOpenDialog.mockResolvedValue({ canceled: true, filePaths: [] });
-    const cas = {
-      importAsset: vi.fn(),
-      importBuffer: vi.fn(),
-      getAssetPath: vi.fn(),
-      deleteAsset: vi.fn(),
-    };
-    const handlers = registerHandlers(cas);
-    const pickFile = handlers.get('asset:pickFile');
-
-    await expect(pickFile?.({}, { type: 'video' })).resolves.toBeNull();
-
-    expect(showOpenDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        properties: ['openFile'],
-        filters: expect.arrayContaining([expect.objectContaining({ name: 'Videos' })]),
-      }),
-    );
-    expect(cas.importAsset).not.toHaveBeenCalled();
-    expect(logger.info).toHaveBeenCalledWith(
-      'Asset picker cancelled',
-      expect.objectContaining({
-        category: 'asset',
-        type: 'video',
-      }),
-    );
-  });
-
-  it('routes search queries to searchAssets and plain listing to queryAssets', async () => {
-    resetCommon();
-    const db = {
-      insertAsset: vi.fn(),
-      deleteAsset: vi.fn(),
-      searchAssets: vi.fn(() => [{ hash: 'searched' }]),
-      queryAssets: vi.fn(() => [{ hash: 'listed' }]),
-      repairAssetSizes: vi.fn().mockReturnValue(0),
-    };
-    const handlers = registerHandlers(undefined, db);
-    const query = handlers.get('asset:query');
+  it('moves a logical entry batch and renames one entry', async () => {
+    const moved = { ...createEntry('entry-1'), folderId: 'folder-1' };
+    const renamed = { ...moved, displayName: 'Hero close-up' };
+    const { handlers, assets } = setup({
+      assets: {
+        moveEntry: vi.fn(() => ['entry-1', 'entry-2']),
+        renameEntry: vi.fn(() => renamed),
+      },
+    });
 
     await expect(
-      query?.({}, { search: 'hero', limit: 5, type: 'image', offset: 2 }),
-    ).resolves.toEqual([{ hash: 'searched' }]);
-    await expect(query?.({}, { type: 'audio', limit: 10, offset: 4 })).resolves.toEqual([
-      { hash: 'listed' },
-    ]);
+      handlers.get('assetEntry:move')?.(
+        {},
+        { entryIds: ['entry-1', 'entry-2'], folderId: 'folder-1' },
+      ),
+    ).resolves.toEqual({ movedEntryIds: ['entry-1', 'entry-2'] });
+    await expect(
+      handlers.get('assetEntry:rename')?.(
+        {},
+        { entryId: 'entry-1', displayName: '  Hero close-up  ' },
+      ),
+    ).resolves.toEqual(renamed);
+    expect(assets.moveEntry).toHaveBeenCalledOnce();
+    expect(assets.moveEntry).toHaveBeenCalledWith(['entry-1', 'entry-2'], 'folder-1');
+    expect(assets.renameEntry).toHaveBeenCalledWith('entry-1', 'Hero close-up');
+  });
 
-    expect(db.searchAssets).toHaveBeenCalledWith('hero', 5);
-    expect(db.queryAssets).toHaveBeenCalledWith({
+  it('deletes a logical entry batch and leaves CAS content untouched', async () => {
+    const { handlers, cas, assets } = setup({
+      assets: { deleteEntry: vi.fn(() => ['entry-1', 'entry-2']) },
+    });
+
+    await expect(
+      handlers.get('assetEntry:delete')?.({}, { entryIds: ['entry-1', 'entry-2'] }),
+    ).resolves.toEqual({ deletedEntryIds: ['entry-1', 'entry-2'] });
+    expect(assets.deleteEntry).toHaveBeenCalledOnce();
+    expect(assets.deleteEntry).toHaveBeenCalledWith(['entry-1', 'entry-2']);
+    expect(cas.deleteAsset).not.toHaveBeenCalled();
+
+    await expect(handlers.get('assetEntry:delete')?.({}, { entryIds: [] })).rejects.toThrow(
+      'entryIds are required',
+    );
+    expect(assets.deleteEntry).toHaveBeenCalledOnce();
+  });
+
+  it('routes logical queries to entry search or listing', async () => {
+    const searched = [createEntry('searched')];
+    const listed = [createEntry('listed')];
+    const { handlers, assets } = setup({
+      assets: {
+        search: vi.fn(() => ({ rows: searched })),
+        query: vi.fn(() => ({ rows: listed })),
+      },
+    });
+
+    await expect(
+      handlers.get('assetEntry:query')?.({}, { search: 'hero', limit: 5 }),
+    ).resolves.toEqual(searched);
+    await expect(
+      handlers.get('assetEntry:query')?.({}, { type: 'audio', tags: ['voice'], offset: 4 }),
+    ).resolves.toEqual(listed);
+    expect(assets.search).toHaveBeenCalledWith('hero', 5);
+    expect(assets.query).toHaveBeenCalledWith({
       type: 'audio',
-      limit: 10,
+      tags: ['voice'],
+      limit: undefined,
       offset: 4,
     });
   });
 
-  it('returns an asset path with png fallback when ext is empty', async () => {
-    resetCommon();
-    const cas = {
-      importAsset: vi.fn(),
-      importBuffer: vi.fn(),
-      getAssetPath: vi.fn(() => path.join(CAS_ROOT, 'image', 'hash-1.png')),
-      getAssetsRoot: vi.fn(() => CAS_ROOT),
-      deleteAsset: vi.fn(),
-    };
-    const handlers = registerHandlers(cas);
-    const getPath = handlers.get('asset:getPath');
-
-    await expect(getPath?.({}, { hash: 'hash-1', type: 'image', ext: '' })).resolves.toBe(
-      path.join(CAS_ROOT, 'image', 'hash-1.png'),
-    );
-
-    expect(cas.getAssetPath).toHaveBeenCalledWith('hash-1', 'image', 'png');
-  });
-
-  it('deletes an asset from CAS and sqlite and logs failures when deletion throws', async () => {
-    resetCommon();
-    const cas = {
-      importAsset: vi.fn(),
-      importBuffer: vi.fn(),
-      getAssetPath: vi.fn(),
-      deleteAsset: vi.fn(() => {
-        throw new Error('cas delete failed');
-      }),
-    };
-    const db = {
-      insertAsset: vi.fn(),
-      deleteAsset: vi.fn(),
-      searchAssets: vi.fn(),
-      queryAssets: vi.fn(),
-      repairAssetSizes: vi.fn().mockReturnValue(0),
-    };
-    const handlers = registerHandlers(cas, db);
-    const deleteAsset = handlers.get('asset:delete');
-
-    await expect(deleteAsset?.({}, { hash: 'hash-delete' })).rejects.toThrow('cas delete failed');
-
-    expect(cas.deleteAsset).toHaveBeenCalledWith('hash-delete');
-    expect(db.deleteAsset).not.toHaveBeenCalled();
-    expect(logger.error).toHaveBeenCalledWith(
-      'Failed to delete asset',
-      expect.objectContaining({
-        category: 'asset',
-        hash: 'hash-delete',
-        error: expect.stringContaining('cas delete failed'),
-      }),
-    );
-  });
-
-  it('exports an asset using the discovered source extension and default save name', async () => {
-    resetCommon();
-    showSaveDialog.mockResolvedValue({
-      canceled: false,
-      filePath: 'C:\\exports\\hero.jpg',
-    });
-    vi.spyOn(fsp, 'readFile').mockImplementation(async (target) => {
-      if (String(target).endsWith('meta.json')) {
-        return JSON.stringify({ format: 'jpg' });
-      }
-      throw new Error(`unexpected read: ${String(target)}`);
-    });
-    vi.spyOn(fsp, 'access').mockImplementation(async (target) => {
-      if (!String(target).endsWith('.jpg')) throw new Error('ENOENT');
-    });
-    vi.spyOn(fsp, 'copyFile').mockImplementation(async () => undefined);
-
-    const cas = {
-      importAsset: vi.fn(),
-      importBuffer: vi.fn(),
-      getAssetPath: vi.fn(
-        (hash: string, type: string, ext: string) => `C:\\cas\\${type}\\${hash}.${ext}`,
-      ),
-      deleteAsset: vi.fn(),
-    };
-    const handlers = registerHandlers(cas);
-    const exportAsset = handlers.get('asset:export');
+  it('resolves content paths by hash without requiring an entry', async () => {
+    const { handlers, cas } = setup();
+    const expected = path.join(CAS_ROOT, 'image', 'hash-content.png');
 
     await expect(
-      exportAsset?.({}, { hash: 'hash-export', type: 'image', format: 'png', name: 'hero.png' }),
-    ).resolves.toEqual({
-      success: true,
-      path: 'C:\\exports\\hero.jpg',
-    });
-
-    expect(showSaveDialog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        defaultPath: 'hero.jpg',
-      }),
-    );
-    expect(fsp.copyFile).toHaveBeenCalledWith(
-      'C:\\cas\\image\\hash-export.jpg',
-      'C:\\exports\\hero.jpg',
-    );
-    expect(logger.info).toHaveBeenCalledWith(
-      'Asset export completed',
-      expect.objectContaining({
-        category: 'asset',
-        hash: 'hash-export',
-        sourcePath: 'C:\\cas\\image\\hash-export.jpg',
-        destinationPath: 'C:\\exports\\hero.jpg',
-      }),
-    );
+      handlers.get('assetContent:getPath')?.({}, { hash: 'hash-content', type: 'image', ext: '' }),
+    ).resolves.toBe(expected);
+    expect(cas.getAssetPath).toHaveBeenCalledWith('hash-content', 'image', 'png');
   });
 
-  it('logs and rethrows when no asset file can be resolved for export', async () => {
-    resetCommon();
-    showSaveDialog.mockResolvedValue({
-      canceled: false,
-      filePath: 'C:\\exports\\missing.png',
-    });
-    vi.spyOn(fsp, 'readFile').mockRejectedValue(new Error('meta missing'));
-    vi.spyOn(fsp, 'access').mockRejectedValue(new Error('ENOENT'));
+  it('returns null when the entry file picker is cancelled', async () => {
+    showOpenDialog.mockResolvedValue({ canceled: true, filePaths: [] });
+    const { handlers, cas } = setup();
 
-    const cas = {
-      importAsset: vi.fn(),
-      importBuffer: vi.fn(),
-      getAssetPath: vi.fn(
-        (hash: string, type: string, ext: string) => `C:\\cas\\${type}\\${hash}.${ext}`,
-      ),
-      deleteAsset: vi.fn(),
-    };
-    const handlers = registerHandlers(cas);
-    const exportAsset = handlers.get('asset:export');
-
-    await expect(
-      exportAsset?.({}, { hash: 'hash-missing', type: 'image', format: 'png' }),
-    ).rejects.toThrow('Asset file not found: hash-missing');
-
-    expect(logger.error).toHaveBeenCalledWith(
-      'Asset export failed',
-      expect.objectContaining({
-        category: 'asset',
-        hash: 'hash-missing',
-        type: 'image',
-        format: 'png',
-      }),
-    );
-  });
-
-  it('exports a batch to the chosen directory and skips unresolved items', async () => {
-    resetCommon();
-    showOpenDialog.mockResolvedValue({
-      canceled: false,
-      filePaths: ['C:\\exports'],
-    });
-    vi.spyOn(fsp, 'readFile').mockRejectedValue(new Error('meta missing'));
-    vi.spyOn(fsp, 'access').mockImplementation(async (target) => {
-      if (!String(target).includes('hash-1.png')) throw new Error('ENOENT');
-    });
-    vi.spyOn(fsp, 'copyFile').mockImplementation(async () => undefined);
-
-    const cas = {
-      importAsset: vi.fn(),
-      importBuffer: vi.fn(),
-      getAssetPath: vi.fn(
-        (hash: string, type: string, ext: string) => `C:\\cas\\${type}\\${hash}.${ext}`,
-      ),
-      deleteAsset: vi.fn(),
-    };
-    const handlers = registerHandlers(cas);
-    const exportBatch = handlers.get('asset:exportBatch');
-
-    await expect(
-      exportBatch?.(
-        {},
-        {
-          items: [
-            { hash: 'hash-1', type: 'image', name: 'hero.png' },
-            { hash: 'hash-2', type: 'image', name: 'villain.png' },
-          ],
-        },
-      ),
-    ).resolves.toEqual({
-      success: true,
-      count: 1,
-      directory: 'C:\\exports',
-    });
-
-    expect(fsp.copyFile).toHaveBeenCalledWith(
-      'C:\\cas\\image\\hash-1.png',
-      path.join('C:\\exports', 'hero.png'),
-    );
-    expect(logger.info).toHaveBeenCalledWith(
-      'Asset batch export completed',
-      expect.objectContaining({
-        category: 'asset',
-        requestedCount: 2,
-        exportedCount: 1,
-        skippedCount: 1,
-        outputDir: 'C:\\exports',
-      }),
-    );
-  });
-
-  it('rejects empty batch export requests before opening a dialog', async () => {
-    resetCommon();
-    const handlers = registerHandlers();
-    const exportBatch = handlers.get('asset:exportBatch');
-
-    await expect(exportBatch?.({}, { items: [] })).rejects.toThrow('items required');
-
-    expect(showOpenDialog).not.toHaveBeenCalled();
+    await expect(handlers.get('assetEntry:pickFile')?.({}, { type: 'video' })).resolves.toBeNull();
+    expect(cas.importAsset).not.toHaveBeenCalled();
   });
 });

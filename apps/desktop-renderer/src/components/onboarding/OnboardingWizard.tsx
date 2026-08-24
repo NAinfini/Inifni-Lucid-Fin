@@ -1,9 +1,13 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
+import { resolveBuiltinMediaCredentialId } from '@lucid-fin/contracts';
 import type { RootState } from '../../store/index.js';
 import { setTheme, setOnboardingComplete } from '../../store/slices/ui.js';
 import { addCanvas, setActiveCanvas } from '../../store/slices/canvas/canvas.js';
+import { setProviderHasKey } from '../../store/slices/settings.js';
+import { getProviderMetadata } from '../../store/slices/settings/provider-defaults.js';
+import type { APIGroup, ProviderConfig } from '../../store/slices/settings/types.js';
 import { t } from '../../i18n.js';
 import { getAPI } from '../../utils/api.js';
 
@@ -12,12 +16,45 @@ import { getAPI } from '../../utils/api.js';
 type Step = 'welcome' | 'theme' | 'provider' | 'canvas' | 'tips';
 const STEPS: Step[] = ['welcome', 'theme', 'provider', 'canvas', 'tips'];
 
-interface ProviderSetup {
-  id: string;
+type OnboardingProviderGroup = Extract<APIGroup, 'llm' | 'image' | 'video' | 'audio'>;
+
+const ONBOARDING_PROVIDER_GROUPS: ReadonlyArray<{
+  group: OnboardingProviderGroup;
   labelKey: string;
+}> = [
+  { group: 'llm', labelKey: 'onboarding.provider.commander' },
+  { group: 'image', labelKey: 'onboarding.provider.image' },
+  { group: 'video', labelKey: 'onboarding.provider.video' },
+  { group: 'audio', labelKey: 'onboarding.provider.audio' },
+];
+
+interface ProviderSetup {
+  providerId: string;
   apiKey: string;
   status: 'idle' | 'testing' | 'ok' | 'error';
   errorMsg: string;
+}
+
+function isOnboardingProvider(
+  group: OnboardingProviderGroup,
+  provider: ProviderConfig,
+): boolean {
+  const metadata = getProviderMetadata(group, provider.id);
+  if (!metadata || metadata.credentialMode === 'oauth' || provider.authStyle === 'none') {
+    return false;
+  }
+
+  if (group !== 'image' && group !== 'video') return true;
+  return resolveBuiltinMediaCredentialId(provider.id, group) === provider.id;
+}
+
+function getCredentialId(group: OnboardingProviderGroup, providerId: string): string {
+  if (group !== 'image' && group !== 'video') return providerId;
+  const credentialId = resolveBuiltinMediaCredentialId(providerId, group);
+  if (!credentialId) {
+    throw new Error(`Missing credential mapping for ${group} provider ${providerId}`);
+  }
+  return credentialId;
 }
 
 // ── Sub-components ───────────────────────────────────────────────────────────
@@ -116,58 +153,92 @@ function ThemeStep() {
 
 // Step 2 — AI Provider
 function ProviderStep() {
-  const [providers, setProviders] = useState<ProviderSetup[]>([
-    {
-      id: 'openai',
-      labelKey: 'onboarding.provider.openai',
-      apiKey: '',
-      status: 'idle',
-      errorMsg: '',
-    },
-    {
-      id: 'google',
-      labelKey: 'onboarding.provider.google',
-      apiKey: '',
-      status: 'idle',
-      errorMsg: '',
-    },
-    {
-      id: 'stability',
-      labelKey: 'onboarding.provider.stability',
-      apiKey: '',
-      status: 'idle',
-      errorMsg: '',
-    },
-  ]);
+  const dispatch = useDispatch();
+  const llmProviders = useSelector((state: RootState) => state.settings.llm.providers);
+  const imageProviders = useSelector((state: RootState) => state.settings.image.providers);
+  const videoProviders = useSelector((state: RootState) => state.settings.video.providers);
+  const audioProviders = useSelector((state: RootState) => state.settings.audio.providers);
+  const providersByGroup = useMemo(
+    () => ({
+      llm: llmProviders.filter((provider) => isOnboardingProvider('llm', provider)),
+      image: imageProviders.filter((provider) => isOnboardingProvider('image', provider)),
+      video: videoProviders.filter((provider) => isOnboardingProvider('video', provider)),
+      audio: audioProviders.filter((provider) => isOnboardingProvider('audio', provider)),
+    }),
+    [audioProviders, imageProviders, llmProviders, videoProviders],
+  );
+  const [setups, setSetups] = useState<Partial<Record<OnboardingProviderGroup, ProviderSetup>>>({});
 
-  function updateKey(id: string, value: string) {
-    setProviders((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, apiKey: value, status: 'idle', errorMsg: '' } : p)),
+  function getSelectedProvider(group: OnboardingProviderGroup): ProviderConfig | undefined {
+    const options = providersByGroup[group];
+    const draftId = setups[group]?.providerId;
+    return (
+      options.find((provider) => provider.id === draftId) ??
+      options.find((provider) => provider.hasKey) ??
+      options[0]
     );
   }
 
-  async function saveAndTest(id: string) {
-    const provider = providers.find((p) => p.id === id);
-    if (!provider || !provider.apiKey.trim()) return;
+  function updateSetup(
+    group: OnboardingProviderGroup,
+    update: (current: ProviderSetup | undefined) => ProviderSetup,
+  ) {
+    setSetups((current) => ({ ...current, [group]: update(current[group]) }));
+  }
 
-    setProviders((prev) => prev.map((p) => (p.id === id ? { ...p, status: 'testing' } : p)));
+  function updateProvider(group: OnboardingProviderGroup, providerId: string) {
+    updateSetup(group, () => ({ providerId, apiKey: '', status: 'idle', errorMsg: '' }));
+  }
+
+  function updateKey(group: OnboardingProviderGroup, providerId: string, apiKey: string) {
+    updateSetup(group, () => ({ providerId, apiKey, status: 'idle', errorMsg: '' }));
+  }
+
+  async function saveAndTest(group: OnboardingProviderGroup, provider: ProviderConfig) {
+    const setup = setups[group];
+    if (!setup?.apiKey.trim()) return;
+
+    updateSetup(group, (current) => ({
+      providerId: provider.id,
+      apiKey: current?.apiKey ?? '',
+      status: 'testing',
+      errorMsg: '',
+    }));
 
     try {
       const api = getAPI();
       if (!api) throw new Error('API not available');
-      await api.keychain.set(id, provider.apiKey.trim());
-      const result = await api.keychain.test(id);
-      setProviders((prev) =>
-        prev.map((p) =>
-          p.id === id
-            ? { ...p, status: result.ok ? 'ok' : 'error', errorMsg: result.error ?? '' }
-            : p,
-        ),
+      const credentialId = getCredentialId(group, provider.id);
+      await api.keychain.set(credentialId, setup.apiKey.trim());
+      const result = await api.keychain.test(
+        credentialId,
+        {
+          id: provider.id,
+          name: provider.name,
+          baseUrl: provider.baseUrl,
+          model: provider.model,
+          protocol: provider.protocol,
+          authStyle: provider.authStyle,
+          credentialMode: provider.credentialMode,
+          oauthTarget: provider.oauthTarget,
+        },
+        group,
       );
+      dispatch(setProviderHasKey({ group, provider: provider.id, hasKey: result.ok }));
+      updateSetup(group, (current) => ({
+        providerId: provider.id,
+        apiKey: current?.apiKey ?? '',
+        status: result.ok ? 'ok' : 'error',
+        errorMsg: result.error ?? '',
+      }));
     } catch (err) {
-      setProviders((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, status: 'error', errorMsg: String(err) } : p)),
-      );
+      dispatch(setProviderHasKey({ group, provider: provider.id, hasKey: false }));
+      updateSetup(group, (current) => ({
+        providerId: provider.id,
+        apiKey: current?.apiKey ?? '',
+        status: 'error',
+        errorMsg: String(err),
+      }));
     }
   }
 
@@ -179,41 +250,73 @@ function ProviderStep() {
         </h2>
         <p className="text-xs text-muted-foreground mt-1">{t('onboarding.provider.hint')}</p>
       </div>
-      {providers.map((provider) => (
-        <div
-          key={provider.id}
-          className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2"
-        >
-          <span className="text-xs font-medium text-foreground">{t(provider.labelKey)}</span>
-          <div className="flex gap-2">
-            <input
-              type="password"
-              value={provider.apiKey}
-              onChange={(e) => updateKey(provider.id, e.target.value)}
-              placeholder={t('onboarding.provider.placeholder')}
-              className="flex-1 rounded border border-border bg-background px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary"
-            />
-            <button
-              type="button"
-              onClick={() => saveAndTest(provider.id)}
-              disabled={!provider.apiKey.trim() || provider.status === 'testing'}
-              className="rounded border border-border bg-card px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-40 transition-colors"
+      <div className="grid grid-cols-2 gap-3">
+        {ONBOARDING_PROVIDER_GROUPS.map(({ group, labelKey }) => {
+          const provider = getSelectedProvider(group);
+          const setup = setups[group];
+          const status = setup?.status ?? (provider?.hasKey ? 'ok' : 'idle');
+
+          return (
+            <div
+              key={group}
+              className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2"
             >
-              {provider.status === 'testing'
-                ? t('onboarding.provider.testing')
-                : t('onboarding.provider.test')}
-            </button>
-          </div>
-          {provider.status === 'ok' && (
-            <span className="text-xs text-green-500">{t('onboarding.provider.testOk')}</span>
-          )}
-          {provider.status === 'error' && (
-            <span className="text-xs text-destructive">
-              {provider.errorMsg || t('onboarding.provider.testFail')}
-            </span>
-          )}
-        </div>
-      ))}
+              <label
+                className="text-xs font-medium text-foreground"
+                htmlFor={`onboarding-${group}-provider`}
+              >
+                {t(labelKey)}
+              </label>
+              {provider ? (
+                <>
+                  <select
+                    id={`onboarding-${group}-provider`}
+                    value={provider.id}
+                    onChange={(event) => updateProvider(group, event.target.value)}
+                    className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground outline-none focus:border-primary"
+                  >
+                    {providersByGroup[group].map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="flex gap-2">
+                    <input
+                      aria-label={`${t(labelKey)} ${provider.name}`}
+                      type="password"
+                      value={setup?.apiKey ?? ''}
+                      onChange={(event) => updateKey(group, provider.id, event.target.value)}
+                      placeholder={t('onboarding.provider.placeholder')}
+                      className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground outline-none focus:border-primary"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => saveAndTest(group, provider)}
+                      disabled={!setup?.apiKey.trim() || status === 'testing'}
+                      className="rounded border border-border bg-card px-2 py-1 text-xs text-foreground hover:bg-muted disabled:opacity-40 transition-colors"
+                    >
+                      {status === 'testing' ? t('onboarding.provider.testing') : t('onboarding.provider.test')}
+                    </button>
+                  </div>
+                  {status === 'ok' && (
+                    <span className="text-xs text-green-500" role="status">
+                      {t('onboarding.provider.testOk')}
+                    </span>
+                  )}
+                  {status === 'error' && (
+                    <span className="text-xs text-destructive" role="alert">
+                      {setup?.errorMsg || t('onboarding.provider.testFail')}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="text-xs text-muted-foreground">{t('onboarding.provider.unavailable')}</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -231,7 +334,9 @@ function CanvasStep({ onCreated }: { onCreated: (id: string) => void }) {
     setCreating(true);
     setError('');
     try {
-      const created = await getAPI()?.canvas.create(canvasName);
+      const api = getAPI();
+      if (!api) throw new Error(t('onboarding.canvas.error'));
+      const created = await api.canvas.create(canvasName);
       if (created && created.id) {
         dispatch(addCanvas(created));
         dispatch(setActiveCanvas(created.id));
@@ -241,7 +346,7 @@ function CanvasStep({ onCreated }: { onCreated: (id: string) => void }) {
         setError(t('onboarding.canvas.error'));
       }
     } catch (err) {
-      setError(String(err));
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setCreating(false);
     }
@@ -256,11 +361,12 @@ function CanvasStep({ onCreated }: { onCreated: (id: string) => void }) {
       {!created ? (
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-muted-foreground">
+            <label htmlFor="onboarding-canvas-name" className="text-xs text-muted-foreground">
               {t('onboarding.canvas.nameLabel')}
             </label>
             <input
               type="text"
+              id="onboarding-canvas-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t('onboarding.canvas.namePlaceholder')}
@@ -276,7 +382,11 @@ function CanvasStep({ onCreated }: { onCreated: (id: string) => void }) {
           >
             {creating ? t('onboarding.canvas.creating') : t('onboarding.canvas.create')}
           </button>
-          {error && <span className="text-xs text-destructive">{error}</span>}
+          {error && (
+            <span role="alert" className="text-xs text-destructive">
+              {error}
+            </span>
+          )}
         </div>
       ) : (
         <div className="flex flex-col items-center gap-2 py-4">

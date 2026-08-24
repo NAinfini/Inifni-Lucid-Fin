@@ -234,22 +234,22 @@ describe('registrar', () => {
   });
 
   describe('registerPush', () => {
-    const jobProgress = definePushChannel({
-      channel: 'job:progress',
-      payload: z.object({ jobId: z.string(), pct: z.number() }),
+    const taskProgress = definePushChannel({
+      channel: 'test:progress',
+      payload: z.object({ taskId: z.string(), pct: z.number() }),
     });
 
     it('validates payload and sends to window', () => {
       const { deps, sent } = makeDeps();
-      const emit = registerPush(deps, jobProgress);
-      emit({ jobId: 'j1', pct: 42 });
-      expect(sent).toEqual([{ channel: 'job:progress', payload: { jobId: 'j1', pct: 42 } }]);
+      const emit = registerPush(deps, taskProgress);
+      emit({ taskId: 't1', pct: 42 });
+      expect(sent).toEqual([{ channel: 'test:progress', payload: { taskId: 't1', pct: 42 } }]);
     });
 
     it('throws when payload is invalid', () => {
       const { deps } = makeDeps();
-      const emit = registerPush(deps, jobProgress);
-      expect(() => emit({ jobId: 'j1' } as never)).toThrow();
+      const emit = registerPush(deps, taskProgress);
+      expect(() => emit({ taskId: 't1' } as never)).toThrow();
     });
   });
 

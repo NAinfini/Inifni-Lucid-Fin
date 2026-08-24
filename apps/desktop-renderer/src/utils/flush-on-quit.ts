@@ -10,7 +10,7 @@
  * preload bridge is available.
  */
 
-import { flushPendingCanvasSave, flushPendingSettingsSave } from '../store/middleware/persist.js';
+import { flushPendingPersistence } from '../store/middleware/persist.js';
 
 let registered = false;
 
@@ -26,15 +26,16 @@ export function registerFlushOnQuit(): void {
 
   // Subscribe to the main-process push signal
   const unsub = api.onFlushBeforeQuit(() => {
-    const canvasFlushed = flushPendingCanvasSave();
-    const settingsFlushed = flushPendingSettingsSave();
-
-    console.info(
-      `[flush-on-quit] Flushed pending saves: canvas=${canvasFlushed}, settings=${settingsFlushed}`,
-    );
-
-    // Notify main process that flush is complete
-    api.sendFlushComplete();
+    void flushPendingPersistence()
+      .then(() => {
+        console.info('[flush-on-quit] Pending canvas and settings saves completed');
+      })
+      .catch((error: unknown) => {
+        console.error('[flush-on-quit] Failed to flush pending saves', error);
+      })
+      .finally(() => {
+        api.sendFlushComplete();
+      });
   });
 
   // We never unsubscribe -- this lives for the lifetime of the app.

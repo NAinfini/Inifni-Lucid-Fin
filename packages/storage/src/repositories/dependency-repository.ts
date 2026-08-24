@@ -1,10 +1,10 @@
 /**
- * DependencyRepository — Phase G1-4.10.
+ * Dependency persistence.
  *
  * Wraps the `dependencies` edge table: directed (sourceType,sourceId) →
  * (targetType,targetId) pairs. `add` is idempotent via INSERT OR IGNORE
  * so duplicate edges are a no-op. Column names flow through
- * `DependenciesTable` (G1-1).
+ * `DependenciesTable`.
  */
 
 import type BetterSqlite3 from 'better-sqlite3';

@@ -96,6 +96,23 @@ export class UdioAdapter implements AIProviderAdapter {
     return map[parsed.status] ?? JobStatus.Running;
   }
 
+  async getResult(jobId: string): Promise<GenerationResult> {
+    const res = await fetchWithTimeout(`${this.baseUrl}/tracks/${jobId}`, {
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+    });
+    if (!res.ok) {
+      throw new LucidError(ErrorCode.ServiceUnavailable, `Udio result fetch failed: ${res.status}`);
+    }
+    const parsed = parseUdioResponse((await res.json()) as Record<string, unknown>);
+    if (!parsed.audioUrl) throw new Error(`Udio job ${jobId} completed without an audio URL`);
+    return {
+      assetHash: '',
+      assetPath: parsed.audioUrl,
+      provider: this.id,
+      metadata: { id: parsed.id, status: parsed.status },
+    };
+  }
+
   async cancel(jobId: string): Promise<void> {
     const res = await fetchWithTimeout(`${this.baseUrl}/tracks/${jobId}/cancel`, {
       method: 'POST',

@@ -1,7 +1,7 @@
 import {
   createProviderTools,
   createPresetTools,
-  createWorkflowTools,
+  createTaskListTools,
   createMetaTools,
   registerToolModule,
   EXCLUDED_TOOLS,
@@ -9,18 +9,18 @@ import {
   getCachedProviders,
   settingsProviderKeyUpdatedChannel,
   commanderSettingsDispatchChannel,
+  requireAuthorizedCanvas,
+  requireDefaultCanvasId,
   type ToolRegistrationDeps,
   type RendererPushGateway,
   type PresetDefinition,
-  type AgentToolRegistry,
+  type ToolRegistry,
 } from './helpers.js';
-import {
-  createStyleAuditionService,
-  createVisualPreviewGrader,
-} from '../style-audition.service.js';
+import { getCommanderSessionId } from '@lucid-fin/contracts';
+import { createStyleAuditionService } from '../style-audition.service.js';
 
 export function registerSystemTools(
-  registry: AgentToolRegistry,
+  registry: ToolRegistry,
   deps: ToolRegistrationDeps,
   gateway: RendererPushGateway,
   mergedPromptGuides: Array<{ id: string; name: string; content: string; autoInject?: boolean }>,
@@ -29,32 +29,72 @@ export function registerSystemTools(
   ) => Promise<PresetDefinition[]>,
   persistCommanderPreset: (preset: PresetDefinition) => Promise<PresetDefinition>,
   deleteCommanderPreset: (presetId: string) => Promise<void>,
-  generateImage: ReturnType<typeof import('./helpers.js').makeGenerateImage>,
   compactRef?: {
     compact?: (
       instructions?: string,
     ) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
   },
 ): void {
+  const commanderSessionId = deps.commanderContinuation?.sessionId;
+  const requireOwnedTaskList = (taskListId: string) => {
+    const taskList = deps.taskExecutionEngine.get(taskListId);
+    if (
+      !commanderSessionId ||
+      !taskList ||
+      getCommanderSessionId(taskList.metadata) !== commanderSessionId
+    ) {
+      throw new Error('Task List is not bound to the current Commander session');
+    }
+    if (taskList.entityType === 'canvas' && taskList.entityId) {
+      requireAuthorizedCanvas(deps, taskList.entityId);
+    }
+    return taskList;
+  };
   const createVisualAuditions = createStyleAuditionService({
-    workflowEngine: deps.workflowEngine,
-    generateImage,
-    gradeImage: createVisualPreviewGrader({
-      visualAnalyzer: deps.visualAnalyzer,
-      preferredLLMAdapter: deps.activeLLMAdapter,
-    }),
+    taskExecutionEngine: deps.taskExecutionEngine,
+    promptAssemblyService: deps.promptAssemblyService,
+    adapterRegistry: deps.adapterRegistry,
+    db: deps.db,
+    mediaGenerationService: deps.mediaGenerationService,
+    resolveProcessPrompt: deps.resolveProcessPrompt,
+    ...(deps.activeLLMAdapter
+      ? {
+          commanderAuthor: {
+            providerId: deps.activeLLMAdapter.id,
+            model: deps.activeLLMAdapter.name,
+          },
+        }
+      : {}),
   });
+  const getBoundAudioTask = (taskListId: string) => {
+    requireOwnedTaskList(taskListId);
+    const view = deps.audioTaskService.get(taskListId);
+    requireAuthorizedCanvas(deps, view.canvasId);
+    return view;
+  };
   const projectMediaResult = (
     result: Awaited<ReturnType<typeof deps.productionMediaService.produce>>,
     completion: unknown,
   ) => ({
-    workflowRunId: result.workflowRunId,
+    taskListId: result.taskListId,
     canvasId: result.canvasId,
     nodeId: result.nodeId,
     status: result.status,
     nextAction: result.nextAction,
     message: result.message,
     steps: result.steps,
+    promptAssembly: result.promptAssembly
+      ? {
+          id: result.promptAssembly.id,
+          status: result.promptAssembly.status,
+          inputHash: result.promptAssembly.inputHash,
+          input: result.promptAssembly.input,
+          output: result.promptAssembly.output,
+          parentAssemblyId: result.promptAssembly.parentAssemblyId,
+          sourceAttemptId: result.promptAssembly.sourceAttemptId,
+          error: result.promptAssembly.error,
+        }
+      : undefined,
     attempt: result.attempt
       ? {
           id: result.attempt.id,
@@ -63,6 +103,8 @@ export function registerSystemTools(
           mediaType: result.attempt.mediaType,
           specHash: result.attempt.specHash,
           promptHash: result.attempt.promptHash,
+          promptAssemblyId:
+            result.attempt.promptAssemblyId ?? result.attempt.generationSpec.promptAssemblyId,
           providerId: result.attempt.providerId,
           model: result.attempt.model,
           seed: result.attempt.seed,
@@ -90,9 +132,6 @@ export function registerSystemTools(
   });
   // job.* tools are excluded from Commander AI (human/UI only)
   // registerToolModule(registry, jobToolModule, {...}) — skipped
-
-  // series.* tools are excluded from Commander AI (human-decided project structure)
-  // registerToolModule(registry, seriesToolModule, {...}) — skipped
 
   registerToolModule(registry, colorStyleToolModule, {
     listColorStyles: async () => deps.db.repos.colorStyles.list(),
@@ -201,32 +240,53 @@ export function registerSystemTools(
     savePreset: persistCommanderPreset,
     deletePreset: deleteCommanderPreset,
     resetPreset: async (presetId: string) => {
-      const original = deps.presetLibrary.find((p) => p.id === presetId);
-      if (!original) throw new Error(`Preset not found: ${presetId}`);
-      const idx = deps.presetLibrary.findIndex((p) => p.id === presetId);
-      const reset: PresetDefinition = { ...original, modified: false, updatedAt: Date.now() };
-      if (idx >= 0) deps.presetLibrary[idx] = reset;
-      return reset;
+      return deps.presetCatalog.reset({ id: presetId });
     },
     getPreset: async (presetId: string) => {
-      return deps.presetLibrary.find((p) => p.id === presetId) ?? null;
+      return deps.presetCatalog.list().find((p) => p.id === presetId) ?? null;
     },
   })) {
     if (!EXCLUDED_TOOLS.has(tool.name)) registry.register(tool);
   }
 
-  for (const tool of createWorkflowTools({
-    pauseWorkflow: async (id: string) => {
-      await deps.workflowEngine.pause(id);
+  for (const tool of createTaskListTools({
+    pauseTaskList: async (id: string) => {
+      requireOwnedTaskList(id);
+      await deps.taskExecutionEngine.pause(id);
     },
-    resumeWorkflow: async (id: string) => {
-      await deps.workflowEngine.resume(id);
+    resumeTaskList: async (id: string) => {
+      requireOwnedTaskList(id);
+      await deps.taskExecutionEngine.resume(id);
     },
-    cancelWorkflow: async (id: string) => {
-      await deps.workflowEngine.cancel(id);
+    cancelTaskList: async (id: string) => {
+      requireOwnedTaskList(id);
+      await deps.taskExecutionEngine.cancel(id);
     },
-    retryWorkflow: async (id: string) => {
-      await deps.workflowEngine.retryWorkflow(id);
+    retryTaskList: async (id: string) => {
+      requireOwnedTaskList(id);
+      await deps.taskExecutionEngine.retryTaskList(id);
+    },
+    decidePendingGate: async (decision) => deps.decidePendingGate(decision),
+    prepareAudioTask: async (input) => {
+      if (!commanderSessionId) {
+        throw new Error('Commander session binding is unavailable for audio generation');
+      }
+      return deps.audioTaskService.start({
+        ...input,
+        canvasId: requireDefaultCanvasId(deps),
+        commanderSessionId,
+      });
+    },
+    getAudioTask: async (taskListId) => getBoundAudioTask(taskListId),
+    submitAudioPrompt: async (input) => {
+      getBoundAudioTask(input.taskListId);
+      if (!deps.activeLLMAdapter) {
+        throw new Error('Commander LLM author binding is unavailable for audio Prompt Assembly');
+      }
+      return deps.audioTaskService.submitPrompt(input, {
+        providerId: deps.activeLLMAdapter.id,
+        model: deps.activeLLMAdapter.name,
+      });
     },
     createProductionPlan: async (input) => {
       if (!deps.commanderContinuation) {
@@ -234,29 +294,45 @@ export function registerSystemTools(
           'Persistent production requires a stable Commander session and keyless provider binding',
         );
       }
-      return deps.workflowEngine.createProductionPlan({
+      requireAuthorizedCanvas(deps, input.canvasId);
+      return deps.taskExecutionEngine.createProductionPlan({
         ...input,
         commanderContinuation: deps.commanderContinuation,
       });
     },
-    reviseProductionPlan: async (input) => deps.workflowEngine.reviseProductionPlan(input),
-    completeCreativeTask: async (input) => deps.workflowEngine.completeCreativeTask(input),
-    createVisualAuditions,
+    reviseProductionPlan: async (input) => {
+      requireOwnedTaskList(input.taskListId);
+      requireAuthorizedCanvas(deps, input.canvasId);
+      return deps.taskExecutionEngine.reviseProductionPlan(input);
+    },
+    completeCreativeTask: async (input) => {
+      requireOwnedTaskList(input.taskListId);
+      requireAuthorizedCanvas(deps, input.canvasId);
+      return deps.taskExecutionEngine.completeCreativeTask(input);
+    },
+    createVisualAuditions: async (input) => {
+      requireOwnedTaskList(input.taskListId);
+      requireAuthorizedCanvas(deps, input.canvasId);
+      return createVisualAuditions(input);
+    },
     produceMedia: async (input) => {
+      requireOwnedTaskList(input.taskListId);
+      requireAuthorizedCanvas(deps, input.canvasId);
       const result = await deps.productionMediaService.produce(input, {
         preferredLLMAdapter: deps.activeLLMAdapter,
+        deferEvaluation: true,
       });
-      const task = deps.workflowEngine
-        .getTasks(input.workflowRunId)
-        .find((candidate) => candidate.id === input.taskRunId);
+      const task = deps.taskExecutionEngine
+        .getTasks(input.taskListId)
+        .find((candidate) => candidate.id === input.taskId);
       const completion =
         result.status === 'accepted' &&
         result.attempt &&
-        task?.input.workflowTaskRole === 'production_media'
-          ? await deps.workflowEngine.completeProductionMediaTask({
+        task?.input.taskRole === 'production_media'
+          ? await deps.taskExecutionEngine.completeProductionMediaTask({
               canvasId: input.canvasId,
-              workflowRunId: input.workflowRunId,
-              taskRunId: input.taskRunId,
+              taskListId: input.taskListId,
+              taskId: input.taskId,
               expectedRowVersion: input.expectedRowVersion,
               nodeId: input.nodeId,
               attemptId: result.attempt.id,
@@ -265,32 +341,39 @@ export function registerSystemTools(
       return projectMediaResult(result, completion);
     },
     refineMedia: async (input) => {
+      requireOwnedTaskList(input.taskListId);
+      requireAuthorizedCanvas(deps, input.canvasId);
       const result = await deps.productionMediaService.refine(input, {
         preferredLLMAdapter: deps.activeLLMAdapter,
+        deferEvaluation: true,
       });
-      const taskRunId = result.attempt?.generationSpec.workflowTask.taskRunId;
-      const task = taskRunId
-        ? deps.workflowEngine
-            .getTasks(input.workflowRunId)
-            .find((candidate) => candidate.id === taskRunId)
+      const taskId = result.attempt?.generationSpec.task.id;
+      const task = taskId
+        ? deps.taskExecutionEngine
+            .getTasks(input.taskListId)
+            .find((candidate) => candidate.id === taskId)
         : undefined;
       const completion =
         result.status === 'accepted' &&
         result.attempt &&
-        taskRunId &&
-        task?.input.workflowTaskRole === 'production_media'
-          ? await deps.workflowEngine.completeProductionMediaTask({
+        taskId &&
+        task?.input.taskRole === 'production_media'
+          ? await deps.taskExecutionEngine.completeProductionMediaTask({
               canvasId: input.canvasId,
-              workflowRunId: input.workflowRunId,
-              taskRunId,
-              expectedRowVersion: result.workflowRowVersion ?? input.expectedRowVersion,
+              taskListId: input.taskListId,
+              taskId,
+              expectedRowVersion: result.taskListRowVersion ?? input.expectedRowVersion,
               nodeId: input.nodeId,
               attemptId: result.attempt.id,
             })
           : undefined;
       return projectMediaResult(result, completion);
     },
-    prepareFinalExport: async (input) => deps.workflowEngine.prepareFinalExportManifest(input),
+    prepareDelivery: async (input) => {
+      requireOwnedTaskList(input.taskListId);
+      requireAuthorizedCanvas(deps, input.canvasId);
+      return deps.taskExecutionEngine.prepareDeliveryManifest(input);
+    },
   })) {
     if (!EXCLUDED_TOOLS.has(tool.name)) registry.register(tool);
   }

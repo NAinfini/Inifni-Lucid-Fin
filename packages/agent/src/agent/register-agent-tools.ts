@@ -1,4 +1,4 @@
-import { AgentToolRegistry } from './tool-registry.js';
+import { ToolRegistry } from './tool-registry.js';
 import { registerToolModule } from './tool-module.js';
 import { createScriptTools, type ScriptToolDeps } from './tools/script-tools.js';
 import { createEntityTools, type EntityToolDeps } from './tools/entity-tools.js';
@@ -6,11 +6,13 @@ import { createCanvasTools, type CanvasToolDeps } from './tools/canvas-tools.js'
 import { colorStyleToolModule, type ColorStyleToolDeps } from './tools/color-style-tools.js';
 import { createPromptTools, type PromptToolDeps } from './tools/prompt-tools.js';
 import { createPresetTools, type PresetToolDeps } from './tools/preset-tools.js';
-import { createWorkflowTools, type WorkflowToolDeps } from './tools/workflow-tools.js';
+import { createTaskListTools, type TaskListToolDeps } from './tools/task-list-tools.js';
 import { createTextAnalyzeTools, type TextAnalyzeToolDeps } from './tools/text-analyze-tools.js';
-import { createTodoTools } from './tools/todo-tools.js';
+import { createRunChecklistTools } from './tools/run-checklist-tools.js';
 import { createMetaTools, type MetaToolDeps } from './tools/meta-tools.js';
-import type { AgentTool } from './tool-registry.js';
+import type { ToolDefinition } from './tool-registry.js';
+import { createToolProgramTool } from './tool-program.js';
+import { createSubagentTools } from './subagent-tools.js';
 
 /**
  * Tools excluded from the Commander AI registry.
@@ -18,10 +20,8 @@ import type { AgentTool } from './tool-registry.js';
  */
 export const EXCLUDED_TOOLS: ReadonlySet<string> = new Set([
   // Canvas: file I/O, UI-only, destructive
-  'canvas.importWorkflow',
-  'canvas.exportWorkflow',
-  'canvas.undo',
-  'canvas.redo',
+  'canvas.importDocument',
+  'canvas.exportDocument',
   'canvas.addNote',
   'canvas.updateNote',
   'canvas.deleteNote',
@@ -37,23 +37,13 @@ export const EXCLUDED_TOOLS: ReadonlySet<string> = new Set([
   // Logger: developer debugging
   'logger.list',
   // Entire domains: human-only
-  'series.get',
-  'series.update',
-  'series.listEpisodes',
-  'series.addEpisode',
-  'series.removeEpisode',
-  'series.reorderEpisodes',
-  'render.exportBundle',
-  'job.list',
-  'job.control',
   'asset.import',
   'asset.list',
-  // Self-modifying prompts and local video clone remain human-only.
+  // Self-modifying prompts remain human-only.
   'prompt.setCustom',
-  'video.clone',
 ]);
 
-export function registerFiltered(registry: AgentToolRegistry, tools: AgentTool[]): void {
+export function registerFiltered(registry: ToolRegistry, tools: ToolDefinition[]): void {
   for (const tool of tools) {
     if (!EXCLUDED_TOOLS.has(tool.name)) registry.register(tool);
   }
@@ -67,14 +57,14 @@ export interface AllToolDeps
     ColorStyleToolDeps,
     PromptToolDeps,
     PresetToolDeps,
-    WorkflowToolDeps,
+    TaskListToolDeps,
     TextAnalyzeToolDeps,
     Partial<MetaToolDeps> {}
 
 export function registerAgentTools(
-  registry: AgentToolRegistry,
+  registry: ToolRegistry,
   deps: AllToolDeps,
-): AgentToolRegistry {
+): ToolRegistry {
   // Self-registering modules (colorStyle is discoverable-only)
   registerToolModule(registry, colorStyleToolModule, deps);
 
@@ -84,9 +74,11 @@ export function registerAgentTools(
   registerFiltered(registry, createCanvasTools(deps));
   registerFiltered(registry, createPromptTools(deps));
   registerFiltered(registry, createPresetTools(deps));
-  registerFiltered(registry, createWorkflowTools(deps));
+  registerFiltered(registry, createTaskListTools(deps));
   registerFiltered(registry, createTextAnalyzeTools(deps));
-  registerFiltered(registry, createTodoTools());
+  registerFiltered(registry, createRunChecklistTools());
+  registerFiltered(registry, [createToolProgramTool()]);
+  registerFiltered(registry, createSubagentTools());
   for (const tool of createMetaTools(registry, { promptGuides: deps.promptGuides ?? [] }))
     if (!EXCLUDED_TOOLS.has(tool.name)) registry.register(tool);
   return registry;

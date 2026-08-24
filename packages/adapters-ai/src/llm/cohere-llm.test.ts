@@ -181,6 +181,37 @@ describe('CohereLLMAdapter', () => {
     }
   });
 
+  it('maps optional reasoning strength to Cohere thinking without sending blanks', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: string | URL, init?: RequestInit) => {
+        requestBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+        return new Response(JSON.stringify({ message: { content: [{ text: 'ok' }] } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+
+    try {
+      const adapter = new CohereLLMAdapter();
+      adapter.configure('sk-cohere', { reasoningEffort: 'high' });
+      await adapter.complete([{ role: 'user', content: 'hello' }]);
+      adapter.configure('sk-cohere', { reasoningEffort: '   ' });
+      await adapter.complete([{ role: 'user', content: 'hello' }]);
+
+      expect(requestBodies[0]).toMatchObject({ thinking: { type: 'enabled' } });
+      expect(requestBodies[1]).not.toHaveProperty('thinking');
+      expect(() => adapter.configure('sk-cohere', { reasoningEffort: 'xhigh' })).toThrow(
+        'Cohere reasoning strength must be "none" or "high".',
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  });
+
   it('streams by yielding the completed Cohere content once', async () => {
     vi.stubGlobal(
       'fetch',

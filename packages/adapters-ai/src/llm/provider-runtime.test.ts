@@ -18,7 +18,6 @@ describe('provider runtime presets', () => {
       { id: 'openai', protocol: 'openai-responses', authStyle: 'bearer' },
       { id: 'claude', protocol: 'anthropic', authStyle: 'x-api-key' },
       { id: 'gemini', protocol: 'gemini', authStyle: 'x-goog-api-key' },
-      { id: 'gemini-oauth', protocol: 'gemini', authStyle: 'none' },
       { id: 'deepseek', protocol: 'openai-compatible', authStyle: 'bearer' },
       { id: 'grok', protocol: 'openai-compatible', authStyle: 'bearer' },
       { id: 'qwen', protocol: 'openai-compatible', authStyle: 'bearer' },

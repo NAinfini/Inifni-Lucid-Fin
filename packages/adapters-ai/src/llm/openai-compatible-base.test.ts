@@ -512,6 +512,7 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
       expect(body).toMatchObject({
         model: 'gpt-5.4',
         max_completion_tokens: 4096,
+        reasoning_effort: 'xhigh',
         stream: true,
       });
       expect(body).not.toHaveProperty('max_tokens');
@@ -539,10 +540,13 @@ describe('OpenAICompatibleLLM.completeWithTools', () => {
       name: 'OpenAI',
       defaultBaseUrl: 'https://api.openai.com/v1',
       defaultModel: 'gpt-5.4',
+      supportsReasoningEffort: true,
+      reasoningEffortsByModel: { 'gpt-5.4': ['xhigh'] },
     });
     adapter.configure('test-key', {
       baseUrl: 'https://api.openai.com/v1',
       model: 'gpt-5.4',
+      reasoningEffort: 'xhigh',
     });
 
     await expect(

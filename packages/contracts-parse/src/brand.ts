@@ -8,7 +8,7 @@
  * because `@lucid-fin/contracts` is type-only (zero runtime by pact).
  *
  * **Call sites are lint-restricted**: only parsers (e.g. `parseProviderId`),
- * fresh-ID factories (e.g. `freshJobId`), and zod `.transform(...)` bodies
+ * fresh-ID factories (e.g. `freshSessionId`), and zod `.transform(...)` bodies
  * should import this. Everything else must parse through a typed gateway.
  */
 export function unsafeBrand<T>(value: unknown): T {

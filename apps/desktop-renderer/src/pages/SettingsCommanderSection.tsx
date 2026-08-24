@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Bot, Cog, Database, RotateCcw } from 'lucide-react';
+import type { RunResourceBudget } from '@lucid-fin/contracts';
 import type { RootState } from '../store/index.js';
 import { CommitSlider } from '../components/ui/CommitSlider.js';
 import {
-  setMaxSteps,
+  setRunResourceBudget,
   setTemperature,
-  setMaxTokens,
-  setLlmRetries,
+  setContextWindowTokens,
+  setMaxOutputTokens,
   setMaxSessions,
   setMaxMessagesPerSession,
   setUndoStackDepth,
@@ -165,6 +166,61 @@ function SliderInput({
   );
 }
 
+function OptionalNumberInput({
+  value,
+  onChange,
+  label,
+  placeholder,
+  step = 1,
+}: {
+  value: number | undefined;
+  onChange: (value: number | undefined) => void;
+  label: string;
+  placeholder: string;
+  step?: number;
+}) {
+  const [inputValue, setInputValue] = useState(value === undefined ? '' : String(value));
+
+  useEffect(() => {
+    setInputValue(value === undefined ? '' : String(value));
+  }, [value]);
+
+  const commit = () => {
+    const trimmed = inputValue.trim();
+    if (!trimmed) {
+      onChange(undefined);
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setInputValue(value === undefined ? '' : String(value));
+      return;
+    }
+    onChange(parsed);
+  };
+
+  return (
+    <input
+      type="number"
+      min={0}
+      step={step}
+      aria-label={label}
+      value={inputValue}
+      placeholder={placeholder}
+      onChange={(event) => setInputValue(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.currentTarget.blur();
+        if (event.key === 'Escape') {
+          setInputValue(value === undefined ? '' : String(value));
+          event.currentTarget.blur();
+        }
+      }}
+      className="h-8 w-32 rounded-md border border-border/60 bg-background px-2 text-right font-mono text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+    />
+  );
+}
+
 function SegmentedInput<T extends string>({
   value,
   options,
@@ -227,10 +283,20 @@ export function SettingsCommanderSection() {
   const state = useSelector((s: RootState) => s.commander);
 
   const handleResetAgent = () => {
-    dispatch(setMaxSteps(50));
+    dispatch(setRunResourceBudget({}));
     dispatch(setTemperature(0.7));
-    dispatch(setMaxTokens(200000));
-    dispatch(setLlmRetries(2));
+    dispatch(setContextWindowTokens(200000));
+    dispatch(setMaxOutputTokens(4096));
+  };
+
+  const updateResourceBudget = (
+    field: keyof RunResourceBudget,
+    value: number | undefined,
+  ) => {
+    const next = { ...state.resourceBudget };
+    if (value === undefined) delete next[field];
+    else Object.assign(next, { [field]: value });
+    dispatch(setRunResourceBudget(next));
   };
 
   const handleResetData = () => {
@@ -259,19 +325,69 @@ export function SettingsCommanderSection() {
         onReset={handleResetAgent}
       >
         <SettingRow
-          label={tr('settings.commander.maxSteps', 'Max Steps')}
+          label={tr('settings.commander.maxTokensPerRun', 'Tokens per run')}
           description={tr(
-            'settings.commander.maxStepsDesc',
-            'Maximum tool call iterations per request.',
+            'settings.commander.maxTokensPerRunDesc',
+            'Blocks the run before its cumulative model token budget is exceeded. Leave blank for no user limit.',
           )}
         >
-          <SliderInput
-            value={state.maxSteps}
-            min={1}
-            max={200}
-            step={1}
-            onChange={(v) => dispatch(setMaxSteps(v))}
-            label={tr('settings.commander.maxSteps', 'Max Steps')}
+          <OptionalNumberInput
+            value={state.resourceBudget.maxTokens}
+            onChange={(value) => updateResourceBudget('maxTokens', value)}
+            label={tr('settings.commander.maxTokensPerRun', 'Tokens per run')}
+            placeholder={tr('settings.commander.unlimited', 'Unlimited')}
+          />
+        </SettingRow>
+        <SettingRow
+          label={tr('settings.commander.maxToolCallsPerRun', 'Tool calls per run')}
+          description={tr(
+            'settings.commander.maxToolCallsPerRunDesc',
+            'Counts every model-selected tool call before deduplication. Leave blank for no user limit.',
+          )}
+        >
+          <OptionalNumberInput
+            value={state.resourceBudget.maxToolCalls}
+            onChange={(value) => updateResourceBudget('maxToolCalls', value)}
+            label={tr('settings.commander.maxToolCallsPerRun', 'Tool calls per run')}
+            placeholder={tr('settings.commander.unlimited', 'Unlimited')}
+          />
+        </SettingRow>
+        <SettingRow
+          label={tr('settings.commander.maxActiveMinutesPerRun', 'Active minutes per run')}
+          description={tr(
+            'settings.commander.maxActiveMinutesPerRunDesc',
+            'Counts active execution time but excludes time waiting for you. Leave blank for no user limit.',
+          )}
+        >
+          <OptionalNumberInput
+            value={
+              state.resourceBudget.maxWallTimeMs === undefined
+                ? undefined
+                : state.resourceBudget.maxWallTimeMs / 60_000
+            }
+            onChange={(value) =>
+              updateResourceBudget(
+                'maxWallTimeMs',
+                value === undefined ? undefined : Math.round(value * 60_000),
+              )
+            }
+            label={tr('settings.commander.maxActiveMinutesPerRun', 'Active minutes per run')}
+            placeholder={tr('settings.commander.unlimited', 'Unlimited')}
+          />
+        </SettingRow>
+        <SettingRow
+          label={tr('settings.commander.maxCostPerRun', 'Cost per run (USD)')}
+          description={tr(
+            'settings.commander.maxCostPerRunDesc',
+            'Paid operations without a reliable upper bound are blocked when this limit is set. Leave blank for no user limit.',
+          )}
+        >
+          <OptionalNumberInput
+            value={state.resourceBudget.maxCostUsd}
+            onChange={(value) => updateResourceBudget('maxCostUsd', value)}
+            label={tr('settings.commander.maxCostPerRun', 'Cost per run (USD)')}
+            placeholder={tr('settings.commander.unlimited', 'Unlimited')}
+            step={0.01}
           />
         </SettingRow>
         <SettingRow
@@ -295,33 +411,34 @@ export function SettingsCommanderSection() {
           label={tr('settings.commander.contextWindow', 'Context Window')}
           description={tr(
             'settings.commander.contextWindowDesc',
-            'Token budget for LLM context — controls both input history and output limits.',
+            'Token budget for conversation history and tool context. Provider output limits are configured separately.',
           )}
         >
           <SliderInput
-            value={state.maxTokens}
+            value={state.contextWindowTokens}
             min={1024}
-            max={1000000}
+            max={200000}
             step={1024}
-            onChange={(v) => dispatch(setMaxTokens(v))}
+            onChange={(v) => dispatch(setContextWindowTokens(v))}
             formatValue={(v) => `${(v / 1000).toFixed(0)}K`}
             label={tr('settings.commander.contextWindow', 'Context Window')}
           />
         </SettingRow>
         <SettingRow
-          label={tr('settings.commander.llmRetries', 'LLM Retries')}
+          label={tr('settings.commander.maxOutputTokens', 'Max Output Tokens')}
           description={tr(
-            'settings.commander.llmRetriesDesc',
-            'Retry count on rate-limit or service errors.',
+            'settings.commander.maxOutputTokensDesc',
+            'Maximum tokens in one model response, subject to the provider limit.',
           )}
         >
           <SliderInput
-            value={state.llmRetries}
-            min={0}
-            max={10}
-            step={1}
-            onChange={(v) => dispatch(setLlmRetries(v))}
-            label={tr('settings.commander.llmRetries', 'LLM Retries')}
+            value={state.maxOutputTokens}
+            min={256}
+            max={200000}
+            step={256}
+            onChange={(v) => dispatch(setMaxOutputTokens(v))}
+            formatValue={(v) => v.toLocaleString()}
+            label={tr('settings.commander.maxOutputTokens', 'Max Output Tokens')}
           />
         </SettingRow>
       </SectionCard>

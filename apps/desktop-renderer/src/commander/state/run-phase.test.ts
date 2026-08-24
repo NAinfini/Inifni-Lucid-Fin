@@ -69,7 +69,7 @@ describe('phaseFromEvent', () => {
         kind: 'tool_call',
         toolCallId: 't1',
         toolRef: { domain: 'canvas', action: 'createNode' },
-        args: {},
+        status: 'started',
         step: 2,
         emittedAt: 100,
       }),
@@ -83,7 +83,7 @@ describe('phaseFromEvent', () => {
       stampedEvent({
         kind: 'tool_result',
         toolCallId: 't1',
-        result: { success: true },
+        status: 'succeeded',
         durationMs: 100,
         step: 2,
         emittedAt: 200,
@@ -100,7 +100,7 @@ describe('phaseFromEvent', () => {
         kind: 'tool_call',
         toolCallId: 't1',
         toolRef: { domain: 'canvas', action: 'a' },
-        args: {},
+        status: 'started',
         step: 2,
         emittedAt: 10,
       }),
@@ -111,7 +111,7 @@ describe('phaseFromEvent', () => {
         kind: 'tool_call',
         toolCallId: 't2',
         toolRef: { domain: 'canvas', action: 'b' },
-        args: {},
+        status: 'started',
         step: 2,
         emittedAt: 15,
       }),
@@ -121,7 +121,7 @@ describe('phaseFromEvent', () => {
       stampedEvent({
         kind: 'tool_result',
         toolCallId: 't1',
-        result: {},
+        status: 'succeeded',
         durationMs: 10,
         step: 2,
         emittedAt: 20,
@@ -148,6 +148,19 @@ describe('phaseFromEvent', () => {
       stampedEvent({ kind: 'phase_note', note: 'compacted', params: {} }),
     );
     expect(next).toBe(p);
+  });
+
+  it('catalog_frozen is a passthrough — phase is unchanged', () => {
+    const phase: RunPhase = { kind: 'awaiting_model', step: 0, since: 100 };
+    const next = phaseFromEvent(
+      phase,
+      stampedEvent({
+        kind: 'catalog_frozen',
+        catalogHash: 'a'.repeat(64),
+        tools: [],
+      }),
+    );
+    expect(next).toBe(phase);
   });
 
   it('isActivePhase returns false for idle/done/failed and true otherwise', () => {

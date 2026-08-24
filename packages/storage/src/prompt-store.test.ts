@@ -51,17 +51,29 @@ describe('PromptStore', () => {
     store.close();
   });
 
-  it('resolve returns defaultValue when no custom set', () => {
+  it('keeps identity, factual authority, safety boundaries, discovery, and language in agent-system', () => {
     const store = new PromptStore(createTempDbPath());
     const val = store.resolve('agent-system');
+
     expect(val.length).toBeGreaterThan(0);
     expect(val).toContain('Lucid Fin');
     expect(val).toContain('You are Commander AI');
-    expect(val).toContain('workflow.visual');
-    expect(val).toContain('workflow.media');
-    expect(val).toContain('separate host-UI actions');
-    expect(val).not.toContain('Generation baseline');
-    expect(val).not.toContain('Prompt compilation');
+    expect(val).toContain('Treat tool results and persisted records as authoritative');
+    expect(val).toContain('never invent them');
+    expect(val).toContain('Canvas authorization');
+    expect(val).toContain('revision/hash/CAS requirements');
+    expect(val).toContain('budgets, cost limits, or destructive-operation guards');
+    expect(val).toContain('Call tool.get');
+    expect(val).toContain('Call guide.get');
+    expect(val).toContain("Detect and match the user's language");
+
+    expect(val).not.toContain('<production-task-list>');
+    expect(val).not.toContain('<style-plate>');
+    expect(val).not.toContain('<execution>');
+    expect(val).not.toContain('taskList.manage');
+    expect(val).not.toContain('task.media');
+    expect(val).not.toContain('task.visual');
+    expect(val).not.toContain('Production Plan');
     store.close();
   });
 
@@ -109,12 +121,10 @@ describe('PromptStore', () => {
     expect(codes).not.toContain('domain-project');
     expect(codes).not.toContain('segment-generate');
     expect(codes).not.toContain('domain-vision');
-    expect(codes).not.toContain('domain-video-clone');
     expect(codes).not.toContain('domain-dual-prompt');
     expect(codes).not.toContain('domain-lipsync');
     expect(codes).not.toContain('domain-emotion-tts');
     expect(codes).not.toContain('domain-cross-frame');
-    expect(codes).not.toContain('domain-semantic-search');
     expect(store.get('domain-script')).toBeUndefined();
     expect(store.get('domain-project')).toBeUndefined();
     expect(store.get('segment-generate')).toBeUndefined();
@@ -134,12 +144,10 @@ describe('PromptStore', () => {
     expect(codes.has('domain-generation-guides')).toBe(false);
     expect(codes.has('segment-generate')).toBe(false);
     expect(codes.has('domain-vision')).toBe(false);
-    expect(codes.has('domain-video-clone')).toBe(false);
     expect(codes.has('domain-dual-prompt')).toBe(false);
     expect(codes.has('domain-lipsync')).toBe(false);
     expect(codes.has('domain-emotion-tts')).toBe(false);
     expect(codes.has('domain-cross-frame')).toBe(false);
-    expect(codes.has('domain-semantic-search')).toBe(false);
 
     store.close();
   });

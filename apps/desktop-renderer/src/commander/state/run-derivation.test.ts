@@ -29,7 +29,7 @@ function toolCall(
   seq: number,
   step: number,
   toolCallId: string,
-  args: Record<string, unknown>,
+  details: Record<string, string | number | boolean | null>,
   at = 2000 + seq,
 ): TimelineEvent {
   return ev({
@@ -40,7 +40,9 @@ function toolCall(
     emittedAt: at,
     toolCallId,
     toolRef: { domain: 'canvas', action: 'addNode' },
-    args,
+    status: 'started',
+    summary: 'Add a Canvas node',
+    details,
   });
 }
 
@@ -48,7 +50,7 @@ function toolResult(
   seq: number,
   step: number,
   toolCallId: string,
-  result: unknown,
+  artifactId: string,
   at = 3000 + seq,
 ): TimelineEvent {
   return ev({
@@ -58,21 +60,41 @@ function toolResult(
     seq,
     emittedAt: at,
     toolCallId,
-    result,
+    status: 'succeeded',
+    artifacts: [{ kind: 'canvas_node', id: artifactId }],
     durationMs: 10,
   });
 }
 
 function runStart(at = 500): TimelineEvent {
-  return ev({ kind: 'run_start', runId: RUN, step: 0, seq: 0, emittedAt: at, intent: 'test' });
+  return ev({
+    kind: 'run_start',
+    workType: 'agent',
+    runId: RUN,
+    step: 0,
+    seq: 0,
+    emittedAt: at,
+    intent: 'test',
+    resourceBudget: {},
+  });
 }
 
 function runEnd(
-  status: 'completed' | 'failed' | 'cancelled' | 'max_steps',
+  status: 'completed' | 'failed' | 'cancelled' | 'max_steps' | 'blocked',
   at = 9000,
   seq = 99,
 ): TimelineEvent {
-  return ev({ kind: 'run_end', runId: RUN, step: 0, seq, emittedAt: at, status });
+  return status === 'blocked'
+    ? ev({
+        kind: 'run_end',
+        runId: RUN,
+        step: 0,
+        seq,
+        emittedAt: at,
+        status,
+        blocker: { kind: 'resource_budget', metric: 'cost', reason: 'unavailable' },
+      })
+    : ev({ kind: 'run_end', runId: RUN, step: 0, seq, emittedAt: at, status });
 }
 
 function cancelled(partialContent: string | undefined, at = 8500, seq = 98): TimelineEvent {
@@ -118,9 +140,50 @@ describe('mapTerminalKindToStatus', () => {
       errorText: 'Reached max steps',
     });
   });
+
+  it('maps blocked → blocked without inventing an error message', () => {
+    expect(mapTerminalKindToStatus('blocked')).toEqual({ status: 'blocked' });
+  });
 });
 
 describe('deriveActiveRunView', () => {
+  it('keeps only the latest cumulative resource state', () => {
+    const first: TimelineEvent = {
+      kind: 'resource_state',
+      schemaVersion: 1,
+      cause: { kind: 'initialized' },
+      usage: {
+        tokens: { knowledge: 'known', value: 0 },
+        toolCalls: 0,
+        wallTimeMs: 0,
+        costUsd: { knowledge: 'known', value: 0 },
+      },
+      remaining: {
+        tokens: { state: 'known', value: 100 },
+        toolCalls: { state: 'unlimited' },
+        wallTimeMs: { state: 'unlimited' },
+        costUsd: { state: 'unknown' },
+      },
+      clock: { state: 'active', activeMs: 0, changedAt: 1 },
+      runId: RUN,
+      step: 0,
+      seq: 1,
+      emittedAt: 1,
+    };
+    const settled: TimelineEvent = {
+      ...first,
+      cause: { kind: 'settled', operationId: 'model:1:attempt:0', source: 'model' },
+      usage: { ...first.usage, tokens: { knowledge: 'known', value: 25 }, toolCalls: 2 },
+      remaining: { ...first.remaining, tokens: { state: 'known', value: 75 } },
+      seq: 2,
+      emittedAt: 2,
+    };
+
+    const view = deriveActiveRunView([runStart(), first, settled], [], []);
+    expect(view.segments.filter((segment) => segment.kind === 'resource_state')).toEqual([
+      expect.objectContaining({ usage: expect.objectContaining({ toolCalls: 2 }) }),
+    ]);
+  });
   it('coalesces contiguous assistant_text events into one text segment', () => {
     const events = [runStart(), textDelta(1, 1, 'hello '), textDelta(2, 1, 'world')];
     const view = deriveActiveRunView(events, [], []);
@@ -130,18 +193,94 @@ describe('deriveActiveRunView', () => {
     expect(textSegs[0]).toMatchObject({ kind: 'text', content: 'hello world' });
   });
 
-  it('upserts tool_call args and attaches tool_result', () => {
+  it('projects only the successful retry attempt while retaining completed tools', () => {
+    const events: TimelineEvent[] = [
+      runStart(),
+      textDelta(1, 1, 'abandoned text'),
+      {
+        kind: 'public_progress',
+        runId: RUN,
+        step: 1,
+        seq: 2,
+        emittedAt: 1002,
+        operationId: 'model:1',
+        status: 'running',
+      },
+      toolCall(3, 1, 'completed-tool', { keep: true }),
+      toolResult(4, 1, 'completed-tool', 'node-kept'),
+      toolCall(5, 1, 'abandoned-tool', { discard: true }),
+      {
+        kind: 'phase_note',
+        runId: RUN,
+        step: 1,
+        seq: 6,
+        emittedAt: 1006,
+        note: 'llm_retry',
+        params: { attempt: 2 },
+      },
+      textDelta(7, 1, 'partial retry text'),
+      {
+        kind: 'assistant_text',
+        runId: RUN,
+        step: 1,
+        seq: 8,
+        emittedAt: 1008,
+        content: 'successful retry',
+        isDelta: false,
+      },
+      {
+        kind: 'public_progress',
+        runId: RUN,
+        step: 1,
+        seq: 9,
+        emittedAt: 1009,
+        operationId: 'model:1-retry',
+        status: 'running',
+        summary: 'Checking the revised request',
+      },
+      runEnd('completed', 1100, 11),
+    ];
+
+    const view = deriveActiveRunView(events, [], []);
+    const finalized = buildFinalizedAssistantMessage(RUN, 'completed', events, [], []);
+
+    expect(view.streamContent).toBe('successful retry');
+    expect(view.segments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'phase_note', note: 'llm_retry' }),
+        expect.objectContaining({ kind: 'text', content: 'successful retry' }),
+        expect.objectContaining({
+          kind: 'progress',
+          summary: 'Checking the revised request',
+        }),
+      ]),
+    );
+    expect(view.segments).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'text', content: expect.stringContaining('abandoned') }),
+        expect.objectContaining({
+          kind: 'progress',
+          operationId: 'model:1',
+        }),
+      ]),
+    );
+    expect(view.toolCalls.map((call) => call.id)).toEqual(['completed-tool']);
+    expect(finalized?.content).toBe('successful retry');
+  });
+
+  it('upserts public tool metadata and attaches public artifacts', () => {
     const events = [
       runStart(),
       toolCall(1, 1, 'tc-1', { draft: true }),
       toolCall(2, 1, 'tc-1', { draft: false, id: 'node-42' }),
-      toolResult(3, 1, 'tc-1', { success: true }),
+      toolResult(3, 1, 'tc-1', 'node-42'),
     ];
     const view = deriveActiveRunView(events, [], []);
     expect(view.toolCalls).toHaveLength(1);
     expect(view.toolCalls[0]).toMatchObject({
       id: 'tc-1',
-      arguments: { draft: false, id: 'node-42' },
+      details: { draft: false, id: 'node-42' },
+      artifacts: [{ kind: 'canvas_node', id: 'node-42' }],
       status: 'done',
     });
   });
@@ -165,7 +304,8 @@ describe('deriveActiveRunView', () => {
         toolCallId: 'tc-2',
         toolRef: { domain: 'canvas', action: 'deleteNode' },
         tier: 1,
-        args: {},
+        status: 'awaiting_confirmation',
+        summary: 'Delete the selected node',
       },
     ];
     const view = deriveActiveRunView(events, [], []);
@@ -184,7 +324,7 @@ describe('deriveActiveRunView', () => {
         toolCallId: 'tc-2',
         toolRef: { domain: 'canvas', action: 'deleteNode' },
         tier: 1,
-        args: {},
+        status: 'awaiting_confirmation',
       },
     ];
     const view = deriveActiveRunView(events, ['tc-2'], []);
@@ -266,11 +406,12 @@ describe('buildFinalizedAssistantMessage', () => {
     const events = [
       runStart(),
       toolCall(1, 1, 'tc-done', { x: 1 }),
-      toolResult(2, 1, 'tc-done', { success: true }),
+      toolResult(2, 1, 'tc-done', 'node-done'),
       toolCall(3, 1, 'tc-pending', { y: 2 }),
       // tc-pending only has a synthetic orphan-cleanup result after cancel.
       {
-        ...toolResult(4, 1, 'tc-pending', { skipped: true }),
+        ...toolResult(4, 1, 'tc-pending', 'node-pending'),
+        status: 'skipped',
         synthetic: true,
       } as TimelineEvent,
       cancelled('halfway', 5000, 10),
@@ -296,12 +437,22 @@ describe('buildFinalizedAssistantMessage', () => {
     expect(msg?.runMeta?.status).toBe('failed');
   });
 
+  it('persists a typed blocker when a resource boundary stops the run', () => {
+    const events = [runStart(), runEnd('blocked')];
+    const msg = buildFinalizedAssistantMessage(RUN, 'blocked', events, [], []);
+
+    expect(msg?.runMeta).toMatchObject({
+      status: 'blocked',
+      blocker: { kind: 'resource_budget', metric: 'cost', reason: 'unavailable' },
+    });
+  });
+
   it('includes segments and toolCalls on the finalized message', () => {
     const events = [
       runStart(),
       textDelta(1, 1, 'plan. '),
       toolCall(2, 1, 'tc-1', { x: 1 }),
-      toolResult(3, 1, 'tc-1', { success: true }),
+      toolResult(3, 1, 'tc-1', 'node-1'),
       textDelta(4, 1, 'done.'),
       runEnd('completed'),
     ];

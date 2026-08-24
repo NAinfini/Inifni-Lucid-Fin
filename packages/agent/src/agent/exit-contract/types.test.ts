@@ -36,8 +36,6 @@ function describeEvidence(e: CompletionEvidence): string {
       return `commit:${e.toolName}:${e.resultOk}`;
     case 'validation_error':
       return `valErr:${e.toolName}`;
-    case 'guide_activated':
-      return `prompt:${e.key}`;
     case 'generation_started':
       return `gen:${e.nodeId}`;
     case 'settings_write':
@@ -60,7 +58,7 @@ function describeIntent(i: RunIntent): string {
     case 'informational':
       return 'info';
     case 'execution':
-      return `exec:${i.workflow ?? '-'}`;
+      return `exec:${i.taskList ?? '-'}`;
     default:
       return assertNeverIntent(i);
   }
@@ -106,7 +104,7 @@ describe('exit-contract/types — RunIntent', () => {
   const samples: RunIntent[] = [
     { kind: 'informational' },
     { kind: 'execution' },
-    { kind: 'execution', workflow: 'story-to-video' },
+    { kind: 'execution', taskList: 'story-to-video' },
   ];
   it.each(samples)('is constructible and describable: %o', (intent) => {
     expect(describeIntent(intent)).toMatch(/^(info|exec:)/);
@@ -116,7 +114,7 @@ describe('exit-contract/types — RunIntent', () => {
 describe('exit-contract/types — CompletionEvidence', () => {
   const at = 1776000000000;
   const samples: CompletionEvidence[] = [
-    { kind: 'guide_loaded', guideId: 'workflow-story-to-video', at },
+    { kind: 'guide_loaded', guideId: 'task-list-story-to-video', at },
     { kind: 'ask_user_asked', question: 'which genre?', at },
     { kind: 'ask_user_answered', answer: 'noir', at },
     {
@@ -128,15 +126,14 @@ describe('exit-contract/types — CompletionEvidence', () => {
     },
     {
       kind: 'validation_error',
-      toolName: 'workflow.manage',
+      toolName: 'taskList.manage',
       errorText: 'prompt is required',
       at,
     },
-    { kind: 'guide_activated', key: 'style-plate-lock', reason: 'canvas has refs', at },
     { kind: 'generation_started', nodeId: 'node-123', at },
     { kind: 'settings_write', canvasId: 'canvas-1', keys: ['stylePlate'], at },
     { kind: 'user_refused', message: 'not now', at },
-    { kind: 'budget_exhausted', metric: 'steps', at },
+    { kind: 'budget_exhausted', metric: 'tool_calls', at },
     { kind: 'progress_stall', stepsSinceLastMutation: 5, at },
     { kind: 'tool_retry_loop', toolName: 'canvas.createNodes', attempts: 3, at },
   ];
@@ -168,7 +165,7 @@ describe('exit-contract/types — ExitDecision', () => {
   const samples: ExitDecision[] = [
     {
       outcome: 'satisfied',
-      contractId: 'workflow:story-to-video',
+      contractId: 'task-list:story-to-video',
       evidenceSummary: '1 batchCreate',
     },
     { outcome: 'informational_answered', reason: 'pure question' },
@@ -177,7 +174,7 @@ describe('exit-contract/types — ExitDecision', () => {
     { outcome: 'budget_exhausted', metric: 'tokens' },
     {
       outcome: 'unsatisfied',
-      contractId: 'workflow:shot-list',
+      contractId: 'task-list:shot-list',
       blocker: { kind: 'missing_commit', expected: ['canvas.createNodes'] },
     },
     { outcome: 'error', message: 'llm provider 500' },
@@ -190,7 +187,7 @@ describe('exit-contract/types — ExitDecision', () => {
 describe('exit-contract/types — CompletionContract shape', () => {
   it('accepts a full-featured execution contract', () => {
     const contract: CompletionContract = {
-      id: 'workflow:story-to-video',
+      id: 'task-list:story-to-video',
       requiredCommits: [
         {
           toolName: 'canvas.createNodes',
@@ -218,7 +215,7 @@ describe('exit-contract/types — CompletionContract shape', () => {
         },
       ],
     };
-    expect(contract.id).toBe('workflow:story-to-video');
+    expect(contract.id).toBe('task-list:story-to-video');
     expect(contract.requiredCommits[0].argPredicate?.({ nodes: [{ type: 'text' }] })).toBe(true);
     expect(contract.requiredCommits[0].argPredicate?.({})).toBe(false);
     expect(contract.successSignals?.[0].check([])).toBe(false);

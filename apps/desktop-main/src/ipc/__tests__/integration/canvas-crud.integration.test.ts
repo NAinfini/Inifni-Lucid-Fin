@@ -1,7 +1,7 @@
 /**
  * Canvas CRUD integration tests.
  *
- * Exercises the full handler -> CanvasService -> CanvasStore -> CanvasRepository
+ * Exercises the full handler -> CanvasStore -> CanvasRepository
  * -> SQLite chain using a real in-memory database.
  */
 
@@ -85,10 +85,25 @@ describe('Canvas CRUD integration', () => {
     expect(reloaded.name).toBe('Updated Name');
     expect(reloaded.updatedAt).toBeGreaterThanOrEqual(loaded.updatedAt);
 
-    // 5. Delete the canvas
+    // 5. Archive, restore, then permanently delete the canvas
     await invoke(ipcMain, 'canvas:delete', { id: created.id });
-    const listAfterDelete = await invoke<Array<{ id: string }>>(ipcMain, 'canvas:list');
-    expect(listAfterDelete).toHaveLength(0);
+    const listAfterArchive = await invoke<Array<{ id: string; archivedAt?: number }>>(
+      ipcMain,
+      'canvas:list',
+    );
+    expect(listAfterArchive).toEqual([
+      expect.objectContaining({ id: created.id, archivedAt: expect.any(Number) }),
+    ]);
+    await expect(invoke(ipcMain, 'canvas:load', { id: created.id })).rejects.toThrow(/not found/i);
+
+    await invoke(ipcMain, 'canvas:restore', { id: created.id });
+    const restored = await invoke<Canvas>(ipcMain, 'canvas:load', { id: created.id });
+    expect(restored.id).toBe(created.id);
+    expect(restored).not.toHaveProperty('archivedAt');
+
+    await invoke(ipcMain, 'canvas:delete', { id: created.id });
+    await invoke(ipcMain, 'canvas:deletePermanent', { id: created.id });
+    expect(await invoke<Array<{ id: string }>>(ipcMain, 'canvas:list')).toEqual([]);
   });
 
   it('load throws for non-existent canvas', async () => {
@@ -120,6 +135,7 @@ describe('Canvas CRUD integration', () => {
       patch: {
         canvasId: created.id,
         timestamp: now,
+        operations: ['addNode', 'addEdge'],
         addedNodes: [
           {
             id: 'node-1',
@@ -155,6 +171,7 @@ describe('Canvas CRUD integration', () => {
       patch: {
         canvasId: created.id,
         timestamp: now + 1,
+        operations: ['removeNode', 'removeEdge'],
         removedNodeIds: ['node-1'],
         removedEdgeIds: ['edge-1'],
       },

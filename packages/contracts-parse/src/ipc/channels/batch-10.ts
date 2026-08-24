@@ -1,12 +1,8 @@
 /**
  * Batch 10 — tail of Phase B-1 IPC migration.
  *
- * Registers the remaining 47 invoke handlers and 9 push channels that were
- * not covered by batches 1-9. Schemas are intentionally permissive at the
- * boundaries of complex media-engine DTOs (NLE project, render segment,
- * subtitle cue) and storage-owned blobs (session row, snapshot row) — the
- * goal is registry coverage, with deeper zodification deferred to a later
- * phase.
+ * Registers the remaining invoke handlers and push channels that were not
+ * covered by batches 1-9. Storage-owned blobs remain opaque at this boundary.
  *
  * Collision note: `updater:status` is also emitted via `webContents.send`
  * from `auto-updater.ts`. To avoid a codegen name clash between an invoke
@@ -16,7 +12,6 @@
  */
 import { z } from 'zod';
 import { defineInvokeChannel, definePushChannel } from '../../channels.js';
-import { CommanderStreamPayloadSchema } from './batch-09.js';
 
 // ─── app:version ─────────────────────────────────────────────
 const AppVersionRequest = z.object({}).strict();
@@ -29,131 +24,6 @@ export const appVersionChannel = defineInvokeChannel({
 export type AppVersionRequest = z.infer<typeof AppVersionRequest>;
 export type AppVersionResponse = z.infer<typeof AppVersionResponse>;
 
-// ─── ai:chat ─────────────────────────────────────────────────
-const AiChatRequest = z.object({
-  message: z.string(),
-  context: z.record(z.string(), z.unknown()).optional(),
-});
-const AiChatResponse = z.string();
-export const aiChatChannel = defineInvokeChannel({
-  channel: 'ai:chat',
-  request: AiChatRequest,
-  response: AiChatResponse,
-});
-export type AiChatRequest = z.infer<typeof AiChatRequest>;
-export type AiChatResponse = z.infer<typeof AiChatResponse>;
-
-// ─── ai:prompt:list ──────────────────────────────────────────
-const AiPromptListRequest = z.object({}).strict();
-const AiPromptListResponse = z.array(
-  z.object({
-    code: z.string(),
-    name: z.string(),
-    type: z.string(),
-    hasCustom: z.boolean(),
-  }),
-);
-export const aiPromptListChannel = defineInvokeChannel({
-  channel: 'ai:prompt:list',
-  request: AiPromptListRequest,
-  response: AiPromptListResponse,
-});
-export type AiPromptListRequest = z.infer<typeof AiPromptListRequest>;
-export type AiPromptListResponse = z.infer<typeof AiPromptListResponse>;
-
-// ─── ai:prompt:get ───────────────────────────────────────────
-const AiPromptGetRequest = z.object({ code: z.string() });
-const AiPromptGetResponse = z.object({
-  code: z.string(),
-  name: z.string(),
-  defaultValue: z.string(),
-  customValue: z.string().nullable(),
-});
-export const aiPromptGetChannel = defineInvokeChannel({
-  channel: 'ai:prompt:get',
-  request: AiPromptGetRequest,
-  response: AiPromptGetResponse,
-});
-export type AiPromptGetRequest = z.infer<typeof AiPromptGetRequest>;
-export type AiPromptGetResponse = z.infer<typeof AiPromptGetResponse>;
-
-// ─── ai:prompt:setCustom ─────────────────────────────────────
-const AiPromptSetCustomRequest = z.object({
-  code: z.string(),
-  value: z.string(),
-});
-const AiPromptSetCustomResponse = z.void();
-export const aiPromptSetCustomChannel = defineInvokeChannel({
-  channel: 'ai:prompt:setCustom',
-  request: AiPromptSetCustomRequest,
-  response: AiPromptSetCustomResponse,
-});
-export type AiPromptSetCustomRequest = z.infer<typeof AiPromptSetCustomRequest>;
-export type AiPromptSetCustomResponse = z.infer<typeof AiPromptSetCustomResponse>;
-
-// ─── ai:prompt:clearCustom ───────────────────────────────────
-const AiPromptClearCustomRequest = z.object({ code: z.string() });
-const AiPromptClearCustomResponse = z.void();
-export const aiPromptClearCustomChannel = defineInvokeChannel({
-  channel: 'ai:prompt:clearCustom',
-  request: AiPromptClearCustomRequest,
-  response: AiPromptClearCustomResponse,
-});
-export type AiPromptClearCustomRequest = z.infer<typeof AiPromptClearCustomRequest>;
-export type AiPromptClearCustomResponse = z.infer<typeof AiPromptClearCustomResponse>;
-
-// ─── asset:generateEmbedding ─────────────────────────────────
-const AssetGenerateEmbeddingRequest = z.object({ assetHash: z.string() });
-const AssetGenerateEmbeddingResponse = z.object({ ok: z.boolean() });
-export const assetGenerateEmbeddingChannel = defineInvokeChannel({
-  channel: 'asset:generateEmbedding',
-  request: AssetGenerateEmbeddingRequest,
-  response: AssetGenerateEmbeddingResponse,
-});
-export type AssetGenerateEmbeddingRequest = z.infer<typeof AssetGenerateEmbeddingRequest>;
-export type AssetGenerateEmbeddingResponse = z.infer<typeof AssetGenerateEmbeddingResponse>;
-
-// ─── asset:reindexEmbeddings ─────────────────────────────────
-const AssetReindexEmbeddingsRequest = z.object({}).strict();
-const AssetReindexEmbeddingsResponse = z.object({
-  indexed: z.number(),
-  failed: z.number(),
-});
-export const assetReindexEmbeddingsChannel = defineInvokeChannel({
-  channel: 'asset:reindexEmbeddings',
-  request: AssetReindexEmbeddingsRequest,
-  response: AssetReindexEmbeddingsResponse,
-});
-export type AssetReindexEmbeddingsRequest = z.infer<typeof AssetReindexEmbeddingsRequest>;
-export type AssetReindexEmbeddingsResponse = z.infer<typeof AssetReindexEmbeddingsResponse>;
-
-// ─── asset:reindex:progress (push) ──────────────────────────
-const AssetReindexProgressPayload = z.object({
-  indexed: z.number(),
-  failed: z.number(),
-  total: z.number(),
-});
-export const assetReindexProgressChannel = definePushChannel({
-  channel: 'asset:reindex:progress',
-  payload: AssetReindexProgressPayload,
-});
-export type AssetReindexProgressPayload = z.infer<typeof AssetReindexProgressPayload>;
-
-// ─── asset:searchSemantic ────────────────────────────────────
-const AssetSearchSemanticRequest = z.object({
-  query: z.string(),
-  limit: z.number().optional(),
-});
-// Storage-owned row shape; kept opaque.
-const AssetSearchSemanticResponse = z.array(z.unknown());
-export const assetSearchSemanticChannel = defineInvokeChannel({
-  channel: 'asset:searchSemantic',
-  request: AssetSearchSemanticRequest,
-  response: AssetSearchSemanticResponse,
-});
-export type AssetSearchSemanticRequest = z.infer<typeof AssetSearchSemanticRequest>;
-export type AssetSearchSemanticResponse = z.infer<typeof AssetSearchSemanticResponse>;
-
 // ─── clipboard:setEnabled ────────────────────────────────────
 const ClipboardSetEnabledRequest = z.object({ enabled: z.boolean() });
 const ClipboardSetEnabledResponse = z.void();
@@ -164,181 +34,6 @@ export const clipboardSetEnabledChannel = defineInvokeChannel({
 });
 export type ClipboardSetEnabledRequest = z.infer<typeof ClipboardSetEnabledRequest>;
 export type ClipboardSetEnabledResponse = z.infer<typeof ClipboardSetEnabledResponse>;
-
-// ─── export:nle ──────────────────────────────────────────────
-const ExportNleRequest = z
-  .object({
-    format: z.enum(['fcpxml', 'edl']),
-    project: z.unknown(),
-    outputPath: z.string().optional(),
-    canvasId: z.string().optional(),
-  })
-  .passthrough();
-const ExportNleResponse = z.union([
-  z.null(),
-  z.object({
-    outputPath: z.string(),
-    format: z.enum(['fcpxml', 'edl']),
-    fileSize: z.number(),
-  }),
-]);
-export const exportNleChannel = defineInvokeChannel({
-  channel: 'export:nle',
-  request: ExportNleRequest,
-  response: ExportNleResponse,
-});
-export type ExportNleRequest = z.infer<typeof ExportNleRequest>;
-export type ExportNleResponse = z.infer<typeof ExportNleResponse>;
-
-// ─── export:assetBundle ──────────────────────────────────────
-const ExportAssetBundleRequest = z.object({
-  assetHashes: z.array(z.string()),
-  outputPath: z.string().optional(),
-  canvasId: z.string().optional(),
-});
-const ExportAssetBundleResponse = z.union([
-  z.null(),
-  z.object({
-    outputPath: z.string(),
-    fileCount: z.number(),
-    fileSize: z.number(),
-  }),
-]);
-export const exportAssetBundleChannel = defineInvokeChannel({
-  channel: 'export:assetBundle',
-  request: ExportAssetBundleRequest,
-  response: ExportAssetBundleResponse,
-});
-export type ExportAssetBundleRequest = z.infer<typeof ExportAssetBundleRequest>;
-export type ExportAssetBundleResponse = z.infer<typeof ExportAssetBundleResponse>;
-
-// ─── export:subtitles ────────────────────────────────────────
-const ExportSubtitlesRequest = z
-  .object({
-    format: z.enum(['srt', 'ass']),
-    cues: z.array(z.unknown()),
-    outputPath: z.string().optional(),
-    videoWidth: z.number().optional(),
-    videoHeight: z.number().optional(),
-    canvasId: z.string().optional(),
-  })
-  .passthrough();
-const ExportSubtitlesResponse = z.void().or(z.null());
-export const exportSubtitlesChannel = defineInvokeChannel({
-  channel: 'export:subtitles',
-  request: ExportSubtitlesRequest,
-  response: ExportSubtitlesResponse,
-});
-export type ExportSubtitlesRequest = z.infer<typeof ExportSubtitlesRequest>;
-export type ExportSubtitlesResponse = z.infer<typeof ExportSubtitlesResponse>;
-
-// ─── export:storyboard ───────────────────────────────────────
-const ExportStoryboardNodeShape = z
-  .object({
-    title: z.string(),
-    prompt: z.string().optional(),
-    assetHash: z.string().optional(),
-    type: z.string(),
-    sceneNumber: z.string().optional(),
-    shotOrder: z.number().optional(),
-    annotation: z.string().optional(),
-    colorTag: z.string().optional(),
-    tags: z.array(z.string()).optional(),
-    providerId: z.string().optional(),
-    seed: z.number().optional(),
-  })
-  .passthrough();
-const ExportStoryboardRequest = z.object({
-  nodes: z.array(ExportStoryboardNodeShape),
-  projectTitle: z.string().optional(),
-  outputPath: z.string().optional(),
-  canvasId: z.string().optional(),
-});
-const ExportStoryboardResponse = z.union([
-  z.null(),
-  z.object({
-    outputPath: z.string(),
-    nodeCount: z.number(),
-    fileSize: z.number(),
-  }),
-]);
-export const exportStoryboardChannel = defineInvokeChannel({
-  channel: 'export:storyboard',
-  request: ExportStoryboardRequest,
-  response: ExportStoryboardResponse,
-});
-export type ExportStoryboardRequest = z.infer<typeof ExportStoryboardRequest>;
-export type ExportStoryboardResponse = z.infer<typeof ExportStoryboardResponse>;
-
-// ─── export:metadata ─────────────────────────────────────────
-const ExportMetadataNodeShape = z
-  .object({
-    id: z.string(),
-    type: z.string(),
-    title: z.string(),
-    prompt: z.string().optional(),
-    negativePrompt: z.string().optional(),
-    providerId: z.string().optional(),
-    seed: z.number().optional(),
-    width: z.number().optional(),
-    height: z.number().optional(),
-    assetHash: z.string().optional(),
-    cost: z.number().optional(),
-    generationTimeMs: z.number().optional(),
-    sceneNumber: z.string().optional(),
-    shotOrder: z.number().optional(),
-    colorTag: z.string().optional(),
-    tags: z.array(z.string()).optional(),
-  })
-  .passthrough();
-const ExportMetadataRequest = z.object({
-  format: z.enum(['csv', 'json']),
-  nodes: z.array(ExportMetadataNodeShape),
-  projectTitle: z.string().optional(),
-  outputPath: z.string().optional(),
-  canvasId: z.string().optional(),
-});
-const ExportMetadataResponse = z.union([
-  z.null(),
-  z.object({
-    outputPath: z.string(),
-    format: z.enum(['csv', 'json']),
-    nodeCount: z.number(),
-    fileSize: z.number(),
-  }),
-]);
-export const exportMetadataChannel = defineInvokeChannel({
-  channel: 'export:metadata',
-  request: ExportMetadataRequest,
-  response: ExportMetadataResponse,
-});
-export type ExportMetadataRequest = z.infer<typeof ExportMetadataRequest>;
-export type ExportMetadataResponse = z.infer<typeof ExportMetadataResponse>;
-
-// ─── export:capcut ───────────────────────────────────────────
-const ExportCapcutRequest = z.object({
-  nodes: z.array(
-    z
-      .object({
-        title: z.string(),
-        assetHash: z.string(),
-        type: z.string(),
-        durationMs: z.number().optional(),
-      })
-      .passthrough(),
-  ),
-  projectTitle: z.string().optional(),
-  outputDir: z.string().optional(),
-  canvasId: z.string().optional(),
-});
-const ExportCapcutResponse = z.union([z.null(), z.object({ draftDir: z.string() })]);
-export const exportCapcutChannel = defineInvokeChannel({
-  channel: 'export:capcut',
-  request: ExportCapcutRequest,
-  response: ExportCapcutResponse,
-});
-export type ExportCapcutRequest = z.infer<typeof ExportCapcutRequest>;
-export type ExportCapcutResponse = z.infer<typeof ExportCapcutResponse>;
 
 // ─── ffmpeg:probe ────────────────────────────────────────────
 const FfmpegProbeRequest = z.object({ filePath: z.string() });
@@ -385,27 +80,6 @@ export const ffmpegTranscodeChannel = defineInvokeChannel({
 });
 export type FfmpegTranscodeRequest = z.infer<typeof FfmpegTranscodeRequest>;
 export type FfmpegTranscodeResponse = z.infer<typeof FfmpegTranscodeResponse>;
-
-// ─── import:srt ──────────────────────────────────────────────
-const ImportSrtRequest = z.object({
-  canvasId: z.string(),
-  filePath: z.string(),
-  alignToNodes: z.boolean().optional(),
-});
-const ImportSrtResponse = z
-  .object({
-    importedCount: z.number(),
-    alignedCount: z.number(),
-    noVideoNodes: z.boolean().optional(),
-  })
-  .passthrough();
-export const importSrtChannel = defineInvokeChannel({
-  channel: 'import:srt',
-  request: ImportSrtRequest,
-  response: ImportSrtResponse,
-});
-export type ImportSrtRequest = z.infer<typeof ImportSrtRequest>;
-export type ImportSrtResponse = z.infer<typeof ImportSrtResponse>;
 
 // ─── ipc:ping — typed descriptor, NOT in allChannels ────────
 // The hand-written infrastructure surface (see `LucidAPIInfrastructure`) owns
@@ -519,33 +193,6 @@ export const keychainIsConfiguredChannel = defineInvokeChannel({
 export type KeychainIsConfiguredRequest = z.infer<typeof KeychainIsConfiguredRequest>;
 export type KeychainIsConfiguredResponse = z.infer<typeof KeychainIsConfiguredResponse>;
 
-// ─── lipsync:* ───────────────────────────────────────────────
-const LipsyncCheckAvailabilityRequest = z.object({}).strict();
-const LipsyncCheckAvailabilityResponse = z.object({
-  available: z.boolean(),
-  backend: z.string(),
-});
-export const lipsyncCheckAvailabilityChannel = defineInvokeChannel({
-  channel: 'lipsync:checkAvailability',
-  request: LipsyncCheckAvailabilityRequest,
-  response: LipsyncCheckAvailabilityResponse,
-});
-export type LipsyncCheckAvailabilityRequest = z.infer<typeof LipsyncCheckAvailabilityRequest>;
-export type LipsyncCheckAvailabilityResponse = z.infer<typeof LipsyncCheckAvailabilityResponse>;
-
-const LipsyncProcessRequest = z.object({
-  canvasId: z.string(),
-  nodeId: z.string(),
-});
-const LipsyncProcessResponse = z.void();
-export const lipsyncProcessChannel = defineInvokeChannel({
-  channel: 'lipsync:process',
-  request: LipsyncProcessRequest,
-  response: LipsyncProcessResponse,
-});
-export type LipsyncProcessRequest = z.infer<typeof LipsyncProcessRequest>;
-export type LipsyncProcessResponse = z.infer<typeof LipsyncProcessResponse>;
-
 // ─── logger:getRecent ────────────────────────────────────────
 const LoggerEntryShape = z
   .object({
@@ -567,89 +214,164 @@ export const loggerGetRecentChannel = defineInvokeChannel({
 export type LoggerGetRecentRequest = z.infer<typeof LoggerGetRecentRequest>;
 export type LoggerGetRecentResponse = z.infer<typeof LoggerGetRecentResponse>;
 
-// ─── render:* ────────────────────────────────────────────────
-const RenderStartRequest = z
+// ─── deliveryPackage:* ──────────────────────────────────────
+const DeliveryPackageStatus = z.enum([
+  'queued',
+  'running',
+  'ready_to_publish',
+  'completed',
+  'failed',
+  'cancelled',
+  'recovery_required',
+]);
+const DeliveryPackageAttemptView = z
   .object({
-    sceneId: z.string(),
-    segments: z
-      .array(
-        z
-          .object({
-            inputPath: z.string().min(1),
-            startTime: z.number().finite().nonnegative(),
-            duration: z.number().finite().positive(),
-            speed: z.number().finite().positive(),
-          })
-          .strict(),
-      )
-      .optional(),
-    outputFormat: z.enum(['mp4', 'mov', 'webm']).optional(),
-    resolution: z
-      .object({ width: z.number().int().positive(), height: z.number().int().positive() })
-      .strict()
-      .optional(),
-    fps: z.number().int().positive().optional(),
-    codec: z.enum(['h264', 'h265', 'prores']).optional(),
-    quality: z.enum(['draft', 'standard', 'high']).optional(),
-    outputPath: z.string().optional(),
-    workflowRunId: z.string().min(1).optional(),
-    expectedManifestRevision: z.number().int().positive().optional(),
-    expectedManifestHash: z
-      .string()
-      .regex(/^[a-f0-9]{64}$/i)
-      .optional(),
-    retry: z.boolean().optional(),
-  })
-  .strict();
-const RenderStartResponse = z.object({
-  jobId: z.string(),
-  outputPath: z.string(),
-  duration: z.number(),
-  format: z.enum(['mp4', 'mov', 'webm']),
-});
-export const renderStartChannel = defineInvokeChannel({
-  channel: 'render:start',
-  request: RenderStartRequest,
-  response: RenderStartResponse,
-});
-export type RenderStartRequest = z.infer<typeof RenderStartRequest>;
-export type RenderStartResponse = z.infer<typeof RenderStartResponse>;
-
-const RenderCancelRequest = z.object({ jobId: z.string() });
-const RenderCancelResponse = z.void();
-export const renderCancelChannel = defineInvokeChannel({
-  channel: 'render:cancel',
-  request: RenderCancelRequest,
-  response: RenderCancelResponse,
-});
-export type RenderCancelRequest = z.infer<typeof RenderCancelRequest>;
-export type RenderCancelResponse = z.infer<typeof RenderCancelResponse>;
-
-const RenderStatusRequest = z.object({ jobId: z.string() });
-const RenderStatusResponse = z
-  .object({
-    progress: z.number(),
-    stage: z.enum(['queued', 'rendering', 'completed', 'failed', 'cancelled', 'unknown']),
-    outputPath: z.string().optional(),
+    attemptId: z.string().min(1),
+    status: DeliveryPackageStatus,
+    progress: z.number().min(0).max(100),
+    destinationPath: z.string().min(1),
+    manifestRevision: z.number().int().positive(),
+    manifestHash: z.string().regex(/^[a-f0-9]{64}$/),
+    attempt: z.number().int().positive(),
     error: z.string().optional(),
   })
-  .passthrough();
-export const renderStatusChannel = defineInvokeChannel({
-  channel: 'render:status',
-  request: RenderStatusRequest,
-  response: RenderStatusResponse,
-});
-export type RenderStatusRequest = z.infer<typeof RenderStatusRequest>;
-export type RenderStatusResponse = z.infer<typeof RenderStatusResponse>;
+  .strict();
 
-// ─── session:* (4) ───────────────────────────────────────────
+const DeliveryPackageStartRequest = z
+  .object({
+    taskListId: z.string().min(1),
+    canvasId: z.string().min(1),
+    expectedManifestRevision: z.number().int().positive(),
+    expectedManifestHash: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict();
+const DeliveryPackageStartResponse = z.discriminatedUnion('cancelled', [
+  z.object({ cancelled: z.literal(true) }).strict(),
+  z.object({ cancelled: z.literal(false), attempt: DeliveryPackageAttemptView }).strict(),
+]);
+export const deliveryPackageStartChannel = defineInvokeChannel({
+  channel: 'deliveryPackage:start',
+  request: DeliveryPackageStartRequest,
+  response: DeliveryPackageStartResponse,
+});
+export type DeliveryPackageStartRequest = z.infer<typeof DeliveryPackageStartRequest>;
+export type DeliveryPackageStartResponse = z.infer<typeof DeliveryPackageStartResponse>;
+
+const DeliveryPackageStatusRequest = z.object({ attemptId: z.string().min(1) }).strict();
+const DeliveryPackageStatusResponse = DeliveryPackageAttemptView.nullable();
+export const deliveryPackageStatusChannel = defineInvokeChannel({
+  channel: 'deliveryPackage:status',
+  request: DeliveryPackageStatusRequest,
+  response: DeliveryPackageStatusResponse,
+});
+export type DeliveryPackageStatusRequest = z.infer<typeof DeliveryPackageStatusRequest>;
+export type DeliveryPackageStatusResponse = z.infer<typeof DeliveryPackageStatusResponse>;
+
+const DeliveryPackageCancelRequest = z.object({ attemptId: z.string().min(1) }).strict();
+const DeliveryPackageCancelResponse = z
+  .object({ attempt: DeliveryPackageAttemptView.nullable() })
+  .strict();
+export const deliveryPackageCancelChannel = defineInvokeChannel({
+  channel: 'deliveryPackage:cancel',
+  request: DeliveryPackageCancelRequest,
+  response: DeliveryPackageCancelResponse,
+});
+export type DeliveryPackageCancelRequest = z.infer<typeof DeliveryPackageCancelRequest>;
+export type DeliveryPackageCancelResponse = z.infer<typeof DeliveryPackageCancelResponse>;
+
+const DeliveryPackageRetryRequest = z.object({ attemptId: z.string().min(1) }).strict();
+const DeliveryPackageRetryResponse = z.object({ attempt: DeliveryPackageAttemptView }).strict();
+export const deliveryPackageRetryChannel = defineInvokeChannel({
+  channel: 'deliveryPackage:retry',
+  request: DeliveryPackageRetryRequest,
+  response: DeliveryPackageRetryResponse,
+});
+export type DeliveryPackageRetryRequest = z.infer<typeof DeliveryPackageRetryRequest>;
+export type DeliveryPackageRetryResponse = z.infer<typeof DeliveryPackageRetryResponse>;
+
+const DeliveryPackageOpenRequest = z.object({ attemptId: z.string().min(1) }).strict();
+const DeliveryPackageOpenResponse = z.object({ opened: z.literal(true) }).strict();
+export const deliveryPackageOpenChannel = defineInvokeChannel({
+  channel: 'deliveryPackage:open',
+  request: DeliveryPackageOpenRequest,
+  response: DeliveryPackageOpenResponse,
+});
+export type DeliveryPackageOpenRequest = z.infer<typeof DeliveryPackageOpenRequest>;
+export type DeliveryPackageOpenResponse = z.infer<typeof DeliveryPackageOpenResponse>;
+
+// ─── reviewCut:* (4) ────────────────────────────────────────
+const ReviewCutStatus = z.enum(['queued', 'running', 'completed', 'failed', 'cancelled']);
+const ReviewCutJobView = z
+  .object({
+    jobId: z.string().min(1),
+    status: ReviewCutStatus,
+    progress: z.number().min(0).max(100),
+    outputPath: z.string().min(1),
+    manifestRevision: z.number().int().positive(),
+    manifestHash: z.string().regex(/^[a-f0-9]{64}$/),
+    error: z.string().optional(),
+  })
+  .strict();
+
+const ReviewCutStartRequest = z
+  .object({
+    taskListId: z.string().min(1),
+    canvasId: z.string().min(1),
+    expectedManifestRevision: z.number().int().positive(),
+    expectedManifestHash: z.string().regex(/^[a-f0-9]{64}$/),
+  })
+  .strict();
+const ReviewCutStartResponse = z.discriminatedUnion('cancelled', [
+  z.object({ cancelled: z.literal(true) }).strict(),
+  z.object({ cancelled: z.literal(false), job: ReviewCutJobView }).strict(),
+]);
+export const reviewCutStartChannel = defineInvokeChannel({
+  channel: 'reviewCut:start',
+  request: ReviewCutStartRequest,
+  response: ReviewCutStartResponse,
+});
+export type ReviewCutStartRequest = z.infer<typeof ReviewCutStartRequest>;
+export type ReviewCutStartResponse = z.infer<typeof ReviewCutStartResponse>;
+
+const ReviewCutStatusRequest = z.object({ jobId: z.string().min(1) }).strict();
+const ReviewCutStatusResponse = ReviewCutJobView.nullable();
+export const reviewCutStatusChannel = defineInvokeChannel({
+  channel: 'reviewCut:status',
+  request: ReviewCutStatusRequest,
+  response: ReviewCutStatusResponse,
+});
+export type ReviewCutStatusRequest = z.infer<typeof ReviewCutStatusRequest>;
+export type ReviewCutStatusResponse = z.infer<typeof ReviewCutStatusResponse>;
+
+const ReviewCutCancelRequest = z.object({ jobId: z.string().min(1) }).strict();
+const ReviewCutCancelResponse = z.object({ job: ReviewCutJobView.nullable() }).strict();
+export const reviewCutCancelChannel = defineInvokeChannel({
+  channel: 'reviewCut:cancel',
+  request: ReviewCutCancelRequest,
+  response: ReviewCutCancelResponse,
+});
+export type ReviewCutCancelRequest = z.infer<typeof ReviewCutCancelRequest>;
+export type ReviewCutCancelResponse = z.infer<typeof ReviewCutCancelResponse>;
+
+const ReviewCutOpenRequest = z.object({ jobId: z.string().min(1) }).strict();
+const ReviewCutOpenResponse = z.object({ opened: z.literal(true) }).strict();
+export const reviewCutOpenChannel = defineInvokeChannel({
+  channel: 'reviewCut:open',
+  request: ReviewCutOpenRequest,
+  response: ReviewCutOpenResponse,
+});
+export type ReviewCutOpenRequest = z.infer<typeof ReviewCutOpenRequest>;
+export type ReviewCutOpenResponse = z.infer<typeof ReviewCutOpenResponse>;
+
+// ─── session:* (5) ───────────────────────────────────────────
 const SessionListRequest = z.object({ limit: z.number().optional() });
 const SessionListResponse = z.array(
   z
     .object({
       id: z.string(),
-      canvasId: z.string().nullable(),
+      defaultCanvasId: z.string().nullable(),
       title: z.string(),
+      messageCount: z.number().int().nonnegative(),
       createdAt: z.number(),
       updatedAt: z.number(),
     })
@@ -667,7 +389,7 @@ const SessionGetRequest = z.object({ id: z.string() });
 const SessionGetResponse = z
   .object({
     id: z.string(),
-    canvasId: z.string().nullable(),
+    defaultCanvasId: z.string().nullable(),
     title: z.string(),
     messages: z.string(),
     createdAt: z.number(),
@@ -684,7 +406,7 @@ export type SessionGetResponse = z.infer<typeof SessionGetResponse>;
 
 const SessionUpsertRequest = z.object({
   id: z.string(),
-  canvasId: z.string().nullable(),
+  defaultCanvasId: z.string().nullable(),
   title: z.string(),
   messages: z.string(),
   createdAt: z.number(),
@@ -698,6 +420,19 @@ export const sessionUpsertChannel = defineInvokeChannel({
 });
 export type SessionUpsertRequest = z.infer<typeof SessionUpsertRequest>;
 export type SessionUpsertResponse = z.infer<typeof SessionUpsertResponse>;
+
+const SessionMoveRequest = z.object({
+  id: z.string().min(1),
+  defaultCanvasId: z.string().min(1).nullable(),
+});
+const SessionMoveResponse = z.object({ success: z.literal(true) });
+export const sessionMoveChannel = defineInvokeChannel({
+  channel: 'session:move',
+  request: SessionMoveRequest,
+  response: SessionMoveResponse,
+});
+export type SessionMoveRequest = z.infer<typeof SessionMoveRequest>;
+export type SessionMoveResponse = z.infer<typeof SessionMoveResponse>;
 
 const SessionDeleteRequest = z.object({ id: z.string() });
 const SessionDeleteResponse = z.object({ success: z.boolean() });
@@ -825,46 +560,6 @@ export const updaterStatusChannel = defineInvokeChannel({
 export type UpdaterStatusRequest = z.infer<typeof UpdaterStatusRequest>;
 export type UpdaterStatusResponse = z.infer<typeof UpdaterStatusResponse>;
 
-// ─── video:* (3) ─────────────────────────────────────────────
-const VideoPickFileRequest = z.object({}).strict();
-const VideoPickFileResponse = z.string().nullable();
-export const videoPickFileChannel = defineInvokeChannel({
-  channel: 'video:pickFile',
-  request: VideoPickFileRequest,
-  response: VideoPickFileResponse,
-});
-export type VideoPickFileRequest = z.infer<typeof VideoPickFileRequest>;
-export type VideoPickFileResponse = z.infer<typeof VideoPickFileResponse>;
-
-const VideoExtractLastFrameRequest = z.object({
-  canvasId: z.string(),
-  nodeId: z.string(),
-});
-const VideoExtractLastFrameResponse = z.void();
-export const videoExtractLastFrameChannel = defineInvokeChannel({
-  channel: 'video:extractLastFrame',
-  request: VideoExtractLastFrameRequest,
-  response: VideoExtractLastFrameResponse,
-});
-export type VideoExtractLastFrameRequest = z.infer<typeof VideoExtractLastFrameRequest>;
-export type VideoExtractLastFrameResponse = z.infer<typeof VideoExtractLastFrameResponse>;
-
-const VideoCloneRequest = z.object({
-  filePath: z.string(),
-  threshold: z.number().optional(),
-});
-const VideoCloneResponse = z.object({
-  canvasId: z.string(),
-  nodeCount: z.number(),
-});
-export const videoCloneChannel = defineInvokeChannel({
-  channel: 'video:clone',
-  request: VideoCloneRequest,
-  response: VideoCloneResponse,
-});
-export type VideoCloneRequest = z.infer<typeof VideoCloneRequest>;
-export type VideoCloneResponse = z.infer<typeof VideoCloneResponse>;
-
 // ─── vision:describeImage ────────────────────────────────────
 const VisionDescribeImageRequest = z.object({
   assetHash: z.string(),
@@ -881,26 +576,6 @@ export type VisionDescribeImageRequest = z.infer<typeof VisionDescribeImageReque
 export type VisionDescribeImageResponse = z.infer<typeof VisionDescribeImageResponse>;
 
 // ─── Push channels ───────────────────────────────────────────
-
-// ai:stream — raw string (delta chunk or error message).
-const AiStreamPayload = z.string();
-export const aiStreamChannel = definePushChannel({
-  channel: 'ai:stream',
-  payload: AiStreamPayload,
-});
-export type AiStreamPayload = z.infer<typeof AiStreamPayload>;
-
-// ai:event — mirror of the Commander stream event. Reuses the same
-// `kind`-discriminated schema so main and renderer see a single surface.
-// Provenance fields (`runId`, `step`, `emittedAt`) are required here too —
-// `ai.handlers.ts` forwards orchestrator events verbatim, so they arrive
-// already stamped.
-const AiEventPayload = CommanderStreamPayloadSchema;
-export const aiEventChannel = definePushChannel({
-  channel: 'ai:event',
-  payload: AiEventPayload,
-});
-export type AiEventPayload = z.infer<typeof AiEventPayload>;
 
 // app:ready — fire-and-forget; Electron serialises `undefined`.
 const AppReadyPayload = z.undefined();
@@ -933,41 +608,6 @@ export const loggerEntryChannel = definePushChannel({
   payload: LoggerEntryPayload,
 });
 export type LoggerEntryPayload = z.infer<typeof LoggerEntryPayload>;
-
-// refimage:start
-const RefimageStartPayload = z.object({
-  jobId: z.string(),
-  provider: z.string(),
-  width: z.number().positive().optional(),
-  height: z.number().positive().optional(),
-});
-export const refimageStartChannel = definePushChannel({
-  channel: 'refimage:start',
-  payload: RefimageStartPayload,
-});
-export type RefimageStartPayload = z.infer<typeof RefimageStartPayload>;
-
-// refimage:complete
-const RefimageCompletePayload = z.object({
-  jobId: z.string(),
-  assetHash: z.string(),
-});
-export const refimageCompleteChannel = definePushChannel({
-  channel: 'refimage:complete',
-  payload: RefimageCompletePayload,
-});
-export type RefimageCompletePayload = z.infer<typeof RefimageCompletePayload>;
-
-// refimage:failed
-const RefimageFailedPayload = z.object({
-  jobId: z.string(),
-  error: z.string(),
-});
-export const refimageFailedChannel = definePushChannel({
-  channel: 'refimage:failed',
-  payload: RefimageFailedPayload,
-});
-export type RefimageFailedPayload = z.infer<typeof RefimageFailedPayload>;
 
 // settings:providerKeyUpdated
 const SettingsProviderKeyUpdatedPayload = z
@@ -1006,41 +646,13 @@ export type UpdaterProgressPayload = z.infer<typeof UpdaterProgressPayload>;
 // ─── Per-namespace tuples (invoke) ───────────────────────────
 export const appChannels = [appVersionChannel, appRestartChannel] as const;
 
-export const aiChannels = [
-  aiChatChannel,
-  aiPromptListChannel,
-  aiPromptGetChannel,
-  aiPromptSetCustomChannel,
-  aiPromptClearCustomChannel,
-] as const;
-
-export const assetBatch10Channels = [
-  assetGenerateEmbeddingChannel,
-  assetReindexEmbeddingsChannel,
-  assetSearchSemanticChannel,
-] as const;
-
-// ─── Per-namespace tuples (push) — asset ─────────────────────
-export const assetPushChannels = [assetReindexProgressChannel] as const;
-
 export const clipboardChannels = [clipboardSetEnabledChannel] as const;
-
-export const exportChannels = [
-  exportNleChannel,
-  exportAssetBundleChannel,
-  exportSubtitlesChannel,
-  exportStoryboardChannel,
-  exportMetadataChannel,
-  exportCapcutChannel,
-] as const;
 
 export const ffmpegChannels = [
   ffmpegProbeChannel,
   ffmpegThumbnailChannel,
   ffmpegTranscodeChannel,
 ] as const;
-
-export const importChannels = [importSrtChannel] as const;
 
 export const keychainChannels = [
   keychainGetMaskedChannel,
@@ -1050,20 +662,28 @@ export const keychainChannels = [
   keychainIsConfiguredChannel,
 ] as const;
 
-export const lipsyncChannels = [lipsyncCheckAvailabilityChannel, lipsyncProcessChannel] as const;
-
 export const loggerChannels = [loggerGetRecentChannel] as const;
 
-export const renderChannels = [
-  renderStartChannel,
-  renderCancelChannel,
-  renderStatusChannel,
+export const deliveryPackageChannels = [
+  deliveryPackageStartChannel,
+  deliveryPackageStatusChannel,
+  deliveryPackageCancelChannel,
+  deliveryPackageRetryChannel,
+  deliveryPackageOpenChannel,
+] as const;
+
+export const reviewCutChannels = [
+  reviewCutStartChannel,
+  reviewCutStatusChannel,
+  reviewCutCancelChannel,
+  reviewCutOpenChannel,
 ] as const;
 
 export const sessionChannels = [
   sessionListChannel,
   sessionGetChannel,
   sessionUpsertChannel,
+  sessionMoveChannel,
   sessionDeleteChannel,
 ] as const;
 
@@ -1083,76 +703,38 @@ export const updaterChannels = [
   updaterStatusChannel,
 ] as const;
 
-export const videoChannels = [
-  videoPickFileChannel,
-  videoExtractLastFrameChannel,
-  videoCloneChannel,
-] as const;
-
-// ── video:clone:progress (push) ─────────────────────────────
-const VideoCloneProgressPayload = z.object({
-  step: z.enum(['detect', 'extract', 'describe', 'build']),
-  current: z.number(),
-  total: z.number(),
-  message: z.string(),
-});
-export const videoCloneProgressChannel = definePushChannel({
-  channel: 'video:clone:progress',
-  payload: VideoCloneProgressPayload,
-});
-export type VideoCloneProgressPayload = z.infer<typeof VideoCloneProgressPayload>;
-
 export const visionChannels = [visionDescribeImageChannel] as const;
 
 // ─── Per-namespace tuples (push) ─────────────────────────────
-export const aiPushChannels = [aiStreamChannel, aiEventChannel] as const;
-
 export const appPushChannels = [appReadyChannel, appInitErrorChannel] as const;
 
 export const clipboardPushChannels = [clipboardAiDetectedChannel] as const;
 
 export const loggerPushChannels = [loggerEntryChannel] as const;
 
-export const refimagePushChannels = [
-  refimageStartChannel,
-  refimageCompleteChannel,
-  refimageFailedChannel,
-] as const;
-
 export const settingsPushChannels = [settingsProviderKeyUpdatedChannel] as const;
 
 export const updaterPushChannels = [updaterToastChannel, updaterProgressChannel] as const;
-
-export const videoPushChannels = [videoCloneProgressChannel] as const;
 
 // ─── Flat tuple (all of batch 10) ────────────────────────────
 export const batch10Channels = [
   // invoke
   ...appChannels,
-  ...aiChannels,
-  ...assetBatch10Channels,
   ...clipboardChannels,
-  ...exportChannels,
   ...ffmpegChannels,
-  ...importChannels,
   ...keychainChannels,
-  ...lipsyncChannels,
   ...loggerChannels,
-  ...renderChannels,
+  ...deliveryPackageChannels,
+  ...reviewCutChannels,
   ...sessionChannels,
   ...shellChannels,
   ...snapshotChannels,
   ...updaterChannels,
-  ...videoChannels,
   ...visionChannels,
   // push
-  ...assetPushChannels,
-  ...aiPushChannels,
   ...appPushChannels,
   ...clipboardPushChannels,
   ...loggerPushChannels,
-  ...refimagePushChannels,
   ...settingsPushChannels,
   ...updaterPushChannels,
-  ...videoPushChannels,
 ] as const;

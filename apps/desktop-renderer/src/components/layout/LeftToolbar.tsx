@@ -1,13 +1,12 @@
 import React, { type ComponentType, useCallback, useRef } from 'react';
 import {
-  Clapperboard,
   FolderSearch,
+  History,
   Layers,
   MapPin,
   Package,
   Plus,
   Settings,
-  SlidersHorizontal,
   Users,
   Zap,
 } from 'lucide-react';
@@ -34,14 +33,8 @@ const TOOLBAR_BUTTONS: ToolbarButton[] = [
   { id: 'characters', icon: Users, label: 'toolbar.characters', panel: 'characters' },
   { id: 'equipment', icon: Package, label: 'toolbar.equipment', panel: 'equipment' },
   { id: 'locations', icon: MapPin, label: 'toolbar.locations', panel: 'locations' },
-  {
-    id: 'shotTemplates',
-    icon: Clapperboard,
-    label: 'toolbar.shotTemplates',
-    panel: 'shotTemplates',
-  },
-  { id: 'presets', icon: SlidersHorizontal, label: 'toolbar.presets', panel: 'presets' },
   { id: 'canvases', icon: Layers, label: 'toolbar.canvases', panel: 'canvases' },
+  { id: 'history', icon: History, label: 'toolbar.history', panel: 'history' },
   { id: 'settings', icon: Settings, label: 'toolbar.settings', route: '/settings' },
 ];
 

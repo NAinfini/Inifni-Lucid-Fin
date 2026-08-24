@@ -23,7 +23,8 @@ vi.mock('../../logger.js', () => {
   };
 });
 
-import { buildContext, entityMutatingToolNames } from './commander.handlers.js';
+import { buildContext } from './commander.handlers.js';
+import { buildAuthorizedContext } from './commander-context.service.js';
 
 function makeCanvas(nodeCount = 12): Canvas {
   const now = Date.now();
@@ -64,27 +65,6 @@ function makeCanvas(nodeCount = 12): Canvas {
   };
 }
 
-describe('entityMutatingToolNames', () => {
-  it('includes entity mutating tools', () => {
-    expect(entityMutatingToolNames.has('entity.create')).toBe(true);
-    expect(entityMutatingToolNames.has('entity.update')).toBe(true);
-    expect(entityMutatingToolNames.has('entity.delete')).toBe(true);
-    expect(entityMutatingToolNames.has('entity.generateRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('entity.setRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('entity.deleteRefImage')).toBe(true);
-  });
-
-  it('includes the unified reference image tools', () => {
-    // Per-entity tools (character.*, equipment.*, location.*) were consolidated
-    // into the unified entity.* namespace for Commander AI; only entity.* is
-    // registered, so only entity.* appears in the catalog-derived set.
-    expect(entityMutatingToolNames.has('entity.generateRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('entity.setRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('entity.deleteRefImage')).toBe(true);
-    expect(entityMutatingToolNames.has('entity.setRefImageFromNode')).toBe(true);
-  });
-});
-
 describe('buildContext', () => {
   function makeDb(_overrides?: Partial<SqliteIndex>): SqliteIndex {
     return {
@@ -122,6 +102,25 @@ describe('buildContext', () => {
       selectedNodeIds: Array.from({ length: 10 }, (_, index) => `node-${index + 1}`),
     });
     expect(extra).toHaveProperty('selectedNodes');
+  });
+
+  it('projects selected nodes onto their owning authorized Canvases', () => {
+    const first = makeCanvas(2);
+    const second = { ...makeCanvas(2), id: 'canvas-2', name: 'Second' };
+    const context = buildAuthorizedContext(
+      [first, second],
+      'canvas-1',
+      [],
+      [
+        { canvasId: 'canvas-2', nodeId: 'node-2' },
+        { canvasId: 'canvas-1', nodeId: 'node-1' },
+      ],
+      makeDb(),
+    );
+    expect((context.extra as Record<string, unknown>).authorizedCanvases).toEqual([
+      expect.objectContaining({ id: 'canvas-1', selectedNodeIds: ['node-1'] }),
+      expect.objectContaining({ id: 'canvas-2', selectedNodeIds: ['node-2'] }),
+    ]);
   });
 
   it('does not inject project entities into commander context', () => {

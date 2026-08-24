@@ -1,10 +1,12 @@
-import type { AssetMeta, AssetRef, AssetType } from '@lucid-fin/contracts';
-import type { AgentTool } from '../tool-registry.js';
+import type { AssetEntry, AssetRef, AssetType } from '@lucid-fin/contracts';
+import { NO_TOOL_RESOURCE, toolResultSchema, type ToolDefinition } from '../tool-registry.js';
+import { arraySchema, assetEntrySchema, assetRefSchema, numberSchema, objectSchema } from './tool-runtime-schemas.js';
 import { ok, fail, requireString } from './tool-result-helpers.js';
+import { authorityFact, contextProjector, records, resultRecord } from './context-replay.js';
 
 export interface AssetToolDeps {
   importAsset: (filePath: string, type: AssetType) => Promise<AssetRef>;
-  listAssets: (type?: AssetType, limit?: number) => Promise<AssetMeta[]>;
+  listAssets: (type?: AssetType, limit?: number) => Promise<AssetEntry[]>;
 }
 
 function parseAssetType(value: unknown): AssetType | undefined {
@@ -15,12 +17,23 @@ function parseAssetType(value: unknown): AssetType | undefined {
   throw new Error('type must be one of image, video, or audio');
 }
 
-export function createAssetTools(deps: AssetToolDeps): AgentTool[] {
-  const importTool: AgentTool = {
+export function createAssetTools(deps: AssetToolDeps): ToolDefinition[] {
+  const importTool: ToolDefinition = {
     name: 'asset.import',
+    process: 'asset-library-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description: 'Import a local asset file into the current project asset library.',
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(assetRefSchema),
+    projectPublicResult: contextProjector((result) => {
+      const data = resultRecord(result);
+      return [
+        authorityFact('cas', 'created', data?.hash, { contentHash: data?.hash }),
+      ];
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
         filePath: { type: 'string', description: 'Absolute file path to import.' },
@@ -46,11 +59,27 @@ export function createAssetTools(deps: AssetToolDeps): AgentTool[] {
     },
   };
 
-  const listTool: AgentTool = {
+  const listTool: ToolDefinition = {
     name: 'asset.list',
+    process: 'asset-library-management',
+    category: 'query',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description: 'List assets in the current project, optionally filtered by type.',
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(objectSchema({
+      total: numberSchema,
+      offset: numberSchema,
+      limit: numberSchema,
+      assets: arraySchema(assetEntrySchema),
+    })),
+    projectPublicResult: contextProjector((result) => {
+      const data = resultRecord(result);
+      return records(data?.assets).map((asset) =>
+        authorityFact('asset_entry', 'read', asset.id, { contentHash: asset.hash }),
+      );
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
         type: {
@@ -83,10 +112,9 @@ export function createAssetTools(deps: AssetToolDeps): AgentTool[] {
         let filtered = assets;
         if (query) {
           filtered = assets.filter((a) => {
-            const meta = a as unknown as Record<string, unknown>;
-            const name = typeof meta.name === 'string' ? meta.name.toLowerCase() : '';
-            const hash = typeof meta.hash === 'string' ? meta.hash.toLowerCase() : '';
-            return name.includes(query) || hash.includes(query);
+            return (
+              a.displayName.toLowerCase().includes(query) || a.hash.toLowerCase().includes(query)
+            );
           });
         }
         return ok({

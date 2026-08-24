@@ -20,30 +20,22 @@ function toDefaultStateSummary(group: keyof typeof PROVIDER_REGISTRY) {
 }
 
 describe('provider registry metadata', () => {
-  it('exposes independent OAuth slots for ChatGPT and every Gemini media capability', () => {
+  it('exposes independent ChatGPT OAuth slots and visual capabilities', () => {
     const targets = [
       PROVIDER_REGISTRY.llm.find((provider) => provider.id === 'chatgpt-oauth')?.oauthTarget,
       PROVIDER_REGISTRY.image.find((provider) => provider.id === 'codex-imagegen')?.oauthTarget,
-      PROVIDER_REGISTRY.llm.find((provider) => provider.id === 'gemini-oauth')?.oauthTarget,
-      PROVIDER_REGISTRY.image.find((provider) => provider.id === 'google-image-oauth')?.oauthTarget,
-      PROVIDER_REGISTRY.video.find((provider) => provider.id === 'google-video-oauth')?.oauthTarget,
-      PROVIDER_REGISTRY.vision.find((provider) => provider.id === 'gemini-vision-oauth')
+      PROVIDER_REGISTRY.vision.find((provider) => provider.id === 'chatgpt-vision-oauth')
         ?.oauthTarget,
     ];
 
     expect(targets).toEqual([
       { provider: 'chatgpt', capability: 'llm' },
       { provider: 'chatgpt', capability: 'image' },
-      { provider: 'gemini', capability: 'llm' },
-      { provider: 'gemini', capability: 'image' },
-      { provider: 'gemini', capability: 'video' },
-      { provider: 'gemini', capability: 'vision' },
+      { provider: 'chatgpt', capability: 'vision' },
     ]);
     expect(
       PROVIDER_REGISTRY.llm
-        .filter((provider) =>
-          ['chatgpt-oauth', 'openai', 'claude', 'gemini', 'gemini-oauth'].includes(provider.id),
-        )
+        .filter((provider) => ['chatgpt-oauth', 'openai', 'claude', 'gemini'].includes(provider.id))
         .every((provider) => provider.capabilities.includes('image-understanding')),
     ).toBe(true);
   });
@@ -68,6 +60,28 @@ describe('provider registry metadata', () => {
         expect(provider.keyUrl).not.toBe('');
       }
     }
+  });
+
+  it('keeps Gemini API-key providers and removes every Google OAuth provider entry', () => {
+    const providerIds = Object.values(PROVIDER_REGISTRY).flatMap((providers) =>
+      providers.map((provider) => provider.id),
+    );
+
+    expect(providerIds).toEqual(expect.arrayContaining(['gemini', 'gemini-vision', 'google-image', 'google-video']));
+    expect(providerIds).not.toEqual(
+      expect.arrayContaining([
+        'gemini-oauth',
+        'gemini-vision-oauth',
+        'google-image-oauth',
+        'google-video-oauth',
+      ]),
+    );
+    expect(listBuiltinLLMProviderPresets().map((provider) => provider.id)).not.toContain(
+      'gemini-oauth',
+    );
+    expect(listBuiltinMediaProviders().map((provider) => provider.providerId)).not.toEqual(
+      expect.arrayContaining(['google-image-oauth', 'google-video-oauth']),
+    );
   });
 
   it('ships non-empty model guidance for every hub provider', () => {

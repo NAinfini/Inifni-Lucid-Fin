@@ -10,6 +10,7 @@ import type {
   LLMToolCall,
   OAuthCapability,
   OAuthProviderStatus,
+  OAuthProviderModelCapabilities,
   OAuthProviderTarget,
   OAuthUsage,
   SubscribeCallbacks,
@@ -30,7 +31,7 @@ type ClientFactory = (options: CodexAppServerClientOptions) => CodexAppServerCli
 
 export interface CodexRuntimeOptions {
   codexHome: string;
-  capability?: Exclude<OAuthCapability, 'video'>;
+  capability?: OAuthCapability;
   binaryPath?: string;
   generationTimeoutMs?: number;
   clientFactory?: ClientFactory;
@@ -79,7 +80,7 @@ interface ImageGenerationItem {
 
 export class CodexRuntime {
   private readonly codexHome: string;
-  private readonly capability: Exclude<OAuthCapability, 'video'>;
+  private readonly capability: OAuthCapability;
   private readonly generatedImagesRoot: string;
   private readonly listeners = new Set<(status: OAuthProviderStatus) => void>();
   private client: CodexAppServerClient | null = null;
@@ -89,6 +90,9 @@ export class CodexRuntime {
   private activeLoginId: string | null = null;
   private activeGeneration: ActiveGeneration | null = null;
   private activeCompletion: ActiveCompletion | null = null;
+  private modelCapabilities: OAuthProviderModelCapabilities | null = null;
+  private configuredModel: string | null = null;
+  private configuredReasoningEffort: string | null = null;
   private stopping = false;
   private status: OAuthProviderStatus;
 
@@ -168,6 +172,14 @@ export class CodexRuntime {
   onStatusChanged(listener: (status: OAuthProviderStatus) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  configureLLM(options: { model?: unknown; reasoningEffort?: unknown }): void {
+    const model = typeof options.model === 'string' ? options.model.trim() : '';
+    const reasoningEffort =
+      typeof options.reasoningEffort === 'string' ? options.reasoningEffort.trim() : '';
+    this.configuredModel = model || null;
+    this.configuredReasoningEffort = reasoningEffort || null;
   }
 
   async login(): Promise<CodexLoginStartResult> {
@@ -327,6 +339,8 @@ export class CodexRuntime {
       throw new Error('ChatGPT tool execution requires the Commander host bridge');
     }
 
+    const configured = this.resolveConfiguredLLMSelection();
+
     const client = this.requireClient();
     const prepared = await this.buildLLMInput(messages);
     const dynamicTools = (options.tools ?? []).map((tool) => ({
@@ -344,10 +358,11 @@ export class CodexRuntime {
       sandbox: 'read-only',
       ephemeral: true,
       dynamicTools: threadTools,
+      ...(configured.model ? { model: configured.model } : {}),
       developerInstructions: [
         'You are the Commander language model inside Lucid Fin.',
         'Use only the dynamic tools supplied by the host. Never run commands, edit files, browse, call MCP, or ask through a built-in request-user-input tool.',
-        'The host owns approvals, persistent workflow state, user questions, and tool execution. Treat every returned dynamic-tool result as authoritative.',
+        'The host owns approvals, persistent Task List state, user questions, and tool execution. Treat every returned dynamic-tool result as authoritative.',
         forcedTool ? `Call the only supplied dynamic tool (${forcedTool}) before continuing.` : '',
       ]
         .filter(Boolean)
@@ -388,7 +403,11 @@ export class CodexRuntime {
       options.signal.addEventListener('abort', abortListener, { once: true });
     }
     try {
-      const turn = await client.startTurn({ threadId, input: prepared.input });
+      const turn = await client.startTurn({
+        threadId,
+        input: prepared.input,
+        ...(configured.reasoningEffort ? { effort: configured.reasoningEffort } : {}),
+      });
       const turnId = readNestedString(turn, 'turn', 'id');
       if (!turnId) throw new Error('Codex did not create a Commander turn');
       active.turnId = turnId;
@@ -509,10 +528,12 @@ export class CodexRuntime {
     const response = await client.readAccount();
     const account = response.account;
     if (!account) {
+      this.modelCapabilities = null;
       this.updateStatus({ target: this.target, state: 'signedOut', version: CODEX_VERSION });
       return;
     }
     if (account.type !== 'chatgpt') {
+      this.modelCapabilities = null;
       this.updateStatus({
         target: this.target,
         state: 'error',
@@ -535,6 +556,10 @@ export class CodexRuntime {
       });
       return;
     }
+    this.modelCapabilities =
+      this.capability === 'image'
+        ? null
+        : await readCodexModelCapabilities(client).catch(() => null);
     const usage = await client
       .readRateLimits()
       .then(parseCodexUsage)
@@ -547,8 +572,44 @@ export class CodexRuntime {
       state: 'ready',
       planType: account.planType,
       usage,
+      ...(this.modelCapabilities ? { modelCapabilities: this.modelCapabilities } : {}),
       version: CODEX_VERSION,
     });
+  }
+
+  private resolveConfiguredLLMSelection(): {
+    model?: string;
+    reasoningEffort?: string;
+  } {
+    if (!this.configuredModel && !this.configuredReasoningEffort) return {};
+    const capabilities = this.modelCapabilities;
+    if (!capabilities) {
+      throw new Error('Codex model configuration capabilities are unavailable.');
+    }
+    if (!this.configuredModel || !capabilities.supportsModelOverride) {
+      throw new Error('Codex model override is unavailable.');
+    }
+    const selected = capabilities.models.find(
+      (entry) => entry.model === this.configuredModel || entry.id === this.configuredModel,
+    );
+    if (!selected) {
+      throw new Error(`Codex model "${this.configuredModel}" is unavailable.`);
+    }
+    if (
+      this.configuredReasoningEffort &&
+      (!capabilities.supportsReasoningEffort ||
+        !selected.supportedReasoningEfforts.includes(this.configuredReasoningEffort))
+    ) {
+      throw new Error(
+        `Codex model "${this.configuredModel}" does not support reasoning effort "${this.configuredReasoningEffort}".`,
+      );
+    }
+    return {
+      model: this.configuredModel,
+      ...(this.configuredReasoningEffort
+        ? { reasoningEffort: this.configuredReasoningEffort }
+        : {}),
+    };
   }
 
   private async buildUserInput(
@@ -881,6 +942,7 @@ export class CodexRuntime {
     this.unsubscribeExit?.();
     this.unsubscribeExit = null;
     if (!unexpected || this.stopping) return;
+    this.modelCapabilities = null;
     if (this.activeGeneration) {
       this.rejectGeneration(this.activeGeneration, new Error('Codex App Server exited'));
     }
@@ -911,6 +973,7 @@ export class CodexRuntime {
   private async disposeClient(): Promise<void> {
     const client = this.client;
     this.client = null;
+    this.modelCapabilities = null;
     this.unsubscribeNotification?.();
     this.unsubscribeNotification = null;
     this.unsubscribeExit?.();
@@ -927,6 +990,54 @@ function protocolErrorStatus(target: OAuthProviderTarget): OAuthProviderStatus {
     message: 'Codex App Server returned an invalid response.',
     retryable: true,
     version: CODEX_VERSION,
+  };
+}
+
+async function readCodexModelCapabilities(
+  client: CodexAppServerClient,
+): Promise<OAuthProviderModelCapabilities> {
+  const models: OAuthProviderModelCapabilities['models'] = [];
+  let cursor: string | undefined;
+  const seenCursors = new Set<string>();
+  for (let page = 0; page < 20; page += 1) {
+    const response = await client.listModels({
+      ...(cursor ? { cursor } : {}),
+      limit: 100,
+      includeHidden: true,
+    });
+    if (!isRecord(response) || !Array.isArray(response.data)) {
+      throw new Error('Codex model catalog is unavailable');
+    }
+    for (const value of response.data) {
+      if (!isRecord(value) || typeof value.id !== 'string' || typeof value.model !== 'string') {
+        continue;
+      }
+      const id = value.id.trim();
+      const model = value.model.trim();
+      if (!id || !model) continue;
+      const supportedReasoningEfforts = Array.isArray(value.supportedReasoningEfforts)
+        ? value.supportedReasoningEfforts.flatMap((option) => {
+            if (!isRecord(option) || typeof option.reasoningEffort !== 'string') return [];
+            const effort = option.reasoningEffort.trim();
+            return effort ? [effort] : [];
+          })
+        : [];
+      models.push({ id, model, supportedReasoningEfforts });
+    }
+    const nextCursor = typeof response.nextCursor === 'string' ? response.nextCursor : '';
+    if (!nextCursor) break;
+    if (seenCursors.has(nextCursor)) throw new Error('Codex model catalog pagination failed');
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+    if (page === 19) throw new Error('Codex model catalog is too large');
+  }
+  if (models.length === 0) throw new Error('Codex model catalog is empty');
+  return {
+    supportsModelOverride: true,
+    supportsReasoningEffort: models.some(
+      (model) => model.supportedReasoningEfforts.length > 0,
+    ),
+    models,
   };
 }
 
@@ -1265,38 +1376,53 @@ async function cleanupFiles(paths: string[]): Promise<void> {
 
 class AsyncEventQueue<T> implements AsyncIterable<T> {
   private readonly values: T[] = [];
+  private valuesHead = 0;
   private readonly waiters: Array<{
     resolve: (value: IteratorResult<T>) => void;
     reject: (error: Error) => void;
   }> = [];
+  private waitersHead = 0;
   private closed = false;
   private error: Error | null = null;
 
   push(value: T): void {
     if (this.closed) return;
-    const waiter = this.waiters.shift();
+    const waiter =
+      this.waitersHead < this.waiters.length ? this.waiters[this.waitersHead++] : undefined;
     if (waiter) waiter.resolve({ value, done: false });
     else this.values.push(value);
+    this.compactWaiters();
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    for (const waiter of this.waiters.splice(0)) waiter.resolve({ value: undefined, done: true });
+    for (let index = this.waitersHead; index < this.waiters.length; index++) {
+      this.waiters[index].resolve({ value: undefined, done: true });
+    }
+    this.waiters.length = 0;
+    this.waitersHead = 0;
   }
 
   fail(error: Error): void {
     if (this.closed) return;
     this.error = error;
     this.closed = true;
-    for (const waiter of this.waiters.splice(0)) waiter.reject(error);
+    for (let index = this.waitersHead; index < this.waiters.length; index++) {
+      this.waiters[index].reject(error);
+    }
+    this.waiters.length = 0;
+    this.waitersHead = 0;
   }
 
   [Symbol.asyncIterator](): AsyncIterator<T> {
     return {
       next: () => {
-        const value = this.values.shift();
-        if (value !== undefined) return Promise.resolve({ value, done: false });
+        if (this.valuesHead < this.values.length) {
+          const value = this.values[this.valuesHead++];
+          this.compactValues();
+          return Promise.resolve({ value, done: false });
+        }
         if (this.error) return Promise.reject(this.error);
         if (this.closed) return Promise.resolve({ value: undefined, done: true });
         return new Promise<IteratorResult<T>>((resolve, reject) => {
@@ -1304,5 +1430,19 @@ class AsyncEventQueue<T> implements AsyncIterable<T> {
         });
       },
     };
+  }
+
+  private compactValues(): void {
+    if (this.valuesHead > 1_024 && this.valuesHead * 2 >= this.values.length) {
+      this.values.splice(0, this.valuesHead);
+      this.valuesHead = 0;
+    }
+  }
+
+  private compactWaiters(): void {
+    if (this.waitersHead > 1_024 && this.waitersHead * 2 >= this.waiters.length) {
+      this.waiters.splice(0, this.waitersHead);
+      this.waitersHead = 0;
+    }
   }
 }

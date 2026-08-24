@@ -297,11 +297,11 @@ describe('renderMarkdownReport', () => {
     it('lists guide fetch counts sorted by frequency', () => {
       const results = [
         makeResult({
-          promptGuidesLoadedViaGuideGet: ['workflow', 'camera', 'workflow'],
+          promptGuidesLoadedViaGuideGet: ['task-list', 'camera', 'task-list'],
         }),
       ];
       const md = renderDefault(results);
-      expect(md).toContain('| workflow | 2 |');
+      expect(md).toContain('| task-list | 2 |');
       expect(md).toContain('| camera | 1 |');
     });
 

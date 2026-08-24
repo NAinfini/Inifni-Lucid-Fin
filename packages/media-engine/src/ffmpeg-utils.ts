@@ -45,12 +45,6 @@ export function runCommand(cmd: ffmpeg.FfmpegCommand, signal?: AbortSignal): Pro
   });
 }
 
-export function extractLastFrame(videoPath: string, outputPath: string): Promise<void> {
-  const cmd = createCommand(videoPath);
-  cmd.inputOptions(['-sseof -0.1']).outputOptions(['-frames:v 1', '-update 1']).output(outputPath);
-  return runCommand(cmd);
-}
-
 export interface MediaProbeResult {
   durationSeconds: number;
   width?: number;

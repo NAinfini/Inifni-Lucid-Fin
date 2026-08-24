@@ -47,7 +47,7 @@ describe('assets slice', () => {
     });
   });
 
-  it('deduplicates loaded assets by hash and keeps the first occurrence', () => {
+  it('keeps logical entries distinct even when they share a content hash', () => {
     const state = assetsSlice.reducer(
       undefined,
       setAssets([
@@ -59,17 +59,29 @@ describe('assets slice', () => {
 
     expect(state.items).toEqual([
       expect.objectContaining({ id: 'asset-1', name: 'First copy' }),
+      expect.objectContaining({ id: 'asset-2', name: 'Second copy' }),
       expect.objectContaining({ id: 'asset-3', name: 'Unique copy' }),
     ]);
   });
 
-  it('adds new assets and merges re-imported assets by hash', () => {
+  it('adds entries by ID and updates only the matching logical entry', () => {
     let state = assetsSlice.reducer(undefined, addAsset(makeAsset()));
     state = assetsSlice.reducer(
       state,
       addAsset(
         makeAsset({
           id: 'asset-2',
+          hash: 'hash-1',
+          name: 'Independent copy',
+          tags: ['copy'],
+        }),
+      ),
+    );
+    state = assetsSlice.reducer(
+      state,
+      addAsset(
+        makeAsset({
+          id: 'asset-1',
           hash: 'hash-1',
           name: 'Hero Updated',
           tags: ['hero', 'featured'],
@@ -91,7 +103,7 @@ describe('assets slice', () => {
       ),
     );
 
-    expect(state.items).toHaveLength(2);
+    expect(state.items).toHaveLength(3);
     expect(state.items[0]).toMatchObject({
       id: 'asset-1',
       hash: 'hash-1',
@@ -100,6 +112,12 @@ describe('assets slice', () => {
       metadata: { source: 'upload' },
     });
     expect(state.items[1]).toMatchObject({
+      id: 'asset-2',
+      hash: 'hash-1',
+      name: 'Independent copy',
+      tags: ['copy'],
+    });
+    expect(state.items[2]).toMatchObject({
       id: 'asset-3',
       type: 'audio',
     });

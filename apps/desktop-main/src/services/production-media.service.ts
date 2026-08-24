@@ -1,32 +1,23 @@
 import { createHash, randomUUID } from 'node:crypto';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import type { AdapterRegistry } from '@lucid-fin/adapters-ai';
-import type { PromptMode, WorkflowEngine } from '@lucid-fin/application';
+import type { TaskExecutionEngine } from '@lucid-fin/application';
 import type {
-  AIProviderAdapter,
   Canvas,
   CanvasNode,
   GenerationRequest,
   ImageNodeData,
-  LLMAdapter,
+  PromptAssemblyAuthority,
+  PromptAssemblyOutputV1,
+  PromptAssemblyRecord,
+  PromptAssemblySource,
   ProductionMediaGenerationSpec,
-  ProductionMediaReferenceEvidence,
   RepairDelta,
   VideoNodeData,
-  VisualStyleGrammar,
-  WorkflowMediaAttempt,
-  WorkflowMediaEvaluation,
-  WorkflowMediaEvaluationVerdict,
-  WorkflowMediaFrameEvidence,
-  WorkflowMediaScoreSet,
-  WorkflowRunId,
+  ProductionMediaTaskAttempt,
+  TaskEvaluation,
+  TaskListId,
 } from '@lucid-fin/contracts';
-import { compileVisualStylePolicy } from '@lucid-fin/shared-utils';
 import {
-  detectScenes as defaultDetectScenes,
-  extractFrameAtTime as defaultExtractFrameAtTime,
   probeMedia as defaultProbeMedia,
   type MediaProbeResult,
   type SceneCut,
@@ -35,36 +26,56 @@ import type { CAS, Keychain, SqliteIndex } from '@lucid-fin/storage';
 import log from '../logger.js';
 import {
   buildGenerationContext,
-  mapGenerationTypeToAssetType,
+  buildGenerationEstimateContext,
+  prepareGenerationPromptAssembly,
+  resolveAdapter,
 } from '../ipc/handlers/generation-context.js';
 import {
-  materializeAsset,
   materializeGenerationRequest,
   mergeVariants,
   normalizeErrorMessage,
 } from '../ipc/handlers/generation-helpers.js';
 import type { CanvasStore } from '../ipc/handlers/canvas.handlers.js';
+import type { ProjectPresetCatalog } from '../ipc/handlers/preset.handlers.js';
+import {
+  hashPromptAssemblyInput,
+  type PromptAssemblyService,
+} from './prompt-assembly.service.js';
 import type { VisualAnalyzer } from './visual-analyzer.service.js';
+import { MediaGenerationService } from './media-generation.service.js';
+import { buildMediaGenerationSpec } from './media-generation-spec.js';
+import {
+  MediaEvaluationService,
+  PRODUCTION_MEDIA_RUBRIC_VERSION,
+  canonicalJson,
+  type MediaEvaluationGradeRequest,
+  type MediaEvaluationGradeResponse,
+  type MediaEvaluationGrader,
+  type MediaEvaluationRunOptions,
+} from './media-evaluation.service.js';
 
-export const PRODUCTION_MEDIA_RUBRIC_VERSION = 'production-media-rubric-v2';
-const MAX_VISION_EVIDENCE_IMAGES = 12;
+export { PRODUCTION_MEDIA_RUBRIC_VERSION };
 
 export interface ProduceProductionMediaInput {
-  workflowRunId: string;
+  taskListId: string;
   canvasId: string;
-  taskRunId: string;
+  taskId: string;
   nodeId: string;
   expectedRowVersion: number;
+  promptAssemblyId?: string;
+  promptAssemblyOutput?: PromptAssemblyOutputV1;
 }
 
 export interface RefineProductionMediaInput {
-  workflowRunId: string;
+  taskListId: string;
   canvasId: string;
   nodeId: string;
   expectedRowVersion: number;
   targetAttemptId: string;
   basePromptHash: string;
   feedback: string;
+  promptAssemblyId?: string;
+  promptAssemblyOutput?: PromptAssemblyOutputV1;
 }
 
 export interface ProductionMediaProgressStep {
@@ -78,40 +89,34 @@ export interface ProductionMediaProgressStep {
 }
 
 export interface ProduceProductionMediaResult {
-  workflowRunId: string;
+  taskListId: string;
   canvasId: string;
   nodeId: string;
   status:
-    'accepted' | 'human_review' | 'ambiguous' | 'failed' | 'budget_blocked' | 'evaluation_pending';
-  attempt?: WorkflowMediaAttempt;
-  evaluation?: WorkflowMediaEvaluation;
-  nextAction: 'continue' | 'retry_evaluation' | 'ask_user';
+    | 'awaiting_prompt_assembly'
+    | 'awaiting_provider'
+    | 'accepted'
+    | 'human_review'
+    | 'ambiguous'
+    | 'failed'
+    | 'budget_blocked'
+    | 'evaluation_pending';
+  promptAssembly?: PromptAssemblyRecord;
+  attempt?: ProductionMediaTaskAttempt;
+  evaluation?: TaskEvaluation;
+  nextAction: 'assemble_prompt' | 'continue' | 'retry_evaluation' | 'ask_user';
   message: string;
   /** Run CAS to use when host completion follows an internal task reopen. */
-  workflowRowVersion?: number;
-  /** Ordered, durable-workflow refinement phases for Commander/Execution UI. */
+  taskListRowVersion?: number;
+  /** Ordered, durable Task List refinement phases for Commander/Execution UI. */
   steps?: ProductionMediaProgressStep[];
 }
 
-export interface ProductionMediaGradeRequest {
-  assetHashes: string[];
-  mediaType: 'image' | 'video';
-  generationSpec: ProductionMediaGenerationSpec;
-  productionPlan: Record<string, unknown>;
-  visualConstitution: Record<string, unknown>;
-  metadata: Record<string, unknown>;
-  frameEvidence: WorkflowMediaFrameEvidence[];
-}
-
-export interface ProductionMediaGradeResponse {
-  text: string;
-  providerId: string;
-  model?: string;
-}
-
-export interface ProductionMediaRunOptions {
-  /** Commander-selected LLM. A visual-capable adapter exclusively owns grading for this run. */
-  preferredLLMAdapter?: LLMAdapter;
+export type ProductionMediaGradeRequest = MediaEvaluationGradeRequest;
+export type ProductionMediaGradeResponse = MediaEvaluationGradeResponse;
+export interface ProductionMediaRunOptions extends MediaEvaluationRunOptions {
+  /** Persist provider output and return before invoking any visual LLM. */
+  deferEvaluation?: boolean;
 }
 
 export interface ProductionMediaServiceDeps {
@@ -121,11 +126,15 @@ export interface ProductionMediaServiceDeps {
   visualAnalyzer: VisualAnalyzer;
   adapterRegistry: AdapterRegistry;
   canvasStore: CanvasStore;
-  workflowEngine: WorkflowEngine;
-  gradeAssets?: (
-    request: ProductionMediaGradeRequest,
-    options?: ProductionMediaRunOptions,
-  ) => Promise<ProductionMediaGradeResponse>;
+  presetCatalog: Pick<ProjectPresetCatalog, 'list'>;
+  taskExecutionEngine: TaskExecutionEngine;
+  promptAssemblyService: PromptAssemblyService;
+  /** Shared image/video provider boundary used by every durable media Task List. */
+  mediaGenerationService?: MediaGenerationService;
+  /** Shared visual evaluation boundary used outside active Commander tool loops. */
+  mediaEvaluationService?: MediaEvaluationService;
+  resolveProcessPrompt?: (processKey: string) => string | null | undefined;
+  gradeAssets?: MediaEvaluationGrader;
   probeMedia?: (filePath: string) => Promise<MediaProbeResult>;
   detectScenes?: (filePath: string, threshold?: number) => Promise<SceneCut[]>;
   extractFrameAtTime?: (
@@ -137,33 +146,59 @@ export interface ProductionMediaServiceDeps {
   idFactory?: () => string;
 }
 
-type EvaluationDecision = {
-  scores: WorkflowMediaScoreSet;
-  total: number;
-  verdict: WorkflowMediaEvaluationVerdict;
-  strengths: string[];
-  risks: string[];
-  evidence: string[];
-  repairDelta?: RepairDelta;
-};
-
 export class ProductionMediaService {
   private readonly now: () => number;
   private readonly idFactory: () => string;
-  private readonly gradeAssets: NonNullable<ProductionMediaServiceDeps['gradeAssets']>;
   private readonly probeMedia: NonNullable<ProductionMediaServiceDeps['probeMedia']>;
-  private readonly detectScenes: NonNullable<ProductionMediaServiceDeps['detectScenes']>;
-  private readonly extractFrameAtTime: NonNullable<
-    ProductionMediaServiceDeps['extractFrameAtTime']
-  >;
+  private readonly mediaGenerationService: MediaGenerationService;
+  private readonly mediaEvaluationService: MediaEvaluationService;
 
   constructor(private readonly deps: ProductionMediaServiceDeps) {
     this.now = deps.now ?? (() => Date.now());
     this.idFactory = deps.idFactory ?? randomUUID;
-    this.gradeAssets = deps.gradeAssets ?? createDefaultProductionMediaGrader(deps);
     this.probeMedia = deps.probeMedia ?? defaultProbeMedia;
-    this.detectScenes = deps.detectScenes ?? defaultDetectScenes;
-    this.extractFrameAtTime = deps.extractFrameAtTime ?? defaultExtractFrameAtTime;
+    this.mediaEvaluationService =
+      deps.mediaEvaluationService ??
+      new MediaEvaluationService({
+        db: deps.db,
+        cas: deps.cas,
+        visualAnalyzer: deps.visualAnalyzer,
+        gradeAssets: deps.gradeAssets,
+        probeMedia: this.probeMedia,
+        detectScenes: deps.detectScenes,
+        extractFrameAtTime: deps.extractFrameAtTime,
+        now: this.now,
+        idFactory: this.idFactory,
+      });
+    this.mediaGenerationService =
+      deps.mediaGenerationService ??
+      new MediaGenerationService({
+        db: deps.db,
+        cas: deps.cas,
+        promptAssemblyService: deps.promptAssemblyService,
+        resolveAdapter: (attempt) =>
+          resolveAdapter(
+            deps.adapterRegistry,
+            attempt.providerId,
+            attempt.mediaType,
+            attempt.generationSpec.operation,
+            undefined,
+            deps.keychain,
+            deps.cas,
+          ),
+        probe: async (filePath, mediaType) => {
+          const probe = await this.probeMedia(filePath);
+          return {
+            width: probe.width,
+            height: probe.height,
+            ...(mediaType === 'video' && probe.durationSeconds > 0
+              ? { duration: probe.durationSeconds, hasAudio: probe.hasAudio }
+              : {}),
+          };
+        },
+        now: this.now,
+        idFactory: this.idFactory,
+      });
   }
 
   /**
@@ -173,13 +208,13 @@ export class ProductionMediaService {
    * replayed automatically.
    */
   recoverInterruptedAttempts(): void {
-    for (const attempt of this.deps.db.repos.workflows.listRecoverableMediaAttempts()) {
+    for (const attempt of this.deps.db.repos.taskLists.listRecoverableProductionMediaAttempts()) {
       try {
-        if (attempt.status === 'submitted') {
-          this.deps.db.repos.workflows.transitionMediaAttempt({
+        if (attempt.status === 'submitting') {
+          this.deps.db.repos.taskLists.transitionProductionMediaAttempt({
             id: attempt.id,
             expectedRowVersion: attempt.rowVersion,
-            expectedStatuses: ['submitted'],
+            expectedStatuses: ['submitting'],
             status: 'ambiguous',
             error:
               'Application restarted after provider submission; outcome is ambiguous and automatic retry is disabled.',
@@ -187,7 +222,7 @@ export class ProductionMediaService {
             updatedAt: this.now(),
           });
         } else if (attempt.status === 'evaluating') {
-          this.deps.db.repos.workflows.transitionMediaAttempt({
+          this.deps.db.repos.taskLists.transitionProductionMediaAttempt({
             id: attempt.id,
             expectedRowVersion: attempt.rowVersion,
             expectedStatuses: ['evaluating'],
@@ -207,15 +242,52 @@ export class ProductionMediaService {
     }
   }
 
+  /**
+   * Grade one durable provider output after the Commander run has yielded.
+   * This method never submits provider work; it only consumes asset-ready evidence.
+   */
+  async evaluatePending(
+    taskListId: string,
+    canvasId: string,
+  ): Promise<ProduceProductionMediaResult | undefined> {
+    const taskList = this.deps.taskExecutionEngine.get(taskListId);
+    if (
+      !taskList ||
+      taskList.taskListType !== 'movie.production.v2' ||
+      taskList.entityType !== 'canvas' ||
+      taskList.entityId !== canvasId
+    ) {
+      return undefined;
+    }
+    const attempt = this.deps.db.repos.taskLists
+      .listProductionMediaAttempts(taskListId as TaskListId)
+      .filter((candidate) => candidate.status === 'asset_ready' || candidate.status === 'evaluating')
+      .sort((left, right) => right.attempt - left.attempt)[0];
+    if (!attempt) return undefined;
+    const taskId = attempt.generationSpec.task.id;
+    const productionContext = this.deps.taskExecutionEngine.requireProductionMediaContext(
+      taskListId,
+      canvasId,
+      taskId,
+      taskList.rowVersion ?? 0,
+    );
+    const canvas = this.deps.canvasStore.get(canvasId);
+    const node = canvas?.nodes.find((candidate) => candidate.id === attempt.nodeId);
+    if (!canvas || !node || (node.type !== 'image' && node.type !== 'video')) {
+      throw new Error('Pending production-media evaluation lost its Canvas node binding');
+    }
+    return this.evaluateAttempt(productionContext, canvas, node, attempt, {});
+  }
+
   async produce(
     input: ProduceProductionMediaInput,
     runOptions: ProductionMediaRunOptions = {},
   ): Promise<ProduceProductionMediaResult> {
     requireProduceInput(input);
-    const workflow = this.deps.workflowEngine.requireProductionMediaContext(
-      input.workflowRunId,
+    const productionContext = this.deps.taskExecutionEngine.requireProductionMediaContext(
+      input.taskListId,
       input.canvasId,
-      input.taskRunId,
+      input.taskId,
       input.expectedRowVersion,
     );
     const canvas = this.deps.canvasStore.get(input.canvasId);
@@ -226,13 +298,13 @@ export class ProductionMediaService {
       throw new Error('Persistent production-media quality control supports image and video nodes');
     }
 
-    const latest = this.deps.db.repos.workflows.getLatestMediaAttempt(
-      input.workflowRunId as WorkflowRunId,
+    const latest = this.deps.db.repos.taskLists.getLatestProductionMediaAttempt(
+      input.taskListId as TaskListId,
       input.nodeId,
     );
 
     if (latest?.status === 'accepted') {
-      const evaluation = this.deps.db.repos.workflows.getMediaEvaluation(latest.id);
+      const evaluation = this.deps.db.repos.taskLists.getTaskEvaluation(latest.id);
       if (!latest.assetHash || !evaluation) {
         throw new Error('Accepted production-media attempt is missing durable evidence');
       }
@@ -240,32 +312,29 @@ export class ProductionMediaService {
       return resultFor(latest, evaluation, 'accepted', 'The accepted media evidence was restored.');
     }
 
-    if (latest?.status === 'submitted') {
-      const ambiguous = this.deps.db.repos.workflows.transitionMediaAttempt({
-        id: latest.id,
-        expectedRowVersion: latest.rowVersion,
-        expectedStatuses: ['submitted'],
-        status: 'ambiguous',
-        error:
-          'The process resumed after provider submission without a verified provider result; automatic retry is disabled to prevent duplicate billing.',
-        completedAt: this.now(),
-        updatedAt: this.now(),
-      });
+    if (latest?.status === 'submitting' || latest?.status === 'awaiting_provider') {
+      const advanced = await this.mediaGenerationService.advance(latest.id);
+      if (advanced.status === 'asset_ready') {
+        return this.evaluateOrDefer(productionContext, canvas, node, advanced, runOptions);
+      }
       return resultFor(
-        ambiguous,
+        advanced,
         undefined,
-        'ambiguous',
-        ambiguous.error ?? 'Provider outcome is ambiguous and requires user review.',
+        advanced.status === 'awaiting_provider' ? 'awaiting_provider' : 'ambiguous',
+        advanced.error ??
+          (advanced.status === 'awaiting_provider'
+            ? 'The provider accepted the request and generation is still running.'
+            : 'Provider outcome is ambiguous and requires user review.'),
       );
     }
 
     if (latest?.status === 'asset_ready' || latest?.status === 'evaluating') {
-      return this.evaluateAttempt(workflow, canvas, node, latest, runOptions);
+      return this.evaluateOrDefer(productionContext, canvas, node, latest, runOptions);
     }
 
     if (latest?.status === 'reserved') {
       if (latest.generationSpec.nodeUpdatedAt !== node.updatedAt) {
-        const reviewed = this.deps.db.repos.workflows.transitionMediaAttempt({
+        const reviewed = this.deps.db.repos.taskLists.transitionProductionMediaAttempt({
           id: latest.id,
           expectedRowVersion: latest.rowVersion,
           expectedStatuses: ['reserved'],
@@ -277,7 +346,24 @@ export class ProductionMediaService {
         });
         return resultFor(reviewed, undefined, 'human_review', reviewed.error!);
       }
-      const context = await buildGenerationContext(
+      const promptAssemblyId = latest.promptAssemblyId ?? latest.generationSpec.promptAssemblyId;
+      const promptAssembly = promptAssemblyId
+        ? this.deps.promptAssemblyService.get(promptAssemblyId)
+        : undefined;
+      if (!promptAssembly?.output) {
+        const reviewed = this.deps.db.repos.taskLists.transitionProductionMediaAttempt({
+          id: latest.id,
+          expectedRowVersion: latest.rowVersion,
+          expectedStatuses: ['reserved'],
+          status: 'human_review',
+          error:
+            'The reserved request has no durable Prompt Assembly lineage; automatic replay is disabled.',
+          completedAt: this.now(),
+          updatedAt: this.now(),
+        });
+        return resultFor(reviewed, undefined, 'human_review', reviewed.error!);
+      }
+      const context = await buildGenerationEstimateContext(
         {
           adapterRegistry: this.deps.adapterRegistry,
           cas: this.deps.cas,
@@ -285,6 +371,14 @@ export class ProductionMediaService {
           canvasStore: this.deps.canvasStore,
           keychain: this.deps.keychain,
           getWindow: () => null,
+          resolvePresetCatalog: this.deps.presetCatalog.list,
+          promptAssemblyService: this.deps.promptAssemblyService,
+          ...(this.deps.resolveProcessPrompt
+            ? {
+                resolveProcessPrompt: (processKey: string) =>
+                  this.deps.resolveProcessPrompt?.(processKey) ?? '',
+              }
+            : {}),
         },
         {
           canvasId: input.canvasId,
@@ -292,6 +386,24 @@ export class ProductionMediaService {
           requestedVariantCount: 1,
           styleAuthority: 'visual-constitution',
         },
+      );
+      const previousAttempt = this.deps.db.repos.taskLists
+        .listProductionMediaAttempts(input.taskListId as TaskListId)
+        .filter(
+          (attempt) =>
+            attempt.nodeId === latest.nodeId &&
+            attempt.attempt < latest.attempt &&
+            attempt.id !== latest.id,
+        )
+        .sort((a, b) => b.attempt - a.attempt)[0];
+      assertReservedPromptAssembly(
+        promptAssembly,
+        input,
+        productionContext,
+        node,
+        latest,
+        previousAttempt,
+        context,
       );
       if (context.adapter.id !== latest.providerId) {
         throw new Error('The reserved provider is no longer the provider selected for this node');
@@ -302,18 +414,18 @@ export class ProductionMediaService {
       if (expectedSpecHash !== latest.specHash) {
         throw new Error('The reserved Generation Spec failed its integrity check');
       }
-      const resumed = await this.submitAndImport(
-        latest,
-        context.adapter,
-        restoreRequestFromSpec(context.requestBase, latest.generationSpec),
-      );
+      const resumed = await this.submitAndImport(latest);
       if (resumed.status === 'asset_ready') {
-        return this.evaluateAttempt(workflow, canvas, node, resumed, runOptions);
+        return this.evaluateOrDefer(productionContext, canvas, node, resumed, runOptions);
       }
       return resultFor(
         resumed,
         undefined,
-        resumed.status === 'ambiguous' ? 'ambiguous' : 'failed',
+        resumed.status === 'awaiting_provider'
+          ? 'awaiting_provider'
+          : resumed.status === 'ambiguous'
+            ? 'ambiguous'
+            : 'failed',
         resumed.error ?? 'The reserved provider request could not be completed.',
       );
     }
@@ -327,7 +439,7 @@ export class ProductionMediaService {
     ) {
       return resultFor(
         latest,
-        this.deps.db.repos.workflows.getMediaEvaluation(latest.id),
+        this.deps.db.repos.taskLists.getTaskEvaluation(latest.id),
         latest.status === 'ambiguous'
           ? 'ambiguous'
           : latest.status === 'failed'
@@ -339,7 +451,7 @@ export class ProductionMediaService {
 
     for (;;) {
       const previousEvaluation = latest
-        ? this.deps.db.repos.workflows.getMediaEvaluation(latest.id)
+        ? this.deps.db.repos.taskLists.getTaskEvaluation(latest.id)
         : undefined;
       const evaluationDelta =
         latest?.status === 'repair_required' || latest?.status === 'regenerate_required'
@@ -356,15 +468,24 @@ export class ProductionMediaService {
           : undefined;
       const prepared = await this.prepareAttempt(
         input,
-        workflow,
+        productionContext,
         canvas,
         node,
         latest,
         repairDelta,
+        runOptions,
       );
+      if ('awaitingPromptAssembly' in prepared) {
+        return awaitingPromptAssemblyResult(
+          input,
+          prepared.awaitingPromptAssembly,
+          latest,
+          previousEvaluation,
+        );
+      }
       if ('blocked' in prepared) {
         return {
-          workflowRunId: input.workflowRunId,
+          taskListId: input.taskListId,
           canvasId: input.canvasId,
           nodeId: input.nodeId,
           status: 'budget_blocked',
@@ -377,10 +498,15 @@ export class ProductionMediaService {
 
       let attempt = prepared.attempt;
       if (attempt.status === 'reserved') {
-        attempt = await this.submitAndImport(attempt, prepared.adapter, prepared.request);
+        attempt = await this.submitAndImport(attempt);
       }
       if (attempt.status !== 'asset_ready' && attempt.status !== 'evaluating') {
-        const status = attempt.status === 'ambiguous' ? 'ambiguous' : 'failed';
+        const status =
+          attempt.status === 'awaiting_provider'
+            ? 'awaiting_provider'
+            : attempt.status === 'ambiguous'
+              ? 'ambiguous'
+              : 'failed';
         return resultFor(
           attempt,
           undefined,
@@ -389,34 +515,39 @@ export class ProductionMediaService {
         );
       }
 
-      const evaluated = await this.evaluateAttempt(workflow, canvas, node, attempt, runOptions);
+      const evaluated = await this.evaluateOrDefer(
+        productionContext,
+        canvas,
+        node,
+        attempt,
+        runOptions,
+      );
       if (evaluated.status !== 'evaluation_pending') return evaluated;
       return evaluated;
     }
   }
 
   /**
-   * Apply a small human quality comment to the exact prompt sent for the
-   * selected/latest attempt. The full prompt is never accepted from the model:
-   * the host loads it from SQLite, verifies its hash, appends one immutable
-   * Repair Delta, reserves cost, generates, and grades through the normal loop.
+   * Persist a small human quality comment beside the exact prior provider
+   * prompt, then wait for the outer Commander to author the next complete
+   * prompt. The host validates lineage and never appends creative text itself.
    */
   async refine(
     input: RefineProductionMediaInput,
     runOptions: ProductionMediaRunOptions = {},
   ): Promise<ProduceProductionMediaResult> {
     const feedback = requireRefineInput(input);
-    const target = this.deps.db.repos.workflows.getMediaAttempt(input.targetAttemptId);
+    const target = this.deps.db.repos.taskLists.getProductionMediaAttempt(input.targetAttemptId);
     if (
       !target ||
-      target.workflowRunId !== input.workflowRunId ||
+      target.taskListId !== input.taskListId ||
       target.canvasId !== input.canvasId ||
       target.nodeId !== input.nodeId
     ) {
       throw new Error('The requested production-media attempt was not found for this node');
     }
-    const latest = this.deps.db.repos.workflows.getLatestMediaAttempt(
-      input.workflowRunId as WorkflowRunId,
+    const latest = this.deps.db.repos.taskLists.getLatestProductionMediaAttempt(
+      input.taskListId as TaskListId,
       input.nodeId,
     );
     if (!latest || latest.id !== target.id) {
@@ -434,22 +565,22 @@ export class ProductionMediaService {
       throw new Error(`Attempt status "${target.status}" cannot accept a quality refinement`);
     }
 
-    const targetTaskRunId = target.generationSpec.workflowTask.taskRunId;
-    const targetTask = this.deps.workflowEngine
-      .getTasks(input.workflowRunId)
-      .find((candidate) => candidate.id === targetTaskRunId);
+    const targetTaskId = target.generationSpec.task.id;
+    const targetTask = this.deps.taskExecutionEngine
+      .getTasks(input.taskListId)
+      .find((candidate) => candidate.id === targetTaskId);
     const completedTaskFeedback = targetTask?.status === 'completed';
-    const workflow = completedTaskFeedback
-      ? this.deps.workflowEngine.requireProductionMediaFeedbackContext(
-          input.workflowRunId,
+    const productionContext = completedTaskFeedback
+      ? this.deps.taskExecutionEngine.requireProductionMediaFeedbackContext(
+          input.taskListId,
           input.canvasId,
-          targetTaskRunId,
+          targetTaskId,
           input.expectedRowVersion,
         )
-      : this.deps.workflowEngine.requireProductionMediaContext(
-          input.workflowRunId,
+      : this.deps.taskExecutionEngine.requireProductionMediaContext(
+          input.taskListId,
           input.canvasId,
-          targetTaskRunId,
+          targetTaskId,
           input.expectedRowVersion,
         );
     const canvas = this.deps.canvasStore.get(input.canvasId);
@@ -461,6 +592,7 @@ export class ProductionMediaService {
     const repairDelta: RepairDelta = {
       version: 1,
       reason: "Apply the user's quality feedback without changing approved creative scope",
+      reasonCodes: ['user.feedback'],
       promptAdditions: [feedback],
       negativeAdditions: [],
       preserve: [
@@ -474,17 +606,20 @@ export class ProductionMediaService {
     };
     const prepared = await this.prepareAttempt(
       {
-        workflowRunId: input.workflowRunId,
+        taskListId: input.taskListId,
         canvasId: input.canvasId,
-        taskRunId: targetTaskRunId,
+        taskId: targetTaskId,
         nodeId: input.nodeId,
         expectedRowVersion: input.expectedRowVersion,
+        ...(input.promptAssemblyId ? { promptAssemblyId: input.promptAssemblyId } : {}),
+        ...(input.promptAssemblyOutput ? { promptAssemblyOutput: input.promptAssemblyOutput } : {}),
       },
-      workflow,
+      productionContext,
       canvas,
       node,
       target,
       repairDelta,
+      runOptions,
       completedTaskFeedback
         ? {
             targetAttemptId: target.id,
@@ -493,10 +628,31 @@ export class ProductionMediaService {
           }
         : undefined,
     );
-    const workflowRowVersion =
+    if ('awaitingPromptAssembly' in prepared) {
+      return {
+        ...awaitingPromptAssemblyResult(
+          {
+            taskListId: input.taskListId,
+            canvasId: input.canvasId,
+            nodeId: input.nodeId,
+          },
+          prepared.awaitingPromptAssembly,
+          target,
+          this.deps.db.repos.taskLists.getTaskEvaluation(target.id),
+        ),
+        steps: [
+          { id: 'load_existing_prompt', status: 'completed' },
+          { id: 'apply_feedback_delta', status: 'completed' },
+          { id: 'persist_generation_spec', status: 'pending' },
+          { id: 'generate', status: 'pending' },
+          { id: 'grade', status: 'pending' },
+        ],
+      };
+    }
+    const taskListRowVersion =
       'blocked' in prepared
         ? input.expectedRowVersion
-        : (prepared.workflowRowVersion ?? input.expectedRowVersion);
+        : (prepared.taskListRowVersion ?? input.expectedRowVersion);
     const initialSteps: ProductionMediaProgressStep[] = [
       { id: 'load_existing_prompt', status: 'completed' },
       {
@@ -512,32 +668,36 @@ export class ProductionMediaService {
     ];
     if ('blocked' in prepared) {
       return {
-        workflowRunId: input.workflowRunId,
+        taskListId: input.taskListId,
         canvasId: input.canvasId,
         nodeId: input.nodeId,
         status: 'budget_blocked',
         attempt: target,
-        evaluation: this.deps.db.repos.workflows.getMediaEvaluation(target.id),
+        evaluation: this.deps.db.repos.taskLists.getTaskEvaluation(target.id),
         nextAction: 'ask_user',
         message: `Feedback was not applied: ${prepared.blocked}`,
-        workflowRowVersion,
+        taskListRowVersion,
         steps: initialSteps,
       };
     }
 
     let attempt = prepared.attempt;
     if (attempt.status === 'reserved') {
-      attempt = await this.submitAndImport(attempt, prepared.adapter, prepared.request);
+      attempt = await this.submitAndImport(attempt);
     }
     if (attempt.status !== 'asset_ready' && attempt.status !== 'evaluating') {
       return {
         ...resultFor(
           attempt,
           undefined,
-          attempt.status === 'ambiguous' ? 'ambiguous' : 'failed',
+          attempt.status === 'awaiting_provider'
+            ? 'awaiting_provider'
+            : attempt.status === 'ambiguous'
+              ? 'ambiguous'
+              : 'failed',
           attempt.error ?? 'Provider generation did not produce a gradeable asset.',
         ),
-        workflowRowVersion,
+        taskListRowVersion,
         steps: initialSteps.map((step) =>
           step.id === 'generate'
             ? { ...step, status: 'failed' }
@@ -548,10 +708,16 @@ export class ProductionMediaService {
       };
     }
 
-    const evaluated = await this.evaluateAttempt(workflow, canvas, node, attempt, runOptions);
+    const evaluated = await this.evaluateOrDefer(
+      productionContext,
+      canvas,
+      node,
+      attempt,
+      runOptions,
+    );
     return {
       ...evaluated,
-      workflowRowVersion,
+      taskListRowVersion,
       steps: initialSteps.map((step) =>
         step.id === 'generate'
           ? { ...step, status: 'completed' }
@@ -565,13 +731,163 @@ export class ProductionMediaService {
     };
   }
 
+  private async resolvePromptAssemblyContext(
+    input: ProduceProductionMediaInput,
+    productionContext: ReturnType<TaskExecutionEngine['requireProductionMediaContext']>,
+    node: CanvasNode,
+    latest: ProductionMediaTaskAttempt | undefined,
+    repairDelta: RepairDelta | undefined,
+    runOptions: ProductionMediaRunOptions,
+  ): Promise<
+    | {
+        context: Awaited<ReturnType<typeof buildGenerationContext>>;
+        promptAssembly: PromptAssemblyRecord & { output: PromptAssemblyOutputV1 };
+      }
+    | { awaitingPromptAssembly: PromptAssemblyRecord }
+  > {
+    if (input.promptAssemblyOutput && !input.promptAssemblyId) {
+      throw new Error('promptAssemblyId is required with Prompt Assembly output');
+    }
+
+    const authority = productionPromptAssemblyAuthority(input, productionContext);
+    const parentAssemblyId = latest?.promptAssemblyId ?? latest?.generationSpec.promptAssemblyId;
+    const parent = latest
+      ? {
+          ...(parentAssemblyId ? { assemblyId: parentAssemblyId } : {}),
+          finalPrompt: latest.prompt,
+          promptHash: latest.promptHash,
+          ...(latest.assetHash ? { assetHash: latest.assetHash } : {}),
+          ...(repairDelta?.source === 'user_feedback' && repairDelta.userFeedback
+            ? { userFeedback: repairDelta.userFeedback }
+            : {}),
+        }
+      : undefined;
+    const additionalSources: Array<Omit<PromptAssemblySource, 'sourceHash'>> =
+      repairDelta?.source === 'vision_evaluation'
+        ? [
+            {
+              sourceId: 'repair-delta',
+              kind: 'repair-delta',
+              label: 'Visual evaluation repair delta',
+              content: canonicalJson(repairDelta),
+              required: true,
+              metadata: {
+                parentAttemptId: repairDelta.parentAttemptId,
+                basePromptHash: repairDelta.basePromptHash,
+              },
+            },
+          ]
+        : [];
+    const purpose =
+      repairDelta?.source === 'user_feedback'
+        ? ('user_refine' as const)
+        : latest?.status === 'regenerate_required'
+          ? ('regenerate' as const)
+          : repairDelta
+            ? ('evaluation_repair' as const)
+            : ('initial' as const);
+    const generationDeps = {
+      adapterRegistry: this.deps.adapterRegistry,
+      cas: this.deps.cas,
+      db: this.deps.db,
+      canvasStore: this.deps.canvasStore,
+      keychain: this.deps.keychain,
+      getWindow: () => null,
+      resolvePresetCatalog: this.deps.presetCatalog.list,
+      promptAssemblyService: this.deps.promptAssemblyService,
+      ...(runOptions.preferredLLMAdapter
+        ? { preferredPromptAssembler: runOptions.preferredLLMAdapter }
+        : {}),
+      ...(this.deps.resolveProcessPrompt
+        ? {
+            resolveProcessPrompt: (processKey: string) =>
+              this.deps.resolveProcessPrompt?.(processKey) ?? '',
+          }
+        : {}),
+    };
+    const generationInput = {
+      canvasId: input.canvasId,
+      nodeId: input.nodeId,
+      requestedVariantCount: 1,
+      styleAuthority: 'visual-constitution' as const,
+      promptAssemblyAuthority: authority,
+      promptAssemblyPurpose: purpose,
+      ...(parent ? { promptAssemblyParent: parent } : {}),
+      ...(additionalSources.length > 0
+        ? { promptAssemblyAdditionalSources: additionalSources }
+        : {}),
+    };
+
+    if (!input.promptAssemblyId) {
+      const context = await prepareGenerationPromptAssembly(generationDeps, generationInput);
+      const prepared = context.promptAssemblyId
+        ? this.deps.promptAssemblyService.get(context.promptAssemblyId)
+        : undefined;
+      if (!prepared) throw new Error('Production Prompt Assembly was not persisted');
+      return { awaitingPromptAssembly: prepared };
+    }
+
+    const existing = this.deps.promptAssemblyService.get(input.promptAssemblyId);
+    if (!existing) throw new Error(`Prompt Assembly not found: ${input.promptAssemblyId}`);
+    assertProductionPromptAssembly(
+      existing,
+      input,
+      productionContext,
+      node,
+      purpose,
+      latest,
+      repairDelta,
+    );
+    if (existing.status === 'prepared' && !input.promptAssemblyOutput) {
+      return { awaitingPromptAssembly: existing };
+    }
+    if (existing.status === 'assembled') {
+      if (
+        input.promptAssemblyOutput &&
+        canonicalJson(existing.output) !== canonicalJson(input.promptAssemblyOutput)
+      ) {
+        throw new Error('Prompt Assembly output differs from the already persisted revision');
+      }
+    } else if (existing.status !== 'prepared') {
+      throw new Error(`Prompt Assembly ${existing.id} cannot generate from ${existing.status}`);
+    }
+
+    const context = await buildGenerationContext(generationDeps, {
+      ...generationInput,
+      promptAssemblyId: existing.id,
+      ...(existing.status === 'prepared' && input.promptAssemblyOutput
+        ? { promptAssemblyOutput: input.promptAssemblyOutput }
+        : {}),
+    });
+    const assembled = this.deps.promptAssemblyService.get(existing.id);
+    if (assembled?.status !== 'assembled' || !assembled.output) {
+      throw new Error(`Prompt Assembly ${existing.id} is not ready for provider submission`);
+    }
+    if (
+      assembled.input.providerProfile.providerId !== context.adapter.id ||
+      assembled.input.mediaType !== context.generationType ||
+      assembled.input.mode !== context.mode ||
+      context.requestBase.prompt !== assembled.output.finalPrompt ||
+      context.requestBase.negativePrompt !== assembled.output.negativePrompt
+    ) {
+      throw new Error(
+        'Provider request context does not exactly match the persisted Prompt Assembly',
+      );
+    }
+    return {
+      context,
+      promptAssembly: assembled as PromptAssemblyRecord & { output: PromptAssemblyOutputV1 },
+    };
+  }
+
   private async prepareAttempt(
     input: ProduceProductionMediaInput,
-    workflow: ReturnType<WorkflowEngine['requireProductionMediaContext']>,
+    productionContext: ReturnType<TaskExecutionEngine['requireProductionMediaContext']>,
     canvas: Canvas,
     node: CanvasNode,
-    latest: WorkflowMediaAttempt | undefined,
+    latest: ProductionMediaTaskAttempt | undefined,
     repairDelta: RepairDelta | undefined,
+    runOptions: ProductionMediaRunOptions,
     feedbackReservation?: {
       targetAttemptId: string;
       basePromptHash: string;
@@ -579,18 +895,15 @@ export class ProductionMediaService {
     },
   ): Promise<
     | {
-        attempt: WorkflowMediaAttempt;
-        adapter: AIProviderAdapter;
-        request: GenerationRequest;
-        workflowRowVersion?: number;
+        attempt: ProductionMediaTaskAttempt;
+        taskListRowVersion?: number;
       }
+    | { awaitingPromptAssembly: PromptAssemblyRecord }
     | { blocked: string }
   > {
     const attemptNumber = (latest?.attempt ?? 0) + 1;
-    const limits = readApprovedLimits(workflow.productionPlan.content);
-    const summary = this.deps.db.repos.workflows.getMediaCostSummary(
-      input.workflowRunId as WorkflowRunId,
-    );
+    const limits = readApprovedLimits(productionContext.productionPlan.content);
+    const summary = this.deps.db.repos.taskLists.getTaskCostSummary(input.taskListId as TaskListId);
     if (attemptNumber > Math.max(1, limits.maxAttemptsPerShot)) {
       return {
         blocked: `Approved per-shot attempt limit (${limits.maxAttemptsPerShot}) is exhausted.`,
@@ -605,61 +918,39 @@ export class ProductionMediaService {
       return { blocked: 'The previous evaluation did not provide a valid Repair Delta.' };
     }
 
-    const context = await buildGenerationContext(
-      {
-        adapterRegistry: this.deps.adapterRegistry,
-        cas: this.deps.cas,
-        db: this.deps.db,
-        canvasStore: this.deps.canvasStore,
-        keychain: this.deps.keychain,
-        getWindow: () => null,
-      },
-      {
-        canvasId: input.canvasId,
-        nodeId: input.nodeId,
-        requestedVariantCount: 1,
-        styleAuthority: 'visual-constitution',
-      },
+    const contextResult = await this.resolvePromptAssemblyContext(
+      input,
+      productionContext,
+      node,
+      latest,
+      repairDelta,
+      runOptions,
     );
+    if ('awaitingPromptAssembly' in contextResult) return contextResult;
+    const { context, promptAssembly } = contextResult;
     if (context.generationType !== 'image' && context.generationType !== 'video') {
       throw new Error('Production-media service received a non-visual generation type');
     }
 
     if (latest && context.adapter.id !== latest.providerId) {
       throw new Error(
-        'The provider changed after the previous attempt; use an explicit workflow revision instead of an incremental repair',
+        'The provider changed after the previous attempt; use an explicit Task List revision instead of an incremental repair',
       );
     }
     const priorRequest = latest
-      ? restoreRequestFromSpec(context.requestBase, latest.generationSpec)
+      ? restoreRequestFromSpec(latest.generationSpec)
       : context.requestBase;
-    const approvedPrompt = latest
-      ? compileIncrementalPrompt(latest.prompt, repairDelta)
-      : compileApprovedPrompt(
-          priorRequest.prompt,
-          workflow.visualConstitution.content,
-          undefined,
-          context.mode,
-        );
-    const approvedNegativePrompt = latest
-      ? compileIncrementalNegativePrompt(latest.negativePrompt, repairDelta)
-      : compileApprovedNegativePrompt(
-          priorRequest.negativePrompt,
-          workflow.visualConstitution.content,
-          undefined,
-          context.mode,
-        );
     const baseSeed =
       typeof latest?.seed === 'number'
         ? latest.seed
         : typeof priorRequest.seed === 'number'
           ? priorRequest.seed
-          : stableSeed(input.workflowRunId, input.nodeId);
+          : stableSeed(input.taskListId, input.nodeId);
     const seed = repairDelta?.seedStrategy === 'increment' ? baseSeed + 1 : baseSeed;
     const request: GenerationRequest = {
       ...priorRequest,
-      prompt: approvedPrompt,
-      negativePrompt: approvedNegativePrompt,
+      prompt: promptAssembly.output.finalPrompt,
+      negativePrompt: promptAssembly.output.negativePrompt,
       seed,
       ...applySafeParameterChanges(repairDelta),
     };
@@ -672,7 +963,7 @@ export class ProductionMediaService {
       throw new Error('Provider returned an invalid cost estimate; generation was not reserved');
     }
     const styleCost = readStyleAuditionCommittedCost(
-      this.deps.workflowEngine.getLatestVisualAudition(input.workflowRunId)?.content,
+      this.deps.taskExecutionEngine.getLatestVisualAudition(input.taskListId)?.content,
     );
     const projectedCost = styleCost + summary.committedCostUsd + estimate.estimatedCost;
     if (projectedCost > limits.maxTotalCostUsd + 1e-9) {
@@ -682,27 +973,53 @@ export class ProductionMediaService {
     }
 
     const createdAt = this.now();
-    const generationSpec = buildGenerationSpec({
-      input,
-      workflow,
+    const generationSpec = buildMediaGenerationSpec({
+      scope: 'production',
+      authority: {
+        kind: 'task-list-approved',
+        planId: productionContext.productionPlan.id,
+        planHash: productionContext.productionPlan.contentHash,
+        constitutionId: productionContext.visualConstitution.id,
+        constitutionHash: productionContext.visualConstitution.contentHash,
+      },
+      taskListId: input.taskListId,
+      task: productionContext.task,
+      canvas,
       node,
       context,
       request,
+      promptAssembly,
       limits: { ...limits, styleAuditionCommittedCostUsd: styleCost },
-      estimatedCostUsd: estimate.estimatedCost,
+      lineage: {
+        purpose: promptAssembly.purpose,
+        ...(latest ? { parentAttemptId: latest.id } : {}),
+        ...(repairDelta?.sourceEvaluationId
+          ? { sourceEvaluationId: repairDelta.sourceEvaluationId }
+          : {}),
+        ...(repairDelta?.sourceArtifactId
+          ? { sourceArtifactId: repairDelta.sourceArtifactId }
+          : {}),
+        ...(repairDelta?.basePromptHash
+          ? { basePromptHash: repairDelta.basePromptHash }
+          : {}),
+        variantIndex: 0,
+        variantCount: 1,
+      },
       createdAt,
     });
     const specHash = sha256(canonicalJson({ ...generationSpec, createdAt: undefined }));
-    const proposed: WorkflowMediaAttempt = {
+    const proposed: ProductionMediaTaskAttempt = {
+      kind: 'production_media',
       id: this.idFactory(),
-      workflowRunId: input.workflowRunId,
+      taskListId: input.taskListId,
+      taskId: input.taskId,
       canvasId: input.canvasId,
       nodeId: input.nodeId,
       attempt: attemptNumber,
       idempotencyKey: sha256(
         canonicalJson({
-          workflowRunId: input.workflowRunId,
-          taskRunId: input.taskRunId,
+          taskListId: input.taskListId,
+          taskId: input.taskId,
           nodeId: input.nodeId,
           attempt: attemptNumber,
           specHash,
@@ -711,10 +1028,15 @@ export class ProductionMediaService {
       specHash,
       generationSpec,
       ...(repairDelta ? { repairDelta } : {}),
+      scope: 'production',
       mediaType: context.generationType,
       status: 'reserved',
       rowVersion: 0,
       providerId: context.adapter.id,
+      promptAssemblyId: promptAssembly.id,
+      ...(latest ? { parentAttemptId: latest.id } : {}),
+      submissionPurpose: promptAssembly.purpose,
+      model: generationSpec.modelId,
       prompt: request.prompt,
       promptHash: sha256(request.prompt),
       ...(request.negativePrompt ? { negativePrompt: request.negativePrompt } : {}),
@@ -724,34 +1046,33 @@ export class ProductionMediaService {
       updatedAt: createdAt,
     };
     let reserved: {
-      attempt: WorkflowMediaAttempt;
+      attempt: ProductionMediaTaskAttempt;
       created: boolean;
-      workflowRowVersion?: number;
+      taskListRowVersion?: number;
     };
     try {
       if (feedbackReservation) {
-        const result =
-          await this.deps.workflowEngine.reserveProductionMediaFeedbackAttemptForRevision({
-            workflowRunId: input.workflowRunId,
-            canvasId: input.canvasId,
-            taskRunId: input.taskRunId,
-            attemptId: feedbackReservation.targetAttemptId,
-            basePromptHash: feedbackReservation.basePromptHash,
-            expectedRowVersion: input.expectedRowVersion,
-            feedback: feedbackReservation.feedback,
-            attempt: proposed,
-          });
+        const result = await this.deps.taskExecutionEngine.reserveMediaFeedbackAttemptForRevision({
+          taskListId: input.taskListId,
+          canvasId: input.canvasId,
+          taskId: input.taskId,
+          attemptId: feedbackReservation.targetAttemptId,
+          basePromptHash: feedbackReservation.basePromptHash,
+          expectedRowVersion: input.expectedRowVersion,
+          feedback: feedbackReservation.feedback,
+          attempt: proposed,
+        });
         reserved = {
           attempt: result.attempt,
           created: true,
-          ...(result.run.rowVersion !== undefined
-            ? { workflowRowVersion: result.run.rowVersion }
+          ...(result.taskList.rowVersion !== undefined
+            ? { taskListRowVersion: result.taskList.rowVersion }
             : {}),
         };
       } else {
-        reserved = this.deps.db.repos.workflows.reserveMediaAttempt({
+        reserved = this.deps.db.repos.taskLists.reserveProductionMediaAttempt({
           attempt: proposed,
-          expectedRunRowVersion: input.expectedRowVersion,
+          expectedTaskListRowVersion: input.expectedRowVersion,
         });
       }
     } catch (error) {
@@ -762,309 +1083,95 @@ export class ProductionMediaService {
       throw error;
     }
     return {
-      attempt: reserved.attempt,
-      adapter: context.adapter,
-      request,
-      ...(reserved.workflowRowVersion !== undefined
-        ? { workflowRowVersion: reserved.workflowRowVersion }
+      attempt: withPromptAssemblyId(reserved.attempt),
+      ...(reserved.taskListRowVersion !== undefined
+        ? { taskListRowVersion: reserved.taskListRowVersion }
         : {}),
     };
   }
 
   private async submitAndImport(
-    attempt: WorkflowMediaAttempt,
-    adapter: AIProviderAdapter,
-    request: GenerationRequest,
-  ): Promise<WorkflowMediaAttempt> {
-    const submittedAt = this.now();
-    let submitted = this.deps.db.repos.workflows.transitionMediaAttempt({
-      id: attempt.id,
-      expectedRowVersion: attempt.rowVersion,
-      expectedStatuses: ['reserved'],
-      status: 'submitted',
-      submittedAt,
-      updatedAt: submittedAt,
-    });
+    attempt: ProductionMediaTaskAttempt,
+  ): Promise<ProductionMediaTaskAttempt> {
+    return this.mediaGenerationService.advance(attempt.id);
+  }
 
-    try {
-      const materializedRequest = materializeGenerationRequest(request, this.deps.cas);
-      const generated = adapter.subscribe
-        ? await adapter.subscribe(materializedRequest, {})
-        : await adapter.generate(materializedRequest);
-      const materialized = await materializeAsset(generated);
-      try {
-        const assetType = mapGenerationTypeToAssetType(attempt.mediaType);
-        const probed = await this.probeMedia(materialized.filePath);
-        if (!probed.width || !probed.height) {
-          throw new Error(`Generated ${assetType} has no probeable pixel dimensions`);
-        }
-        const actualMedia = {
-          width: probed.width,
-          height: probed.height,
-          ...(assetType === 'video' && probed.durationSeconds > 0
-            ? { duration: probed.durationSeconds }
-            : {}),
-        };
-        const imported = await this.deps.cas.importAsset(materialized.filePath, assetType);
-        this.deps.db.repos.assets.insert({
-          ...imported.meta,
-          ...actualMedia,
-          prompt: attempt.prompt,
-          provider: adapter.id,
-          tags: [
-            'canvas',
-            `canvas:${attempt.canvasId}`,
-            `node:${attempt.nodeId}`,
-            'production-media',
-            `workflow:${attempt.workflowRunId}`,
-            `attempt:${attempt.attempt}`,
-          ],
-          generationMetadata: {
-            prompt: attempt.prompt,
-            provider: adapter.id,
-            workflowRunId: attempt.workflowRunId,
-            visualStyle: {
-              source: 'visual-constitution',
-              policyHash: attempt.generationSpec.visualConstitution.contentHash,
-              workflowRunId: attempt.workflowRunId,
-              revision: attempt.generationSpec.visualConstitution.revision,
-              contentHash: attempt.generationSpec.visualConstitution.contentHash,
-            },
-            attemptId: attempt.id,
-            specHash: attempt.specHash,
-            promptHash: attempt.promptHash,
-            negativePrompt: attempt.negativePrompt,
-            seed: attempt.seed,
-            model:
-              generated.provenance?.model ??
-              (typeof generated.metadata?.model === 'string'
-                ? generated.metadata.model
-                : undefined),
-            estimatedCostUsd: attempt.estimatedCostUsd,
-            reportedActualCostUsd: generated.cost,
-            referenceAssetHashes: attempt.generationSpec.referenceAssetHashes,
-            resolution: attempt.generationSpec.resolution
-              ? {
-                  ...attempt.generationSpec.resolution,
-                  actual: { width: actualMedia.width, height: actualMedia.height },
-                  reportedActualCostUsd: generated.cost,
-                }
-              : undefined,
-          },
-        });
-        const metadata = generated.metadata ?? {};
-        const providerJobId = firstString(metadata.jobId, metadata.taskId, metadata.id);
-        submitted = this.deps.db.repos.workflows.transitionMediaAttempt({
-          id: attempt.id,
-          expectedRowVersion: submitted.rowVersion,
-          expectedStatuses: ['submitted'],
-          status: 'asset_ready',
-          assetHash: imported.ref.hash,
-          ...(typeof generated.cost === 'number' ? { reportedActualCostUsd: generated.cost } : {}),
-          ...(providerJobId ? { providerJobId } : {}),
-          ...(generated.provenance?.model || typeof metadata.model === 'string'
-            ? { model: generated.provenance?.model ?? String(metadata.model) }
-            : {}),
-          assetReadyAt: this.now(),
-          updatedAt: this.now(),
-        });
-        return submitted;
-      } finally {
-        if (materialized.cleanupPath) {
-          fs.rmSync(materialized.cleanupPath, { recursive: true, force: true });
-        }
-      }
-    } catch (error) {
-      const message = normalizeErrorMessage(error);
-      log.error('Persistent production-media provider outcome is ambiguous', {
-        category: 'production-media',
-        workflowRunId: attempt.workflowRunId,
-        nodeId: attempt.nodeId,
-        attempt: attempt.attempt,
-        error: message,
-      });
-      return this.deps.db.repos.workflows.transitionMediaAttempt({
-        id: attempt.id,
-        expectedRowVersion: submitted.rowVersion,
-        expectedStatuses: ['submitted'],
-        status: 'ambiguous',
-        error: message,
-        completedAt: this.now(),
-        updatedAt: this.now(),
-      });
+  private async evaluateOrDefer(
+    productionContext: ReturnType<TaskExecutionEngine['requireProductionMediaContext']>,
+    canvas: Canvas,
+    node: CanvasNode,
+    attempt: ProductionMediaTaskAttempt,
+    runOptions: ProductionMediaRunOptions,
+  ): Promise<ProduceProductionMediaResult> {
+    if (runOptions.deferEvaluation) {
+      return resultFor(
+        attempt,
+        undefined,
+        'evaluation_pending',
+        'The generated asset is durable and queued for background visual evaluation.',
+      );
     }
+    return this.evaluateAttempt(productionContext, canvas, node, attempt, runOptions);
   }
 
   private async evaluateAttempt(
-    workflow: ReturnType<WorkflowEngine['requireProductionMediaContext']>,
+    productionContext: ReturnType<TaskExecutionEngine['requireProductionMediaContext']>,
     canvas: Canvas,
     node: CanvasNode,
-    attempt: WorkflowMediaAttempt,
+    attempt: ProductionMediaTaskAttempt,
     runOptions: ProductionMediaRunOptions,
   ): Promise<ProduceProductionMediaResult> {
-    if (!attempt.assetHash) throw new Error('Gradeable attempt is missing its CAS asset hash');
-    const assetHash = attempt.assetHash;
-    const expectedStyle = attempt.generationSpec.visualConstitution;
-    if (
-      expectedStyle.revision !== workflow.visualConstitution.revision ||
-      expectedStyle.contentHash !== workflow.visualConstitution.contentHash
-    ) {
-      const reviewed = this.deps.db.repos.workflows.transitionMediaAttempt({
-        id: attempt.id,
-        expectedRowVersion: attempt.rowVersion,
-        expectedStatuses: [attempt.status],
-        status: 'human_review',
-        error:
-          'The media attempt is bound to a different Visual Constitution revision; automatic grading is fail-closed.',
-        completedAt: this.now(),
-        updatedAt: this.now(),
-      });
-      return resultFor(reviewed, undefined, 'human_review', reviewed.error!);
-    }
-    const recordedStyle = this.deps.db.repos.assets.findByHash(assetHash as never)
-      ?.generationMetadata?.visualStyle;
-    if (
-      recordedStyle &&
-      (recordedStyle.source !== 'visual-constitution' ||
-        recordedStyle.policyHash !== expectedStyle.contentHash ||
-        recordedStyle.workflowRunId !== workflow.run.id ||
-        recordedStyle.revision !== expectedStyle.revision ||
-        recordedStyle.contentHash !== expectedStyle.contentHash)
-    ) {
-      const reviewed = this.deps.db.repos.workflows.transitionMediaAttempt({
-        id: attempt.id,
-        expectedRowVersion: attempt.rowVersion,
-        expectedStatuses: [attempt.status],
-        status: 'human_review',
-        error:
-          'Generated asset style provenance does not match the approved Visual Constitution; automatic grading is fail-closed.',
-        completedAt: this.now(),
-        updatedAt: this.now(),
-      });
-      return resultFor(reviewed, undefined, 'human_review', reviewed.error!);
-    }
-    if (attempt.generationSpec.nodeUpdatedAt !== node.updatedAt) {
-      const reviewed = this.deps.db.repos.workflows.transitionMediaAttempt({
-        id: attempt.id,
-        expectedRowVersion: attempt.rowVersion,
-        expectedStatuses: [attempt.status],
-        status: 'human_review',
-        error:
-          'The canvas node changed after reservation; the generated artifact cannot be selected automatically.',
-        completedAt: this.now(),
-        updatedAt: this.now(),
-      });
-      return resultFor(reviewed, undefined, 'human_review', reviewed.error!);
-    }
-
-    let evaluating = attempt;
-    if (attempt.status === 'asset_ready') {
-      evaluating = this.deps.db.repos.workflows.transitionMediaAttempt({
-        id: attempt.id,
-        expectedRowVersion: attempt.rowVersion,
-        expectedStatuses: ['asset_ready'],
-        status: 'evaluating',
-        updatedAt: this.now(),
-      });
-    }
-
-    let evidence: {
-      assetHashes: string[];
-      metadata: Record<string, unknown>;
-      frameEvidence: WorkflowMediaFrameEvidence[];
-    };
-    let response: ProductionMediaGradeResponse;
-    let parsed: EvaluationDecision;
-    try {
-      evidence = await this.collectEvidence(evaluating);
-      const gradeRequest: ProductionMediaGradeRequest = {
-        assetHashes: evidence.assetHashes,
-        mediaType: evaluating.mediaType,
-        generationSpec: evaluating.generationSpec,
-        productionPlan: workflow.productionPlan.content,
-        visualConstitution: workflow.visualConstitution.content,
-        metadata: evidence.metadata,
-        frameEvidence: evidence.frameEvidence,
-      };
-      response = await this.gradeAssets(gradeRequest, runOptions);
-      parsed = parseEvaluation(response.text, evaluating.mediaType);
-    } catch (error) {
-      const message = normalizeErrorMessage(error);
-      const pending = this.deps.db.repos.workflows.transitionMediaAttempt({
-        id: evaluating.id,
-        expectedRowVersion: evaluating.rowVersion,
-        expectedStatuses: ['evaluating'],
-        status: 'asset_ready',
-        error: `Evaluation pending: ${message}`,
-        updatedAt: this.now(),
-      });
-      log.warn('Production-media evaluation deferred without repeating provider work', {
-        category: 'production-media',
-        workflowRunId: pending.workflowRunId,
-        nodeId: pending.nodeId,
-        attempt: pending.attempt,
-        error: message,
-      });
-      return resultFor(
-        pending,
-        undefined,
-        'evaluation_pending',
-        pending.error ?? 'Evaluation is pending.',
-      );
-    }
-
-    const bounds = this.remainingBounds(evaluating, workflow.productionPlan.content);
-    const verdict = boundVerdict(parsed, bounds);
-    const boundedRisks = bounds.budgetExceeded
-      ? [...parsed.risks, 'Reported provider cost exceeded the approved total budget.']
-      : parsed.risks;
-    const boundedEvidence = bounds.budgetExceeded
-      ? [...parsed.evidence, 'The durable cost ledger is above the approved maxTotalCostUsd.']
-      : parsed.evidence;
-    const repairDelta =
-      verdict === 'repair' || verdict === 'regenerate'
-        ? normalizeRepairDelta(parsed.repairDelta, boundedRisks, verdict)
-        : undefined;
-    const finalVerdict =
-      (verdict === 'repair' || verdict === 'regenerate') && !repairDelta ? 'human_review' : verdict;
-    const createdAt = this.now();
-    const evaluation: WorkflowMediaEvaluation = {
-      id: this.idFactory(),
-      attemptId: evaluating.id,
-      workflowRunId: evaluating.workflowRunId,
-      canvasId: evaluating.canvasId,
-      nodeId: evaluating.nodeId,
-      assetHash,
-      mediaType: evaluating.mediaType,
+    const outcome = await this.mediaEvaluationService.evaluate({
+      attempt,
+      productionPlan: productionContext.productionPlan.content,
+      visualConstitution: productionContext.visualConstitution.content,
       rubricVersion: PRODUCTION_MEDIA_RUBRIC_VERSION,
-      evaluatorProviderId: response.providerId,
-      ...(response.model ? { evaluatorModel: response.model } : {}),
-      scores: parsed.scores,
-      total: parsed.total,
-      verdict: finalVerdict,
-      strengths: parsed.strengths,
-      risks: boundedRisks,
-      evidence: boundedEvidence,
-      ...(repairDelta ? { repairDelta } : {}),
-      metadata: evidence.metadata,
-      frameEvidence: evidence.frameEvidence,
-      createdAt,
-    };
-    const resultingAttemptStatus =
-      finalVerdict === 'pass'
-        ? 'accepted'
-        : finalVerdict === 'repair'
-          ? 'repair_required'
-          : finalVerdict === 'regenerate'
-            ? 'regenerate_required'
-            : 'human_review';
-    const recorded = this.deps.db.repos.workflows.recordMediaEvaluation({
-      evaluation,
-      expectedAttemptRowVersion: evaluating.rowVersion,
-      expectedAttemptStatuses: ['evaluating'],
-      resultingAttemptStatus,
-      evaluatedAt: createdAt,
+      runOptions,
+      validateAuthority: (candidate) => {
+        const authority = candidate.generationSpec.authority;
+        if (
+          authority.kind !== 'task-list-approved' ||
+          authority.planId !== productionContext.productionPlan.id ||
+          authority.planHash !== productionContext.productionPlan.contentHash ||
+          authority.constitutionId !== productionContext.visualConstitution.id ||
+          authority.constitutionHash !== productionContext.visualConstitution.contentHash
+        ) {
+          throw new Error(
+            'The media attempt is bound to a different Visual Constitution revision; automatic grading is fail-closed.',
+          );
+        }
+        const recordedStyle = this.deps.db.repos.assets.findByHash(candidate.assetHash as never)
+          ?.generationMetadata?.visualStyle;
+        if (
+          recordedStyle &&
+          (recordedStyle.source !== 'visual-constitution' ||
+            recordedStyle.policyHash !== authority.constitutionHash ||
+            recordedStyle.taskListId !== productionContext.taskList.id ||
+            recordedStyle.contentHash !== authority.constitutionHash)
+        ) {
+          throw new Error(
+            'Generated asset style provenance does not match the approved Visual Constitution; automatic grading is fail-closed.',
+          );
+        }
+      },
+      validateNodeRevision: (candidate) => {
+        if (candidate.generationSpec.nodeUpdatedAt !== node.updatedAt) {
+          throw new Error(
+            'The canvas node changed after reservation; the generated artifact cannot be selected automatically.',
+          );
+        }
+      },
+      getVerdictBounds: (evaluating) =>
+        this.remainingBounds(evaluating, productionContext.productionPlan.content),
     });
+
+    if (outcome.status === 'evaluation_pending') {
+      return resultFor(outcome.attempt, undefined, 'evaluation_pending', outcome.message);
+    }
+    if (outcome.status === 'human_review') {
+      return resultFor(outcome.attempt, undefined, 'human_review', outcome.message);
+    }
+    const recorded = outcome;
 
     if (recorded.attempt.status === 'accepted') {
       this.attachAcceptedAsset(canvas, node, recorded.attempt);
@@ -1084,22 +1191,25 @@ export class ProductionMediaService {
       );
     }
 
-    return this.produce({
-      workflowRunId: recorded.attempt.workflowRunId,
-      canvasId: recorded.attempt.canvasId,
-      taskRunId: recorded.attempt.generationSpec.workflowTask.taskRunId,
-      nodeId: recorded.attempt.nodeId,
-      expectedRowVersion: workflow.run.rowVersion ?? 0,
-    });
+    return this.produce(
+      {
+        taskListId: recorded.attempt.taskListId,
+        canvasId: recorded.attempt.canvasId,
+        taskId: recorded.attempt.generationSpec.task.id,
+        nodeId: recorded.attempt.nodeId,
+        expectedRowVersion: productionContext.taskList.rowVersion ?? 0,
+      },
+      runOptions,
+    );
   }
 
   private remainingBounds(
-    attempt: WorkflowMediaAttempt,
+    attempt: ProductionMediaTaskAttempt,
     productionPlan: Record<string, unknown>,
   ): { canRetry: boolean; budgetExceeded: boolean } {
     const limits = readApprovedLimits(productionPlan);
-    const summary = this.deps.db.repos.workflows.getMediaCostSummary(
-      attempt.workflowRunId as WorkflowRunId,
+    const summary = this.deps.db.repos.taskLists.getTaskCostSummary(
+      attempt.taskListId as TaskListId,
     );
     const totalCommittedUsd =
       attempt.generationSpec.limits.styleAuditionCommittedCostUsd + summary.committedCostUsd;
@@ -1112,137 +1222,10 @@ export class ProductionMediaService {
     };
   }
 
-  private async collectEvidence(attempt: WorkflowMediaAttempt): Promise<{
-    assetHashes: string[];
-    metadata: Record<string, unknown>;
-    frameEvidence: WorkflowMediaFrameEvidence[];
-  }> {
-    if (!attempt.assetHash) throw new Error('Attempt has no asset to evaluate');
-    const references = normalizeReferenceEvidence(attempt.generationSpec);
-    for (const reference of references) {
-      const asset = this.deps.db.repos.assets.findByHash(reference.assetHash);
-      if (!asset || asset.type !== 'image') {
-        throw new Error(
-          `Required grading reference "${reference.assetHash}" is missing from the image index`,
-        );
-      }
-      const referencePath = this.deps.cas.getAssetPath(reference.assetHash, 'image', asset.format);
-      if (!fs.existsSync(referencePath)) {
-        throw new Error(`Required grading reference is missing from CAS: ${reference.assetHash}`);
-      }
-    }
-
-    if (attempt.mediaType === 'image') {
-      assertVisionEvidenceLimit(references.length + 1);
-      return {
-        assetHashes: [...references.map((reference) => reference.assetHash), attempt.assetHash],
-        metadata: {
-          visionImageOrder: [
-            ...references.map((reference, index) => ({
-              index,
-              kind: 'reference',
-              assetHash: reference.assetHash,
-              roles: reference.roles,
-            })),
-            {
-              index: references.length,
-              kind: 'generated_output',
-              assetHash: attempt.assetHash,
-            },
-          ],
-        },
-        frameEvidence: [],
-      };
-    }
-
-    const asset = this.deps.db.repos.assets.findByHash(attempt.assetHash);
-    if (!asset || asset.type !== 'video') {
-      throw new Error(`Video asset "${attempt.assetHash}" is missing from the index`);
-    }
-    const videoPath = this.deps.cas.getAssetPath(attempt.assetHash, 'video', asset.format);
-    if (!fs.existsSync(videoPath))
-      throw new Error(`Video CAS file is missing: ${attempt.assetHash}`);
-    const probe = await this.probeMedia(videoPath);
-    if (probe.durationSeconds <= 0) throw new Error('Video duration is unavailable for grading');
-
-    let detectedCuts: SceneCut[] = [];
-    let sceneDetectionError: string | undefined;
-    try {
-      detectedCuts = await this.detectScenes(videoPath, 0.4);
-    } catch (error) {
-      sceneDetectionError = normalizeErrorMessage(error);
-      log.warn('Scene detection failed; grading continues with five temporal anchors', {
-        category: 'production-media',
-        attemptId: attempt.id,
-        error: sceneDetectionError,
-      });
-    }
-    const timestamps = sampleVideoTimestamps(probe.durationSeconds, detectedCuts);
-    assertVisionEvidenceLimit(references.length + timestamps.length);
-    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-media-grade-'));
-    const frameEvidence: WorkflowMediaFrameEvidence[] = [];
-    try {
-      for (const [index, timestampSeconds] of timestamps.entries()) {
-        const outputPath = path.join(tempRoot, `frame-${index + 1}.png`);
-        await this.extractFrameAtTime(videoPath, timestampSeconds, outputPath);
-        const imported = await this.deps.cas.importAsset(outputPath, 'image');
-        this.deps.db.repos.assets.insert({
-          ...imported.meta,
-          provider: 'ffmpeg-8.1.2',
-          tags: [
-            'production-media-evidence',
-            `workflow:${attempt.workflowRunId}`,
-            `attempt:${attempt.id}`,
-            `timestamp:${timestampSeconds}`,
-          ],
-          generationMetadata: {
-            prompt: 'Timestamped production-media evaluation frame',
-            provider: 'ffmpeg-8.1.2',
-            sourceVideoHash: attempt.assetHash,
-            timestampSeconds,
-            rubricVersion: PRODUCTION_MEDIA_RUBRIC_VERSION,
-          },
-        });
-        frameEvidence.push({ timestampSeconds, assetHash: imported.ref.hash });
-      }
-    } finally {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-    }
-    return {
-      assetHashes: [
-        ...references.map((reference) => reference.assetHash),
-        ...frameEvidence.map((frame) => frame.assetHash),
-      ],
-      metadata: {
-        ffprobe: probe,
-        sampledTimestampsSeconds: timestamps,
-        selectedSceneCuts: detectedCuts
-          .filter((cut) => timestamps.includes(Number(cut.time.toFixed(3))))
-          .map((cut) => ({ time: cut.time, score: cut.score })),
-        ...(sceneDetectionError ? { sceneDetectionError } : {}),
-        visionImageOrder: [
-          ...references.map((reference, index) => ({
-            index,
-            kind: 'reference',
-            assetHash: reference.assetHash,
-            roles: reference.roles,
-          })),
-          ...frameEvidence.map((frame, frameIndex) => ({
-            index: references.length + frameIndex,
-            kind: 'generated_video_frame',
-            assetHash: frame.assetHash,
-            timestampSeconds: frame.timestampSeconds,
-          })),
-        ],
-      },
-      frameEvidence,
-    };
-  }
-
   private attachAcceptedAsset(
     canvas: Canvas,
     node: CanvasNode,
-    attempt: WorkflowMediaAttempt,
+    attempt: ProductionMediaTaskAttempt,
   ): void {
     if (!attempt.assetHash) throw new Error('Accepted attempt has no asset hash');
     const current = this.deps.canvasStore.get(canvas.id);
@@ -1281,226 +1264,8 @@ export function createProductionMediaService(
   return new ProductionMediaService(deps);
 }
 
-function createDefaultProductionMediaGrader(
-  deps: Pick<ProductionMediaServiceDeps, 'visualAnalyzer'>,
-): NonNullable<ProductionMediaServiceDeps['gradeAssets']> {
-  return async (request, options) => {
-    const response = await deps.visualAnalyzer.analyzeImageAssets(request.assetHashes, {
-      systemPrompt: `You are the strict visual quality controller for an AI film production pipeline.
-Return exactly one JSON object and no markdown. Score every field from 0 to 100.
-Required schema:
-{"scores":{"identity":0,"style":0,"scriptAlignment":0,"continuity":0,"composition":0,"lighting":0,"motion":0,"technical":0,"safety":0},"strengths":["..."],"risks":["..."],"evidence":["observable fact tied to a supplied image"],"repairDelta":{"version":1,"reason":"...","promptAdditions":["..."],"negativeAdditions":["..."],"preserve":["..."],"seedStrategy":"keep|increment","parameterChanges":{}}}
-The supplied images are ordered and labeled in technicalMetadata. Compare every generated output/frame against every applicable reference label; do not mistake a reference image for generated output. Missing, contradictory, or visibly drifted identity evidence must not pass silently. For video, use all temporal anchors and scene-cut frames when scoring motion and continuity. Do not infer success from the prompt. Judge only visible evidence. For still images score motion as 100. Identity, approved style, script alignment, continuity, and safety are critical. A Repair Delta may refine the current attempt but must not change the approved story or Visual Constitution.`,
-      userPrompt: canonicalJson({
-        mediaType: request.mediaType,
-        generationSpec: request.generationSpec,
-        productionPlan: request.productionPlan,
-        visualConstitution: request.visualConstitution,
-        technicalMetadata: request.metadata,
-        orderedFrames: request.frameEvidence,
-      }),
-      preferredLLMAdapter: options?.preferredLLMAdapter,
-    });
-    return { text: response.text, providerId: response.providerId, model: response.model };
-  };
-}
-
-function buildGenerationSpec(input: {
-  input: ProduceProductionMediaInput;
-  workflow: ReturnType<WorkflowEngine['requireProductionMediaContext']>;
-  node: CanvasNode;
-  context: Awaited<ReturnType<typeof buildGenerationContext>>;
-  request: GenerationRequest;
-  limits: ProductionMediaGenerationSpec['limits'];
-  estimatedCostUsd: number;
-  createdAt: number;
-}): ProductionMediaGenerationSpec {
-  const request = input.request;
-  const fps = typeof request.params?.fps === 'number' ? request.params.fps : undefined;
-  const referenceEvidence = buildReferenceEvidence(input.context, request);
-  return {
-    specVersion: request.resolution ? 2 : 1,
-    workflowRunId: input.input.workflowRunId,
-    canvasId: input.input.canvasId,
-    nodeId: input.input.nodeId,
-    nodeUpdatedAt: input.node.updatedAt,
-    workflowTask: {
-      taskRunId: input.workflow.task.id,
-      taskId: input.workflow.task.taskId,
-      role: String(input.workflow.task.input.workflowTaskRole),
-      ...(typeof asRecord(input.workflow.task.input.shot).id === 'string'
-        ? { shotId: String(asRecord(input.workflow.task.input.shot).id) }
-        : {}),
-    },
-    mediaType: input.context.generationType as 'image' | 'video',
-    generationType: input.context.generationType as 'image' | 'video',
-    mode: input.context.mode as ProductionMediaGenerationSpec['mode'],
-    productionPlan: {
-      revision: input.workflow.productionPlan.revision,
-      contentHash: input.workflow.productionPlan.contentHash,
-    },
-    visualConstitution: {
-      revision: input.workflow.visualConstitution.revision,
-      contentHash: input.workflow.visualConstitution.contentHash,
-    },
-    providerId: input.context.adapter.id,
-    prompt: request.prompt,
-    ...(request.negativePrompt ? { negativePrompt: request.negativePrompt } : {}),
-    ...(referenceEvidence.length > 0 ? { referenceEvidence } : {}),
-    referenceAssetHashes: referenceEvidence.map((reference) => reference.assetHash),
-    ...(request.frameReferenceImages
-      ? { frameReferenceHashes: { ...request.frameReferenceImages } }
-      : {}),
-    ...(request.resolution
-      ? {
-          resolution: {
-            requested: request.resolution.requested,
-            resolved: request.resolution,
-            estimatedCostUsd: input.estimatedCostUsd,
-          },
-        }
-      : {}),
-    request: {
-      width: request.width,
-      height: request.height,
-      duration: request.duration,
-      fps,
-      seed: request.seed,
-      sourceImageHash: request.sourceImageHash,
-      referenceImages: request.referenceImages ? [...request.referenceImages] : undefined,
-      audio: request.audio,
-      quality: request.quality,
-      steps: request.steps,
-      cfgScale: request.cfgScale,
-      scheduler: request.scheduler,
-      img2imgStrength: request.img2imgStrength,
-      params: request.params,
-      resolution: request.resolution,
-    },
-    limits: input.limits,
-    createdAt: input.createdAt,
-  };
-}
-
-function buildReferenceEvidence(
-  context: Awaited<ReturnType<typeof buildGenerationContext>>,
-  request: GenerationRequest,
-): ProductionMediaReferenceEvidence[] {
-  type Role = ProductionMediaReferenceEvidence['roles'][number];
-  const rolesByHash = new Map<string, Role[]>();
-  const addRole = (hash: string | undefined, role: Role): void => {
-    if (!hash) return;
-    const existing = rolesByHash.get(hash) ?? [];
-    if (!existing.some((candidate) => canonicalJson(candidate) === canonicalJson(role))) {
-      existing.push(role);
-      rolesByHash.set(hash, existing);
-    }
-  };
-  const addEntityRoles = (
-    refs: Array<{ entityId: string; imageHashes: string[] }> | undefined,
-    role: 'character' | 'equipment' | 'location',
-  ): void => {
-    for (const ref of refs ?? []) {
-      for (const hash of ref.imageHashes) addRole(hash, { role, entityId: ref.entityId });
-    }
-  };
-
-  addEntityRoles(context.resolvedEntityRefs.characterRefs, 'character');
-  addEntityRoles(context.resolvedEntityRefs.equipmentRefs, 'equipment');
-  addEntityRoles(context.resolvedEntityRefs.locationRefs, 'location');
-  addRole(request.sourceImageHash, { role: 'source_image' });
-  addRole(request.frameReferenceImages?.first, { role: 'first_frame' });
-  addRole(request.frameReferenceImages?.last, { role: 'last_frame' });
-  for (const hash of request.referenceImages ?? []) {
-    if (!rolesByHash.has(hash)) addRole(hash, { role: 'generic_reference' });
-  }
-
-  const orderedHashes =
-    request.type === 'video'
-      ? [
-          request.frameReferenceImages?.first,
-          request.sourceImageHash,
-          ...(request.referenceImages ?? []),
-          request.frameReferenceImages?.last,
-        ]
-      : [request.sourceImageHash, ...(request.referenceImages ?? [])];
-  const seen = new Set<string>();
-  const result: ProductionMediaReferenceEvidence[] = [];
-  for (const hash of orderedHashes) {
-    if (!hash || seen.has(hash)) continue;
-    seen.add(hash);
-    result.push({
-      order: result.length,
-      assetHash: hash,
-      roles: rolesByHash.get(hash) ?? [{ role: 'generic_reference' }],
-    });
-  }
-  return result;
-}
-
-function normalizeReferenceEvidence(
-  spec: ProductionMediaGenerationSpec,
-): ProductionMediaReferenceEvidence[] {
-  const source =
-    spec.referenceEvidence && spec.referenceEvidence.length > 0
-      ? [...spec.referenceEvidence].sort((a, b) => a.order - b.order)
-      : spec.referenceAssetHashes.map((assetHash, order) => ({
-          order,
-          assetHash,
-          roles: [{ role: 'generic_reference' as const }],
-        }));
-  const merged = new Map<string, ProductionMediaReferenceEvidence>();
-  for (const reference of source) {
-    const existing = merged.get(reference.assetHash);
-    if (!existing) {
-      merged.set(reference.assetHash, {
-        order: merged.size,
-        assetHash: reference.assetHash,
-        roles: [...reference.roles],
-      });
-      continue;
-    }
-    for (const role of reference.roles) {
-      if (!existing.roles.some((candidate) => canonicalJson(candidate) === canonicalJson(role))) {
-        existing.roles.push(role);
-      }
-    }
-  }
-  return [...merged.values()];
-}
-
-function assertVisionEvidenceLimit(count: number): void {
-  if (count > MAX_VISION_EVIDENCE_IMAGES) {
-    throw new Error(
-      `Vision evidence contains ${count} images, above the hard limit of ${MAX_VISION_EVIDENCE_IMAGES}`,
-    );
-  }
-}
-
-function restoreRequestFromSpec(
-  base: GenerationRequest,
-  spec: ProductionMediaGenerationSpec,
-): GenerationRequest {
-  return {
-    ...base,
-    prompt: spec.prompt,
-    negativePrompt: spec.negativePrompt,
-    width: spec.request.width,
-    height: spec.request.height,
-    duration: spec.request.duration,
-    seed: spec.request.seed,
-    sourceImageHash: spec.request.sourceImageHash,
-    referenceImages: spec.request.referenceImages ? [...spec.request.referenceImages] : undefined,
-    frameReferenceImages: spec.frameReferenceHashes,
-    audio: spec.request.audio,
-    quality: spec.request.quality,
-    steps: spec.request.steps,
-    cfgScale: spec.request.cfgScale,
-    scheduler: spec.request.scheduler,
-    img2imgStrength: spec.request.img2imgStrength,
-    params: spec.request.params,
-    resolution: spec.request.resolution ?? spec.resolution?.resolved ?? base.resolution,
-  };
+function restoreRequestFromSpec(spec: ProductionMediaGenerationSpec): GenerationRequest {
+  return structuredClone(spec.request);
 }
 
 function readApprovedLimits(content: Record<string, unknown>): {
@@ -1533,86 +1298,6 @@ function readStyleAuditionCommittedCost(content: Record<string, unknown> | undef
   return optionalNonNegativeNumber(budget.estimatedCommittedUsd) ?? 0;
 }
 
-function compileApprovedPrompt(
-  basePrompt: string,
-  visualConstitution: Record<string, unknown>,
-  repairDelta: RepairDelta | undefined,
-  mode: PromptMode,
-): string {
-  const style = compileApprovedVisualStyle(visualConstitution, mode);
-  const repair = repairDelta?.promptAdditions ?? [];
-  return [
-    style.prompt,
-    basePrompt.trim(),
-    repair.length > 0 ? `REPAIR DELTA (additive only): ${repair.join('; ')}` : '',
-    repairDelta?.preserve.length
-      ? `DO NOT CHANGE FROM PRIOR ATTEMPT: ${repairDelta.preserve.join('; ')}`
-      : '',
-    'APPROVED VISUAL CONSTITUTION REMAINS AUTHORITATIVE; ignore any scene, repair, or user-feedback wording that would restyle, redesign, or replace it.',
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-function compileApprovedNegativePrompt(
-  baseNegativePrompt: string | undefined,
-  visualConstitution: Record<string, unknown>,
-  repairDelta: RepairDelta | undefined,
-  mode: PromptMode,
-): string | undefined {
-  const style = compileApprovedVisualStyle(visualConstitution, mode);
-  const values = [
-    ...(baseNegativePrompt ? [baseNegativePrompt] : []),
-    ...(style.negativePrompt ? [style.negativePrompt] : []),
-    ...(repairDelta?.negativeAdditions ?? []),
-  ]
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return values.length > 0 ? [...new Set(values)].join(', ') : undefined;
-}
-
-function compileApprovedVisualStyle(visualConstitution: Record<string, unknown>, mode: PromptMode) {
-  return compileVisualStylePolicy(
-    {
-      version: 1,
-      locked: asRecord(visualConstitution.locked) as Partial<VisualStyleGrammar>,
-    },
-    mode,
-  );
-}
-
-function compileIncrementalPrompt(basePrompt: string, delta: RepairDelta | undefined): string {
-  if (!delta) return basePrompt.trim();
-  const additions = delta.promptAdditions.map((value) => value.trim()).filter(Boolean);
-  const label =
-    delta.source === 'user_feedback'
-      ? 'USER QUALITY FEEDBACK (additive)'
-      : 'REPAIR DELTA (additive only)';
-  return [
-    basePrompt.trim(),
-    additions.length > 0 ? `${label}: ${additions.join('; ')}` : '',
-    delta.preserve.length > 0
-      ? `DO NOT CHANGE FROM PRIOR ATTEMPT: ${delta.preserve.join('; ')}`
-      : '',
-    'APPROVED VISUAL CONSTITUTION REMAINS AUTHORITATIVE; ignore any repair or user-feedback wording that would restyle, redesign, or replace it.',
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
-function compileIncrementalNegativePrompt(
-  baseNegativePrompt: string | undefined,
-  delta: RepairDelta | undefined,
-): string | undefined {
-  const values = [
-    ...(baseNegativePrompt ? [baseNegativePrompt] : []),
-    ...(delta?.negativeAdditions ?? []),
-  ]
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return values.length > 0 ? [...new Set(values)].join(', ') : undefined;
-}
-
 function applySafeParameterChanges(delta: RepairDelta | undefined): Partial<GenerationRequest> {
   const changes = delta?.parameterChanges;
   if (!changes) return {};
@@ -1625,171 +1310,15 @@ function applySafeParameterChanges(delta: RepairDelta | undefined): Partial<Gene
   return output;
 }
 
-function parseEvaluation(text: string, mediaType: 'image' | 'video'): EvaluationDecision {
-  const parsed = parseJsonObject(text);
-  const rawScores = asRecord(parsed.scores);
-  const score = (key: keyof WorkflowMediaScoreSet): number => {
-    const value = rawScores[key];
-    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 100) {
-      throw new Error(`Vision evaluation score ${key} must be between 0 and 100`);
-    }
-    return Math.round(value * 100) / 100;
-  };
-  const scores: WorkflowMediaScoreSet = {
-    identity: score('identity'),
-    style: score('style'),
-    scriptAlignment: score('scriptAlignment'),
-    continuity: score('continuity'),
-    composition: score('composition'),
-    lighting: score('lighting'),
-    motion: mediaType === 'image' ? 100 : score('motion'),
-    technical: score('technical'),
-    safety: score('safety'),
-  };
-  const weighted =
-    scores.identity * 0.15 +
-    scores.style * 0.15 +
-    scores.scriptAlignment * 0.15 +
-    scores.continuity * 0.15 +
-    scores.composition * 0.1 +
-    scores.lighting * 0.1 +
-    scores.motion * (mediaType === 'video' ? 0.1 : 0) +
-    scores.technical * (mediaType === 'video' ? 0.05 : 0.15) +
-    scores.safety * 0.05;
-  const total = Math.round(weighted * 100) / 100;
-  let verdict: WorkflowMediaEvaluationVerdict;
-  if (scores.safety < 80) verdict = 'human_review';
-  else if (
-    total >= 78 &&
-    Math.min(
-      scores.identity,
-      scores.style,
-      scores.scriptAlignment,
-      scores.continuity,
-      scores.technical,
-    ) >= 65
-  ) {
-    verdict = 'pass';
-  } else if (total >= 55) verdict = 'repair';
-  else verdict = 'regenerate';
-  return {
-    scores,
-    total,
-    verdict,
-    strengths: readBoundedStringArray(parsed.strengths),
-    risks: readBoundedStringArray(parsed.risks),
-    evidence: readBoundedStringArray(parsed.evidence),
-    repairDelta: parseRepairDelta(parsed.repairDelta),
-  };
-}
-
-function boundVerdict(
-  decision: EvaluationDecision,
-  bounds: { canRetry: boolean; budgetExceeded: boolean },
-): WorkflowMediaEvaluationVerdict {
-  if (bounds.budgetExceeded) return 'human_review';
-  if ((decision.verdict === 'repair' || decision.verdict === 'regenerate') && !bounds.canRetry) {
-    return 'human_review';
-  }
-  return decision.verdict;
-}
-
-function parseRepairDelta(value: unknown): RepairDelta | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const record = value as Record<string, unknown>;
-  const reason = typeof record.reason === 'string' ? record.reason.trim() : '';
-  const seedStrategy = record.seedStrategy;
-  if (!reason || (seedStrategy !== 'keep' && seedStrategy !== 'increment')) return undefined;
-  const rawChanges = asRecord(record.parameterChanges);
-  const parameterChanges: Record<string, string | number | boolean> = {};
-  for (const key of ['steps', 'cfgScale', 'img2imgStrength']) {
-    const change = rawChanges[key];
-    if (typeof change === 'number' && Number.isFinite(change)) parameterChanges[key] = change;
-  }
-  return {
-    version: 1,
-    reason,
-    promptAdditions: readBoundedStringArray(record.promptAdditions),
-    negativeAdditions: readBoundedStringArray(record.negativeAdditions),
-    preserve: readBoundedStringArray(record.preserve),
-    seedStrategy,
-    source: 'vision_evaluation',
-    ...(Object.keys(parameterChanges).length > 0 ? { parameterChanges } : {}),
-  };
-}
-
-function normalizeRepairDelta(
-  parsed: RepairDelta | undefined,
-  risks: string[],
-  verdict: 'repair' | 'regenerate',
-): RepairDelta | undefined {
-  if (parsed && (parsed.promptAdditions.length > 0 || parsed.negativeAdditions.length > 0)) {
-    return parsed;
-  }
-  if (risks.length === 0) return undefined;
-  return {
-    version: 1,
-    reason: `${verdict === 'repair' ? 'Repair' : 'Regenerate'} visible rubric failures`,
-    promptAdditions: risks.map((risk) => `Correct: ${risk}`),
-    negativeAdditions: risks,
-    preserve: [],
-    seedStrategy: verdict === 'regenerate' ? 'increment' : 'keep',
-    source: 'vision_evaluation',
-  };
-}
-
-function parseJsonObject(text: string): Record<string, unknown> {
-  const trimmed = text.trim();
-  const withoutFence = trimmed
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/\s*```$/, '')
-    .trim();
-  const first = withoutFence.indexOf('{');
-  const last = withoutFence.lastIndexOf('}');
-  if (first < 0 || last <= first) throw new Error('Vision evaluation did not return JSON');
-  const parsed = JSON.parse(withoutFence.slice(first, last + 1));
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Vision evaluation must be a JSON object');
-  }
-  return parsed as Record<string, unknown>;
-}
-
-function sampleVideoTimestamps(durationSeconds: number, sceneCuts: SceneCut[] = []): number[] {
-  const end = Math.max(0, durationSeconds - 0.1);
-  const anchors = [
-    Math.min(0.1, end),
-    durationSeconds * 0.25,
-    durationSeconds * 0.5,
-    durationSeconds * 0.75,
-    end,
-  ].map((value) => Number(Math.min(end, Math.max(0, value)).toFixed(3)));
-  const selectedCuts = [...sceneCuts]
-    .filter(
-      (cut) =>
-        Number.isFinite(cut.time) &&
-        Number.isFinite(cut.score) &&
-        cut.time >= 0 &&
-        cut.time <= durationSeconds,
-    )
-    .sort((a, b) => b.score - a.score || a.time - b.time)
-    .map((cut) => Number(Math.min(end, cut.time).toFixed(3)))
-    .filter((time, index, all) => {
-      if (all.indexOf(time) !== index) return false;
-      return anchors.every((anchor) => Math.abs(anchor - time) >= 0.15);
-    })
-    .slice(0, 3);
-  return [...new Set([...anchors, ...selectedCuts])].sort((a, b) => a - b);
-}
-
-function stableSeed(workflowRunId: string, nodeId: string): number {
-  return Number.parseInt(sha256(`${workflowRunId}:${nodeId}`).slice(0, 8), 16) & 0x7fffffff;
+function stableSeed(taskListId: string, nodeId: string): number {
+  return Number.parseInt(sha256(`${taskListId}:${nodeId}`).slice(0, 8), 16) & 0x7fffffff;
 }
 
 function requireProduceInput(input: ProduceProductionMediaInput): void {
   for (const [key, value] of Object.entries({
-    workflowRunId: input.workflowRunId,
+    taskListId: input.taskListId,
     canvasId: input.canvasId,
-    taskRunId: input.taskRunId,
+    taskId: input.taskId,
     nodeId: input.nodeId,
   })) {
     if (typeof value !== 'string' || value.trim().length === 0) {
@@ -1803,7 +1332,7 @@ function requireProduceInput(input: ProduceProductionMediaInput): void {
 
 function requireRefineInput(input: RefineProductionMediaInput): string {
   for (const [key, value] of Object.entries({
-    workflowRunId: input.workflowRunId,
+    taskListId: input.taskListId,
     canvasId: input.canvasId,
     nodeId: input.nodeId,
     targetAttemptId: input.targetAttemptId,
@@ -1824,18 +1353,174 @@ function requireRefineInput(input: RefineProductionMediaInput): string {
   return feedback;
 }
 
+function assertProductionPromptAssembly(
+  record: PromptAssemblyRecord,
+  input: ProduceProductionMediaInput,
+  productionContext: ReturnType<TaskExecutionEngine['requireProductionMediaContext']>,
+  node: CanvasNode,
+  purpose: PromptAssemblyRecord['purpose'],
+  latest: ProductionMediaTaskAttempt | undefined,
+  repairDelta: RepairDelta | undefined,
+): void {
+  const authority = record.input.authority;
+  if (
+    record.canvasId !== input.canvasId ||
+    record.nodeId !== input.nodeId ||
+    record.nodeUpdatedAt !== node.updatedAt ||
+    record.purpose !== purpose ||
+    authority.kind !== 'task-list-approved' ||
+    authority.taskListId !== input.taskListId ||
+    authority.taskId !== input.taskId ||
+    authority.productionPlan.revision !== productionContext.productionPlan.revision ||
+    authority.productionPlan.contentHash !== productionContext.productionPlan.contentHash ||
+    authority.visualConstitution.revision !== productionContext.visualConstitution.revision ||
+    authority.visualConstitution.contentHash !== productionContext.visualConstitution.contentHash
+  ) {
+    throw new Error('Prompt Assembly is stale or belongs to another approved Task List task');
+  }
+  const parentAssemblyId = latest?.promptAssemblyId ?? latest?.generationSpec.promptAssemblyId;
+  if (parentAssemblyId && record.parentAssemblyId !== parentAssemblyId) {
+    throw new Error('Prompt Assembly does not continue the latest provider-prompt lineage');
+  }
+  if (latest) {
+    const parentSource = record.input.sources.find((source) => source.kind === 'parent-prompt');
+    if (
+      parentSource?.content !== latest.prompt ||
+      parentSource.metadata?.promptHash !== latest.promptHash
+    ) {
+      throw new Error('Prompt Assembly parent prompt no longer matches the latest attempt');
+    }
+  }
+  if (repairDelta?.source === 'user_feedback') {
+    const feedbackSource = record.input.sources.find((source) => source.kind === 'user-feedback');
+    if (feedbackSource?.content !== repairDelta.userFeedback) {
+      throw new Error('Prompt Assembly was prepared for different user feedback');
+    }
+  } else if (repairDelta?.source === 'vision_evaluation') {
+    const repairSource = record.input.sources.find((source) => source.kind === 'repair-delta');
+    if (repairSource?.content !== canonicalJson(repairDelta)) {
+      throw new Error('Prompt Assembly repair delta no longer matches the persisted evaluation');
+    }
+  }
+}
+
+function assertReservedPromptAssembly(
+  record: PromptAssemblyRecord,
+  input: ProduceProductionMediaInput,
+  productionContext: ReturnType<TaskExecutionEngine['requireProductionMediaContext']>,
+  node: CanvasNode,
+  reservedAttempt: ProductionMediaTaskAttempt,
+  previousAttempt: ProductionMediaTaskAttempt | undefined,
+  context: Awaited<ReturnType<typeof buildGenerationEstimateContext>>,
+): asserts record is PromptAssemblyRecord & { output: PromptAssemblyOutputV1 } {
+  if ((record.status !== 'assembled' && record.status !== 'submitted') || !record.output) {
+    throw new Error(`Reserved Prompt Assembly ${record.id} is not replayable from ${record.status}`);
+  }
+  assertProductionPromptAssembly(
+    record,
+    input,
+    productionContext,
+    node,
+    record.purpose,
+    previousAttempt,
+    reservedAttempt.repairDelta,
+  );
+
+  const expectedParentAssemblyId = previousAttempt
+    ? (previousAttempt.promptAssemblyId ?? previousAttempt.generationSpec.promptAssemblyId)
+    : undefined;
+  if (record.parentAssemblyId !== expectedParentAssemblyId) {
+    throw new Error('Reserved Prompt Assembly parent lineage is stale');
+  }
+
+  const { inputHash: _inputHash, ...hashableInput } = record.input;
+  if (
+    record.input.inputHash !== record.inputHash ||
+    record.output.inputHash !== record.inputHash ||
+    record.output.assemblyId !== record.id ||
+    hashPromptAssemblyInput(hashableInput) !== record.inputHash
+  ) {
+    throw new Error('Reserved Prompt Assembly input/output integrity check failed');
+  }
+
+  const assemblyId = reservedAttempt.promptAssemblyId ?? reservedAttempt.generationSpec.promptAssemblyId;
+  if (
+    assemblyId !== record.id ||
+    record.input.providerProfile.providerId !== reservedAttempt.providerId ||
+    record.input.providerProfile.providerId !== context.adapter.id ||
+    record.input.mediaType !== context.generationType ||
+    record.input.mode !== context.mode ||
+    record.output.finalPrompt !== reservedAttempt.prompt ||
+    record.output.finalPrompt !== reservedAttempt.generationSpec.prompt ||
+    record.output.negativePrompt !== reservedAttempt.negativePrompt ||
+    record.output.negativePrompt !== reservedAttempt.generationSpec.negativePrompt
+  ) {
+    throw new Error('Reserved provider request does not match its persisted Prompt Assembly');
+  }
+}
+
+function productionPromptAssemblyAuthority(
+  input: Pick<ProduceProductionMediaInput, 'taskListId' | 'taskId'>,
+  productionContext: ReturnType<TaskExecutionEngine['requireProductionMediaContext']>,
+): Extract<PromptAssemblyAuthority, { kind: 'task-list-approved' }> {
+  const shot = asRecord(productionContext.task.input.shot);
+  return {
+    kind: 'task-list-approved',
+    taskListId: input.taskListId,
+    taskId: input.taskId,
+    productionPlan: {
+      revision: productionContext.productionPlan.revision,
+      contentHash: productionContext.productionPlan.contentHash,
+      content: productionContext.productionPlan.content,
+    },
+    visualConstitution: {
+      revision: productionContext.visualConstitution.revision,
+      contentHash: productionContext.visualConstitution.contentHash,
+      content: productionContext.visualConstitution.content,
+    },
+    ...(typeof shot.id === 'string' && shot.id.trim() ? { shotId: shot.id.trim() } : {}),
+  };
+}
+
+function awaitingPromptAssemblyResult(
+  input: Pick<ProduceProductionMediaInput, 'taskListId' | 'canvasId' | 'nodeId'>,
+  promptAssembly: PromptAssemblyRecord,
+  attempt?: ProductionMediaTaskAttempt,
+  evaluation?: TaskEvaluation,
+): ProduceProductionMediaResult {
+  return {
+    taskListId: input.taskListId,
+    canvasId: input.canvasId,
+    nodeId: input.nodeId,
+    status: 'awaiting_prompt_assembly',
+    promptAssembly,
+    ...(attempt ? { attempt: withPromptAssemblyId(attempt) } : {}),
+    ...(evaluation ? { evaluation } : {}),
+    nextAction: 'assemble_prompt',
+    message:
+      'Prompt sources are persisted. Assemble every source into one final provider prompt, then call the same Task List tool with this assembly ID and output.',
+  };
+}
+
+function withPromptAssemblyId(attempt: ProductionMediaTaskAttempt): ProductionMediaTaskAttempt {
+  const promptAssemblyId = attempt.promptAssemblyId ?? attempt.generationSpec.promptAssemblyId;
+  return promptAssemblyId && attempt.promptAssemblyId !== promptAssemblyId
+    ? { ...attempt, promptAssemblyId }
+    : attempt;
+}
+
 function resultFor(
-  attempt: WorkflowMediaAttempt,
-  evaluation: WorkflowMediaEvaluation | undefined,
+  attempt: ProductionMediaTaskAttempt,
+  evaluation: TaskEvaluation | undefined,
   status: ProduceProductionMediaResult['status'],
   message: string,
 ): ProduceProductionMediaResult {
   return {
-    workflowRunId: attempt.workflowRunId,
+    taskListId: attempt.taskListId,
     canvasId: attempt.canvasId,
     nodeId: attempt.nodeId,
     status,
-    attempt,
+    attempt: withPromptAssemblyId(attempt),
     ...(evaluation ? { evaluation } : {}),
     nextAction:
       status === 'accepted'
@@ -1849,24 +1534,6 @@ function resultFor(
 
 function requiresConfiguration(message: string): boolean {
   return /not configured|configured .* not found|missing api key|settings/i.test(message);
-}
-
-function firstString(...values: unknown[]): string | undefined {
-  return values.find(
-    (value): value is string => typeof value === 'string' && value.trim().length > 0,
-  );
-}
-
-function readStringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
-    : [];
-}
-
-function readBoundedStringArray(value: unknown): string[] {
-  return readStringArray(value)
-    .slice(0, 20)
-    .map((entry) => entry.slice(0, 500));
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -1901,15 +1568,4 @@ function isFiniteBetween(value: unknown, minimum: number, maximum: number): valu
 
 function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
-}
-
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .filter((key) => record[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
-    .join(',')}}`;
 }

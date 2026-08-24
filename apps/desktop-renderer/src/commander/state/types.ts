@@ -1,4 +1,16 @@
-import type { CommanderQualityGateBehavior } from '@lucid-fin/contracts';
+import type {
+  CommanderErrorCode,
+  CommanderQualityGateBehavior,
+  CommanderRunIntent,
+  PublicToolArtifact,
+  PublicToolDetails,
+  ResourceStateCause,
+  RunBlocker,
+  RunResourceBudget,
+  RunResourceClock,
+  RunResourceRemainder,
+  RunResourceUsage,
+} from '@lucid-fin/contracts';
 
 /**
  * `commander/state/types.ts` — Phase E split-1.
@@ -13,27 +25,57 @@ import type { CommanderQualityGateBehavior } from '@lucid-fin/contracts';
 export interface CommanderToolCall {
   name: string;
   id: string;
-  arguments: Record<string, unknown>;
   startedAt: number;
   completedAt?: number;
-  result?: unknown;
+  durationMs?: number;
+  summary?: string;
+  details?: PublicToolDetails;
+  artifacts?: PublicToolArtifact[];
+  errorCode?: CommanderErrorCode;
   status: 'pending' | 'done' | 'error';
 }
 
 export interface QueuedMessage {
   id: string;
   content: string;
+  intent?: Extract<CommanderRunIntent, { kind: 'media_prompt_assembly' }>;
+  extraCanvasIds?: string[];
 }
 
 export type MessageSegmentId = string;
 
 export type PhaseNoteKind =
-  'process_prompt_loaded' | 'compacted' | 'llm_retry' | 'tool_skipped_dedup' | 'force_ask_user';
+  | 'process_prompt_loaded'
+  | 'compacted'
+  | 'llm_retry'
+  | 'tool_skipped_dedup';
 
 export type MessageSegment =
   | { kind: 'text'; id: MessageSegmentId; content: string }
   | { kind: 'tool'; id: MessageSegmentId; toolCall: CommanderToolCall }
-  | { kind: 'thinking'; id: MessageSegmentId; content: string; collapsed: boolean }
+  | {
+      kind: 'progress';
+      id: MessageSegmentId;
+      operationId: string;
+      status: 'running' | 'completed' | 'failed';
+      summary?: string;
+    }
+  | {
+      kind: 'resource_usage';
+      id: MessageSegmentId;
+      operationId: string;
+      promptTokens?: number;
+      completionTokens?: number;
+      reasoningTokens?: number;
+    }
+  | {
+      kind: 'resource_state';
+      id: MessageSegmentId;
+      cause: ResourceStateCause;
+      usage: RunResourceUsage;
+      remaining: RunResourceRemainder;
+      clock: RunResourceClock;
+    }
   | { kind: 'step_marker'; id: MessageSegmentId; step: number; at: number }
   | {
       kind: 'phase_note';
@@ -45,6 +87,7 @@ export type MessageSegment =
 export interface CommanderQuestionOption {
   label: string;
   description?: string;
+  previewAssetHash?: string;
 }
 
 export interface CommanderQuestionMeta {
@@ -52,7 +95,7 @@ export interface CommanderQuestionMeta {
   options: CommanderQuestionOption[];
 }
 
-export type CommanderRunStatus = 'completed' | 'failed';
+export type CommanderRunStatus = 'completed' | 'failed' | 'blocked';
 
 export interface CommanderRunSummary {
   excerpt: string;
@@ -82,12 +125,15 @@ export interface CommanderExitDecisionMeta {
 }
 
 export interface CommanderRunMeta {
+  /** Immutable run identity used to reopen the public activity tree from history. */
+  runId?: string;
   status: CommanderRunStatus;
   collapsed: boolean;
   startedAt: number;
   completedAt: number;
   summary: CommanderRunSummary;
   exitDecision?: CommanderExitDecisionMeta;
+  blocker?: RunBlocker;
   /**
    * Phase D/F — present only when the run ended via a `cancelled`
    * terminal event. `completedToolCalls` counts tools that got a real
@@ -119,7 +165,8 @@ export type PermissionMode = 'danger' | 'auto' | 'normal' | 'strict';
 export interface PendingConfirmation {
   toolCallId: string;
   toolName: string;
-  args: Record<string, unknown>;
+  summary?: string;
+  details?: PublicToolDetails;
   tier: number;
 }
 
@@ -132,9 +179,12 @@ export interface PendingQuestion {
 
 export interface CommanderSession {
   id: string;
-  canvasId: string | null;
+  defaultCanvasId: string | null;
   title: string;
   messages: CommanderMessage[];
+  /** Persisted transcript size when messages are still lazy-loaded. */
+  messageCount: number;
+  runtime: CommanderSessionRuntime;
   createdAt: number;
   updatedAt: number;
 }
@@ -152,39 +202,35 @@ export interface CommanderBackendContextUsage {
   utilizationRatio: number;
 }
 
-export interface CommanderState {
-  open: boolean;
-  minimized: boolean;
-  providerId: string | null;
-  /** The canvasId this Commander session is currently bound to. */
-  activeCanvasId: string | null;
-  activeSessionId: string | null;
-  sessions: CommanderSession[];
-  messages: CommanderMessage[];
-  /**
-   * Fine-grained run state. Drives LiveActivityBar, elapsed timers, and
-   * cursor gating. `idle` / `done` / `failed` mean "not currently streaming";
-   * every other kind means the agent is doing something. Prefer the
-   * `selectIsStreaming` selector over reading this directly.
-   */
+export interface CommanderSessionRuntime {
   phase: import('./run-phase.js').RunPhase;
   currentRunStartedAt: number | null;
   error: string | null;
-  /**
-   * Run ids whose finalized assistant message has already been appended to
-   * `messages`. Used by `appendFinalizedAssistantMessage` to dedup the
-   * local-cancel + late-backend-run_end race (see D2b). Cleared on session
-   * boundary transitions (newSession, loadSession, switchCanvas,
-   * clearHistory, restore).
-   */
   finalizedRunIds: string[];
+  confirmAutoMode: 'none' | 'approve' | 'skip';
+  consecutiveConfirmCount: number;
+  messageQueue: QueuedMessage[];
+  messageQueueCursor: number;
+  messageQueueFirstIndex: number;
+  pendingInjectedMessages: string[];
+  backendContextUsage: CommanderBackendContextUsage | null;
+}
+
+export interface CommanderState {
+  open: boolean;
+  minimized: boolean;
+  /** Ephemeral request to focus the shared public activity control for a run. */
+  activityFocus?: { sessionId: string; runId: string } | null;
+  providerId: string | null;
+  activeSessionId: string | null;
+  sessions: CommanderSession[];
   position: { x: number; y: number };
   size: { width: number; height: number };
   permissionMode: PermissionMode;
-  maxSteps: number;
+  resourceBudget: RunResourceBudget;
   temperature: number;
-  maxTokens: number;
-  llmRetries: number;
+  contextWindowTokens: number;
+  maxOutputTokens: number;
   maxSessions: number;
   maxMessagesPerSession: number;
   undoStackDepth: number;
@@ -196,23 +242,14 @@ export interface CommanderState {
   generationConcurrency: number;
   qualityGateBehavior: CommanderQualityGateBehavior;
   requireStylePlateBeforeRefImage: boolean;
-  pendingConfirmation: PendingConfirmation | null;
-  pendingQuestion: PendingQuestion | null;
-  confirmAutoMode: 'none' | 'approve' | 'skip';
-  consecutiveConfirmCount: number;
-  messageQueue: QueuedMessage[];
-  /** User messages injected during streaming — committed to messages[] when streaming finishes. */
-  pendingInjectedMessages: string[];
-  /** Backend-reported context usage (updated per LLM request). */
-  backendContextUsage: CommanderBackendContextUsage | null;
 }
 
 export interface PersistedSettings {
   permissionMode?: PermissionMode;
-  maxSteps?: number;
+  resourceBudget?: RunResourceBudget;
   temperature?: number;
-  maxTokens?: number;
-  llmRetries?: number;
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
   maxSessions?: number;
   maxMessagesPerSession?: number;
   undoStackDepth?: number;

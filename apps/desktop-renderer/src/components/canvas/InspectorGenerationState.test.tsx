@@ -1,14 +1,17 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { configureStore } from '@reduxjs/toolkit';
-import type { Canvas, CanvasNode, ImageNodeData } from '@lucid-fin/contracts';
+import type { Canvas, CanvasNode, ImageNodeData, VideoNodeData } from '@lucid-fin/contracts';
 import { settingsSlice } from '../../store/slices/settings.js';
 import { canvasReducer, setCanvases } from '../../store/slices/canvas/canvas.js';
+import { loggerSlice } from '../../store/slices/logger.js';
+import { toastSlice } from '../../store/slices/toast.js';
 import { getAPI } from '../../utils/api.js';
+import { CUSTOM_DURATION_VALUE } from './inspector-generation-utils.js';
 import { InspectorGenerationState } from './InspectorGenerationState.js';
 
 vi.mock('../../utils/api.js', () => ({ getAPI: vi.fn(() => undefined) }));
@@ -28,10 +31,11 @@ const t = (key: string) =>
       'generation.upload': 'Upload',
       'generation.clear': 'Clear',
       'generation.estimated': 'Estimated',
+      'toast.error.operationFailed': 'Operation failed',
+      'node.duration': 'Duration',
       'node.generateAudio': 'Generate audio',
       'node.quality': 'Quality',
-      'inspector.lipSync.enable': 'Enable lip sync',
-      'export.resolution': 'Resolution',
+      'generation.resolution': 'Resolution',
       'resolutionPresetGroups.policy': 'Resolution policy',
       'resolutionPresetGroups.inheritCanvas': 'Inherit Canvas',
       'resolutionPresetGroups.providerDefault': 'Provider default',
@@ -61,11 +65,35 @@ function createImageNode(): CanvasNode & { data: ImageNodeData } {
   };
 }
 
+function createVideoNode(duration = 7): CanvasNode & { data: VideoNodeData } {
+  return {
+    id: 'video-1',
+    type: 'video',
+    title: 'Video',
+    position: { x: 0, y: 0 },
+    bypassed: false,
+    locked: false,
+    createdAt: 0,
+    updatedAt: 0,
+    data: {
+      status: 'empty',
+      variants: [],
+      selectedVariantIndex: 0,
+      variantCount: 1,
+      seedLocked: false,
+      duration,
+      fps: 24,
+    } as VideoNodeData,
+  };
+}
+
 function createStore(node: CanvasNode) {
   const store = configureStore({
     reducer: {
       canvas: canvasReducer,
       settings: settingsSlice.reducer,
+      logger: loggerSlice.reducer,
+      toast: toastSlice.reducer,
     },
   });
   const canvas: Canvas = {
@@ -83,6 +111,10 @@ function createStore(node: CanvasNode) {
 }
 
 describe('InspectorGenerationState', () => {
+  beforeEach(() => {
+    vi.mocked(getAPI).mockReturnValue(undefined);
+  });
+
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
@@ -119,6 +151,52 @@ describe('InspectorGenerationState', () => {
       expect((node.data as ImageNodeData).resolutionIntent).toBeUndefined();
       expect((node.data as ImageNodeData).width).toBeUndefined();
       expect((node.data as ImageNodeData).height).toBeUndefined();
+    });
+  });
+
+  it('keeps custom video duration distinct from custom resolution', () => {
+    const selectedNode = createVideoNode();
+    const store = createStore(selectedNode);
+    render(
+      <Provider store={store}>
+        <InspectorGenerationState selectedNode={selectedNode} t={t}>
+          {({ generationBar }) => generationBar}
+        </InspectorGenerationState>
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByTitle('Expand'));
+    const durationSelect = screen
+      .getAllByRole('combobox')
+      .find((element) => element.querySelector(`option[value="${CUSTOM_DURATION_VALUE}"]`));
+    expect(durationSelect).toBeTruthy();
+    expect((durationSelect as HTMLSelectElement).value).toBe(CUSTOM_DURATION_VALUE);
+  });
+
+  it('reports video frame picker failures instead of silently ignoring them', async () => {
+    const selectedNode = createVideoNode(5);
+    const store = createStore(selectedNode);
+    const pickFile = vi.fn().mockRejectedValue(new Error('Picker failed'));
+    vi.mocked(getAPI).mockReturnValue({ assetEntry: { pickFile } } as never);
+    render(
+      <Provider store={store}>
+        <InspectorGenerationState selectedNode={selectedNode} t={t}>
+          {({ handleUploadVideoFrame }) => (
+            <button type="button" onClick={() => void handleUploadVideoFrame('first')}>
+              Upload frame
+            </button>
+          )}
+        </InspectorGenerationState>
+      </Provider>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Upload frame' }));
+    await waitFor(() => {
+      expect(store.getState().toast.items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ variant: 'error', message: 'Picker failed' }),
+        ]),
+      );
     });
   });
 });

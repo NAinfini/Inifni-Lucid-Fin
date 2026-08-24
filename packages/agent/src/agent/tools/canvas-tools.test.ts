@@ -4,6 +4,7 @@ import {
   type Canvas,
   type CanvasEdge,
   type CanvasNode,
+  type CanvasPatch,
   type PresetDefinition,
   type PresetTrackSet,
 } from '@lucid-fin/contracts';
@@ -68,6 +69,14 @@ function createCanvas(): Canvas {
   };
 }
 
+function applyCanvasPatch(canvas: Canvas, patch: CanvasPatch): void {
+  for (const update of patch.updatedNodes ?? []) {
+    const node = canvas.nodes.find((entry) => entry.id === update.id);
+    if (!node) throw new Error(`Node not found: ${update.id}`);
+    Object.assign(node, structuredClone(update.changes));
+  }
+}
+
 function createDeps(canvas: Canvas): CanvasToolDeps {
   const store = new Map<string, Canvas>([[canvas.id, canvas]]);
   return {
@@ -76,6 +85,7 @@ function createDeps(canvas: Canvas): CanvasToolDeps {
       if (!item) throw new Error(`Canvas not found: ${canvasId}`);
       return item;
     }),
+    patchCanvas: vi.fn(async (_canvasId, patch) => applyCanvasPatch(canvas, patch)),
     deleteCanvas: vi.fn(async (canvasId: string) => {
       if (!store.has(canvasId)) throw new Error(`Canvas not found: ${canvasId}`);
       store.delete(canvasId);
@@ -125,8 +135,26 @@ function createDeps(canvas: Canvas): CanvasToolDeps {
       current.updatedAt = Date.now();
     }),
     layoutNodes: vi.fn(async () => undefined),
-    triggerGeneration: vi.fn(async () => undefined),
-    cancelGeneration: vi.fn(async () => undefined),
+    prepareMediaTask: vi.fn(async (input) => ({
+      id: 'task-list-1', canvasId: input.canvasId, nodeId: input.nodeId,
+      status: 'running', taskStatus: 'awaiting_prompt_assembly', progress: 0,
+    })),
+    getMediaTask: vi.fn(async (id) => ({
+      id, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'running', taskStatus: 'awaiting_prompt_assembly', progress: 0,
+    })),
+    submitMediaPrompt: vi.fn(async (input) => ({
+      id: input.taskListId, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'running', taskStatus: 'awaiting_provider', progress: 0,
+    })),
+    cancelMediaTask: vi.fn(async (id) => ({
+      id, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'cancelled', taskStatus: 'cancelled', progress: 0,
+    })),
+    retryMediaEvaluation: vi.fn(async (id) => ({
+      id, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'running', taskStatus: 'evaluating', progress: 0,
+    })),
     deleteNode: vi.fn(async (canvasId: string, nodeId: string) => {
       const current = store.get(canvasId);
       if (!current) throw new Error(`Canvas not found: ${canvasId}`);
@@ -152,8 +180,8 @@ function createDeps(canvas: Canvas): CanvasToolDeps {
     listShotTemplates: vi.fn(async () => []),
     saveShotTemplate: vi.fn(async (t) => t),
     deleteShotTemplate: vi.fn(async () => {}),
-    importWorkflow: vi.fn(async () => canvas),
-    exportWorkflow: vi.fn(async () => '{}'),
+    importCanvasDocument: vi.fn(async () => canvas),
+    exportCanvasDocument: vi.fn(async () => '{}'),
     setNodeColorTag: vi.fn(async () => undefined),
     toggleSeedLock: vi.fn(async () => undefined),
     selectVariant: vi.fn(async () => undefined),
@@ -212,6 +240,27 @@ describe('createCanvasTools', () => {
     );
   });
 
+  it('creates reference image nodes with an explicit generation purpose', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+
+    const result = await getTool('canvas.createNodes', deps).execute({
+      canvasId: 'canvas-1',
+      nodes: [
+        {
+          type: 'image',
+          title: 'Character identity sheet',
+          generationPurpose: 'reference-image',
+        },
+      ],
+    });
+
+    expect(result.success).toBe(true);
+    expect(canvas.nodes.at(-1)?.data).toEqual(
+      expect.objectContaining({ generationPurpose: 'reference-image' }),
+    );
+  });
+
   it('updateNodes moves node position via setNodeLayout', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
@@ -226,7 +275,17 @@ describe('createCanvasTools', () => {
       success: true,
       data: { nodeId: 'text-1', updated: { position: { x: 220, y: 330 } } },
     });
-    expect(deps.moveNode).toHaveBeenCalledWith('canvas-1', 'text-1', { x: 220, y: 330 });
+    expect(deps.patchCanvas).toHaveBeenCalledWith(
+      'canvas-1',
+      expect.objectContaining({
+        updatedNodes: [
+          expect.objectContaining({
+            id: 'text-1',
+            changes: expect.objectContaining({ position: { x: 220, y: 330 } }),
+          }),
+        ],
+      }),
+    );
   });
 
   it('updateNodes renames node via title field', async () => {
@@ -243,7 +302,17 @@ describe('createCanvasTools', () => {
       success: true,
       data: { nodeId: 'text-1', updated: { title: 'Narration' } },
     });
-    expect(deps.renameNode).toHaveBeenCalledWith('canvas-1', 'text-1', 'Narration');
+    expect(deps.patchCanvas).toHaveBeenCalledWith(
+      'canvas-1',
+      expect.objectContaining({
+        updatedNodes: [
+          expect.objectContaining({
+            id: 'text-1',
+            changes: expect.objectContaining({ title: 'Narration' }),
+          }),
+        ],
+      }),
+    );
   });
 
   it('deleteCanvas removes the canvas by ID', async () => {
@@ -475,15 +544,14 @@ describe('createCanvasTools', () => {
   });
 
   describe('canvas.getNode batch support', () => {
-    it('single string ID returns single node (backward compat)', async () => {
+    it('rejects a non-array node ID payload', async () => {
       const canvas = createCanvas();
       const deps = createDeps(canvas);
       const result = await getTool('canvas.getNode', deps).execute({
         canvasId: 'canvas-1',
         nodeIds: 'text-1',
       });
-      expect(result.success).toBe(true);
-      expect((result.data as { id: string }).id).toBe('text-1');
+      expect(result).toEqual({ success: false, error: 'nodeIds must be an array of strings' });
     });
 
     it('array of IDs returns array of nodes', async () => {

@@ -5,6 +5,7 @@ import type { LocationRef } from './location.js';
 import type { NodeKind } from '../types/node-kinds.js';
 import type { ResolutionAudit, ResolutionIntent, ResolutionPolicy } from './resolution.js';
 import type { CanvasVisualStylePolicy } from './visual-style.js';
+import type { OrderedDeliverySequence } from './ordered-delivery.js';
 
 // ---------------------------------------------------------------------------
 // Canvas DTOs — shared between main and renderer
@@ -21,6 +22,8 @@ export type EdgeStatus = 'idle' | 'generating' | 'done' | 'failed';
 
 export interface GenerationHistoryEntry {
   assetHash: string;
+  /** Durable lineage for the exact Commander-authored provider prompt. */
+  promptAssemblyId?: string;
   prompt: string;
   negativePrompt?: string;
   providerId: string;
@@ -63,6 +66,8 @@ export interface TextNodeData {
 export interface ImageNodeData {
   assetHash?: string;
   status: MediaNodeStatus;
+  /** Selects the Canvas resolution policy and creative context for this image node. */
+  generationPurpose?: 'content' | 'reference-image';
   prompt?: string;
   negativePrompt?: string;
   presetTracks?: PresetTrackSet;
@@ -137,16 +142,15 @@ export interface VideoNodeData {
   lastFrameAssetHash?: string;
   audio?: boolean;
   quality?: 'standard' | 'pro';
-  lipSyncEnabled?: boolean;
   annotation?: NodeAnnotation;
   generationHistory?: GenerationHistoryEntry[];
   steps?: number;
   cfgScale?: number;
   scheduler?: string;
   img2imgStrength?: number;
-  /** Shot duration override for NLE export (seconds) */
+  /** Optional shot-duration hint used before the Delivery sequence is approved (seconds). */
   durationOverride?: number;
-  /** Scene number for NLE export ordering */
+  /** Scene number used for shot organization and approved export ordering. */
   sceneNumber?: string;
   /** Shot order within scene */
   shotOrder?: number;
@@ -297,7 +301,7 @@ export interface CanvasResolution {
  * final effective value by layering canvas fields over global defaults.
  */
 export interface CanvasSettings {
-  /** Canonical manual/pre-approval visual style. Approved workflows ignore it. */
+  /** Canonical manual/pre-approval visual style. Approved Task Lists ignore it. */
   visualStylePolicy?: CanvasVisualStylePolicy;
   /**
    * Legacy compatibility mirror for visualStylePolicy.summary. New writers
@@ -309,20 +313,19 @@ export interface CanvasSettings {
    */
   negativePrompt?: string;
   /**
-   * Default output size for ref-image generation. Per-entity factory
-   * defaults apply when unset; when set it overrides them for every
-   * character/location/equipment ref-image rendered on this canvas.
+   * Default output size for image nodes whose generationPurpose is
+   * `reference-image`. Provider defaults apply when this is unset.
    */
   refResolution?: CanvasResolution;
   /**
-   * Default publishing size for image nodes on this canvas. When unset,
-   * each image node falls back to its hardcoded factory default. Usually
+   * Default publishing size for content image nodes on this canvas. When
+   * unset, each image provider owns its native default. Usually
    * paired with a matching `aspectRatio`.
    */
   publishImageResolution?: CanvasResolution;
   /**
    * Default publishing size for video nodes on this canvas. When unset,
-   * each video node falls back to its hardcoded factory default. Kept
+   * each video provider owns its native default. Kept
    * separate from `publishImageResolution` because image and video providers
    * support different max dimensions — users may publish images at 4K but
    * videos at 1080p (Veo is the only video provider that currently supports
@@ -353,6 +356,31 @@ export interface Canvas {
   viewport: CanvasViewport;
   notes: CanvasNote[];
   settings?: CanvasSettings;
+  deliverySequence?: OrderedDeliverySequence;
+  archivedAt?: number;
   createdAt: number;
   updatedAt: number;
+}
+
+export type CanvasOperation =
+  | 'addNode'
+  | 'updateNode'
+  | 'removeNode'
+  | 'addEdge'
+  | 'updateEdge'
+  | 'removeEdge'
+  | 'renameCanvas';
+
+/** Atomic delta shared by renderer persistence and Commander canvas tools. */
+export interface CanvasPatch {
+  canvasId: string;
+  timestamp: number;
+  operations: CanvasOperation[];
+  nameChange?: string;
+  addedNodes?: CanvasNode[];
+  removedNodeIds?: string[];
+  updatedNodes?: Array<{ id: string; changes: Record<string, unknown> }>;
+  addedEdges?: CanvasEdge[];
+  removedEdgeIds?: string[];
+  updatedEdges?: Array<{ id: string; edge: CanvasEdge }>;
 }

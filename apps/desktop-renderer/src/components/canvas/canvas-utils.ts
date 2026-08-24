@@ -214,7 +214,7 @@ export function toFlowNode(
   n: CanvasNodeDTO,
   presetById: Record<string, PresetDefinition>,
   visualState: FlowVisualState,
-  allNodes: CanvasNodeDTO[] = [],
+  nodesById: ReadonlyMap<string, CanvasNodeDTO> = new Map(),
   backdropChildCounts?: Map<string, number>,
 ): Node {
   const defaultFrame = getDefaultNodeFrame(n.type);
@@ -301,10 +301,10 @@ export function toFlowNode(
       const emotionName = firstPresetNameFromCategory(presetData, 'emotion', presetById);
       const summary = [cameraName, flowName, emotionName].filter(Boolean).join(', ');
       const firstFrameNode = vd.firstFrameNodeId
-        ? allNodes.find((x) => x.id === vd.firstFrameNodeId)
+        ? nodesById.get(vd.firstFrameNodeId)
         : undefined;
       const lastFrameNode = vd.lastFrameNodeId
-        ? allNodes.find((x) => x.id === vd.lastFrameNodeId)
+        ? nodesById.get(vd.lastFrameNodeId)
         : undefined;
       const firstFrameHash =
         vd.firstFrameAssetHash ??

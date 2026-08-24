@@ -240,6 +240,18 @@ describe('canvas-node-reducers', () => {
       expect(nodes[0].position).toEqual({ x: 5, y: 5 });
       expect(nodes[1].position).toEqual({ x: 0, y: 0 });
     });
+
+    it('uses the final position when an id appears more than once', () => {
+      const state = makeState(makeCanvas({ nodes: [makeNode({ id: 'n1' })] }));
+      moveNodes(
+        state,
+        action([
+          { id: 'n1', position: { x: 5, y: 5 } },
+          { id: 'n1', position: { x: 10, y: 10 } },
+        ]),
+      );
+      expect(state.canvases.entities['canvas-1']!.nodes[0].position).toEqual({ x: 10, y: 10 });
+    });
   });
 
   describe('renameNode', () => {

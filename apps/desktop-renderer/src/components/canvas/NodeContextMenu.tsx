@@ -8,10 +8,8 @@ import {
   Clipboard,
   ClipboardCopy,
   Copy,
-  Film,
   Link2,
   Lock,
-  Pencil,
   Scissors,
   Share,
   Sparkles,
@@ -61,10 +59,6 @@ function NodeContextMenuComponent({
       <ContextMenu.Trigger className="contents">{children}</ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content className="min-w-[160px] rounded-md border border-border/60 bg-card p-0.5 text-popover-foreground shadow-lg z-50">
-          <ContextMenu.Item className={ITEM} onSelect={() => cb.onRename(nodeId)}>
-            <Pencil className="w-3.5 h-3.5" />
-            {t('contextMenu.rename')}
-          </ContextMenu.Item>
           <ContextMenu.Item className={ITEM} onSelect={() => cb.onDuplicate(nodeId)}>
             <Copy className="w-3.5 h-3.5" />
             {t('contextMenu.duplicate')}
@@ -102,12 +96,6 @@ function NodeContextMenuComponent({
             <ContextMenu.Item className={ITEM} onSelect={() => cb.onGenerate(nodeId)}>
               <Sparkles className="w-3.5 h-3.5" />
               {t('contextMenu.generate')}
-            </ContextMenu.Item>
-          )}
-          {nodeType === 'video' && (
-            <ContextMenu.Item className={ITEM} onSelect={() => cb.onCloneVideo()}>
-              <Film className="w-3.5 h-3.5" />
-              {t('canvas.cloneVideo')}
             </ContextMenu.Item>
           )}
           <ContextMenu.Item className={ITEM} onSelect={() => cb.onCopyPromptForAI(nodeId)}>

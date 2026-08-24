@@ -8,11 +8,11 @@ The canonical version matrix and upgrade policy live in [docs/TECH_STACK.md](doc
 
 ## Prerequisites
 
-| Tool         | Version    | Notes                                                   |
-| ------------ | ---------- | ------------------------------------------------------- |
-| **Node.js**  | >= 26.5.1  | Required by `engines` in `package.json`                 |
-| **pnpm**     | 11.21.0    | Canonical workspace package manager                     |
-| **Git**      | any recent | Standard version control                                |
+| Tool        | Version    | Notes                                   |
+| ----------- | ---------- | --------------------------------------- |
+| **Node.js** | >= 26.5.1  | Required by `engines` in `package.json` |
+| **pnpm**    | 11.21.0    | Canonical workspace package manager     |
+| **Git**     | any recent | Standard version control                |
 
 ### Platform-specific requirements
 
@@ -65,11 +65,11 @@ lucid-fin/
     contracts-parse/       # Zod schemas for runtime validation of contracts
     shared-utils/          # Pure utility functions shared across layers
     domain/                # Domain models and business logic
-    application/           # Application services (orchestrator, tools, workflows)
+    application/           # Application services (orchestrator, tools, task execution)
     storage/               # SQLite persistence (better-sqlite3) + keytar secrets
     adapters-ai/           # AI provider adapters (LLM, vision, TTS, image-gen)
     media-engine/          # FFmpeg-based video/audio processing
-    workflows/             # Persisted production workflow execution
+    task-execution/        # Persisted production Task List execution
     agent/                 # Commander planning, tools, grading, and repair loop
   scripts/                 # Repo-level tooling (codegen, lint checks, coverage ratchet)
   evals/                   # Commander evaluation harness (not linted)
@@ -85,7 +85,7 @@ contracts  (type-only, no deps)
   +-- adapters-ai      (+ zod)
   +-- media-engine
   +-- storage           (+ better-sqlite3, zod)
-        +-- workflows
+        +-- task-execution
               +-- agent
                     +-- application (+ zod; also uses storage, adapters-ai, shared-utils)
 
@@ -97,7 +97,7 @@ desktop-renderer --> contracts only (no zod in renderer bundle)
 
 ---
 
-## Development Workflow
+## Development process
 
 ### Branch naming
 

@@ -1,14 +1,14 @@
-import type { WorkflowEngine } from '@lucid-fin/application';
+import type { TaskExecutionEngine } from '@lucid-fin/application';
 
-type ContextRecoveryReport = Parameters<WorkflowEngine['reportContextRecovery']>[0];
+type ContextRecoveryReport = Parameters<TaskExecutionEngine['reportContextRecovery']>[0];
 
 export function createCommanderRunWiring(
-  args: { canvasId: string; sessionId?: string },
-  workflowEngine: Pick<WorkflowEngine, 'reportContextRecovery'>,
+  args: { defaultCanvasId?: string; sessionId: string },
+  taskExecutionEngine: Pick<TaskExecutionEngine, 'reportContextRecovery'>,
 ) {
   return {
-    toolSessionId: args.sessionId ?? args.canvasId,
+    toolSessionId: args.sessionId,
     onContextRecoveryReport: (report: ContextRecoveryReport) =>
-      workflowEngine.reportContextRecovery(report),
+      taskExecutionEngine.reportContextRecovery(report),
   };
 }

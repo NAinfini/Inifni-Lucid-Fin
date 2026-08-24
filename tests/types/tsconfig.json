@@ -9,5 +9,8 @@
     "sourceMap": false,
     "types": ["node"]
   },
-  "include": ["./*.type-test.ts", "../../packages/contracts/src/workflow-projections.typecheck.ts"]
+  "include": [
+    "./*.type-test.ts",
+    "../../packages/contracts/src/task-execution-projections.typecheck.ts"
+  ]
 }

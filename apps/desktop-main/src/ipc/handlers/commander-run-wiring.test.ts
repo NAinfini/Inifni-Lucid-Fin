@@ -8,11 +8,11 @@ describe('createCommanderRunWiring', () => {
       consecutiveFailures: 1,
       changed: true,
     }));
-    const wiring = createCommanderRunWiring({ canvasId: 'canvas-1', sessionId: 'session-7' }, {
+    const wiring = createCommanderRunWiring({ defaultCanvasId: 'canvas-1', sessionId: 'session-7' }, {
       reportContextRecovery,
     } as never);
     const report = {
-      workflowRunId: 'workflow-context-1',
+      taskListId: 'task-list-context-1',
       outcome: 'failed' as const,
       reason: 'compaction_failed',
     };
@@ -24,11 +24,11 @@ describe('createCommanderRunWiring', () => {
     expect(reportContextRecovery).toHaveBeenCalledWith(report);
   });
 
-  it('falls back to the canvas id when no persisted session exists', () => {
-    const wiring = createCommanderRunWiring({ canvasId: 'canvas-1' }, {
+  it('never derives the tool session id from the default Canvas', () => {
+    const wiring = createCommanderRunWiring({ defaultCanvasId: 'canvas-1', sessionId: 'session-9' }, {
       reportContextRecovery: vi.fn(),
     } as never);
 
-    expect(wiring.toolSessionId).toBe('canvas-1');
+    expect(wiring.toolSessionId).toBe('session-9');
   });
 });

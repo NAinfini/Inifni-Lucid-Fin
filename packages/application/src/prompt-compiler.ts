@@ -5,7 +5,6 @@ import type {
   PresetDefinition,
   PresetTrackEntry,
   CameraDirection,
-  CharacterRef,
   Equipment,
   Location,
   PresetPromptParamDef,
@@ -105,8 +104,8 @@ interface SynergyRule {
 
 const SYNERGY_PAIRS: SynergyRule[] = [
   {
-    presetA: 'scene:fog',
-    presetB: 'lens:telephoto',
+    presetA: 'scene:fog-heavy',
+    presetB: 'lens:telephoto-135mm',
     bonus: 'atmospheric depth compression through fog layers',
   },
   {
@@ -115,13 +114,13 @@ const SYNERGY_PAIRS: SynergyRule[] = [
     bonus: 'warm golden rim light with cinematic color separation',
   },
   {
-    presetA: 'scene:rain',
+    presetA: 'scene:rain-heavy',
     presetB: 'scene:neon-noir',
     bonus: 'neon reflections scattered across wet surfaces',
   },
   {
     presetA: 'camera:dolly-in',
-    presetB: 'emotion:tension',
+    presetB: 'emotion:tense',
     bonus: 'building tension through approaching perspective',
   },
   {
@@ -130,18 +129,18 @@ const SYNERGY_PAIRS: SynergyRule[] = [
     bonus: 'deep shadow detail with filmic highlight rolloff',
   },
   {
-    presetA: 'lens:ultra-wide',
-    presetB: 'scene:fog',
+    presetA: 'lens:ultra-wide-14mm',
+    presetB: 'scene:fog-heavy',
     bonus: 'exaggerated atmospheric perspective with depth fog',
   },
   {
-    presetA: 'camera:orbit',
-    presetB: 'flow:smooth',
+    presetA: 'camera:orbit-cw',
+    presetB: 'flow:measured',
     bonus: 'fluid continuous reveal around subject',
   },
   {
-    presetA: 'scene:snow',
-    presetB: 'scene:moonlit-night',
+    presetA: 'scene:snow-gentle',
+    presetB: 'scene:moonlit',
     bonus: 'moonlit snow with blue-white ambient glow',
   },
   {
@@ -151,7 +150,7 @@ const SYNERGY_PAIRS: SynergyRule[] = [
   },
   {
     presetA: 'camera:static-hold',
-    presetB: 'emotion:calm',
+    presetB: 'emotion:reflective',
     bonus: 'contemplative stillness with grounded composition',
   },
   {
@@ -160,8 +159,8 @@ const SYNERGY_PAIRS: SynergyRule[] = [
     bonus: 'bright cel-shaded fill with clean line contrast',
   },
   {
-    presetA: 'camera:handheld',
-    presetB: 'emotion:anxiety',
+    presetA: 'camera:handheld-shake',
+    presetB: 'emotion:tense',
     bonus: 'uneasy handheld shake amplifying nervous energy',
   },
 ];
@@ -180,9 +179,25 @@ function detectSynergies(activePresetIds: Set<string>): string[] {
 
 function matchPresetPattern(pattern: string, activeIds: Set<string>): boolean {
   for (const id of activeIds) {
-    if (id === pattern || id.startsWith(pattern + '-') || id.startsWith(pattern + ':')) return true;
+    const semanticId = toSemanticPresetId(id);
+    if (
+      semanticId === pattern ||
+      semanticId.startsWith(pattern + '-') ||
+      semanticId.startsWith(pattern + ':')
+    ) {
+      return true;
+    }
   }
   return false;
+}
+
+function toSemanticPresetId(id: string): string {
+  if (!id.startsWith('builtin-')) return id;
+  const withoutPrefix = id.slice('builtin-'.length);
+  const category = PRESET_STACK_ORDER.find((candidate) =>
+    withoutPrefix.startsWith(candidate + '-'),
+  );
+  return category ? `${category}:${withoutPrefix.slice(category.length + 1)}` : id;
 }
 
 // ---------------------------------------------------------------------------
@@ -336,13 +351,6 @@ const I2V_APPEARANCE_KEYWORDS = [
 // Intensity helpers
 // ---------------------------------------------------------------------------
 
-function intensityWord(pct: number): string {
-  if (pct <= 25) return 'subtle';
-  if (pct <= 50) return 'gentle';
-  if (pct <= 75) return 'pronounced';
-  return 'dramatic intense';
-}
-
 const DIRECTION_PHRASES: Record<CameraDirection, string> = {
   front: 'from the front',
   back: 'from behind',
@@ -360,7 +368,7 @@ const DIRECTION_PHRASES: Record<CameraDirection, string> = {
   profile: 'from profile angle',
 };
 
-function computeEffectiveIntensity(
+export function computeEffectiveIntensity(
   trackIntensity: number | undefined,
   entryIntensity: number | undefined,
 ): number {
@@ -455,7 +463,26 @@ export function resolvePromptTemplate(
 ): string {
   let result = template;
   for (const def of paramDefs) {
-    const value = paramValues[def.key] ?? def.default;
+    const supplied = paramValues[def.key];
+    let value = supplied ?? def.default;
+    if (def.type === 'select') {
+      value =
+        typeof value === 'string' && (!def.options?.length || def.options.includes(value))
+          ? value
+          : def.default;
+    } else {
+      const numeric = typeof value === 'number' ? value : Number(value);
+      const fallback = typeof def.default === 'number' ? def.default : Number(def.default);
+      value = Number.isFinite(numeric) ? numeric : fallback;
+      if (typeof value === 'number') {
+        const min = def.type === 'intensity' ? 0 : def.min;
+        const max = def.type === 'intensity' ? 100 : def.max;
+        let boundedValue = value;
+        if (typeof min === 'number') boundedValue = Math.max(min, boundedValue);
+        if (typeof max === 'number') boundedValue = Math.min(max, boundedValue);
+        value = boundedValue;
+      }
+    }
     let phrase: string;
     if (def.type === 'intensity' && def.levels) {
       const numVal = typeof value === 'number' ? value : Number(value) || 0;
@@ -475,13 +502,28 @@ export function resolvePromptTemplate(
   return result;
 }
 
+function hasExplicitPromptOverride(preset: PresetDefinition | undefined): boolean {
+  if (!preset?.modified || !preset.defaultPrompt) return false;
+  return preset.prompt.trim() !== preset.defaultPrompt.trim();
+}
+
 function resolveEntryPrompt(
   entry: PresetTrackEntry,
   presetMap: Record<string, PresetDefinition>,
 ): string {
   const presetA = presetMap[entry.presetId];
 
-  // v2: try promptTemplate + promptParamDefs first
+  if (hasExplicitPromptOverride(presetA)) {
+    const promptA = readPromptFragment(presetA);
+    if (!entry.blend) return promptA;
+    const presetB = presetMap[entry.blend.presetIdB];
+    const promptB = hasExplicitPromptOverride(presetB)
+      ? readPromptFragment(presetB)
+      : resolvePresetPrompt(presetB, entry.blend.paramsB);
+    return blendPromptFragments(promptA, promptB, entry.blend.factor);
+  }
+
+  // Resolve parameterized prompt templates before using the static prompt.
   if (presetA?.promptTemplate && presetA.promptParamDefs?.length) {
     const paramValues = { ...presetA.defaults, ...entry.params } as Record<string, unknown>;
     const promptA = resolvePromptTemplate(
@@ -492,20 +534,14 @@ function resolveEntryPrompt(
 
     if (entry.blend) {
       const presetB = presetMap[entry.blend.presetIdB];
-      const promptB =
-        presetB?.promptTemplate && presetB.promptParamDefs?.length
-          ? resolvePromptTemplate(presetB.promptTemplate, presetB.promptParamDefs, {
-              ...presetB.defaults,
-              ...entry.blend.paramsB,
-            } as Record<string, unknown>)
-          : readPromptFragment(presetB);
+      const promptB = resolvePresetPrompt(presetB, entry.blend.paramsB);
       return blendPromptFragments(promptA, promptB, entry.blend.factor);
     }
 
     return promptA;
   }
 
-  // v1 fallback: use prompt/promptFragment
+  // Fall back to the static prompt when no template is defined.
   const promptA = readPromptFragment(presetA);
   if (entry.blend) {
     const presetB = presetMap[entry.blend.presetIdB];
@@ -513,6 +549,20 @@ function resolveEntryPrompt(
     return blendPromptFragments(promptA, promptB, entry.blend.factor);
   }
   return promptA;
+}
+
+function resolvePresetPrompt(
+  preset: PresetDefinition | undefined,
+  params: PresetParamMap | undefined,
+): string {
+  if (hasExplicitPromptOverride(preset)) return readPromptFragment(preset);
+  if (preset?.promptTemplate && preset.promptParamDefs?.length) {
+    return resolvePromptTemplate(preset.promptTemplate, preset.promptParamDefs, {
+      ...preset.defaults,
+      ...params,
+    });
+  }
+  return readPromptFragment(preset);
 }
 
 function readPresetNegativePrompt(preset: PresetDefinition | undefined): string | undefined {
@@ -594,13 +644,32 @@ function mergeParams(target: Record<string, unknown>, input?: Record<string, unk
   }
 }
 
-function getEntryParams(entry: PresetTrackEntry): Record<string, unknown> {
+function getEntryParams(
+  entry: PresetTrackEntry,
+  presetA?: PresetDefinition,
+  presetB?: PresetDefinition,
+): Record<string, unknown> {
   const params: Record<string, unknown> = {};
   mergeParams(params, entry.params as Record<string, unknown>);
   if (entry.blend?.paramsB) {
     mergeParams(params, entry.blend.paramsB as Record<string, unknown>);
   }
+  const promptOnlyKeys = new Set([
+    'intensity',
+    'negativePrompt',
+    ...(presetA?.promptParamDefs?.map((param) => param.key) ?? []),
+    ...(presetB?.promptParamDefs?.map((param) => param.key) ?? []),
+  ]);
+  for (const key of promptOnlyKeys) delete params[key];
   return params;
+}
+
+function getPresetAdapterDefaults(preset: PresetDefinition | undefined): Record<string, unknown> {
+  const defaults = { ...(preset?.defaultParams ?? {}) } as Record<string, unknown>;
+  delete defaults.intensity;
+  delete defaults.negativePrompt;
+  for (const param of preset?.promptParamDefs ?? []) delete defaults[param.key];
+  return defaults;
 }
 
 function collectReferenceImages(input: PromptCompilerInput): string[] {
@@ -797,9 +866,16 @@ function applyIntensityAndDirection(
   direction: CameraDirection | undefined,
 ): string {
   if (!fragment) return '';
-  const word = intensityWord(effectiveIntensity);
-  const dirPhrase = direction ? ` ${DIRECTION_PHRASES[direction]}` : '';
-  return `${word} ${fragment}${dirPhrase} (${effectiveIntensity}%)`;
+  const dirPhrase = direction ? `, ${DIRECTION_PHRASES[direction]}` : '';
+  const emphasis =
+    effectiveIntensity >= 90
+      ? ''
+      : effectiveIntensity >= 65
+        ? ', with strong emphasis'
+        : effectiveIntensity >= 35
+          ? ', with moderate emphasis'
+          : ', as a subtle influence';
+  return `${fragment}${dirPhrase}${emphasis}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1197,8 +1273,8 @@ function applyStyleGuideDefaults(
 
   // Map artStyle → look preset (if look track is empty)
   if (styleGuide.artStyle && !result.look.entries.length) {
-    const lookId = `look:${styleGuide.artStyle}`;
-    if (presetMap[lookId]) {
+    const lookId = findPresetIdByName('look', styleGuide.artStyle, presetMap);
+    if (lookId) {
       result.look = {
         ...result.look,
         entries: [
@@ -1218,15 +1294,16 @@ function applyStyleGuideDefaults(
   if (styleGuide.lighting && !result.scene.entries.length) {
     const lightingMap: Record<string, string> = {
       natural: '',
-      studio: 'scene:high-key',
-      dramatic: 'scene:low-key',
-      neon: 'scene:neon-noir',
-      rim: 'scene:rim-light',
-      'golden-hour': 'scene:golden-hour',
-      moonlit: 'scene:moonlit-night',
+      studio: 'high-key',
+      dramatic: 'low-key',
+      neon: 'neon-noir',
+      rim: 'rim-light',
+      'golden-hour': 'golden-hour',
+      moonlit: 'moonlit',
     };
-    const sceneId = lightingMap[styleGuide.lighting];
-    if (sceneId && presetMap[sceneId]) {
+    const sceneName = lightingMap[styleGuide.lighting];
+    const sceneId = sceneName ? findPresetIdByName('scene', sceneName, presetMap) : undefined;
+    if (sceneId) {
       result.scene = {
         ...result.scene,
         entries: [
@@ -1244,8 +1321,8 @@ function applyStyleGuideDefaults(
 
   // Map colorPalette → look preset (append if look track exists, else set)
   if (styleGuide.colorPalette) {
-    const colorId = `look:${styleGuide.colorPalette}`;
-    if (presetMap[colorId] && !result.look.entries.some((e) => e.presetId === colorId)) {
+    const colorId = findPresetIdByName('look', styleGuide.colorPalette, presetMap);
+    if (colorId && !result.look.entries.some((e) => e.presetId === colorId)) {
       result.look = {
         ...result.look,
         entries: [
@@ -1263,6 +1340,28 @@ function applyStyleGuideDefaults(
   }
 
   return result;
+}
+
+function findPresetIdByName(
+  category: PresetCategory,
+  rawName: string,
+  presetMap: Record<string, PresetDefinition>,
+): string | undefined {
+  const normalized = rawName
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-');
+  if (!normalized) return undefined;
+  const matches = Object.values(presetMap).filter((preset) => {
+    if (preset.category !== category) return false;
+    const semanticName = toSemanticPresetId(preset.id).split(':')[1];
+    const displayName = preset.name
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, '-');
+    return semanticName === normalized || displayName === normalized;
+  });
+  return matches.length === 1 ? matches[0].id : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -1291,9 +1390,15 @@ function compileVoice(input: PromptCompilerInput): CompiledPrompt {
   if (voiceTrack?.entries?.length) {
     for (const entry of voiceTrack.entries) {
       if (entry.enabled === false) continue;
+      const effective = computeEffectiveIntensity(voiceTrack.intensity, entry.intensity);
+      if (effective < 10) continue;
       const fragment = resolveEntryPrompt(entry, presetMap);
       if (fragment) {
-        segments.push({ source: `preset:${entry.presetId}`, text: fragment, trimmed: false });
+        segments.push({
+          source: `preset:${entry.presetId}`,
+          text: applyIntensityAndDirection(fragment, effective, entry.direction),
+          trimmed: false,
+        });
       }
     }
   }
@@ -1338,9 +1443,15 @@ function compileMusic(input: PromptCompilerInput): CompiledPrompt {
   if (genreTrack?.entries?.length) {
     for (const entry of genreTrack.entries) {
       if (entry.enabled === false) continue;
+      const effective = computeEffectiveIntensity(genreTrack.intensity, entry.intensity);
+      if (effective < 10) continue;
       const fragment = resolveEntryPrompt(entry, presetMap);
       if (fragment) {
-        segments.push({ source: `preset:${entry.presetId}`, text: fragment, trimmed: false });
+        segments.push({
+          source: `preset:${entry.presetId}`,
+          text: applyIntensityAndDirection(fragment, effective, entry.direction),
+          trimmed: false,
+        });
       }
     }
   }
@@ -1423,9 +1534,15 @@ function compileSfx(input: PromptCompilerInput): CompiledPrompt {
   if (sfxTrack?.entries?.length) {
     for (const entry of sfxTrack.entries) {
       if (entry.enabled === false) continue;
+      const effective = computeEffectiveIntensity(sfxTrack.intensity, entry.intensity);
+      if (effective < 10) continue;
       const fragment = resolveEntryPrompt(entry, presetMap);
       if (fragment) {
-        segments.push({ source: `preset:${entry.presetId}`, text: fragment, trimmed: false });
+        segments.push({
+          source: `preset:${entry.presetId}`,
+          text: applyIntensityAndDirection(fragment, effective, entry.direction),
+          trimmed: false,
+        });
       }
     }
   }
@@ -1693,6 +1810,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   const trackedSegments: PromptSegment[] = [];
   const negativeSegments: string[] = [];
   const adapterParams: Record<string, unknown> = {};
+  const presetDiagnostics: PromptDiagnostic[] = [];
   const referenceImages = collectReferenceImages(input);
   // Static-appearance clauses detected in image-to-video mode. Collected for an
   // advisory diagnostic only — the prompt text is forwarded verbatim, never
@@ -1791,15 +1909,44 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   );
   {
     for (const category of PRESET_STACK_ORDER) {
+      const track = effectivePresetTracks?.[category];
+      if (!track || !track.entries || track.entries.length === 0) continue;
+      const activeEntries = track.entries.filter((entry) => entry.enabled !== false);
+      const missingPresetIds = new Set<string>();
+      for (const entry of activeEntries) {
+        if (!presetMap[entry.presetId]) missingPresetIds.add(entry.presetId);
+        if (entry.blend && !presetMap[entry.blend.presetIdB]) {
+          missingPresetIds.add(entry.blend.presetIdB);
+        }
+      }
+      if (missingPresetIds.size > 0) {
+        presetDiagnostics.push({
+          type: 'missing-preset',
+          severity: 'warning',
+          message: `Preset track "${category}" references missing preset(s): ${Array.from(missingPresetIds).join(', ')}`,
+          source: category,
+        });
+      }
+
       if (input.mode === 'image-to-video' && !I2V_ALLOWED_CATEGORIES.has(category)) {
+        const resolvedIds = activeEntries
+          .map((entry) => entry.presetId)
+          .filter((presetId) => Boolean(presetMap[presetId]));
+        if (resolvedIds.length > 0) {
+          presetDiagnostics.push({
+            type: 'mode-exclusion',
+            severity: 'info',
+            message: `Image-to-video preserves source appearance, so ${category} preset(s) were not re-applied: ${resolvedIds.join(', ')}`,
+            source: category,
+          });
+        }
         continue;
       }
 
-      const track = effectivePresetTracks?.[category];
-      if (!track || !track.entries || track.entries.length === 0) continue;
-
-      const withIntensity = track.entries
-        .filter((entry) => entry.enabled !== false && !suppressedEarly.has(entry.presetId))
+      const withIntensity = activeEntries
+        .filter(
+          (entry) => Boolean(presetMap[entry.presetId]) && !suppressedEarly.has(entry.presetId),
+        )
         .map((entry) => ({
           entry,
           effective: computeEffectiveIntensity(track.intensity, entry.intensity),
@@ -1818,8 +1965,9 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
         }
 
         const preset = presetMap[entry.presetId];
-        mergeParams(adapterParams, preset?.defaultParams as Record<string, unknown> | undefined);
-        mergeParams(adapterParams, getEntryParams(entry));
+        const blendPreset = entry.blend ? presetMap[entry.blend.presetIdB] : undefined;
+        mergeParams(adapterParams, getPresetAdapterDefaults(preset));
+        mergeParams(adapterParams, getEntryParams(entry, preset, blendPreset));
       }
     }
   }
@@ -1828,10 +1976,17 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   {
     const activePresetIds = new Set<string>();
     for (const category of PRESET_STACK_ORDER) {
+      if (input.mode === 'image-to-video' && !I2V_ALLOWED_CATEGORIES.has(category)) continue;
       const track = effectivePresetTracks?.[category];
       if (!track?.entries) continue;
       for (const entry of track.entries) {
-        if (entry.enabled !== false) activePresetIds.add(entry.presetId);
+        if (
+          entry.enabled !== false &&
+          presetMap[entry.presetId] &&
+          !suppressedEarly.has(entry.presetId)
+        ) {
+          activePresetIds.add(entry.presetId);
+        }
       }
     }
     const synergies = detectSynergies(activePresetIds);
@@ -1850,6 +2005,8 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
       const track = effectivePresetTracks?.[category];
       if (!track || !track.entries) continue;
       for (const entry of track.entries) {
+        if (entry.enabled === false || suppressedEarly.has(entry.presetId)) continue;
+        if (input.mode === 'image-to-video' && !I2V_ALLOWED_CATEGORIES.has(category)) continue;
         const preset = presetMap[entry.presetId];
         const neg = readPresetNegativePrompt(preset);
         if (neg) {
@@ -1881,7 +2038,7 @@ export function compilePrompt(input: PromptCompilerInput): CompiledPrompt {
   }
 
   // 6. Assemble final prompt
-  const diagnostics: PromptDiagnostic[] = [];
+  const diagnostics: PromptDiagnostic[] = [...presetDiagnostics];
 
   // Always pass negative prompt through
   const negativePrompt = Array.from(new Set(negativeSegments)).join(', ') || undefined;

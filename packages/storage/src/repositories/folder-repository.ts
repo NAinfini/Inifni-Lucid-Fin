@@ -28,13 +28,13 @@ const FOLDER_TABLE: Record<FolderKind, string> = {
 /**
  * Entity table + PK column whose `folder_id` column references
  * the corresponding folder table. Used when cascading folder deletes.
- * Assets use `hash` as PK, the other three use `id`.
+ * Asset folders own logical library entries, not CAS content rows.
  */
 const ENTITY_TABLE: Record<FolderKind, { table: string; idCol: string }> = {
   character: { table: 'characters', idCol: 'id' },
   equipment: { table: 'equipment', idCol: 'id' },
   location: { table: 'locations', idCol: 'id' },
-  asset: { table: 'assets', idCol: 'hash' },
+  asset: { table: 'asset_entries', idCol: 'id' },
 };
 
 export class FolderCycleError extends Error {
@@ -216,21 +216,21 @@ export class FolderRepository {
     void idCol;
   }
 
-  /**
-   * Return all folder ids in the subtree rooted at `rootId` (inclusive).
-   * Uses iterative BFS off the repository — fine for human-scale trees.
-   */
+  /** Return all folder ids in the subtree rooted at `rootId` (inclusive). */
   private collectDescendantIds(kind: FolderKind, rootId: string): string[] {
     const table = FOLDER_TABLE[kind];
-    const out: string[] = [];
-    const queue: string[] = [rootId];
-    const stmt = this.db.prepare(`SELECT id FROM ${table} WHERE parent_id = ?`);
-    while (queue.length > 0) {
-      const cur = queue.shift() as string;
-      out.push(cur);
-      const children = stmt.all(cur) as Array<{ id: string }>;
-      for (const c of children) queue.push(c.id);
-    }
-    return out;
+    const rows = this.db
+      .prepare(
+        `WITH RECURSIVE descendants(id) AS (
+           SELECT id FROM ${table} WHERE id = ?
+           UNION
+           SELECT child.id
+             FROM ${table} child
+             JOIN descendants parent ON child.parent_id = parent.id
+         )
+         SELECT id FROM descendants`,
+      )
+      .all(rootId) as Array<{ id: string }>;
+    return rows.map(({ id }) => id);
   }
 }

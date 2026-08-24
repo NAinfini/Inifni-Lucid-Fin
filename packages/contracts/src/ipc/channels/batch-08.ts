@@ -1,19 +1,13 @@
 /**
- * Pure type shapes for Batch 8 — canvas generation (invoke) + preset.
+ * Pure type shapes for Batch 8 — preset.
  *
  * No zod, no runtime. Re-uses the canonical preset DTOs from
  * `../../dto/presets/core.ts` as the single source of truth, rather than
  * redefining the shapes here.
  *
- * Scope (8 invoke channels):
- *  - canvas:generate, canvas:cancelGeneration
+ * Scope (6 invoke channels):
  *  - preset:list, preset:save, preset:delete, preset:reset,
  *    preset:import, preset:export
- *
- * `canvas:generation:*` push events emitted from the generation handler flow
- * through the `job:*` push channels defined in Batch 5 and are NOT declared
- * here. Other canvas:* push channels do not exist (verified via
- * `webContents.send('canvas:generation:')` — zero hits).
  */
 import type {
   PresetCategory,
@@ -27,28 +21,6 @@ import type {
 // `PresetResetRequest` from the channel barrel alongside the request/response
 // aliases defined below.
 export type { PresetResetRequest } from '../../dto/presets/core.js';
-
-// ── canvas:generate (invoke) ────────────────────────────────
-export interface CanvasGenerateRequest {
-  canvasId: string;
-  nodeId: string;
-  providerId?: string;
-  providerConfig?: {
-    baseUrl: string;
-    model: string;
-    apiKey?: string;
-  };
-  variantCount?: number;
-  seed?: number;
-}
-export type CanvasGenerateResponse = void;
-
-// ── canvas:cancelGeneration (invoke) ────────────────────────
-export interface CanvasCancelGenerationRequest {
-  canvasId: string;
-  nodeId: string;
-}
-export type CanvasCancelGenerationResponse = void;
 
 // ── preset:list (invoke) ────────────────────────────────────
 export interface PresetListRequest {

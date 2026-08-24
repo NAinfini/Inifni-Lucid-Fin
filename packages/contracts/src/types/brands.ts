@@ -28,25 +28,22 @@ export type ProviderId = string & { readonly __brand: 'ProviderId' };
 export type AdapterId = string & { readonly __brand: 'AdapterId' };
 
 // ── Job & Session ──────────────────────────────────────────────
-export type JobId = string & { readonly __brand: 'JobId' };
 export type SessionId = string & { readonly __brand: 'SessionId' };
 
-// ── Workflow ───────────────────────────────────────────────────
-export type WorkflowRunId = string & { readonly __brand: 'WorkflowRunId' };
-export type WorkflowStageId = string & { readonly __brand: 'WorkflowStageId' };
-export type WorkflowTaskId = string & { readonly __brand: 'WorkflowTaskId' };
+// ── Durable task execution ─────────────────────────────────────
+export type TaskListId = string & { readonly __brand: 'TaskListId' };
+export type TaskId = string & { readonly __brand: 'TaskId' };
 
 // ── Storage ────────────────────────────────────────────────────
 export type SnapshotId = string & { readonly __brand: 'SnapshotId' };
 export type AssetHash = string & { readonly __brand: 'AssetHash' };
+export type AssetEntryId = string & { readonly __brand: 'AssetEntryId' };
 
 // ── Content ────────────────────────────────────────────────────
 export type PresetId = string & { readonly __brand: 'PresetId' };
 export type ShotTemplateId = string & { readonly __brand: 'ShotTemplateId' };
 export type ProcessPromptKey = string & { readonly __brand: 'ProcessPromptKey' };
 export type PromptCode = string & { readonly __brand: 'PromptCode' };
-export type SeriesId = string & { readonly __brand: 'SeriesId' };
-export type EpisodeId = string & { readonly __brand: 'EpisodeId' };
 
 // ── IPC (Phase B will replace the existing IpcChannel type alias) ───
 // These brands are declared here but NOT re-exported from the barrel

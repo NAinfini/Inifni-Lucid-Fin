@@ -4,12 +4,14 @@ import { addLog } from '../slices/logger.js';
 import { t } from '../../i18n.js';
 import { enqueueToast } from '../slices/toast.js';
 import type { RootState } from '../index.js';
-import type { Canvas } from '@lucid-fin/contracts';
+import type { Canvas, OrderedDeliverySequence } from '@lucid-fin/contracts';
 import { diffCanvas, shouldUsePatch } from './canvas-differ.js';
 import { buildSparseSettings } from '../slices/settings.js';
 import { withRetry } from '../../utils/ipc-retry.js';
-// eslint-disable-next-line no-restricted-imports -- Phase C (LRUCache relocation to shared-utils) will fix this
-import { LRUCache } from '@lucid-fin/application/dist/lru-cache.js';
+import { LRUCache } from '@lucid-fin/shared-utils';
+import { synchronizeDeliverySequenceRevision } from '../slices/canvas/canvas.js';
+import { DeliveryPersistenceController } from './delivery-persistence.js';
+import { flushPendingCommanderSessionSaves } from './commander-session-persistence.js';
 
 // Canvas actions that are UI-only or transient and should NOT trigger a persist save.
 // Every canvas/ action NOT in this set automatically persists — this prevents future
@@ -18,6 +20,8 @@ const CANVAS_NO_PERSIST = new Set([
   'canvas/setCanvases',
   'canvas/addCanvas',
   'canvas/removeCanvas',
+  'canvas/archiveCanvas',
+  'canvas/restoreCanvas',
   'canvas/setActiveCanvas',
   'canvas/setSelection',
   'canvas/clearSelection',
@@ -31,13 +35,31 @@ const CANVAS_NO_PERSIST = new Set([
   'canvas/setNodeGenerationFailed',
   'canvas/clearNodeGenerationStatus',
   'canvas/restore',
+  'canvas/addDeliveryItem',
+  'canvas/replaceDeliveryItem',
+  'canvas/reorderDeliveryItem',
+  'canvas/trimDeliveryItem',
+  'canvas/setDeliveryEmbeddedAudio',
+  'canvas/removeDeliveryItems',
+  'canvas/synchronizeDeliverySequenceRevision',
+]);
+
+const DELIVERY_MUTATION_ACTIONS = new Set([
+  'canvas/addDeliveryItem',
+  'canvas/replaceDeliveryItem',
+  'canvas/reorderDeliveryItem',
+  'canvas/trimDeliveryItem',
+  'canvas/setDeliveryEmbeddedAudio',
+  'canvas/removeDeliveryItems',
 ]);
 
 const DEBOUNCE_MS = 500;
 
 let canvasTimer: ReturnType<typeof setTimeout> | null = null;
 let settingsTimer: ReturnType<typeof setTimeout> | null = null;
-let flushPendingSettingsSaveRunner: (() => void) | null = null;
+let pendingSettingsSaveRunner: (() => Promise<void>) | null = null;
+let drainSettingsSaves: (() => Promise<void>) | null = null;
+let settingsSaveInFlight: Promise<void> | null = null;
 // Guard: don't persist settings until the initial SQL restore has run.
 // Without this, early settings/* actions (usage tracking, daily active, etc.)
 // would save default/empty provider state over the restored app settings.
@@ -55,23 +77,23 @@ let settingsRestoredFromDisk = false;
  * pending save.
  */
 let isInteracting = false;
-let pendingSave = false;
-let flushPendingSave: (() => void) | null = null;
+const pendingCanvasSnapshots = new Map<string, Canvas>();
+let drainCanvasSaves: (() => Promise<void>) | null = null;
 let interactionTimeout: ReturnType<typeof setTimeout> | null = null;
 const INTERACTION_SAFETY_MS = 10_000;
 
 /** Timestamp of the last successful canvas save. StatusBar reads this. */
 let lastCanvasSavedAt = 0;
-/** Whether there are unsaved canvas changes pending. */
-let hasPendingChanges = false;
-/** Mutex: when a save IPC is in-flight, further flushes queue behind it. */
-let saveInFlight: Promise<void> | null = null;
-let saveQueuedAfterFlight = false;
+let canvasSaveInFlight: Promise<void> | null = null;
 
 export function getCanvasSaveStatus(): { lastSavedAt: number; pending: boolean } {
   return {
     lastSavedAt: lastCanvasSavedAt,
-    pending: hasPendingChanges || pendingSave || canvasTimer !== null,
+    pending:
+      pendingCanvasSnapshots.size > 0 ||
+      canvasSaveInFlight !== null ||
+      canvasTimer !== null ||
+      [...deliveryPersistenceControllers.values()].some((controller) => controller.isPending),
   };
 }
 
@@ -86,20 +108,16 @@ export function setCanvasInteracting(value: boolean): void {
       interactionTimeout = null;
       if (isInteracting) {
         isInteracting = false;
-        if (pendingSave && flushPendingSave) {
-          pendingSave = false;
-          flushPendingSave();
-        }
+        if (pendingCanvasSnapshots.size > 0) void drainCanvasSaves?.();
       }
     }, INTERACTION_SAFETY_MS);
-  } else if (pendingSave && flushPendingSave) {
-    pendingSave = false;
-    flushPendingSave();
+  } else if (pendingCanvasSnapshots.size > 0) {
+    void drainCanvasSaves?.();
   }
 }
 
 /**
- * Cancel any debounced canvas save and run it synchronously now. Used by
+ * Cancel any debounced canvas save and start it immediately. Used by
  * the Commander before sending a user message — we need the main-process
  * canvas cache to reflect the very latest Redux state so `canvas.getInfo`
  * and friends don't read stale data the user already sees on screen.
@@ -110,12 +128,17 @@ export function flushPendingCanvasSave(): boolean {
     clearTimeout(canvasTimer);
     canvasTimer = null;
   }
-  if (!flushPendingSave) return false;
-  const run = flushPendingSave;
-  // Clear flushPendingSave so a later interaction-end flush doesn't double-run.
-  flushPendingSave = null;
-  pendingSave = false;
-  run();
+  if (pendingCanvasSnapshots.size === 0) return false;
+  void drainCanvasSaves?.();
+  return true;
+}
+
+export function flushPendingDeliverySave(): boolean {
+  const pending = [...deliveryPersistenceControllers.values()].filter(
+    (controller) => controller.isPending,
+  );
+  if (pending.length === 0) return false;
+  for (const controller of pending) void controller.flush();
   return true;
 }
 
@@ -124,17 +147,65 @@ export function flushPendingSettingsSave(): boolean {
     clearTimeout(settingsTimer);
     settingsTimer = null;
   }
-  if (!flushPendingSettingsSaveRunner) return false;
-  const run = flushPendingSettingsSaveRunner;
-  flushPendingSettingsSaveRunner = null;
-  run();
+  if (!pendingSettingsSaveRunner) return false;
+  void drainSettingsSaves?.();
   return true;
+}
+
+/** Flush every debounced save and wait for work queued during an in-flight save. */
+export async function flushPendingPersistence(): Promise<void> {
+  for (;;) {
+    flushPendingCanvasSave();
+    flushPendingDeliverySave();
+    flushPendingSettingsSave();
+    await flushPendingCommanderSessionSaves();
+    if (
+      pendingCanvasSnapshots.size === 0 &&
+      !canvasSaveInFlight &&
+      ![...deliveryPersistenceControllers.values()].some((controller) => controller.isPending) &&
+      !pendingSettingsSaveRunner &&
+      !settingsSaveInFlight
+    ) {
+      return;
+    }
+    await Promise.all([
+      drainCanvasSaves?.() ?? canvasSaveInFlight ?? Promise.resolve(),
+      ...[...deliveryPersistenceControllers.values()].map((controller) => controller.flush()),
+      drainSettingsSaves?.() ?? settingsSaveInFlight ?? Promise.resolve(),
+    ]);
+  }
 }
 
 // Tracks the last successfully saved canvas state per canvas id for patch diffing
 const savedCanvasSnapshots = new LRUCache<string, Canvas>(30);
+const persistedDeliverySnapshots = new LRUCache<string, OrderedDeliverySequence | null>(30);
+const deliveryPersistenceControllers = new Map<string, DeliveryPersistenceController>();
+
+function copyDeliverySequence(sequence: OrderedDeliverySequence): OrderedDeliverySequence {
+  return structuredClone(sequence);
+}
+
+function rememberPersistedDelivery(
+  canvasId: string,
+  sequence: OrderedDeliverySequence | undefined,
+): void {
+  persistedDeliverySnapshots.set(canvasId, sequence ? copyDeliverySequence(sequence) : null);
+  const snapshot = savedCanvasSnapshots.get(canvasId);
+  if (!snapshot) return;
+  savedCanvasSnapshots.set(canvasId, withPersistedDelivery(snapshot));
+}
+
+function withPersistedDelivery(canvas: Canvas): Canvas {
+  if (!persistedDeliverySnapshots.has(canvas.id)) return canvas;
+  const persisted = persistedDeliverySnapshots.get(canvas.id);
+  const snapshot = { ...canvas };
+  if (persisted) snapshot.deliverySequence = copyDeliverySequence(persisted);
+  else delete snapshot.deliverySequence;
+  return snapshot;
+}
 
 export const persistMiddleware: Middleware = (store) => (next) => (action) => {
+  const previousState = store.getState() as RootState;
   const result = next(action);
 
   if (typeof action === 'object' && action !== null && 'type' in action) {
@@ -142,13 +213,98 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
     const sliceName = actionType.split('/')[0];
     const state = store.getState() as RootState;
 
+    const controllerFor = (
+      canvasId: string,
+      persistedRevision: number,
+    ): DeliveryPersistenceController => {
+      const existing = deliveryPersistenceControllers.get(canvasId);
+      if (existing) return existing;
+      const controller = new DeliveryPersistenceController({
+        canvasId,
+        persistedRevision,
+        transport: {
+          update: async (request) => {
+            const api = getAPI();
+            if (!api?.canvasDelivery) throw new Error('Delivery persistence is unavailable');
+            return api.canvasDelivery.update(request);
+          },
+        },
+        onPersisted: (persistedDelivery) => {
+          rememberPersistedDelivery(canvasId, persistedDelivery);
+          lastCanvasSavedAt = Date.now();
+          store.dispatch(
+            synchronizeDeliverySequenceRevision({ canvasId, revision: persistedDelivery.revision }),
+          );
+        },
+        onFailure: (error) => {
+          store.dispatch(
+            addLog({
+              level: 'error',
+              category: 'persistence',
+              message: 'Delivery save failed',
+              detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
+            }),
+          );
+          store.dispatch(
+            enqueueToast({
+              variant: 'error',
+              title: t('persistence.saveFailed'),
+              message: error instanceof Error ? error.message : undefined,
+            }),
+          );
+        },
+        debounceMs: DEBOUNCE_MS,
+      });
+      deliveryPersistenceControllers.set(canvasId, controller);
+      return controller;
+    };
+
     // Project-level save removed — project layer no longer exists.
+
+    // Canvas restoration establishes the persisted base for the dedicated
+    // delivery CAS channel. Generic canvas saves must never write a Redux
+    // delivery draft back to storage.
+    if (actionType === 'canvas/setCanvases') {
+      for (const canvas of Object.values(state.canvas.canvases.entities)) {
+        if (!canvas) continue;
+        rememberPersistedDelivery(canvas.id, canvas.deliverySequence);
+        deliveryPersistenceControllers.delete(canvas.id);
+      }
+    }
 
     // Prune savedCanvasSnapshots when a canvas is removed to prevent memory leak.
     // Without this, deleted canvas objects accumulate in the Map permanently.
     if (actionType === 'canvas/removeCanvas') {
       const removedId = (action as unknown as { payload: string }).payload;
       savedCanvasSnapshots.delete(removedId);
+      pendingCanvasSnapshots.delete(removedId);
+      persistedDeliverySnapshots.delete(removedId);
+      deliveryPersistenceControllers.delete(removedId);
+    }
+
+    // Delivery edits are local drafts. One controller serializes and coalesces
+    // them into adjacent CAS revisions; canvas/restore covers delivery undo.
+    if (
+      state.settings.bootstrapped &&
+      (DELIVERY_MUTATION_ACTIONS.has(actionType) || actionType === 'canvas/restore')
+    ) {
+      const canvasId = state.canvas.activeCanvasId;
+      const canvas = canvasId ? state.canvas.canvases.entities[canvasId] : undefined;
+      const previousCanvas = canvasId
+        ? previousState.canvas.canvases.entities[canvasId]
+        : undefined;
+      if (
+        canvas?.deliverySequence &&
+        canvas.deliverySequence !== previousCanvas?.deliverySequence
+      ) {
+        const persisted = persistedDeliverySnapshots.get(canvas.id);
+        const persistedRevision = persisted
+          ? persisted.revision
+          : persistedDeliverySnapshots.has(canvas.id)
+            ? 0
+            : (previousCanvas?.deliverySequence?.revision ?? 0);
+        controllerFor(canvas.id, persistedRevision).queue(canvas.deliverySequence);
+      }
     }
 
     // Canvas-level save: persist the active canvas on any canvas/ action
@@ -158,29 +314,28 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
       !CANVAS_NO_PERSIST.has(actionType) &&
       state.settings.bootstrapped
     ) {
-      const runSave = (): void => {
-        if (saveInFlight) {
-          saveQueuedAfterFlight = true;
-          return;
-        }
+      const { activeCanvasId, canvases, viewport } = state.canvas;
+      const canvas = activeCanvasId ? canvases.entities[activeCanvasId] : undefined;
+      if (!canvas) return result;
 
-        const currentState = store.getState() as RootState;
-        const { activeCanvasId, canvases, viewport } = currentState.canvas;
-        const canvas = activeCanvasId ? canvases.entities[activeCanvasId] : undefined;
-        if (!canvas) return;
+      // Capture both identity and contents at dispatch time. A later canvas switch
+      // must never retarget this delayed save to the newly active canvas.
+      const canvasWithViewport = canvas.viewport === viewport ? canvas : { ...canvas, viewport };
+      const canvasToSave = withPersistedDelivery(canvasWithViewport);
+      pendingCanvasSnapshots.set(canvas.id, canvasToSave);
 
-        const canvasToSave = canvas.viewport === viewport ? canvas : { ...canvas, viewport };
-
+      const saveSnapshot = async (snapshot: Canvas): Promise<void> => {
         const api = getAPI();
         if (!api) return;
 
-        const prevSnapshot = savedCanvasSnapshots.get(canvas.id);
-        const patch = diffCanvas(prevSnapshot, canvasToSave);
+        const prevSnapshot = savedCanvasSnapshots.get(snapshot.id);
+        const patch = diffCanvas(prevSnapshot, snapshot);
 
         const onSuccess = (): void => {
-          savedCanvasSnapshots.set(canvas.id, canvasToSave);
+          // A delivery CAS may finish while this generic save is in flight.
+          // Refresh the diff baseline from the dedicated persisted delivery state.
+          savedCanvasSnapshots.set(snapshot.id, withPersistedDelivery(snapshot));
           lastCanvasSavedAt = Date.now();
-          hasPendingChanges = false;
         };
 
         const onError = (error: unknown, context: string): void => {
@@ -194,18 +349,10 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
           );
         };
 
-        const onFinally = (): void => {
-          saveInFlight = null;
-          if (saveQueuedAfterFlight) {
-            saveQueuedAfterFlight = false;
-            runSave();
-          }
-        };
-
         const doFullSave = (): Promise<void> =>
           withRetry(async () => {
             try {
-              await api.canvas.save(canvasToSave);
+              await api.canvas.save(snapshot);
             } catch (error: unknown) {
               onError(error, 'Canvas save failed');
               throw error;
@@ -222,10 +369,10 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
               );
             });
 
-        if (patch && shouldUsePatch(patch, canvasToSave)) {
-          saveInFlight = withRetry(async () => {
+        if (patch && shouldUsePatch(patch, snapshot)) {
+          await withRetry(async () => {
             try {
-              await api.canvas.patch({ canvasId: canvas.id, patch });
+              await api.canvas.patch({ canvasId: snapshot.id, patch });
             } catch (error: unknown) {
               onError(error, 'Canvas patch failed');
               throw error;
@@ -242,27 +389,36 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
                 }),
               );
               return doFullSave();
-            })
-            .finally(onFinally);
+            });
         } else {
-          saveInFlight = doFullSave().finally(onFinally);
+          await doFullSave();
         }
+      };
+
+      drainCanvasSaves = (): Promise<void> => {
+        if (canvasSaveInFlight) return canvasSaveInFlight;
+        canvasSaveInFlight = (async () => {
+          while (pendingCanvasSnapshots.size > 0) {
+            const snapshots = [...pendingCanvasSnapshots.values()];
+            pendingCanvasSnapshots.clear();
+            for (const snapshot of snapshots) await saveSnapshot(snapshot);
+          }
+        })().finally(() => {
+          canvasSaveInFlight = null;
+        });
+        return canvasSaveInFlight;
       };
 
       // While the user is mid-interaction (drag / pan / zoom), defer IPC:
       // remember that a save is pending and register the runner so
       // setCanvasInteracting(false) can flush once at interaction end.
       if (isInteracting) {
-        pendingSave = true;
-        hasPendingChanges = true;
-        flushPendingSave = runSave;
+        // The latest snapshot for each canvas remains queued until interaction end.
       } else {
         if (canvasTimer) clearTimeout(canvasTimer);
-        hasPendingChanges = true;
-        flushPendingSave = runSave;
         canvasTimer = setTimeout(() => {
           canvasTimer = null;
-          runSave();
+          void drainCanvasSaves?.();
         }, DEBOUNCE_MS);
       }
     }
@@ -277,27 +433,37 @@ export const persistMiddleware: Middleware = (store) => (next) => (action) => {
       // early usage-tracking dispatches would overwrite saved provider keys.
       if (settingsRestoredFromDisk) {
         if (settingsTimer) clearTimeout(settingsTimer);
-        flushPendingSettingsSaveRunner = (): void => {
-          const currentState = store.getState() as RootState;
-          const sparse = buildSparseSettings(currentState.settings);
-          getAPI()
-            ?.settings.save(sparse)
-            .catch((error: unknown) => {
-              store.dispatch(
-                addLog({
-                  level: 'error',
-                  category: 'persistence',
-                  message: 'Settings save failed',
-                  detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
-                }),
-              );
-            });
+        const sparse = buildSparseSettings(state.settings);
+        pendingSettingsSaveRunner = async (): Promise<void> => {
+          try {
+            await getAPI()?.settings.save(sparse);
+          } catch (error: unknown) {
+            store.dispatch(
+              addLog({
+                level: 'error',
+                category: 'persistence',
+                message: 'Settings save failed',
+                detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
+              }),
+            );
+          }
+        };
+        drainSettingsSaves = (): Promise<void> => {
+          if (settingsSaveInFlight) return settingsSaveInFlight;
+          settingsSaveInFlight = (async () => {
+            while (pendingSettingsSaveRunner) {
+              const run = pendingSettingsSaveRunner;
+              pendingSettingsSaveRunner = null;
+              await run();
+            }
+          })().finally(() => {
+            settingsSaveInFlight = null;
+          });
+          return settingsSaveInFlight;
         };
         settingsTimer = setTimeout(() => {
           settingsTimer = null;
-          const run = flushPendingSettingsSaveRunner;
-          flushPendingSettingsSaveRunner = null;
-          run?.();
+          void drainSettingsSaves?.();
         }, DEBOUNCE_MS);
       }
     }

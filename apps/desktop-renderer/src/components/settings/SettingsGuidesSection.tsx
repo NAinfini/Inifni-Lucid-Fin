@@ -48,7 +48,7 @@ const categoryBadgeClasses: Record<string, string> = {
   visual: 'bg-emerald-500/10 text-emerald-400',
   process: 'bg-amber-500/10 text-amber-400',
   audio: 'bg-cyan-500/10 text-cyan-400',
-  workflow: 'bg-fuchsia-500/10 text-fuchsia-400',
+  task: 'bg-fuchsia-500/10 text-fuchsia-400',
   skill: 'bg-sky-500/10 text-sky-400',
 };
 

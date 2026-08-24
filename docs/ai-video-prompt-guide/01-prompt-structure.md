@@ -173,7 +173,7 @@ Tokens with no clear visual meaning that alter attention weight distribution.
 2. **Abstract word exaggeration** — interrupts AI's automatic embellishment
 3. **Auto-completion of unspecified content** — consumes attention budget, protects subject priority
 
-### Workflow
+### Procedure
 
 1. Write subject + basic lighting first ("主体先落地" — subject renders stably first)
 2. Insert perturbation token after subject (priority separator)
@@ -195,7 +195,7 @@ Tokens with no clear visual meaning that alter attention weight distribution.
 2. **Cut Plastic (塑料感)**: false highlights, unnatural sheen, metallic fabric
 3. **Cut Fake Light (假光)**: floating glows, edge halos, sourceless light
 
-### Three-Step Workflow
+### Three-Step Procedure
 
 1. Write pure positive prompts with NO style inflation — avoid `"高清, super detailed, 8k, sharp face, 照片级, 超写实"`
 2. Add grouped negative prompts by category (dirt-cutting, plastic-cutting, fake-light-cutting)
@@ -295,7 +295,7 @@ Video clip duration fundamentally changes how prompts should be written. Longer 
 | 10-16s   | 20-40 words (essential only)   |
 | 16s+     | 15-30 words (minimal)          |
 
-These are for the COMBINED final prompt (scene text + all preset prompts concatenated). Individual preset prompts should remain 1-3 sentences; the system should intelligently trim or prioritize when the concatenated total exceeds the budget for the target duration.
+These are for Commander's final provider prompt. Individual preset source prompts should remain 1-3 sentences; Commander selects, reconciles, and trims sources to fit the target provider and duration budget before it persists the final prompt.
 
 ---
 
@@ -357,7 +357,7 @@ The reference image already defines appearance, environment, lighting, and style
 
 ### Multi-Image-to-Video (Keyframe i2v)
 
-When generating video between two keyframe images (Lucid Fin's primary canvas workflow):
+When generating video between two keyframe images (Lucid Fin's primary Canvas task flow):
 
 ```
 [Motion from Image A state to Image B state] + [Camera movement] + [Transition quality]

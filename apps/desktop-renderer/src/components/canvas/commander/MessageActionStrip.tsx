@@ -9,7 +9,7 @@ export function MessageActionStrip({ messageId, children }: MessageActionStripPr
   return (
     <div
       data-testid={`commander-message-actions-${messageId}`}
-      className="flex h-5 items-center justify-end border-b border-border/40 bg-background/10 px-2"
+      className="flex h-5 items-center justify-end opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
     >
       {children}
     </div>

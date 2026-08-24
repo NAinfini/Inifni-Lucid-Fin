@@ -8,56 +8,44 @@ import cameraComposition from '../../../../../docs/ai-video-prompt-guide/02-came
 import lightingAtmosphere from '../../../../../docs/ai-video-prompt-guide/03-lighting-and-atmosphere.md?raw';
 import motionEmotion from '../../../../../docs/ai-video-prompt-guide/04-motion-and-emotion.md?raw';
 import styleAesthetics from '../../../../../docs/ai-video-prompt-guide/05-style-and-aesthetics.md?raw';
-import workflowMethods from '../../../../../docs/ai-video-prompt-guide/06-workflow-methods.md?raw';
+import taskMethods from '../../../../../docs/ai-video-prompt-guide/06-task-methods.md?raw';
 import modelAdaptation from '../../../../../docs/ai-video-prompt-guide/07-model-specific-adaptation.md?raw';
 import audioPrompting from '../../../../../docs/ai-video-prompt-guide/08-audio-prompting.md?raw';
 import styleTransferGuide from '../../../../../docs/ai-video-prompt-guide/09-style-transfer.md?raw';
 import shotListFromScript from '../../../../../docs/ai-video-prompt-guide/10-shot-list-from-script.md?raw';
 import batchRePrompt from '../../../../../docs/ai-video-prompt-guide/11-batch-re-prompt.md?raw';
 import continuityCheck from '../../../../../docs/ai-video-prompt-guide/12-continuity-check.md?raw';
-import storyboardExport from '../../../../../docs/ai-video-prompt-guide/13-storyboard-export.md?raw';
-import videoCloneGuide from '../../../../../docs/ai-video-prompt-guide/15-video-clone.md?raw';
 import dualPromptGuide from '../../../../../docs/ai-video-prompt-guide/16-dual-prompt-strategy.md?raw';
 import emotionVoiceGuide from '../../../../../docs/ai-video-prompt-guide/17-emotion-voice-prompting.md?raw';
-import lipSyncGuide from '../../../../../docs/ai-video-prompt-guide/18-lip-sync-workflow.md?raw';
 
-// Former workflowDefinitions BUILT_IN_ENTRIES, loaded from their own md files.
-import wfNovelToVideo from '../../../../../docs/ai-skills/skills/wf-novel-to-video.md?raw';
-import wfVideoCloneRemake from '../../../../../docs/ai-skills/skills/wf-video-clone.md?raw';
-import wfStyleTransferSkill from '../../../../../docs/ai-skills/skills/wf-style-transfer.md?raw';
+// Reusable task and skill guides, loaded from their own markdown files.
+import taskNovelToVideo from '../../../../../docs/ai-skills/skills/task-novel-to-video.md?raw';
+import taskStyleTransferSkill from '../../../../../docs/ai-skills/skills/task-style-transfer.md?raw';
 import skReversePrompt from '../../../../../docs/ai-skills/skills/sk-reverse-prompt.md?raw';
-import skLipSync from '../../../../../docs/ai-skills/skills/sk-lip-sync.md?raw';
-import skSrtImport from '../../../../../docs/ai-skills/skills/sk-srt-import.md?raw';
-import skCapcutExport from '../../../../../docs/ai-skills/skills/sk-capcut-export.md?raw';
-import skSemanticSearch from '../../../../../docs/ai-skills/skills/sk-semantic-search.md?raw';
 import skMultiView from '../../../../../docs/ai-skills/skills/sk-multi-view.md?raw';
 
-// Commander-side WORKFLOW_GUIDES, loaded as renderer-visible skills so users
-// can read/override them in the same Settings surface. Keeping them bundled
-// here mirrors the previous main-side WORKFLOW_GUIDES constant — the main
-// process no longer needs to merge its own copy because every guide now
-// flows through renderer → IPC.
-import wfgStyleTransfer from '../../../../../docs/ai-skills/workflows/style-transfer.md?raw';
-import wfgShotList from '../../../../../docs/ai-skills/workflows/shot-list.md?raw';
-import wfgContinuityCheck from '../../../../../docs/ai-skills/workflows/continuity-check.md?raw';
-import wfgImageAnalyze from '../../../../../docs/ai-skills/workflows/image-analyze.md?raw';
-import wfgAudioProduction from '../../../../../docs/ai-skills/workflows/audio-production.md?raw';
-import wfgStoryToVideo from '../../../../../docs/ai-skills/workflows/story-to-video.md?raw';
-import wfgStylePlate from '../../../../../docs/ai-skills/workflows/style-plate.md?raw';
+// Commander task-list guides are renderer-visible so users can read or
+// override the same content that flows through renderer → IPC.
+import taskGuideStyleTransfer from '../../../../../docs/ai-skills/task-list-guides/style-transfer.md?raw';
+import taskGuideShotList from '../../../../../docs/ai-skills/task-list-guides/shot-list.md?raw';
+import taskGuideContinuityCheck from '../../../../../docs/ai-skills/task-list-guides/continuity-check.md?raw';
+import taskGuideImageAnalyze from '../../../../../docs/ai-skills/task-list-guides/image-analyze.md?raw';
+import taskGuideAudioProduction from '../../../../../docs/ai-skills/task-list-guides/audio-production.md?raw';
+import taskGuideStoryToVideo from '../../../../../docs/ai-skills/task-list-guides/story-to-video.md?raw';
+import taskGuideStylePlate from '../../../../../docs/ai-skills/task-list-guides/style-plate.md?raw';
 
-const STORAGE_KEY = 'lucid-skills-v1';
+export const SKILL_DEFINITIONS_STORAGE_KEY = 'lucid-skills-v2' as const;
 
 /**
  * Unified skill definition — the single source of truth for every LLM-visible
- * prompt guide / workflow / skill entry shown in Settings and shipped to
+ * prompt guide / task guide / skill entry shown in Settings and shipped to
  * Commander via `promptGuides` over IPC.
  *
  * `source` tags where the built-in originated so UIs and migrations can
  * distinguish cohorts; it is not used for any runtime behavior.
  */
-export type SkillSource = 'promptTemplate' | 'workflowSkill' | 'workflowGuide' | 'user';
-export type SkillCategory =
-  'system' | 'core' | 'visual' | 'audio' | 'skill' | 'workflow' | 'process';
+export type SkillSource = 'promptTemplate' | 'taskSkill' | 'taskListGuide' | 'user';
+export type SkillCategory = 'system' | 'core' | 'visual' | 'audio' | 'skill' | 'task' | 'process';
 
 export interface SkillDefinition {
   id: string;
@@ -71,7 +59,7 @@ export interface SkillDefinition {
   autoInject?: boolean;
   autoInjectContent?: string;
   priority?: number;
-  retention?: 'turn' | 'workflow' | 'discovery';
+  retention?: 'turn' | 'task_list' | 'discovery';
   phases?: Array<
     | 'unbound'
     | 'production_plan_pending'
@@ -81,9 +69,9 @@ export interface SkillDefinition {
     | 'preproduction'
     | 'media_generation'
     | 'assembly'
-    | 'final_export_preparation'
-    | 'final_export_pending'
-    | 'final_export_approved'
+    | 'delivery_preparation'
+    | 'delivery_pending'
+    | 'delivery_approved'
     | 'blocked'
   >;
 }
@@ -102,7 +90,7 @@ interface BuiltInSeed {
 }
 
 const BUILT_IN_SEEDS: BuiltInSeed[] = [
-  // promptTemplate cohort (18)
+  // promptTemplate cohort (15)
   {
     id: 'meta-prompt',
     name: 'Meta-Prompt (AI Instructor)',
@@ -116,13 +104,6 @@ const BUILT_IN_SEEDS: BuiltInSeed[] = [
     category: 'core',
     defaultContent: promptStructure,
     source: 'promptTemplate',
-    autoInject: true,
-    autoInjectContent: `Prompt construction kernel:
-- Describe one shot or action at a time. State the subject, visible action, environment, camera/composition, lighting, and intended aesthetic in concrete language.
-- Prefer active verbs, observable motion, spatial relationships, and a clear visual hierarchy. Remove contradictions, duplicated constraints, and abstract filler.
-- Treat reference images, Canvas visual-style policy, preset tracks, provider adaptation, and negative constraints as host-compiled inputs. Do not repeat or attempt to replace them in the creative body.
-- Use guide.get with id "prompt-structure" when detailed provider examples or a full prompt rewrite procedure are needed.`,
-    priority: 30,
   },
   {
     id: 'camera-composition',
@@ -153,10 +134,10 @@ const BUILT_IN_SEEDS: BuiltInSeed[] = [
     source: 'promptTemplate',
   },
   {
-    id: 'workflow-methods',
-    name: 'Workflow Methods',
+    id: 'task-methods',
+    name: 'Task Planning Methods',
     category: 'process',
-    defaultContent: workflowMethods,
+    defaultContent: taskMethods,
     source: 'promptTemplate',
   },
   {
@@ -202,20 +183,6 @@ const BUILT_IN_SEEDS: BuiltInSeed[] = [
     source: 'promptTemplate',
   },
   {
-    id: 'storyboard-export',
-    name: 'Storyboard Export',
-    category: 'skill',
-    defaultContent: storyboardExport,
-    source: 'promptTemplate',
-  },
-  {
-    id: 'video-clone',
-    name: 'Video Clone & Scene Analysis',
-    category: 'skill',
-    defaultContent: videoCloneGuide,
-    source: 'promptTemplate',
-  },
-  {
     id: 'dual-prompt-strategy',
     name: 'Dual Prompt Strategy',
     category: 'skill',
@@ -229,159 +196,89 @@ const BUILT_IN_SEEDS: BuiltInSeed[] = [
     defaultContent: emotionVoiceGuide,
     source: 'promptTemplate',
   },
+  // Reusable taskSkill cohort (4)
   {
-    id: 'lip-sync-workflow',
-    name: 'Lip Sync Workflow',
-    category: 'skill',
-    defaultContent: lipSyncGuide,
-    source: 'promptTemplate',
-  },
-
-  // workflowDefinitions cohort (9)
-  {
-    id: 'wf-novel-to-video',
+    id: 'task-novel-to-video',
     name: 'Novel/Book → Video',
-    category: 'workflow',
-    defaultContent: wfNovelToVideo,
-    source: 'workflowSkill',
+    category: 'task',
+    defaultContent: taskNovelToVideo,
+    source: 'taskSkill',
   },
   {
-    id: 'wf-video-clone',
-    name: 'Video Clone → Remake',
-    category: 'workflow',
-    defaultContent: wfVideoCloneRemake,
-    source: 'workflowSkill',
-  },
-  {
-    id: 'wf-style-transfer',
+    id: 'task-style-transfer',
     name: 'Style Transfer Across Shots',
-    category: 'workflow',
-    defaultContent: wfStyleTransferSkill,
-    source: 'workflowSkill',
+    category: 'task',
+    defaultContent: taskStyleTransferSkill,
+    source: 'taskSkill',
   },
   {
     id: 'sk-reverse-prompt',
     name: 'Reverse Prompt Inference',
     category: 'skill',
     defaultContent: skReversePrompt,
-    source: 'workflowSkill',
-  },
-  {
-    id: 'sk-lip-sync',
-    name: 'Lip Sync Video',
-    category: 'skill',
-    defaultContent: skLipSync,
-    source: 'workflowSkill',
-  },
-  {
-    id: 'sk-srt-import',
-    name: 'SRT Subtitle Import',
-    category: 'skill',
-    defaultContent: skSrtImport,
-    source: 'workflowSkill',
-  },
-  {
-    id: 'sk-capcut-export',
-    name: 'CapCut Export',
-    category: 'skill',
-    defaultContent: skCapcutExport,
-    source: 'workflowSkill',
-  },
-  {
-    id: 'sk-semantic-search',
-    name: 'Semantic Asset Search',
-    category: 'skill',
-    defaultContent: skSemanticSearch,
-    source: 'workflowSkill',
+    source: 'taskSkill',
   },
   {
     id: 'sk-multi-view',
     name: 'Multi-View Canvas Editing',
     category: 'skill',
     defaultContent: skMultiView,
-    source: 'workflowSkill',
+    source: 'taskSkill',
   },
 
-  // WORKFLOW_GUIDES cohort — Commander-facing multi-step guides. Phase 4
-  // trimmed the set: video-clone + storyboard-export dropped (the tools
-  // remain; the guides were rarely-read narrative rewrites of tool docs);
+  // Commander-facing taskListGuide cohort (7).
+  // trimmed the set: storyboard-export dropped because its guide was a
+  // rarely-read narrative rewrite of tool docs;
   // batch-reprompt merged into continuity-check as a follow-up section;
-  // lip-sync + emotion-voice merged into workflow-audio-production as
-  // stage 1 / stage 2 of one pipeline.
+  // emotion-voice is covered by the durable audio-production task-list guide.
   {
-    id: 'workflow-style-transfer',
+    id: 'task-guide-style-transfer',
     name: 'Style Transfer (Commander)',
-    category: 'workflow',
-    defaultContent: wfgStyleTransfer,
-    source: 'workflowGuide',
+    category: 'task',
+    defaultContent: taskGuideStyleTransfer,
+    source: 'taskListGuide',
   },
   {
-    id: 'workflow-shot-list',
+    id: 'task-guide-shot-list',
     name: 'Shot List (Commander)',
-    category: 'workflow',
-    defaultContent: wfgShotList,
-    source: 'workflowGuide',
+    category: 'task',
+    defaultContent: taskGuideShotList,
+    source: 'taskListGuide',
   },
   {
-    id: 'workflow-continuity-check',
+    id: 'task-guide-continuity-check',
     name: 'Continuity Check + Batch Re-Prompt (Commander)',
-    category: 'workflow',
-    defaultContent: wfgContinuityCheck,
-    source: 'workflowGuide',
+    category: 'task',
+    defaultContent: taskGuideContinuityCheck,
+    source: 'taskListGuide',
   },
   {
-    id: 'workflow-image-analyze',
+    id: 'task-guide-image-analyze',
     name: 'Image Analyze (Commander)',
-    category: 'workflow',
-    defaultContent: wfgImageAnalyze,
-    source: 'workflowGuide',
+    category: 'task',
+    defaultContent: taskGuideImageAnalyze,
+    source: 'taskListGuide',
   },
   {
-    id: 'workflow-audio-production',
-    name: 'Audio Production — Voice + Lip Sync (Commander)',
-    category: 'workflow',
-    defaultContent: wfgAudioProduction,
-    source: 'workflowGuide',
+    id: 'task-guide-audio-production',
+    name: 'Audio Production — Voice (Commander)',
+    category: 'task',
+    defaultContent: taskGuideAudioProduction,
+    source: 'taskListGuide',
   },
   {
-    id: 'workflow-story-to-video',
+    id: 'task-guide-story-to-video',
     name: 'Story to Video (Commander)',
-    category: 'workflow',
-    defaultContent: wfgStoryToVideo,
-    source: 'workflowGuide',
-    autoInject: true,
-    autoInjectContent: `Story-to-video workflow kernel:
-- The durable SQLite workflow aggregate is the source of truth. Chat acknowledgements never approve a gate.
-- Respect the three approval gates in order: Production Plan, Visual Constitution, Final Export. Do not generate media before the exact approved plan and constitution revisions exist.
-- Between gates, act autonomously only inside the persisted budget, provider policy, retry limits, and current workflow task binding. Resume from persisted stage/task state after interruption.
-- If state is inconsistent, recovery is required, or a creative decision is missing, stop the affected mutations and ask one concise question.
-- Use guide.get with id "workflow-story-to-video" for full planning, recovery, and export procedures.`,
-    priority: 100,
-    retention: 'workflow',
-    phases: [
-      'production_plan_pending',
-      'style_exploration',
-      'visual_constitution_pending',
-      'media_generation',
-      'final_export_pending',
-      'final_export_approved',
-    ],
+    category: 'task',
+    defaultContent: taskGuideStoryToVideo,
+    source: 'taskListGuide',
   },
   {
-    id: 'workflow-style-plate',
+    id: 'task-guide-style-plate',
     name: 'Visual Style Draft (Commander)',
-    category: 'workflow',
-    defaultContent: wfgStylePlate,
-    source: 'workflowGuide',
-    autoInject: true,
-    autoInjectContent: `Visual-style draft kernel:
-- This guide applies only to manual or pre-approval Canvas media. An approved persistent-workflow Visual Constitution always supersedes the Canvas draft.
-- Read canvas.settings.visualStylePolicy before manual generation. If absent, ask one concise, project-specific style question or offer visible auditions; then store a structured draft through canvas.setSettings.
-- Keep style separate from scene, character, and action content. The host compiles the draft, references, presets, and negative constraints, so do not duplicate them in creative prompts.
-- Use guide.get with id "workflow-style-plate" for the complete drafting and verification workflow.`,
-    priority: 90,
-    retention: 'workflow',
-    phases: ['style_exploration', 'visual_constitution_pending', 'media_generation'],
+    category: 'task',
+    defaultContent: taskGuideStylePlate,
+    source: 'taskListGuide',
   },
 ];
 
@@ -406,9 +303,30 @@ interface SkillsStorage {
   customSkills: StoredCustomSkill[];
 }
 
+export interface LegacySkillsV2Export {
+  readonly storageKey: typeof SKILL_DEFINITIONS_STORAGE_KEY;
+  readonly rawJson: string;
+  readonly rawHash: string;
+}
+
+/** Explicit maintenance/cutover export; migration validates the payload strictly. */
+export async function exportLegacySkillsV2(
+  storage: Pick<Storage, 'getItem'> = localStorage,
+): Promise<LegacySkillsV2Export> {
+  const rawJson =
+    storage.getItem(SKILL_DEFINITIONS_STORAGE_KEY) ??
+    JSON.stringify({ builtInCustoms: {}, builtInNames: {}, customSkills: [] });
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(rawJson));
+  return {
+    storageKey: SKILL_DEFINITIONS_STORAGE_KEY,
+    rawJson,
+    rawHash: [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join(''),
+  };
+}
+
 function loadStorage(): SkillsStorage {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(SKILL_DEFINITIONS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as SkillsStorage;
       return {
@@ -457,7 +375,7 @@ function saveSkills(skills: SkillDefinition[]): void {
   }
 
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(storage));
+    localStorage.setItem(SKILL_DEFINITIONS_STORAGE_KEY, JSON.stringify(storage));
   } catch {
     /* best-effort */
   }
@@ -589,10 +507,10 @@ export function getSkillContentLimit(source: SkillSource): number {
   switch (source) {
     case 'promptTemplate':
       return COMMANDER_GUIDE_LIMITS.maxPromptTemplateChars;
-    case 'workflowSkill':
-      return COMMANDER_GUIDE_LIMITS.maxWorkflowSkillChars;
-    case 'workflowGuide':
-      return COMMANDER_GUIDE_LIMITS.maxWorkflowGuideChars;
+    case 'taskSkill':
+      return COMMANDER_GUIDE_LIMITS.maxTaskSkillChars;
+    case 'taskListGuide':
+      return COMMANDER_GUIDE_LIMITS.maxTaskListGuideChars;
     case 'user':
       return COMMANDER_GUIDE_LIMITS.maxUserGuideChars;
     default:

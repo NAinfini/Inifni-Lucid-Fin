@@ -1,7 +1,14 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createEmptyPresetTrackSet, type Canvas, type CanvasEdge } from '@lucid-fin/contracts';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  createEmptyPresetTrackSet,
+  type Canvas,
+  type CanvasEdge,
+  type CanvasPatch,
+  type PromptAssemblyOutputV1,
+  type PromptAssemblyRecord,
+} from '@lucid-fin/contracts';
 import { createCanvasGenerationTools } from './canvas-generation-tools.js';
-import type { CanvasToolDeps } from './canvas-tool-utils.js';
+import type { CanvasToolDeps, MediaTaskView } from './canvas-tool-utils.js';
 
 function createCanvas(): Canvas {
   return {
@@ -92,9 +99,116 @@ function createCanvas(): Canvas {
   };
 }
 
+function preparedAssembly(nodeId: string, purpose: PromptAssemblyRecord['purpose'] = 'initial') {
+  const assemblyId = `assembly-${nodeId}`;
+  const input = {
+    version: 1 as const,
+    assemblyId,
+    canvasId: 'canvas-1',
+    nodeId,
+    nodeUpdatedAt: 1,
+    mediaType: nodeId.startsWith('video') ? ('video' as const) : ('image' as const),
+    mode: nodeId.startsWith('video') ? ('text-to-video' as const) : ('text-to-image' as const),
+    purpose,
+    authority: { kind: 'canvas-draft' as const },
+    sources: [
+      {
+        sourceId: 'node-prompt',
+        sourceHash: 'source-hash',
+        kind: 'node-prompt' as const,
+        label: 'Node prompt',
+        content: 'Scene intent',
+        required: true,
+      },
+    ],
+    conditioningManifest: [],
+    providerProfile: { providerId: 'provider', capabilities: [] },
+    hostConstraints: { immutable: ['providerId'] },
+    inputHash: 'input-hash',
+  };
+  return {
+    id: assemblyId,
+    canvasId: 'canvas-1',
+    nodeId,
+    nodeUpdatedAt: 1,
+    mediaType: input.mediaType,
+    mode: input.mode,
+    purpose,
+    inputHash: input.inputHash,
+    input,
+    status: 'prepared' as const,
+    rowVersion: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  } satisfies PromptAssemblyRecord;
+}
+
+function assemblyOutput(nodeId: string): PromptAssemblyOutputV1 {
+  const prepared = preparedAssembly(nodeId);
+  return {
+    version: 1,
+    assemblyId: prepared.id,
+    inputHash: prepared.inputHash,
+    finalPrompt: `Final prompt for ${nodeId}`,
+    sourceDecisions: prepared.input.sources.map((source) => ({
+      sourceId: source.sourceId,
+      sourceHash: source.sourceHash,
+      disposition: 'applied',
+    })),
+    summary: 'Reconciled all sources.',
+    warnings: [],
+  };
+}
+
+function mediaTask(nodeId: string, status = 'running'): MediaTaskView {
+  return {
+    id: `task-list-${nodeId}`,
+    canvasId: 'canvas-1',
+    nodeId,
+    status,
+    taskStatus: status === 'cancelled' ? 'cancelled' : 'awaiting_prompt_assembly',
+    progress: 0,
+    promptAssembly: preparedAssembly(nodeId),
+  };
+}
+
+function applyCanvasPatch(canvas: Canvas, patch: CanvasPatch): void {
+  if (patch.nameChange !== undefined) canvas.name = patch.nameChange;
+
+  const removedNodeIds = new Set(patch.removedNodeIds ?? []);
+  const removedEdgeIds = new Set(patch.removedEdgeIds ?? []);
+  if (removedNodeIds.size > 0) {
+    canvas.nodes = canvas.nodes.filter((node) => !removedNodeIds.has(node.id));
+    canvas.edges = canvas.edges.filter(
+      (edge) => !removedNodeIds.has(edge.source) && !removedNodeIds.has(edge.target),
+    );
+  }
+  if (removedEdgeIds.size > 0) {
+    canvas.edges = canvas.edges.filter((edge) => !removedEdgeIds.has(edge.id));
+  }
+
+  const nodesById = new Map(canvas.nodes.map((node) => [node.id, node]));
+  for (const update of patch.updatedNodes ?? []) {
+    const node = nodesById.get(update.id);
+    if (!node) throw new Error(`Node not found: ${update.id}`);
+    Object.assign(node, update.changes);
+  }
+  canvas.nodes.push(...(patch.addedNodes ?? []));
+
+  const edgesById = new Map(canvas.edges.map((edge) => [edge.id, edge]));
+  for (const update of patch.updatedEdges ?? []) {
+    const edge = edgesById.get(update.id);
+    if (!edge) throw new Error(`Edge not found: ${update.id}`);
+    Object.assign(edge, update.edge);
+  }
+  canvas.edges.push(...(patch.addedEdges ?? []));
+  canvas.updatedAt = patch.timestamp;
+}
+
 function createDeps(canvas = createCanvas()): CanvasToolDeps {
   return {
     getCanvas: vi.fn(async () => canvas),
+    patchCanvas: vi.fn(async (_canvasId, patch) => applyCanvasPatch(canvas, patch)),
     deleteCanvas: vi.fn(async () => undefined),
     addNode: vi.fn(async () => undefined),
     moveNode: vi.fn(async () => undefined),
@@ -105,15 +219,27 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     }),
     setNodePresets: vi.fn(async () => undefined),
     layoutNodes: vi.fn(async () => undefined),
-    triggerGeneration: vi.fn(async () => undefined),
-    preparePromptRefinement: vi.fn(async () => ({
-      sourceAssetHash: 'asset-existing',
-      basePrompt: 'Existing exact provider prompt',
-      basePromptHash: 'a'.repeat(64),
-      prompt: 'Existing exact provider prompt\nUSER QUALITY FEEDBACK (additive): Brighter eyes',
-      promptHash: 'b'.repeat(64),
+    prepareMediaTask: vi.fn(async (input) => mediaTask(input.nodeId)),
+    getMediaTask: vi.fn(async (taskListId) => ({ ...mediaTask('image-1'), id: taskListId })),
+    getPromptAssembly: vi.fn(async (assemblyId) => ({
+      ...preparedAssembly('image-1'),
+      id: assemblyId,
+      input: { ...preparedAssembly('image-1').input, assemblyId },
     })),
-    cancelGeneration: vi.fn(async () => undefined),
+    submitMediaPrompt: vi.fn(async (input) => ({
+      ...mediaTask('image-1'),
+      id: input.taskListId,
+      taskStatus: 'awaiting_provider',
+    })),
+    cancelMediaTask: vi.fn(async (taskListId) => ({
+      ...mediaTask('image-1', 'cancelled'),
+      id: taskListId,
+    })),
+    retryMediaEvaluation: vi.fn(async (taskListId) => ({
+      ...mediaTask('image-1'),
+      id: taskListId,
+      taskStatus: 'evaluating',
+    })),
     deleteNode: vi.fn(async (_canvasId, nodeId) => {
       canvas.nodes = canvas.nodes.filter((node) => node.id !== nodeId);
       canvas.edges = canvas.edges.filter(
@@ -153,8 +279,8 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     listShotTemplates: vi.fn(async () => []),
     saveShotTemplate: vi.fn(async (t) => t),
     deleteShotTemplate: vi.fn(async () => {}),
-    importWorkflow: vi.fn(async () => canvas),
-    exportWorkflow: vi.fn(async () => '{}'),
+    importCanvasDocument: vi.fn(async () => canvas),
+    exportCanvasDocument: vi.fn(async () => '{}'),
     setNodeColorTag: vi.fn(async (_canvasId, nodeId, color) => {
       const node = canvas.nodes.find((entry) => entry.id === nodeId);
       if (!node) throw new Error(`Node not found: ${nodeId}`);
@@ -204,11 +330,6 @@ function getTool(name: string, deps: CanvasToolDeps) {
   return tool;
 }
 
-afterEach(() => {
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-});
-
 describe('createCanvasGenerationTools', () => {
   it('defines the expected generation tool suite', () => {
     const deps = createDeps();
@@ -225,8 +346,6 @@ describe('createCanvasGenerationTools', () => {
       'canvas.addNote',
       'canvas.updateNote',
       'canvas.deleteNote',
-      'canvas.undo',
-      'canvas.redo',
       'canvas.deleteNode',
       'canvas.manageEdge',
       'canvas.setVideoFrames',
@@ -234,215 +353,193 @@ describe('createCanvasGenerationTools', () => {
     ]);
   });
 
-  it('waits for generate completion and returns failed generations as structured output', async () => {
-    vi.useFakeTimers();
-    const canvas = createCanvas();
-    const deps = createDeps(canvas);
-    vi.mocked(deps.triggerGeneration)
-      .mockImplementationOnce(async () => {
-        const image = canvas.nodes.find((node) => node.id === 'image-1');
-        if (image) {
-          Object.assign(image.data as Record<string, unknown>, {
-            status: 'done',
-            variants: [{ assetHash: 'hash-1' }],
-            assetHash: 'hash-1',
-          });
-        }
-      })
-      .mockImplementationOnce(async () => {
-        const video = canvas.nodes.find((node) => node.id === 'video-1');
-        if (video) {
-          Object.assign(video.data as Record<string, unknown>, {
-            status: 'failed',
-            error: 'provider failed',
-          });
-        }
-      });
-
-    const donePromise = getTool('canvas.generation', deps).execute({
-      action: 'start',
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      providerId: 'runway',
-      variantCount: 4,
-      wait: true,
-    });
-    await vi.advanceTimersByTimeAsync(3000);
-    await expect(donePromise).resolves.toEqual({
-      success: true,
-      data: {
-        nodeId: 'image-1',
-        status: 'done',
-        variants: [{ assetHash: 'hash-1' }],
-        assetHash: 'hash-1',
-      },
-    });
-
-    const failedPromise = getTool('canvas.generation', deps).execute({
-      action: 'start',
-      canvasId: 'canvas-1',
-      nodeId: 'video-1',
-      wait: true,
-    });
-    await vi.advanceTimersByTimeAsync(3000);
-    await expect(failedPromise).resolves.toEqual({
-      success: true,
-      data: {
-        nodeId: 'video-1',
-        status: 'failed',
-        error: 'provider failed',
-      },
-    });
-  });
-
-  it('returns immediately when wait=false (fire-and-forget)', async () => {
-    const canvas = createCanvas();
-    const deps = createDeps(canvas);
-
-    const result = await getTool('canvas.generation', deps).execute({
-      action: 'start',
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      wait: false,
-    });
-
-    expect(result).toEqual({
-      success: true,
-      data: { nodeId: 'image-1', status: 'generating' },
-    });
-    expect(deps.triggerGeneration).toHaveBeenCalledWith(
-      'canvas-1',
-      'image-1',
-      undefined,
-      undefined,
-      undefined,
-    );
-  });
-
-  it('forwards a Commander-authored base prompt for host-side style compilation', async () => {
-    const canvas = createCanvas();
-    const deps = createDeps(canvas);
-
-    await getTool('canvas.generation', deps).execute({
-      action: 'start',
-      canvasId: 'canvas-1',
-      nodeId: 'image-1',
-      prompt: 'A woman in a red dress steps into golden afternoon light, 50mm, centered',
-      wait: false,
-    });
-
-    expect(deps.triggerGeneration).toHaveBeenCalledWith(
-      'canvas-1',
-      'image-1',
-      undefined,
-      undefined,
-      'A woman in a red dress steps into golden afternoon light, 50mm, centered',
-    );
-  });
-
-  it('refines the selected asset prompt additively instead of starting from zero', async () => {
+  it('prepares a durable media Task List and returns its Prompt Assembly', async () => {
     const deps = createDeps();
 
     await expect(
       getTool('canvas.generation', deps).execute({
-        action: 'refine',
+        action: 'prepare',
         canvasId: 'canvas-1',
         nodeId: 'image-1',
-        feedback: 'Brighter eyes',
-        wait: false,
+        providerId: 'custom-image',
+        providerConfig: { baseUrl: 'https://provider.example/v1', model: 'image-model' },
+        intent: 'Make the afternoon light warmer',
+        parentAttemptId: 'attempt-1',
+        feedback: 'Keep the composition, brighten the subject.',
       }),
     ).resolves.toEqual({
       success: true,
       data: {
-        nodeId: 'image-1',
-        status: 'generating',
-        lineage: {
-          sourceAssetHash: 'asset-existing',
-          basePromptHash: 'a'.repeat(64),
-          promptHash: 'b'.repeat(64),
-        },
-        steps: [
-          { id: 'load_existing_prompt', status: 'completed' },
-          { id: 'apply_feedback_delta', status: 'completed' },
-          { id: 'generate', status: 'in_progress' },
-          { id: 'grade', status: 'pending' },
-        ],
+        taskListId: 'task-list-image-1',
+        promptAssembly: preparedAssembly('image-1'),
       },
     });
-    expect(deps.preparePromptRefinement).toHaveBeenCalledWith(
-      'canvas-1',
-      'image-1',
-      'Brighter eyes',
-    );
-    expect(deps.triggerGeneration).toHaveBeenCalledWith(
-      'canvas-1',
-      'image-1',
-      undefined,
-      undefined,
-      expect.stringContaining(
-        'Existing exact provider prompt\nUSER QUALITY FEEDBACK (additive): Brighter eyes',
-      ),
-      'precompiled',
-    );
+    expect(deps.prepareMediaTask).toHaveBeenCalledWith({
+      canvasId: 'canvas-1',
+      nodeId: 'image-1',
+      providerId: 'custom-image',
+      providerConfig: { baseUrl: 'https://provider.example/v1', model: 'image-model' },
+      intent: 'Make the afternoon light warmer',
+      parentAttemptId: 'attempt-1',
+      feedback: 'Keep the composition, brighten the subject.',
+    });
   });
 
-  it('requires feedback for an incremental refinement', async () => {
+  it('submits, reads, and cancels through taskListId', async () => {
     const deps = createDeps();
+    const assembly = assemblyOutput('image-1');
 
     await expect(
       getTool('canvas.generation', deps).execute({
-        action: 'refine',
-        canvasId: 'canvas-1',
-        nodeId: 'image-1',
-        feedback: '   ',
+        action: 'submit',
+        taskListId: 'task-list-image-1',
+        assemblyId: assembly.assemblyId,
+        assembly,
       }),
-    ).resolves.toMatchObject({ success: false, errorClass: 'validation' });
-    expect(deps.preparePromptRefinement).not.toHaveBeenCalled();
-    expect(deps.triggerGeneration).not.toHaveBeenCalled();
+    ).resolves.toEqual({
+      success: true,
+      data: {
+        ...mediaTask('image-1'),
+        id: 'task-list-image-1',
+        taskStatus: 'awaiting_provider',
+      },
+    });
+    expect(deps.submitMediaPrompt).toHaveBeenCalledWith({
+      taskListId: 'task-list-image-1',
+      assemblyId: assembly.assemblyId,
+      assembly,
+    });
+
+    await expect(
+      getTool('canvas.generation', deps).execute({
+        action: 'status',
+        taskListId: 'task-list-image-1',
+      }),
+    ).resolves.toEqual({
+      success: true,
+      data: { ...mediaTask('image-1'), id: 'task-list-image-1' },
+    });
+    expect(deps.getMediaTask).toHaveBeenCalledWith('task-list-image-1');
+
+    await expect(
+      getTool('canvas.generation', deps).execute({
+        action: 'cancel',
+        taskListId: 'task-list-image-1',
+      }),
+    ).resolves.toEqual({
+      success: true,
+      data: { ...mediaTask('image-1', 'cancelled'), id: 'task-list-image-1' },
+    });
+    expect(deps.cancelMediaTask).toHaveBeenCalledWith('task-list-image-1');
+
+    await expect(
+      getTool('canvas.generation', deps).execute({
+        action: 'retryEvaluation',
+        taskListId: 'task-list-image-1',
+      }),
+    ).resolves.toEqual({
+      success: true,
+      data: { ...mediaTask('image-1'), id: 'task-list-image-1', taskStatus: 'evaluating' },
+    });
+    expect(deps.retryMediaEvaluation).toHaveBeenCalledWith('task-list-image-1');
+
+    await expect(
+      getTool('canvas.generation', deps).execute({
+        action: 'inspectAssembly',
+        assemblyId: 'assembly-image-1',
+      }),
+    ).resolves.toMatchObject({
+      success: true,
+      data: { id: 'assembly-image-1', canvasId: 'canvas-1', nodeId: 'image-1' },
+    });
+    expect(deps.getPromptAssembly).toHaveBeenCalledWith('assembly-image-1');
   });
 
-  it('accepts nodeType on canvas.generation without affecting execution', async () => {
+  it('uses previewPrompt as the prepare alias', async () => {
+    const deps = createDeps();
+
+    await expect(
+      getTool('canvas.previewPrompt', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'video-1',
+        intent: 'Slow orbit around the subject',
+      }),
+    ).resolves.toEqual({
+      success: true,
+      data: { taskListId: 'task-list-video-1', promptAssembly: preparedAssembly('video-1') },
+    });
+    expect(deps.prepareMediaTask).toHaveBeenCalledWith({
+      canvasId: 'canvas-1',
+      nodeId: 'video-1',
+      intent: 'Slow orbit around the subject',
+    });
+  });
+
+  it('requires paired refinement values and complete safe provider config', async () => {
+    const deps = createDeps();
+    const generation = getTool('canvas.generation', deps);
+
+    await expect(
+      generation.execute({
+        action: 'prepare',
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        parentAttemptId: 'attempt-1',
+      }),
+    ).resolves.toMatchObject({ success: false, errorClass: 'validation' });
+    await expect(
+      generation.execute({
+        action: 'prepare',
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        providerConfig: { baseUrl: 'https://provider.example/v1' },
+      }),
+    ).resolves.toMatchObject({ success: false, errorClass: 'validation' });
+    await expect(
+      generation.execute({
+        action: 'prepare',
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        providerConfig: {
+          baseUrl: 'https://provider.example/v1',
+          model: 'image-model',
+          apiKey: 'never-persist-this',
+        },
+      }),
+    ).resolves.toMatchObject({ success: false, errorClass: 'validation' });
+    expect(deps.prepareMediaTask).not.toHaveBeenCalled();
+  });
+
+  it('exposes only durable Task List actions and rejects legacy actions', async () => {
     const deps = createDeps();
     const generateTool = getTool('canvas.generation', deps);
 
-    expect(generateTool.parameters.properties.nodeType).toEqual(
+    expect(generateTool.inputSchema.properties.action).toEqual(
       expect.objectContaining({
-        type: 'string',
+        enum: [
+          'prepare',
+          'submit',
+          'inspectAssembly',
+          'status',
+          'cancel',
+          'retryEvaluation',
+          'estimate',
+        ],
       }),
     );
+    expect(generateTool.inputSchema.properties).not.toHaveProperty('wait');
+    expect(generateTool.inputSchema.properties).not.toHaveProperty('variantCount');
 
-    const result = await generateTool.execute({
-      action: 'start',
-      canvasId: 'canvas-1',
-      nodeId: 'video-1',
-      nodeType: 'video',
-      wait: false,
+    await expect(generateTool.execute({ action: 'start' })).resolves.toEqual({
+      success: false,
+      error:
+        'Unknown action "start". Must be one of: prepare, submit, inspectAssembly, status, cancel, retryEvaluation, estimate.',
     });
-
-    expect(result).toEqual({
-      success: true,
-      data: { nodeId: 'video-1', status: 'generating' },
-    });
-    expect(deps.triggerGeneration).toHaveBeenCalledWith(
-      'canvas-1',
-      'video-1',
-      undefined,
-      undefined,
-      undefined,
-    );
   });
 
   it('delegates content/prompt updates via updateNodes and selection via selectVariant', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
-
-    await expect(
-      getTool('canvas.generation', deps).execute({
-        action: 'cancel',
-        canvasId: 'canvas-1',
-        nodeId: 'image-1',
-      }),
-    ).resolves.toEqual({ success: true, data: { nodeId: 'image-1' } });
 
     // updateNodes: set prompt on media node
     await expect(
@@ -481,6 +578,37 @@ describe('createCanvasGenerationTools', () => {
     });
   });
 
+  it('commits a large batch with one canvas read and one atomic patch', async () => {
+    const canvas = createCanvas();
+    canvas.nodes = Array.from({ length: 1_000 }, (_, index) => ({
+      id: `text-${index}`,
+      type: 'text' as const,
+      title: `Text ${index}`,
+      position: { x: index, y: 0 },
+      data: { content: `old-${index}` },
+      bypassed: false,
+      locked: false,
+      createdAt: 1,
+      updatedAt: 1,
+    }));
+    canvas.edges = [];
+    const deps = createDeps(canvas);
+
+    const result = await getTool('canvas.updateNodes', deps).execute({
+      canvasId: 'canvas-1',
+      nodes: canvas.nodes.map((node, index) => ({
+        nodeId: node.id,
+        set: { content: `new-${index}` },
+      })),
+    });
+
+    expect(result).toEqual(expect.objectContaining({ success: true }));
+    expect(deps.getCanvas).toHaveBeenCalledTimes(1);
+    expect(deps.patchCanvas).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(deps.patchCanvas).mock.calls[0]?.[1].updatedNodes).toHaveLength(1_000);
+    expect((canvas.nodes[999].data as { content: string }).content).toBe('new-999');
+  });
+
   it('sets provider via configureNode', async () => {
     const canvas = createCanvas();
     const deps = createDeps(canvas);
@@ -498,6 +626,33 @@ describe('createCanvasGenerationTools', () => {
       }),
     );
     expect((canvas.nodes[2].data as Record<string, unknown>).providerId).toBe('kling-v1');
+  });
+
+  it('sets reference-image purpose only on image nodes', async () => {
+    const canvas = createCanvas();
+    const deps = createDeps(canvas);
+
+    await expect(
+      getTool('canvas.configureNode', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'image-1',
+        set: { generationPurpose: 'reference-image' },
+      }),
+    ).resolves.toEqual(expect.objectContaining({ success: true }));
+    expect((canvas.nodes[1].data as Record<string, unknown>).generationPurpose).toBe(
+      'reference-image',
+    );
+
+    await expect(
+      getTool('canvas.configureNode', deps).execute({
+        canvasId: 'canvas-1',
+        nodeId: 'video-1',
+        set: { generationPurpose: 'reference-image' },
+      }),
+    ).resolves.toEqual({
+      success: false,
+      error: 'generationPurpose is only valid for image nodes',
+    });
   });
 
   it('sets seed and variantCount via configureNode', async () => {
@@ -587,14 +742,6 @@ describe('createCanvasGenerationTools', () => {
       success: true,
       data: { noteId: 'note-1' },
     });
-    await expect(getTool('canvas.undo', deps).execute({ canvasId: 'canvas-1' })).resolves.toEqual({
-      success: true,
-      data: { canvasId: 'canvas-1' },
-    });
-    await expect(getTool('canvas.redo', deps).execute({ canvasId: 'canvas-1' })).resolves.toEqual({
-      success: true,
-      data: { canvasId: 'canvas-1' },
-    });
   });
 
   it('performs edge and node mutations', async () => {
@@ -620,13 +767,24 @@ describe('createCanvasGenerationTools', () => {
 
     await expect(
       getTool('canvas.manageEdge', deps).execute({
+        action: 'delete',
+        canvasId: 'canvas-1',
+        edgeId: 'edge-2',
+      }),
+    ).resolves.toEqual({
+      success: true,
+      data: { edgeId: 'edge-2' },
+    });
+
+    await expect(
+      getTool('canvas.manageEdge', deps).execute({
         action: 'disconnect',
         canvasId: 'canvas-1',
         nodeId: 'image-1',
       }),
     ).resolves.toEqual({
       success: true,
-      data: { nodeId: 'image-1', edgeIds: ['edge-2', 'edge-1'], count: 2 },
+      data: { nodeId: 'image-1', edgeIds: ['edge-1'], count: 1 },
     });
 
     await expect(
@@ -637,16 +795,6 @@ describe('createCanvasGenerationTools', () => {
     ).resolves.toEqual({
       success: true,
       data: { nodeId: 'audio-1' },
-    });
-    await expect(
-      getTool('canvas.manageEdge', deps).execute({
-        action: 'delete',
-        canvasId: 'canvas-1',
-        edgeId: 'edge-2',
-      }),
-    ).resolves.toEqual({
-      success: true,
-      data: { edgeId: 'edge-2' },
     });
   });
 
@@ -697,7 +845,7 @@ describe('createCanvasGenerationTools', () => {
 
   it('sets provider tiers, clears legacy pixels, and restores Canvas inheritance', async () => {
     const canvas = createCanvas();
-    const imageData = canvas.nodes[1].data as Record<string, unknown>;
+    let imageData = canvas.nodes[1].data as Record<string, unknown>;
     Object.assign(imageData, { width: 1024, height: 1024 });
     const deps = createDeps(canvas);
     const tool = getTool('canvas.setMediaParams', deps);
@@ -710,6 +858,7 @@ describe('createCanvasGenerationTools', () => {
         set: { resolution: { mode: 'tier', tier: '2K', aspectRatio: '16:9' } },
       }),
     ).resolves.toEqual(expect.objectContaining({ success: true }));
+    imageData = canvas.nodes[1].data as Record<string, unknown>;
     expect(imageData.resolutionIntent).toEqual({
       mode: 'tier',
       tier: '2K',
@@ -726,10 +875,11 @@ describe('createCanvasGenerationTools', () => {
         set: { clearResolutionOverride: true },
       }),
     ).resolves.toEqual(expect.objectContaining({ success: true }));
+    imageData = canvas.nodes[1].data as Record<string, unknown>;
     expect(imageData).not.toHaveProperty('resolutionIntent');
   });
 
-  it('preflights a candidate resolution without triggering generation', async () => {
+  it('preflights a candidate resolution without creating a media Task List', async () => {
     const deps = createDeps();
     const result = await getTool('provider.resolveResolution', deps).execute({
       canvasId: 'canvas-1',
@@ -747,7 +897,7 @@ describe('createCanvasGenerationTools', () => {
       mode: 'tier',
       tier: '2K',
     });
-    expect(deps.triggerGeneration).not.toHaveBeenCalled();
+    expect(deps.prepareMediaTask).not.toHaveBeenCalled();
   });
 
   it('sets video frame references', async () => {
@@ -807,29 +957,9 @@ describe('createCanvasGenerationTools', () => {
     expect((canvas.nodes[3].data as Record<string, unknown>).audioType).toBe('voice');
   });
 
-  it('sets lipSyncEnabled via setMediaParams', async () => {
-    const canvas = createCanvas();
-    const deps = createDeps(canvas);
-
-    await expect(
-      getTool('canvas.setMediaParams', deps).execute({
-        mediaType: 'video',
-        canvasId: 'canvas-1',
-        nodeId: 'video-1',
-        set: { lipSyncEnabled: true },
-      }),
-    ).resolves.toEqual(
-      expect.objectContaining({
-        success: true,
-        data: expect.objectContaining({ nodeId: 'video-1' }),
-      }),
-    );
-    expect((canvas.nodes[2].data as Record<string, unknown>).lipSyncEnabled).toBe(true);
-  });
-
   it('wraps dependency failures', async () => {
     const deps = createDeps();
-    vi.mocked(deps.deleteEdge).mockRejectedValueOnce(new Error('edge delete failed'));
+    vi.mocked(deps.patchCanvas).mockRejectedValueOnce(new Error('edge delete failed'));
 
     await expect(
       getTool('canvas.manageEdge', deps).execute({

@@ -94,6 +94,43 @@ export class StabilityAudioAdapter implements AIProviderAdapter {
     return JobStatus.Completed;
   }
 
+  async getResult(jobId: string): Promise<GenerationResult> {
+    const res = await fetchWithTimeout(`${this.baseUrl}/audio/result/${jobId}`, {
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        Accept: 'audio/*, application/json',
+      },
+    });
+    if (!res.ok) {
+      throw new LucidError(
+        ErrorCode.ServiceUnavailable,
+        `Stability Audio result fetch failed: ${res.status}`,
+      );
+    }
+    const contentType = res.headers.get('content-type') ?? 'audio/mpeg';
+    if (contentType.includes('application/json')) {
+      const parsed = parseStabilityAudioResponse(
+        (await res.json()) as Record<string, unknown>,
+      );
+      if (!parsed.audioUrl) {
+        throw new Error(`Stability Audio job ${jobId} completed without audio data`);
+      }
+      return {
+        assetHash: '',
+        assetPath: parsed.audioUrl,
+        provider: this.id,
+        metadata: { id: parsed.id, status: parsed.status },
+      };
+    }
+    const audio = Buffer.from(await res.arrayBuffer()).toString('base64');
+    return {
+      assetHash: '',
+      assetPath: `data:${contentType.split(';')[0]};base64,${audio}`,
+      provider: this.id,
+      metadata: { id: jobId, status: 'complete' },
+    };
+  }
+
   async cancel(_jobId: string): Promise<void> {
     // Stability Audio doesn't support cancellation
   }

@@ -8,8 +8,14 @@
     "moduleResolution": "bundler",
     "outDir": "dist",
     "rootDir": "src",
+    "paths": {
+      "@lucid-fin/target-contracts": ["../../packages/target-contracts/src/index.ts"]
+    },
     "types": ["vite/client"]
   },
   "include": ["src"],
-  "references": [{ "path": "../../packages/contracts" }]
+  "references": [
+    { "path": "../../packages/contracts" },
+    { "path": "../../packages/target-contracts" }
+  ]
 }

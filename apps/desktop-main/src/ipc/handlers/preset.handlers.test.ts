@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BUILT_IN_PRESET_LIBRARY } from '@lucid-fin/contracts';
+import { BUILT_IN_PRESET_LIBRARY, type PresetDefinition } from '@lucid-fin/contracts';
 
 const logger = vi.hoisted(() => ({
   debug: vi.fn(),
@@ -18,7 +18,7 @@ vi.mock('../../logger.js', () => ({
   fatal: logger.fatal,
 }));
 
-import { registerPresetHandlers } from './preset.handlers.js';
+import { projectPresetCatalog, registerPresetHandlers } from './preset.handlers.js';
 
 const builtInPreset =
   BUILT_IN_PRESET_LIBRARY.find((preset) => preset.category === 'look') ??
@@ -26,6 +26,11 @@ const builtInPreset =
 const alternateBuiltInPreset =
   BUILT_IN_PRESET_LIBRARY.find((preset) => preset.category !== builtInPreset.category) ??
   BUILT_IN_PRESET_LIBRARY[1];
+const parameterizedBuiltInPreset =
+  BUILT_IN_PRESET_LIBRARY.find((preset) => preset.promptTemplate) ?? BUILT_IN_PRESET_LIBRARY[0];
+const rainPreset = BUILT_IN_PRESET_LIBRARY.find(
+  (preset) => preset.id === 'builtin-sfx-environment-rain-heavy',
+)!;
 
 function resetCommon() {
   vi.clearAllMocks();
@@ -143,6 +148,35 @@ describe('registerPresetHandlers', () => {
         id: builtInPreset.id,
         category: builtInPreset.category,
         builtIn: true,
+      }),
+    );
+  });
+
+  it('returns a built-in override resolved against its full built-in definition', async () => {
+    resetCommon();
+    const handlers = registerHandlers(makeDb());
+
+    const result = await handlers.get('preset:save')?.(
+      {},
+      {
+        id: parameterizedBuiltInPreset.id,
+        category: parameterizedBuiltInPreset.category,
+        name: parameterizedBuiltInPreset.name,
+        description: parameterizedBuiltInPreset.description,
+        prompt: 'project override prompt',
+        builtIn: true,
+        modified: true,
+        params: parameterizedBuiltInPreset.params,
+        defaults: parameterizedBuiltInPreset.defaults,
+      },
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: parameterizedBuiltInPreset.id,
+        prompt: 'project override prompt',
+        promptTemplate: parameterizedBuiltInPreset.promptTemplate,
+        promptParamDefs: parameterizedBuiltInPreset.promptParamDefs,
       }),
     );
   });
@@ -271,6 +305,86 @@ describe('registerPresetHandlers', () => {
         builtIn: false,
       }),
     ]);
+  });
+
+  it('upgrades a persisted inherited audio prompt while preserving its parameter overrides', async () => {
+    resetCommon();
+    const handlers = registerHandlers(
+      makeDb([
+        {
+          id: `override:${rainPreset.id}`,
+          presetId: rainPreset.id,
+          category: rainPreset.category,
+          name: rainPreset.name,
+          description: rainPreset.description,
+          prompt: 'Rain Heavy, sound environment, spatial acoustics, and ambience',
+          params: rainPreset.params,
+          defaults: { ...rainPreset.defaults, reverb: 75, intensity: 60 },
+          isUser: false,
+        },
+      ]),
+    );
+
+    const presets = (await handlers.get('preset:list')?.(
+      {},
+      { category: 'sfx-environment', includeBuiltIn: true },
+    )) as PresetDefinition[];
+    const resolved = presets.find((preset) => preset.id === rainPreset.id);
+
+    expect(resolved).toMatchObject({
+      prompt: rainPreset.prompt,
+      promptTemplate: rainPreset.promptTemplate,
+      defaults: expect.objectContaining({ reverb: 75, intensity: 60 }),
+      modified: true,
+    });
+  });
+
+  it('exposes persisted overrides and custom presets through the shared resolved catalog after reload', () => {
+    resetCommon();
+    registerHandlers(
+      makeDb([
+        {
+          id: `override:${parameterizedBuiltInPreset.id}`,
+          presetId: parameterizedBuiltInPreset.id,
+          category: parameterizedBuiltInPreset.category,
+          name: parameterizedBuiltInPreset.name,
+          description: parameterizedBuiltInPreset.description,
+          prompt: 'reloaded built-in override prompt',
+          params: parameterizedBuiltInPreset.params,
+          defaults: parameterizedBuiltInPreset.defaults,
+          isUser: false,
+        },
+        {
+          id: 'custom:reloaded-project-preset',
+          presetId: 'custom:reloaded-project-preset',
+          category: 'look',
+          name: 'Reloaded Project Preset',
+          description: 'Persisted custom preset',
+          prompt: 'reloaded custom preset prompt',
+          params: [],
+          defaults: {},
+          isUser: true,
+        },
+      ]),
+    );
+
+    const catalog = projectPresetCatalog.list();
+
+    expect(catalog).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: parameterizedBuiltInPreset.id,
+          prompt: 'reloaded built-in override prompt',
+          promptTemplate: parameterizedBuiltInPreset.promptTemplate,
+          modified: true,
+        }),
+        expect.objectContaining({
+          id: 'custom:reloaded-project-preset',
+          prompt: 'reloaded custom preset prompt',
+          builtIn: false,
+        }),
+      ]),
+    );
   });
 
   it('imports preset payloads and exports filtered libraries', async () => {

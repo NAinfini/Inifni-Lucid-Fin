@@ -1,18 +1,16 @@
 import {
-  requireCanvas,
-  requireNode,
+  requireAuthorizedCanvas,
+  requireAuthorizedNode,
   touchCanvas,
   createCanvasTools,
   EXCLUDED_TOOLS,
-  startCanvasGeneration,
-  cancelCanvasGeneration,
-  buildGenerationContext,
+  buildGenerationEstimateContext,
+  resolveGenerationResolutionMediaType,
   randomUUID,
   createEmptyPresetTrackSet,
   getBufferedLogs,
   parseCanvasId,
   parseShotTemplateId,
-  commanderUndoDispatchChannel,
   NODE_KINDS,
   BUILT_IN_SHOT_TEMPLATES,
   type ToolRegistrationDeps,
@@ -25,15 +23,15 @@ import {
   type CanvasSettings,
   type PresetTrackSet,
   type ShotTemplate,
-  type AgentToolRegistry,
+  type ToolRegistry,
 } from './helpers.js';
-import { createHash } from 'node:crypto';
-import { resolveCanvasVisualStylePolicy } from '@lucid-fin/shared-utils';
 import {
   preflightGenerationResolution,
   resolveEffectiveResolutionIntent,
 } from '@lucid-fin/adapters-ai';
+import { getCommanderSessionId } from '@lucid-fin/contracts';
 import type {
+  CanvasPatch,
   GenerationRequest,
   ImageNodeData,
   ResolutionIntent,
@@ -41,7 +39,7 @@ import type {
 } from '@lucid-fin/contracts';
 
 export function registerCanvasTools(
-  registry: AgentToolRegistry,
+  registry: ToolRegistry,
   deps: ToolRegistrationDeps,
   getWindow: () => BrowserWindow | null,
   gateway: RendererPushGateway,
@@ -53,50 +51,57 @@ export function registerCanvasTools(
   ) => Promise<import('@lucid-fin/contracts').PresetDefinition>,
   defaultProviders?: Record<string, string>,
 ): void {
-  const canvasGenerationDeps = {
-    adapterRegistry: deps.adapterRegistry,
-    cas: deps.cas,
-    db: deps.db,
-    canvasStore: deps.canvasStore,
-    keychain: deps.keychain,
-    getWindow,
+  const commanderSessionId = deps.commanderContinuation?.sessionId;
+  const requireOwnedTaskList = (taskListId: string) => {
+    const taskList = deps.taskExecutionEngine.get(taskListId);
+    if (
+      !commanderSessionId ||
+      !taskList ||
+      getCommanderSessionId(taskList.metadata) !== commanderSessionId
+    ) {
+      throw new Error('Task List is not bound to the current Commander session');
+    }
+    return taskList;
   };
-
   const canvasToolDeps = {
-    getCanvas: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),
+    getCanvas: async (canvasId: string) => requireAuthorizedCanvas(deps, canvasId),
+    patchCanvas: async (canvasId: string, patch: CanvasPatch) => {
+      requireAuthorizedCanvas(deps, canvasId);
+      deps.canvasStore.patchApply(canvasId, patch);
+    },
     deleteCanvas: async (canvasId: string) => {
-      requireCanvas(deps.canvasStore, canvasId);
-      deps.canvasStore.delete(canvasId);
+      requireAuthorizedCanvas(deps, canvasId);
+      deps.canvasStore.archive(canvasId);
     },
     addNode: async (canvasId: string, node: CanvasNode) => {
-      const current = requireCanvas(deps.canvasStore, canvasId);
+      const current = requireAuthorizedCanvas(deps, canvasId);
       current.nodes.push(node);
       touchCanvas(current, deps.canvasStore);
     },
     moveNode: async (canvasId: string, nodeId: string, position: { x: number; y: number }) => {
-      const { canvas: current, node } = requireNode(deps.canvasStore, canvasId, nodeId);
+      const { canvas: current, node } = requireAuthorizedNode(deps, canvasId, nodeId);
       node.position = position;
       node.updatedAt = Date.now();
       touchCanvas(current, deps.canvasStore);
     },
     renameNode: async (canvasId: string, nodeId: string, title: string) => {
-      const { canvas: current, node } = requireNode(deps.canvasStore, canvasId, nodeId);
+      const { canvas: current, node } = requireAuthorizedNode(deps, canvasId, nodeId);
       node.title = title;
       node.updatedAt = Date.now();
       touchCanvas(current, deps.canvasStore);
     },
     renameCanvas: async (canvasId: string, name: string) => {
-      const current = requireCanvas(deps.canvasStore, canvasId);
+      const current = requireAuthorizedCanvas(deps, canvasId);
       current.name = name;
       touchCanvas(current, deps.canvasStore);
     },
     connectNodes: async (canvasId: string, edge: CanvasEdge) => {
-      const current = requireCanvas(deps.canvasStore, canvasId);
+      const current = requireAuthorizedCanvas(deps, canvasId);
       current.edges.push(edge);
       touchCanvas(current, deps.canvasStore);
     },
     setNodePresets: async (canvasId: string, nodeId: string, presetTracks: PresetTrackSet) => {
-      const { canvas: current, node } = requireNode(deps.canvasStore, canvasId, nodeId);
+      const { canvas: current, node } = requireAuthorizedNode(deps, canvasId, nodeId);
       if (node.type !== 'image' && node.type !== 'video') {
         throw new Error(`Node type "${node.type}" does not support presets`);
       }
@@ -112,95 +117,88 @@ export function registerCanvasTools(
       node.updatedAt = Date.now();
       touchCanvas(current, deps.canvasStore);
     },
-    layoutNodes: async () => undefined,
-    triggerGeneration: async (
-      canvasId: string,
-      nodeId: string,
-      providerId?: string,
-      variantCount?: number,
-      finalPrompt?: string,
-      promptInputMode?: 'base' | 'precompiled',
-    ) => {
-      await startCanvasGeneration(
-        gateway,
-        { canvasId, nodeId, providerId, variantCount, finalPrompt, promptInputMode },
-        canvasGenerationDeps,
+    layoutNodes: async (canvasId: string) => {
+      requireAuthorizedCanvas(deps, canvasId);
+    },
+    prepareMediaTask: async (input: {
+      canvasId: string;
+      nodeId: string;
+      providerId?: string;
+      providerConfig?: { baseUrl: string; model: string };
+      intent?: string;
+      parentAttemptId?: string;
+      feedback?: string;
+    }) => {
+      requireAuthorizedNode(deps, input.canvasId, input.nodeId);
+      if (!commanderSessionId) {
+        throw new Error('Commander session binding is unavailable for media generation');
+      }
+      return deps.mediaTaskService.start({
+        canvasId: input.canvasId,
+        nodeId: input.nodeId,
+        commanderSessionId,
+        ...(input.providerId ? { providerId: input.providerId } : {}),
+        ...(input.providerConfig ? { providerConfig: input.providerConfig } : {}),
+        ...(input.intent ? { commanderIntent: input.intent } : {}),
+        ...(input.parentAttemptId ? { parentAttemptId: input.parentAttemptId } : {}),
+        ...(input.feedback ? { feedback: input.feedback } : {}),
+      });
+    },
+    getMediaTask: async (taskListId: string) => {
+      requireOwnedTaskList(taskListId);
+      const view = deps.mediaTaskService.get(taskListId);
+      requireAuthorizedCanvas(deps, view.canvasId);
+      return view;
+    },
+    getPromptAssembly: async (assemblyId: string) => {
+      const assembly = deps.promptAssemblyService.get(assemblyId);
+      if (!assembly || !assembly.taskListId) {
+        throw new Error('Prompt Assembly is not bound to a Canvas Task List');
+      }
+      requireAuthorizedNode(deps, assembly.canvasId, assembly.nodeId);
+      requireOwnedTaskList(assembly.taskListId);
+      return assembly;
+    },
+    submitMediaPrompt: async (input: {
+      taskListId: string;
+      assemblyId: string;
+      assembly: import('@lucid-fin/contracts').PromptAssemblyOutputV1;
+    }) => {
+      requireOwnedTaskList(input.taskListId);
+      const view = deps.mediaTaskService.get(input.taskListId);
+      requireAuthorizedCanvas(deps, view.canvasId);
+      if (!deps.activeLLMAdapter) {
+        throw new Error('Commander LLM author binding is unavailable for media Prompt Assembly');
+      }
+      return deps.mediaTaskService.submitPrompt(
+        {
+          taskListId: input.taskListId,
+          promptAssemblyId: input.assemblyId,
+          promptAssemblyOutput: input.assembly,
+        },
+        {
+          providerId: deps.activeLLMAdapter.id,
+          model: deps.activeLLMAdapter.name,
+        },
       );
     },
-    preparePromptRefinement: async (canvasId: string, nodeId: string, feedback: string) => {
-      const { canvas, node } = requireNode(deps.canvasStore, canvasId, nodeId);
-      if (node.type !== 'image' && node.type !== 'video') {
-        throw new Error('Incremental prompt refinement supports image and video nodes only');
-      }
-      const data = node.data as {
-        assetHash?: string;
-        variants?: string[];
-        selectedVariantIndex?: number;
-      };
-      const selectedIndex = Number.isInteger(data.selectedVariantIndex)
-        ? Number(data.selectedVariantIndex)
-        : 0;
-      const sourceAssetHash = data.assetHash ?? data.variants?.[selectedIndex];
-      if (!sourceAssetHash) {
-        throw new Error('Generate and select an image or video before asking for a refinement');
-      }
-      const asset = deps.db.repos.assets.findByHash(sourceAssetHash as never);
-      const basePrompt = asset?.generationMetadata?.prompt ?? asset?.prompt;
-      if (!basePrompt?.trim()) {
-        throw new Error(
-          'The selected asset has no recorded provider prompt; refusing to reconstruct it from zero',
-        );
-      }
-      const recordedStyle = asset?.generationMetadata?.visualStyle;
-      if (recordedStyle?.source === 'visual-constitution') {
-        throw new Error(
-          'This asset belongs to an approved persistent workflow; use workflow media refinement so the exact Visual Constitution remains authoritative',
-        );
-      }
-      const currentStyle = resolveCanvasVisualStylePolicy(canvas.settings);
-      if (
-        recordedStyle &&
-        currentStyle &&
-        currentStyle.provenance.policyHash !== recordedStyle.policyHash
-      ) {
-        throw new Error(
-          'The Canvas visual-style policy changed after this asset was generated; regenerate under the current style before applying an incremental quality comment',
-        );
-      }
-      if (recordedStyle && !currentStyle) {
-        throw new Error(
-          'The Canvas visual-style policy used by this asset is no longer active; restore it or regenerate before refining',
-        );
-      }
-      if (
-        currentStyle &&
-        !recordedStyle &&
-        currentStyle.policy.summary &&
-        !basePrompt.includes(currentStyle.policy.summary)
-      ) {
-        throw new Error(
-          'The selected asset predates the current Canvas visual-style policy; regenerate once under the current style before applying incremental feedback',
-        );
-      }
-      const normalizedFeedback = feedback.trim();
-      if (!normalizedFeedback) throw new Error('feedback is required');
-      const styleBoundary = currentStyle
-        ? `CANVAS VISUAL STYLE REMAINS AUTHORITATIVE (${currentStyle.provenance.policyHash}); apply the feedback without redesigning or restyling unaffected details.`
-        : 'PRESERVE THE PRIOR VISUAL LANGUAGE; apply the feedback without redesigning or restyling unaffected details.';
-      const prompt = `${basePrompt.trim()}\nUSER QUALITY FEEDBACK (additive): ${normalizedFeedback}\n${styleBoundary}`;
-      return {
-        sourceAssetHash,
-        basePrompt: basePrompt.trim(),
-        basePromptHash: createHash('sha256').update(basePrompt.trim(), 'utf8').digest('hex'),
-        prompt,
-        promptHash: createHash('sha256').update(prompt, 'utf8').digest('hex'),
-      };
+    cancelMediaTask: async (taskListId: string) => {
+      requireOwnedTaskList(taskListId);
+      const view = deps.mediaTaskService.get(taskListId);
+      requireAuthorizedCanvas(deps, view.canvasId);
+      return deps.mediaTaskService.cancel(taskListId);
     },
-    cancelGeneration: async (canvasId: string, nodeId: string) => {
-      await cancelCanvasGeneration(gateway, { canvasId, nodeId }, canvasGenerationDeps);
+    retryMediaEvaluation: async (taskListId: string) => {
+      requireOwnedTaskList(taskListId);
+      const view = deps.mediaTaskService.get(taskListId);
+      requireAuthorizedCanvas(deps, view.canvasId);
+      if (!commanderSessionId) {
+        throw new Error('Commander session binding is unavailable for media generation');
+      }
+      return deps.mediaTaskService.retryEvaluation(taskListId, commanderSessionId);
     },
     deleteNode: async (canvasId: string, nodeId: string) => {
-      const current = requireCanvas(deps.canvasStore, canvasId);
+      const current = requireAuthorizedCanvas(deps, canvasId);
       const idx = current.nodes.findIndex((n) => n.id === nodeId);
       if (idx === -1) throw new Error(`Node not found: ${nodeId}`);
       current.nodes.splice(idx, 1);
@@ -208,27 +206,27 @@ export function registerCanvasTools(
       touchCanvas(current, deps.canvasStore);
     },
     deleteEdge: async (canvasId: string, edgeId: string) => {
-      const current = requireCanvas(deps.canvasStore, canvasId);
+      const current = requireAuthorizedCanvas(deps, canvasId);
       const idx = current.edges.findIndex((e) => e.id === edgeId);
       if (idx === -1) throw new Error(`Edge not found: ${edgeId}`);
       current.edges.splice(idx, 1);
       touchCanvas(current, deps.canvasStore);
     },
     updateNodeData: async (canvasId: string, nodeId: string, data: Record<string, unknown>) => {
-      const { canvas: current, node } = requireNode(deps.canvasStore, canvasId, nodeId);
+      const { canvas: current, node } = requireAuthorizedNode(deps, canvasId, nodeId);
       Object.assign(node.data, data);
       node.updatedAt = Date.now();
       touchCanvas(current, deps.canvasStore);
     },
     clearNodeDataFields: async (canvasId: string, nodeId: string, fields: string[]) => {
-      const { canvas: current, node } = requireNode(deps.canvasStore, canvasId, nodeId);
+      const { canvas: current, node } = requireAuthorizedNode(deps, canvasId, nodeId);
       const nodeData = node.data as unknown as Record<string, unknown>;
       for (const field of fields) delete nodeData[field];
       node.updatedAt = Date.now();
       touchCanvas(current, deps.canvasStore);
     },
     preflightResolution: async (canvasId: string, nodeId: string, candidate?: ResolutionIntent) => {
-      const { canvas: current, node } = requireNode(deps.canvasStore, canvasId, nodeId);
+      const { canvas: current, node } = requireAuthorizedNode(deps, canvasId, nodeId);
       if (node.type !== 'image' && node.type !== 'video') {
         throw new Error(`Node "${nodeId}" is not an image or video node`);
       }
@@ -251,7 +249,7 @@ export function registerCanvasTools(
       const effective = candidate
         ? { intent: candidate, source: 'node' as const }
         : resolveEffectiveResolutionIntent({
-            mediaType: node.type,
+            mediaType: resolveGenerationResolutionMediaType(node, node.type),
             canvasSettings: current.settings,
             nodeData,
           });
@@ -295,29 +293,31 @@ export function registerCanvasTools(
     },
     getDefaultProviderId: (group: 'image' | 'video' | 'audio') => defaultProviders?.[group],
     setNodeColorTag: async (canvasId: string, nodeId: string, color: string | undefined) => {
-      const { canvas: cur, node } = requireNode(deps.canvasStore, canvasId, nodeId);
+      const { canvas: cur, node } = requireAuthorizedNode(deps, canvasId, nodeId);
       node.colorTag = color;
       node.updatedAt = Date.now();
       touchCanvas(cur, deps.canvasStore);
     },
     toggleSeedLock: async (canvasId: string, nodeId: string) => {
-      const { canvas: cur, node } = requireNode(deps.canvasStore, canvasId, nodeId);
+      const { canvas: cur, node } = requireAuthorizedNode(deps, canvasId, nodeId);
       (node.data as { seedLocked?: boolean }).seedLocked = !(node.data as { seedLocked?: boolean })
         .seedLocked;
       node.updatedAt = Date.now();
       touchCanvas(cur, deps.canvasStore);
     },
     selectVariant: async (canvasId: string, nodeId: string, index: number) => {
-      const { canvas: cur, node } = requireNode(deps.canvasStore, canvasId, nodeId);
+      const { canvas: cur, node } = requireAuthorizedNode(deps, canvasId, nodeId);
       (node.data as { selectedVariantIndex?: number }).selectedVariantIndex = index;
       node.updatedAt = Date.now();
       touchCanvas(cur, deps.canvasStore);
     },
     estimateCost: async (canvasId: string, nodeIds?: string[]) => {
-      const canvas = requireCanvas(deps.canvasStore, canvasId);
+      const canvas = requireAuthorizedCanvas(deps, canvasId);
+      const requestedNodeIds =
+        Array.isArray(nodeIds) && nodeIds.length > 0 ? new Set(nodeIds) : null;
       const targets =
-        Array.isArray(nodeIds) && nodeIds.length > 0
-          ? canvas.nodes.filter((n) => nodeIds.includes(n.id))
+        requestedNodeIds
+          ? canvas.nodes.filter((n) => requestedNodeIds.has(n.id))
           : canvas.nodes.filter(
               (n) =>
                 n.type === 'image' ||
@@ -335,66 +335,29 @@ export function registerCanvasTools(
         canvasStore: deps.canvasStore,
         keychain: deps.keychain,
         getWindow,
+        resolvePresetCatalog: deps.presetCatalog.list,
+        promptAssemblyService: deps.promptAssemblyService,
+        preferredPromptAssembler: deps.activeLLMAdapter,
+        resolveProcessPrompt: deps.resolveProcessPrompt,
       };
       for (const node of targets) {
-        try {
-          const context = await buildGenerationContext(generationDeps, {
-            canvasId,
-            nodeId: node.id,
-            requestedProviderId: undefined,
-            requestedProviderConfig: undefined,
-            requestedVariantCount: undefined,
-            requestedSeed: undefined,
-          });
-          const estimate = context.adapter.estimateCost(context.requestBase);
-          total += estimate.estimatedCost;
-          currency = estimate.currency || currency;
-          nodeCosts.push({ nodeId: node.id, estimatedCost: estimate.estimatedCost });
-        } catch {
-          nodeCosts.push({ nodeId: node.id, estimatedCost: 0 });
-        }
-      }
-      return { totalEstimatedCost: total, currency, nodeCosts };
-    },
-    previewPrompt: async (canvasId: string, nodeId: string) => {
-      const context = await buildGenerationContext(
-        {
-          adapterRegistry: deps.adapterRegistry,
-          cas: deps.cas,
-          db: deps.db,
-          canvasStore: deps.canvasStore,
-          keychain: deps.keychain,
-          getWindow,
-        },
-        {
+        const context = await buildGenerationEstimateContext(generationDeps, {
           canvasId,
-          nodeId,
+          nodeId: node.id,
           requestedProviderId: undefined,
           requestedProviderConfig: undefined,
           requestedVariantCount: undefined,
           requestedSeed: undefined,
-        },
-      );
-      return {
-        prompt: context.compiled.prompt,
-        negativePrompt: context.compiled.negativePrompt,
-        segments: context.compiled.segments.map((s) => ({
-          source: s.source,
-          text: s.text,
-          trimmed: s.trimmed,
-        })),
-        wordCount: context.compiled.wordCount,
-        diagnostics: context.compiled.diagnostics.map((d) => ({
-          type: d.type,
-          severity: d.severity,
-          message: d.message,
-        })),
-        providerId: context.adapter.id,
-        mode: context.mode,
-      };
+        });
+        const estimate = context.adapter.estimateCost(context.requestBase);
+        total += estimate.estimatedCost;
+        currency = estimate.currency || currency;
+        nodeCosts.push({ nodeId: node.id, estimatedCost: estimate.estimatedCost });
+      }
+      return { totalEstimatedCost: total, currency, nodeCosts };
     },
     addNote: async (canvasId: string, content: string): Promise<CanvasNote> => {
-      const canvas = requireCanvas(deps.canvasStore, canvasId);
+      const canvas = requireAuthorizedCanvas(deps, canvasId);
       const now = Date.now();
       const note: CanvasNote = {
         id: randomUUID(),
@@ -413,7 +376,7 @@ export function registerCanvasTools(
       return entries.slice(-(limit ?? 50)) as unknown as Array<Record<string, unknown>>;
     },
     updateNote: async (canvasId: string, noteId: string, content: string) => {
-      const canvas = requireCanvas(deps.canvasStore, canvasId);
+      const canvas = requireAuthorizedCanvas(deps, canvasId);
       const note = (canvas.notes ?? []).find((n) => n.id === noteId);
       if (!note) throw new Error(`Note not found: ${noteId}`);
       note.content = content;
@@ -421,31 +384,27 @@ export function registerCanvasTools(
       touchCanvas(canvas, deps.canvasStore);
     },
     deleteNote: async (canvasId: string, noteId: string) => {
-      const canvas = requireCanvas(deps.canvasStore, canvasId);
+      const canvas = requireAuthorizedCanvas(deps, canvasId);
       const before = (canvas.notes ?? []).length;
       canvas.notes = (canvas.notes ?? []).filter((n) => n.id !== noteId);
       if (canvas.notes.length === before) throw new Error(`Note not found: ${noteId}`);
       touchCanvas(canvas, deps.canvasStore);
     },
-    undo: async () => {
-      gateway.emit(commanderUndoDispatchChannel, { action: 'undo' });
-    },
-    redo: async () => {
-      gateway.emit(commanderUndoDispatchChannel, { action: 'redo' });
-    },
-    importWorkflow: async (canvasId: string, json: string): Promise<Canvas> => {
+    importCanvasDocument: async (canvasId: string, json: string): Promise<Canvas> => {
       let parsed: unknown;
       try {
         parsed = JSON.parse(json);
       } catch (err) {
-        throw new Error(`importWorkflow: invalid JSON — ${(err as Error).message}`, { cause: err });
+        throw new Error(`importCanvasDocument: invalid JSON — ${(err as Error).message}`, {
+          cause: err,
+        });
       }
       if (!parsed || typeof parsed !== 'object') {
-        throw new Error('importWorkflow: payload must be a JSON object');
+        throw new Error('importCanvasDocument: payload must be a JSON object');
       }
       const incoming = parsed as Record<string, unknown>;
       if (!Array.isArray(incoming.nodes) || !Array.isArray(incoming.edges)) {
-        throw new Error('importWorkflow: payload must contain nodes and edges arrays');
+        throw new Error('importCanvasDocument: payload must contain nodes and edges arrays');
       }
 
       const validNodeKinds = new Set<string>(NODE_KINDS);
@@ -455,31 +414,31 @@ export function registerCanvasTools(
       for (let i = 0; i < incoming.nodes.length; i++) {
         const raw = incoming.nodes[i];
         if (!raw || typeof raw !== 'object') {
-          throw new Error(`importWorkflow: nodes[${i}] is not an object`);
+          throw new Error(`importCanvasDocument: nodes[${i}] is not an object`);
         }
         const n = raw as Record<string, unknown>;
         if (typeof n.id !== 'string' || n.id.length === 0) {
-          throw new Error(`importWorkflow: nodes[${i}] missing id`);
+          throw new Error(`importCanvasDocument: nodes[${i}] missing id`);
         }
         if (nodeIds.has(n.id)) {
-          throw new Error(`importWorkflow: duplicate node id "${n.id}"`);
+          throw new Error(`importCanvasDocument: duplicate node id "${n.id}"`);
         }
         nodeIds.add(n.id);
         if (typeof n.type !== 'string' || !validNodeKinds.has(n.type)) {
-          throw new Error(`importWorkflow: nodes[${i}] has invalid type "${String(n.type)}"`);
+          throw new Error(`importCanvasDocument: nodes[${i}] has invalid type "${String(n.type)}"`);
         }
         if (!n.position || typeof n.position !== 'object') {
-          throw new Error(`importWorkflow: nodes[${i}] missing position`);
+          throw new Error(`importCanvasDocument: nodes[${i}] missing position`);
         }
         const pos = n.position as Record<string, unknown>;
         if (typeof pos.x !== 'number' || typeof pos.y !== 'number') {
-          throw new Error(`importWorkflow: nodes[${i}] position must have numeric x and y`);
+          throw new Error(`importCanvasDocument: nodes[${i}] position must have numeric x and y`);
         }
         if (typeof n.title !== 'string') {
-          throw new Error(`importWorkflow: nodes[${i}] missing title`);
+          throw new Error(`importCanvasDocument: nodes[${i}] missing title`);
         }
         if (!n.data || typeof n.data !== 'object') {
-          throw new Error(`importWorkflow: nodes[${i}] missing data object`);
+          throw new Error(`importCanvasDocument: nodes[${i}] missing data object`);
         }
         validatedNodes.push({
           id: n.id,
@@ -506,24 +465,24 @@ export function registerCanvasTools(
       for (let i = 0; i < incoming.edges.length; i++) {
         const raw = incoming.edges[i];
         if (!raw || typeof raw !== 'object') {
-          throw new Error(`importWorkflow: edges[${i}] is not an object`);
+          throw new Error(`importCanvasDocument: edges[${i}] is not an object`);
         }
         const e = raw as Record<string, unknown>;
         if (typeof e.id !== 'string' || e.id.length === 0) {
-          throw new Error(`importWorkflow: edges[${i}] missing id`);
+          throw new Error(`importCanvasDocument: edges[${i}] missing id`);
         }
         if (typeof e.source !== 'string' || !nodeIds.has(e.source)) {
           throw new Error(
-            `importWorkflow: edges[${i}] references unknown source "${String(e.source)}"`,
+            `importCanvasDocument: edges[${i}] references unknown source "${String(e.source)}"`,
           );
         }
         if (typeof e.target !== 'string' || !nodeIds.has(e.target)) {
           throw new Error(
-            `importWorkflow: edges[${i}] references unknown target "${String(e.target)}"`,
+            `importCanvasDocument: edges[${i}] references unknown target "${String(e.target)}"`,
           );
         }
         if (e.source === e.target) {
-          throw new Error(`importWorkflow: edges[${i}] self-loop not allowed`);
+          throw new Error(`importCanvasDocument: edges[${i}] self-loop not allowed`);
         }
         validatedEdges.push({
           id: e.id,
@@ -565,7 +524,7 @@ export function registerCanvasTools(
         }
       }
 
-      const canvas = requireCanvas(deps.canvasStore, canvasId);
+      const canvas = requireAuthorizedCanvas(deps, canvasId);
       canvas.nodes = validatedNodes;
       canvas.edges = validatedEdges;
       if (validatedViewport) canvas.viewport = validatedViewport;
@@ -573,8 +532,8 @@ export function registerCanvasTools(
       touchCanvas(canvas, deps.canvasStore);
       return canvas;
     },
-    exportWorkflow: async (canvasId: string) => {
-      const canvas = requireCanvas(deps.canvasStore, canvasId);
+    exportCanvasDocument: async (canvasId: string) => {
+      const canvas = requireAuthorizedCanvas(deps, canvasId);
       return JSON.stringify({
         nodes: canvas.nodes,
         edges: canvas.edges,
@@ -583,14 +542,14 @@ export function registerCanvasTools(
       });
     },
     getCanvasSettings: async (canvasId: string): Promise<CanvasSettings> => {
-      const canvas = requireCanvas(deps.canvasStore, canvasId);
+      const canvas = requireAuthorizedCanvas(deps, canvasId);
       return canvas.settings ?? {};
     },
     patchCanvasSettings: async (
       canvasId: string,
       patch: CanvasSettings,
     ): Promise<CanvasSettings> => {
-      const canvas = requireCanvas(deps.canvasStore, canvasId);
+      const canvas = requireAuthorizedCanvas(deps, canvasId);
       const brandedId = parseCanvasId(canvasId);
       deps.db.repos.canvases.patchSettings(brandedId, patch);
       const current = canvas.settings ?? {};

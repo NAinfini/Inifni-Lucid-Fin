@@ -1,5 +1,5 @@
 /**
- * Pure type shapes for Batch 4 (asset:* + storage:*).
+ * Pure type shapes for Asset entry/content and storage IPC.
  *
  * No zod, no runtime. Complex DTO payloads (AssetRef, AssetMeta) and the
  * storage:getOverview summary object are left as `unknown` — Phase C will
@@ -7,75 +7,90 @@
  * contract-owned.
  */
 
+import type { AssetEntry, AssetMeta } from '../../dto/asset.js';
+
 // ── Shared ───────────────────────────────────────────────────
 export type AssetType = 'image' | 'video' | 'audio';
 
-// ── asset:import ─────────────────────────────────────────────
-export interface AssetImportRequest {
+// ── assetEntry:import ────────────────────────────────────────
+export interface AssetEntryImportRequest {
   filePath: string;
   type: AssetType;
 }
-export type AssetImportResponse = unknown;
+export type AssetEntryImportResponse = AssetEntry;
 
-// ── asset:importBuffer ───────────────────────────────────────
-export interface AssetImportBufferRequest {
+// ── assetEntry:importBuffer ──────────────────────────────────
+export interface AssetEntryImportBufferRequest {
   buffer: unknown;
   fileName: string;
   type: AssetType;
 }
-export type AssetImportBufferResponse = unknown;
+export type AssetEntryImportBufferResponse = AssetEntry;
 
-// ── asset:pickFile ───────────────────────────────────────────
-export interface AssetPickFileRequest {
+// ── assetEntry:pickFile ──────────────────────────────────────
+export interface AssetEntryPickFileRequest {
   type: AssetType;
 }
-export type AssetPickFileResponse = unknown | null;
+export type AssetEntryPickFileResponse = AssetEntry | null;
 
-// ── asset:query ──────────────────────────────────────────────
-export interface AssetQueryRequest {
+// ── assetEntry:query ─────────────────────────────────────────
+export interface AssetEntryQueryRequest {
   type?: string;
   tags?: string[];
   search?: string;
   limit?: number;
   offset?: number;
 }
-export type AssetQueryResponse = unknown[];
+export type AssetEntryQueryResponse = AssetEntry[];
 
-// ── asset:getPath ────────────────────────────────────────────
-export interface AssetGetPathRequest {
+// ── assetEntry:copy / move / rename / delete ─────────────────
+export interface AssetEntryCopyRequest {
+  entryIds: string[];
+  targetFolderId: string | null;
+}
+export type AssetEntryCopyResponse = AssetEntry[];
+
+export interface AssetEntryMoveRequest {
+  entryIds: string[];
+  folderId: string | null;
+}
+export interface AssetEntryMoveResponse {
+  movedEntryIds: string[];
+}
+
+export interface AssetEntryRenameRequest {
+  entryId: string;
+  displayName: string;
+}
+export type AssetEntryRenameResponse = AssetEntry;
+
+export interface AssetEntryDeleteRequest {
+  entryIds: string[];
+}
+export interface AssetEntryDeleteResponse {
+  deletedEntryIds: string[];
+}
+
+// ── assetContent:getPath / export ────────────────────────────
+export interface AssetContentGetPathRequest {
   hash: string;
   type: AssetType;
   ext: string;
 }
-export type AssetGetPathResponse = string;
+export type AssetContentGetPathResponse = string;
 
-// ── asset:delete ─────────────────────────────────────────────
-export interface AssetDeleteRequest {
+export interface AssetContentInspectRequest {
   hash: string;
 }
-export interface AssetDeleteResponse {
-  success: boolean;
-}
+export type AssetContentInspectResponse = AssetMeta;
 
-// ── asset:export ─────────────────────────────────────────────
-export interface AssetExportRequest {
+export interface AssetContentExportRequest {
   hash: string;
   type: AssetType;
   format: string;
   name?: string;
 }
-export type AssetExportResponse = { success: true; path: string } | null;
-
-// ── asset:exportBatch ────────────────────────────────────────
-export interface AssetExportBatchItem {
-  hash: string;
-  type: AssetType;
-  name?: string;
-}
-export interface AssetExportBatchRequest {
-  items: AssetExportBatchItem[];
-}
-export type AssetExportBatchResponse = { success: true; count: number; directory: string } | null;
+export type AssetContentExportResponse = { success: true; path: string } | null;
 
 // ── storage:getOverview ──────────────────────────────────────
 export type StorageGetOverviewRequest = Record<string, never>;
@@ -87,6 +102,12 @@ export interface StorageOpenFolderRequest {
 }
 export type StorageOpenFolderResponse = void;
 
+// storage:openPath
+export interface StorageOpenPathRequest {
+  path: string;
+}
+export type StorageOpenPathResponse = void;
+
 // ── storage:showInFolder ─────────────────────────────────────
 export interface StorageShowInFolderRequest {
   path: string;
@@ -97,13 +118,6 @@ export type StorageShowInFolderResponse = void;
 export type StorageClearLogsRequest = Record<string, never>;
 export interface StorageClearLogsResponse {
   cleared: number;
-}
-
-// ── storage:clearEmbeddings ──────────────────────────────────
-export type StorageClearEmbeddingsRequest = Record<string, never>;
-export interface StorageClearEmbeddingsResponse {
-  success: boolean;
-  error?: string;
 }
 
 // ── storage:vacuumDatabase ───────────────────────────────────

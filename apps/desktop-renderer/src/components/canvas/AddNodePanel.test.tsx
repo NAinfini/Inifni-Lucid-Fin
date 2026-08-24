@@ -9,9 +9,8 @@ import { describe, expect, it } from 'vitest';
 import { t } from '../../i18n.js';
 import { canvasSlice, setActiveCanvas } from '../../store/slices/canvas/canvas.js';
 import { commanderSlice } from '../../store/slices/commander.js';
-import { jobsSlice } from '../../store/slices/jobs.js';
 import { uiSlice } from '../../store/slices/ui.js';
-import { workflowsSlice } from '../../store/slices/workflows.js';
+import { taskListsSlice } from '../../store/slices/task-lists.js';
 import { AddNodePanel } from './AddNodePanel.js';
 
 function renderPanel() {
@@ -20,8 +19,7 @@ function renderPanel() {
       canvas: canvasSlice.reducer,
       ui: uiSlice.reducer,
       commander: commanderSlice.reducer,
-      jobs: jobsSlice.reducer,
-      workflows: workflowsSlice.reducer,
+      taskLists: taskListsSlice.reducer,
     },
   });
 

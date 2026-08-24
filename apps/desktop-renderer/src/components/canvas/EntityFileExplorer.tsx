@@ -10,6 +10,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { Folder } from '@lucid-fin/contracts';
+import { VirtuosoGrid } from 'react-virtuoso';
 import { cn } from '../../lib/utils.js';
 import { t } from '../../i18n.js';
 import { SkeletonList } from '../ui/Skeleton.js';
@@ -94,6 +95,19 @@ const DEFAULT_DND_MIME = 'application/lucid-entity-id';
 const DEFAULT_SORT_FIELD: SortField = 'name';
 const DEFAULT_SORT_ORDER: SortOrder = 'asc';
 
+type ExplorerEntry<T extends EntityFileExplorerItem> =
+  | { key: 'up'; type: 'up' }
+  | { key: string; type: 'folder'; folder: Folder }
+  | { key: string; type: 'item'; item: T };
+
+function sameIds(left: Set<string>, right: Set<string>) {
+  if (left.size !== right.size) return false;
+  for (const id of left) {
+    if (!right.has(id)) return false;
+  }
+  return true;
+}
+
 /**
  * Shared Windows-Explorer-style grid for entity panels. Folders and items
  * render as tiles in one flow; navigation is click-a-folder-to-enter,
@@ -146,12 +160,32 @@ export function EntityFileExplorer<
   );
   const panelRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
-  const tilesRef = useRef<HTMLDivElement>(null);
+  const [scrollParent, setScrollParent] = useState<HTMLDivElement | null>(null);
   const tileBoundsRef = useRef<Array<{ id: string; rect: DOMRect; isFolder: boolean }>>([]);
+  const selectedIdsRef = useRef(selectedIds);
+  const selectedFolderIdsRef = useRef(selectedFolderIds);
+  const marqueeCleanupRef = useRef<(() => void) | null>(null);
   // Suppresses the trailing background-click (fires after mouseup) when the
   // user actually completed a marquee drag, so we don't immediately wipe the
   // selection the rubber-band just produced.
   const marqueeCommittedRef = useRef(false);
+
+  const setGridElement = useCallback((element: HTMLDivElement | null) => {
+    gridRef.current = element;
+    setScrollParent((current) => (current === element ? current : element));
+  }, []);
+
+  useEffect(() => {
+    selectedIdsRef.current = selectedIds;
+  }, [selectedIds]);
+
+  useEffect(() => {
+    selectedFolderIdsRef.current = selectedFolderIds;
+  }, [selectedFolderIds]);
+
+  useEffect(() => {
+    return () => marqueeCleanupRef.current?.();
+  }, []);
 
   // --- Breadcrumb ---
   const breadcrumb = useMemo(() => {
@@ -200,6 +234,23 @@ export function EntityFileExplorer<
       return sortOrder === 'asc' ? cmp : -cmp;
     });
   }, [items, search, sortField, sortOrder, currentFolderId]);
+
+  const entries = useMemo<ExplorerEntry<T>[]>(() => {
+    const next: ExplorerEntry<T>[] = [];
+    if (currentFolderId !== null) next.push({ key: 'up', type: 'up' });
+    for (const folder of childFolders) {
+      next.push({ key: `folder:${folder.id}`, type: 'folder', folder });
+    }
+    for (const item of visibleItems) {
+      next.push({ key: `item:${item.id}`, type: 'item', item });
+    }
+    return next;
+  }, [childFolders, currentFolderId, visibleItems]);
+
+  const displayedEntries = useMemo(
+    () => (loading ? entries.filter((entry) => entry.type !== 'item') : entries),
+    [entries, loading],
+  );
 
   // --- Selection helpers ---
   const getSelectedItems = useCallback((): T[] => {
@@ -371,6 +422,7 @@ export function EntityFileExplorer<
       if (target.closest('[data-tile-id],[data-folder-id],[data-no-marquee]')) return;
       const scroller = gridRef.current;
       if (!scroller) return;
+      marqueeCleanupRef.current?.();
       const rect = scroller.getBoundingClientRect();
       // Content-space start point (accounts for scroll offset so tile rects
       // computed against the same origin remain correct as the user scrolls).
@@ -382,7 +434,8 @@ export function EntityFileExplorer<
 
       // Pre-cache all tile bounding rects once at drag-start to avoid
       // querySelectorAll on every mousemove event.
-      const tileRoot = tilesRef.current;
+      const tileRoot = gridRef.current;
+      tileBoundsRef.current = [];
       if (tileRoot) {
         const items = Array.from(tileRoot.querySelectorAll<HTMLElement>('[data-tile-id]'));
         const folders = Array.from(tileRoot.querySelectorAll<HTMLElement>('[data-folder-id]'));
@@ -397,15 +450,24 @@ export function EntityFileExplorer<
             rect: el.getBoundingClientRect(),
             isFolder: true,
           })),
-        ];
+        ].filter(
+          ({ rect: tileRect }) =>
+            tileRect.right >= rect.left &&
+            tileRect.left <= rect.right &&
+            tileRect.bottom >= rect.top &&
+            tileRect.top <= rect.bottom,
+        );
       }
 
-      const onMove = (ev: MouseEvent) => {
+      let pendingPoint: { clientX: number; clientY: number } | undefined;
+      let animationFrame: number | undefined;
+      let active = true;
+      const applyMove = (clientX: number, clientY: number) => {
         const sc = gridRef.current;
         if (!sc) return;
         const r = sc.getBoundingClientRect();
-        const curX = ev.clientX - r.left + sc.scrollLeft;
-        const curY = ev.clientY - r.top + sc.scrollTop;
+        const curX = clientX - r.left + sc.scrollLeft;
+        const curY = clientY - r.top + sc.scrollTop;
         const x = Math.min(startX, curX);
         const y = Math.min(startY, curY);
         const w = Math.abs(curX - startX);
@@ -428,18 +490,51 @@ export function EntityFileExplorer<
             else nextItems.add(cached.id);
           }
         }
-        setSelectedIds(nextItems);
-        setSelectedFolderIds(nextFolders);
+        if (!sameIds(selectedIdsRef.current, nextItems)) {
+          selectedIdsRef.current = nextItems;
+          setSelectedIds(nextItems);
+        }
+        if (!sameIds(selectedFolderIdsRef.current, nextFolders)) {
+          selectedFolderIdsRef.current = nextFolders;
+          setSelectedFolderIds(nextFolders);
+        }
+      };
+
+      const onMove = (ev: MouseEvent) => {
+        pendingPoint = { clientX: ev.clientX, clientY: ev.clientY };
+        if (animationFrame !== undefined) return;
+        animationFrame = requestAnimationFrame(() => {
+          animationFrame = undefined;
+          if (!active) return;
+          const point = pendingPoint;
+          pendingPoint = undefined;
+          if (point) applyMove(point.clientX, point.clientY);
+        });
+      };
+
+      const cleanup = () => {
+        active = false;
+        if (animationFrame !== undefined) {
+          cancelAnimationFrame(animationFrame);
+          animationFrame = undefined;
+        }
+        pendingPoint = undefined;
+        tileBoundsRef.current = [];
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        if (marqueeCleanupRef.current === cleanup) marqueeCleanupRef.current = null;
       };
 
       const onUp = () => {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
+        const point = pendingPoint;
+        cleanup();
+        if (point) applyMove(point.clientX, point.clientY);
         setMarquee(null);
       };
 
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
+      marqueeCleanupRef.current = cleanup;
     },
     [selectedFolderIds, selectedIds],
   );
@@ -454,9 +549,129 @@ export function EntityFileExplorer<
         marqueeCommittedRef.current = false;
         return;
       }
-      if (e.target === e.currentTarget) clearSelection();
+      if (!(e.target as HTMLElement).closest('[data-tile-id],[data-folder-id],[data-no-marquee]')) {
+        clearSelection();
+      }
     },
     [clearSelection],
+  );
+
+  const renderEntry = useCallback(
+    (_index: number, entry: ExplorerEntry<T>) => {
+      if (entry.type === 'up') {
+        return (
+          <FolderTile
+            label={t('fileExplorer.upFolder') as string}
+            variant="up"
+            onOpen={() => onNavigateFolder(parentFolderId)}
+            onDropItems={(ids) => onMoveItemsToFolder(ids, parentFolderId)}
+            dndMime={dndMime}
+          />
+        );
+      }
+
+      if (entry.type === 'folder') {
+        const folder = entry.folder;
+        return (
+          <FolderTile
+            folderId={folder.id}
+            label={folder.name}
+            autoRename={folder.id === autoRenameFolderId}
+            selected={selectedFolderIds.has(folder.id)}
+            onClickTile={(e) => handleFolderTileClick(folder.id, e)}
+            onOpen={() => onNavigateFolder(folder.id)}
+            onRename={async (name) => {
+              await onRenameFolder(folder.id, name);
+              if (folder.id === autoRenameFolderId) setAutoRenameFolderId(null);
+            }}
+            onDelete={() => onDeleteFolder(folder.id)}
+            onDropItems={(ids) => onMoveItemsToFolder(ids, folder.id)}
+            dndMime={dndMime}
+          />
+        );
+      }
+
+      const item = entry.item;
+      const isSelected = selectedIds.has(item.id);
+      const isActive = item.id === activeItemId;
+      const isCut = clipboard?.cutIds?.has(item.id) ?? false;
+      return (
+        <div
+          data-tile-id={item.id}
+          role="button"
+          tabIndex={0}
+          draggable
+          onClick={(e) => handleTileClick(item, e)}
+          onDoubleClick={() => onOpenItem(item)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!isSelected) setSelectedIds(new Set([item.id]));
+            setItemMenu({ x: e.clientX, y: e.clientY, item });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onOpenItem(item);
+            }
+          }}
+          onDragStart={(e) => {
+            const ids = isSelected && selectedIds.size > 1 ? [...selectedIds] : [item.id];
+            e.dataTransfer.setData(dndMime, ids.length === 1 ? ids[0]! : ids.join(','));
+            e.dataTransfer.effectAllowed = 'move';
+            if (ids.length > 1) {
+              const ghost = document.createElement('div');
+              ghost.textContent = `${ids.length} ${t('fileExplorer.itemsSelected')}`;
+              ghost.style.cssText =
+                'position:fixed;left:-1000px;top:-1000px;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:500;background:hsl(var(--primary));color:hsl(var(--primary-foreground));white-space:nowrap;pointer-events:none;';
+              document.body.appendChild(ghost);
+              e.dataTransfer.setDragImage(ghost, 0, 0);
+              requestAnimationFrame(() => ghost.remove());
+            }
+          }}
+          className={cn(
+            'group relative flex flex-col rounded-md border bg-background p-1.5 text-left transition-colors focus:outline-none',
+            isActive
+              ? 'border-primary ring-1 ring-primary'
+              : isSelected
+                ? 'border-primary bg-primary/15 ring-1 ring-primary/40'
+                : 'border-border/60 hover:border-primary/40 hover:bg-muted/60',
+            isCut && 'opacity-50',
+          )}
+        >
+          <div className="aspect-square w-full overflow-hidden rounded bg-muted flex items-center justify-center">
+            {renderThumbnail(item)}
+          </div>
+          <div className="mt-1 min-w-0">
+            <div className="truncate text-[11px] font-medium">{item.name}</div>
+            {renderSubtitle && (
+              <div className="truncate text-[10px] text-muted-foreground">{renderSubtitle(item)}</div>
+            )}
+            {renderBadge && !compact && <div className="mt-0.5">{renderBadge(item)}</div>}
+          </div>
+        </div>
+      );
+    },
+    [
+      activeItemId,
+      autoRenameFolderId,
+      clipboard?.cutIds,
+      compact,
+      dndMime,
+      handleFolderTileClick,
+      handleTileClick,
+      onDeleteFolder,
+      onMoveItemsToFolder,
+      onNavigateFolder,
+      onOpenItem,
+      onRenameFolder,
+      parentFolderId,
+      renderBadge,
+      renderSubtitle,
+      renderThumbnail,
+      selectedFolderIds,
+      selectedIds,
+    ],
   );
 
   return (
@@ -620,122 +835,32 @@ export function EntityFileExplorer<
           with a default name, then put into rename mode via autoRenameFolderId. */}
 
       <div
-        ref={gridRef}
+        ref={setGridElement}
         onClick={handleBackgroundClick}
         onMouseDown={beginMarquee}
         onContextMenu={(e) => {
-          if (e.target !== e.currentTarget) return;
+          if ((e.target as HTMLElement).closest('[data-tile-id],[data-folder-id],[data-no-marquee]')) {
+            return;
+          }
           e.preventDefault();
           setBgMenu({ x: e.clientX, y: e.clientY });
         }}
         className={cn('relative flex-1 min-h-0 overflow-y-auto', compact ? 'p-2' : 'p-3')}
       >
-        <div
-          ref={tilesRef}
-          className={cn('grid', compact ? 'grid-cols-1 gap-1' : 'grid-cols-3 gap-2')}
-        >
-          {currentFolderId !== null && (
-            <FolderTile
-              label={t('fileExplorer.upFolder') as string}
-              variant="up"
-              onOpen={() => onNavigateFolder(parentFolderId)}
-              onDropItems={(ids) => onMoveItemsToFolder(ids, parentFolderId)}
-              dndMime={dndMime}
-            />
-          )}
-          {childFolders.map((folder) => (
-            <FolderTile
-              key={folder.id}
-              folderId={folder.id}
-              label={folder.name}
-              autoRename={folder.id === autoRenameFolderId}
-              selected={selectedFolderIds.has(folder.id)}
-              onClickTile={(e) => handleFolderTileClick(folder.id, e)}
-              onOpen={() => onNavigateFolder(folder.id)}
-              onRename={async (name) => {
-                await onRenameFolder(folder.id, name);
-                if (folder.id === autoRenameFolderId) setAutoRenameFolderId(null);
-              }}
-              onDelete={() => onDeleteFolder(folder.id)}
-              onDropItems={(ids) => onMoveItemsToFolder(ids, folder.id)}
-              dndMime={dndMime}
-            />
-          ))}
-          {loading ? (
-            <div className="col-span-full">
-              <SkeletonList count={5} />
-            </div>
-          ) : visibleItems.length === 0 && childFolders.length === 0 ? (
-            <div className="col-span-full py-6 text-center text-[11px] text-muted-foreground">
-              {emptyLabel}
-            </div>
-          ) : (
-            visibleItems.map((item) => {
-              const isSelected = selectedIds.has(item.id);
-              const isActive = item.id === activeItemId;
-              const isCut = clipboard?.cutIds?.has(item.id) ?? false;
-              return (
-                <div
-                  key={item.id}
-                  data-tile-id={item.id}
-                  role="button"
-                  tabIndex={0}
-                  draggable
-                  onClick={(e) => handleTileClick(item, e)}
-                  onDoubleClick={() => onOpenItem(item)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (!isSelected) setSelectedIds(new Set([item.id]));
-                    setItemMenu({ x: e.clientX, y: e.clientY, item });
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      onOpenItem(item);
-                    }
-                  }}
-                  onDragStart={(e) => {
-                    const ids = isSelected && selectedIds.size > 1 ? [...selectedIds] : [item.id];
-                    e.dataTransfer.setData(dndMime, ids.length === 1 ? ids[0]! : ids.join(','));
-                    e.dataTransfer.effectAllowed = 'move';
-                    if (ids.length > 1) {
-                      const ghost = document.createElement('div');
-                      ghost.textContent = `${ids.length} ${t('fileExplorer.itemsSelected')}`;
-                      ghost.style.cssText =
-                        'position:fixed;left:-1000px;top:-1000px;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:500;background:hsl(var(--primary));color:hsl(var(--primary-foreground));white-space:nowrap;pointer-events:none;';
-                      document.body.appendChild(ghost);
-                      e.dataTransfer.setDragImage(ghost, 0, 0);
-                      requestAnimationFrame(() => ghost.remove());
-                    }
-                  }}
-                  className={cn(
-                    'group relative flex flex-col rounded-md border bg-background p-1.5 text-left transition-colors focus:outline-none',
-                    isActive
-                      ? 'border-primary ring-1 ring-primary'
-                      : isSelected
-                        ? 'border-primary bg-primary/15 ring-1 ring-primary/40'
-                        : 'border-border/60 hover:border-primary/40 hover:bg-muted/60',
-                    isCut && 'opacity-50',
-                  )}
-                >
-                  <div className="aspect-square w-full overflow-hidden rounded bg-muted flex items-center justify-center">
-                    {renderThumbnail(item)}
-                  </div>
-                  <div className="mt-1 min-w-0">
-                    <div className="truncate text-[11px] font-medium">{item.name}</div>
-                    {renderSubtitle && (
-                      <div className="truncate text-[10px] text-muted-foreground">
-                        {renderSubtitle(item)}
-                      </div>
-                    )}
-                    {renderBadge && !compact && <div className="mt-0.5">{renderBadge(item)}</div>}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
+        {scrollParent && displayedEntries.length > 0 && (
+          <VirtuosoGrid
+            customScrollParent={scrollParent}
+            data={displayedEntries}
+            computeItemKey={(_index, entry) => entry.key}
+            itemContent={renderEntry}
+            itemClassName="min-w-0"
+            listClassName={cn('grid', compact ? 'grid-cols-1 gap-1' : 'grid-cols-3 gap-2')}
+          />
+        )}
+        {loading && <SkeletonList count={5} />}
+        {!loading && visibleItems.length === 0 && childFolders.length === 0 && (
+          <div className="py-6 text-center text-[11px] text-muted-foreground">{emptyLabel}</div>
+        )}
         {marquee && (
           <div
             data-no-marquee

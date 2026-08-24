@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type {
   Canvas,
+  CanvasEdge,
   CanvasNode,
   Equipment,
   EquipmentRef,
@@ -24,7 +25,7 @@ import type { ResolvedCharacter } from '@lucid-fin/application';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import { tryCharacterId, tryEquipmentId, tryLocationId } from '@lucid-fin/contracts-parse';
 import {
-  STYLE_GUIDE_LIGHTING_PRESETS,
+  STYLE_GUIDE_LIGHTING_PRESET_NAMES,
   normalizeOptionalString,
   normalizePresetLookupValue,
 } from './generation-helpers.js';
@@ -51,7 +52,11 @@ export function applyStyleGuideDefaultsToEmptyTracks(
 ): PresetTrackSet {
   const next = structuredClone(tracks ?? createEmptyPresetTrackSet()) as TrackMap;
   const lookPresetId = findStyleGuidePresetId('look', styleGuide.global.artStyle, presetLibrary);
-  const scenePresetId = STYLE_GUIDE_LIGHTING_PRESETS[styleGuide.global.lighting];
+  const scenePresetId = findStyleGuidePresetId(
+    'scene',
+    STYLE_GUIDE_LIGHTING_PRESET_NAMES[styleGuide.global.lighting],
+    presetLibrary,
+  );
 
   maybeFillTrack(next, 'look', lookPresetId);
   maybeFillTrack(next, 'scene', scenePresetId);
@@ -93,7 +98,7 @@ function findStyleGuidePresetId(
   const exactMatch = candidates.find((preset) => {
     return [
       normalizePresetLookupValue(preset.name),
-      normalizePresetLookupValue(preset.id.split(':')[1]),
+      normalizePresetLookupValue(getPresetSemanticName(preset)),
     ].includes(normalizedValue);
   });
   if (exactMatch) return exactMatch.id;
@@ -101,11 +106,18 @@ function findStyleGuidePresetId(
   const fuzzyMatches = candidates.filter((preset) => {
     const presetKeys = [
       normalizePresetLookupValue(preset.name),
-      normalizePresetLookupValue(preset.id.split(':')[1]),
+      normalizePresetLookupValue(getPresetSemanticName(preset)),
     ].filter(Boolean);
     return presetKeys.some((key) => key.includes(normalizedValue) || normalizedValue.includes(key));
   });
   return fuzzyMatches.length === 1 ? fuzzyMatches[0]?.id : undefined;
+}
+
+function getPresetSemanticName(preset: PresetDefinition): string {
+  const builtInPrefix = `builtin-${preset.category}-`;
+  if (preset.id.startsWith(builtInPrefix)) return preset.id.slice(builtInPrefix.length);
+  const separator = preset.id.indexOf(':');
+  return separator >= 0 ? preset.id.slice(separator + 1) : preset.id;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,9 +366,38 @@ export type ResolvedVideoFrameReferenceImages = {
   last?: string;
 };
 
+export interface CanvasGenerationIndex {
+  nodesById: ReadonlyMap<string, CanvasNode>;
+  incomingEdgesByNode: ReadonlyMap<string, readonly CanvasEdge[]>;
+  outgoingEdgesByNode: ReadonlyMap<string, readonly CanvasEdge[]>;
+  incidentEdgesByNode: ReadonlyMap<string, readonly CanvasEdge[]>;
+}
+
+export function buildCanvasGenerationIndex(canvas: Canvas): CanvasGenerationIndex {
+  const nodesById = new Map(canvas.nodes.map((node) => [node.id, node]));
+  const incomingEdgesByNode = new Map<string, CanvasEdge[]>();
+  const outgoingEdgesByNode = new Map<string, CanvasEdge[]>();
+  const incidentEdgesByNode = new Map<string, CanvasEdge[]>();
+  const append = (index: Map<string, CanvasEdge[]>, nodeId: string, edge: CanvasEdge) => {
+    const edges = index.get(nodeId);
+    if (edges) edges.push(edge);
+    else index.set(nodeId, [edge]);
+  };
+
+  for (const edge of canvas.edges) {
+    append(outgoingEdgesByNode, edge.source, edge);
+    append(incomingEdgesByNode, edge.target, edge);
+    append(incidentEdgesByNode, edge.source, edge);
+    if (edge.target !== edge.source) append(incidentEdgesByNode, edge.target, edge);
+  }
+
+  return { nodesById, incomingEdgesByNode, outgoingEdgesByNode, incidentEdgesByNode };
+}
+
 export function resolveVideoFrameReferenceImageSet(
   canvas: Canvas,
   node: CanvasNode,
+  index: CanvasGenerationIndex = buildCanvasGenerationIndex(canvas),
 ): ResolvedVideoFrameReferenceImages {
   if (node.type !== 'video') {
     return {};
@@ -379,12 +420,8 @@ export function resolveVideoFrameReferenceImageSet(
       return undefined;
     }
 
-    const frameNode = canvas.nodes.find(
-      (entry) => entry.id === frameNodeId && entry.type === 'image',
-    );
-    if (!frameNode) {
-      return undefined;
-    }
+    const frameNode = index.nodesById.get(frameNodeId);
+    if (frameNode?.type !== 'image') return undefined;
 
     return normalizeOptionalString((frameNode.data as ImageNodeData).assetHash);
   };
@@ -395,8 +432,12 @@ export function resolveVideoFrameReferenceImageSet(
   };
 }
 
-export function resolveVideoFrameReferenceImages(canvas: Canvas, node: CanvasNode): string[] {
-  const frames = resolveVideoFrameReferenceImageSet(canvas, node);
+export function resolveVideoFrameReferenceImages(
+  canvas: Canvas,
+  node: CanvasNode,
+  index: CanvasGenerationIndex = buildCanvasGenerationIndex(canvas),
+): string[] {
+  const frames = resolveVideoFrameReferenceImageSet(canvas, node, index);
   return [frames.first, frames.last].filter((hash): hash is string => Boolean(hash));
 }
 
@@ -404,16 +445,20 @@ export function resolveVideoFrameReferenceImages(canvas: Canvas, node: CanvasNod
 // Connected node helpers
 // ---------------------------------------------------------------------------
 
-export function collectConnectedTextContent(canvas: Canvas, nodeId: string): string[] {
+export function collectConnectedTextContent(
+  canvas: Canvas,
+  nodeId: string,
+  index: CanvasGenerationIndex = buildCanvasGenerationIndex(canvas),
+): string[] {
   const connectedNodeIds = new Set<string>();
-  for (const edge of canvas.edges) {
+  for (const edge of index.incidentEdgesByNode.get(nodeId) ?? []) {
     if (edge.source === nodeId) connectedNodeIds.add(edge.target);
     if (edge.target === nodeId) connectedNodeIds.add(edge.source);
   }
 
   const textContent: string[] = [];
   for (const candidateId of connectedNodeIds) {
-    const node = canvas.nodes.find((entry) => entry.id === candidateId);
+    const node = index.nodesById.get(candidateId);
     if (!node || node.type !== 'text') continue;
     const data = node.data as { content?: unknown };
     const content = normalizeOptionalString(data.content);
@@ -422,24 +467,25 @@ export function collectConnectedTextContent(canvas: Canvas, nodeId: string): str
   return textContent;
 }
 
-export function findConnectedImageHash(canvas: Canvas, nodeId: string): string | undefined {
+export function findConnectedImageHash(
+  canvas: Canvas,
+  nodeId: string,
+  index: CanvasGenerationIndex = buildCanvasGenerationIndex(canvas),
+): string | undefined {
   // Prefer incoming image edges (image -> video)
-  for (const edge of canvas.edges) {
-    if (edge.target !== nodeId) continue;
-    const sourceNode = canvas.nodes.find(
-      (node) => node.id === edge.source && node.type === 'image',
-    );
-    if (!sourceNode) continue;
+  for (const edge of index.incomingEdgesByNode.get(nodeId) ?? []) {
+    const sourceNode = index.nodesById.get(edge.source);
+    if (sourceNode?.type !== 'image') continue;
     const hash = normalizeOptionalString((sourceNode.data as ImageNodeData).assetHash);
     if (hash) return hash;
   }
   // Fallback: any connected image node
-  for (const edge of canvas.edges) {
+  for (const edge of index.incidentEdgesByNode.get(nodeId) ?? []) {
     const otherNodeId =
       edge.source === nodeId ? edge.target : edge.target === nodeId ? edge.source : undefined;
     if (!otherNodeId) continue;
-    const imageNode = canvas.nodes.find((node) => node.id === otherNodeId && node.type === 'image');
-    if (!imageNode) continue;
+    const imageNode = index.nodesById.get(otherNodeId);
+    if (imageNode?.type !== 'image') continue;
     const hash = normalizeOptionalString((imageNode.data as ImageNodeData).assetHash);
     if (hash) return hash;
   }

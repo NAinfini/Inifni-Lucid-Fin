@@ -198,6 +198,10 @@ export class CodexAppServerClient {
     return this.request('modelProvider/capabilities/read', {});
   }
 
+  listModels(params: { cursor?: string; limit?: number; includeHidden?: boolean } = {}): Promise<unknown> {
+    return this.request('model/list', params);
+  }
+
   readRateLimits(): Promise<CodexRateLimitsResponse> {
     return this.request('account/rateLimits/read', {});
   }

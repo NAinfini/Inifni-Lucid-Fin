@@ -1,4 +1,5 @@
 import { lazy, Suspense, memo } from 'react';
+import { publicMarkdownContent } from './public-markdown-content.js';
 
 /**
  * Lazy-loaded Markdown wrapper.
@@ -37,9 +38,10 @@ function PlainFallback({ content }: { content: string }) {
 }
 
 export const Markdown = memo(function Markdown(props: MarkdownProps) {
+  const content = publicMarkdownContent(props.content);
   return (
-    <Suspense fallback={<PlainFallback content={props.content} />}>
-      <MarkdownInner {...props} />
+    <Suspense fallback={<PlainFallback content={content} />}>
+      <MarkdownInner {...props} content={content} />
     </Suspense>
   );
 });

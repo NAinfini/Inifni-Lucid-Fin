@@ -1,13 +1,13 @@
 /**
- * ProcessPromptRepository — Phase G1-2.2.
+ * Process prompt persistence.
  *
  * Process-prompt CRUD behind `ProcessPromptKey` brand + fault-soft reads.
- * Schema creation, seeding, and legacy-key migration still live on the
+ * Schema creation and default seeding live on the
  * `ProcessPromptStore` class (which owns its own database handle); this
  * repository receives an already-initialized handle and is only
  * responsible for CRUD against `process_prompts`.
  *
- * SQL references column names through the G1-1 `ProcessPromptsTable`
+ * SQL references column names through the `ProcessPromptsTable`
  * constant — schema drift fails at compile time.
  *
  * Reads loop rows through `parseOrDegrade` with a `ProcessPromptRecord`
@@ -107,9 +107,8 @@ export class ProcessPromptRepository {
   }
 
   /**
-   * Throws when `key` does not exist — mirrors the legacy `ProcessPromptStore`
-   * behavior so the settings UI still surfaces an obvious error rather than
-   * silently no-op'ing.
+   * Throws when `key` does not exist so the settings UI surfaces an obvious
+   * error rather than silently doing nothing.
    */
   setCustom(key: ProcessPromptKey, value: string, tx?: Tx): void {
     const existing = this.get(key, tx);

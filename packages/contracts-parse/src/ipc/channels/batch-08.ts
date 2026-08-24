@@ -1,12 +1,7 @@
 /**
- * canvas generation + preset:* channels — Batch 8.
+ * preset:* channels — Batch 8.
  *
- * Covers:
- *  - `canvas:generate`, `canvas:cancelGeneration` from
- *    `apps/desktop-main/src/ipc/handlers/canvas-generation.handlers.ts`
- *  - `canvas:generation:progress`, `canvas:generation:complete`,
- *    `canvas:generation:failed` push channels
- *  - `preset:list`, `preset:save`, `preset:delete`, `preset:reset`,
+ * Covers `preset:list`, `preset:save`, `preset:delete`, `preset:reset`,
  *    `preset:import`, `preset:export` from
  *    `apps/desktop-main/src/ipc/handlers/preset.handlers.ts`
  *
@@ -17,7 +12,7 @@
  * Batch 4 treated storage responses.
  */
 import { z } from 'zod';
-import { defineInvokeChannel, definePushChannel } from '../../channels.js';
+import { defineInvokeChannel } from '../../channels.js';
 
 // ── Shared preset primitives ─────────────────────────────────
 // Keep field-level shapes loose — compile-time DTOs in @lucid-fin/contracts
@@ -76,44 +71,6 @@ const PresetResetRequestShape = z
     scope: z.enum(['prompt', 'params', 'all']).optional(),
   })
   .passthrough();
-
-// ── canvas:generate (invoke) ────────────────────────────────
-const CanvasGenerateRequest = z.object({
-  canvasId: z.string().min(1),
-  nodeId: z.string().min(1),
-  providerId: z.string().optional(),
-  providerConfig: z
-    .object({
-      baseUrl: z.string(),
-      model: z.string(),
-      apiKey: z.string().optional(),
-    })
-    .optional(),
-  variantCount: z.number().int().positive().optional(),
-  seed: z.number().optional(),
-});
-const CanvasGenerateResponse = z.void();
-export const canvasGenerateChannel = defineInvokeChannel({
-  channel: 'canvas:generate',
-  request: CanvasGenerateRequest,
-  response: CanvasGenerateResponse,
-});
-export type CanvasGenerateRequest = z.infer<typeof CanvasGenerateRequest>;
-export type CanvasGenerateResponse = z.infer<typeof CanvasGenerateResponse>;
-
-// ── canvas:cancelGeneration (invoke) ────────────────────────
-const CanvasCancelGenerationRequest = z.object({
-  canvasId: z.string().min(1),
-  nodeId: z.string().min(1),
-});
-const CanvasCancelGenerationResponse = z.void();
-export const canvasCancelGenerationChannel = defineInvokeChannel({
-  channel: 'canvas:cancelGeneration',
-  request: CanvasCancelGenerationRequest,
-  response: CanvasCancelGenerationResponse,
-});
-export type CanvasCancelGenerationRequest = z.infer<typeof CanvasCancelGenerationRequest>;
-export type CanvasCancelGenerationResponse = z.infer<typeof CanvasCancelGenerationResponse>;
 
 // ── preset:list (invoke) ────────────────────────────────────
 const PresetListRequest = z
@@ -188,72 +145,6 @@ export const presetExportChannel = defineInvokeChannel({
 });
 export type PresetExportRequest = z.infer<typeof PresetExportRequest>;
 export type PresetExportResponse = z.infer<typeof PresetExportResponse>;
-
-// ── canvas:generation:progress (push) ──────────────────────
-const CanvasGenerationProgressPayload = z.object({
-  canvasId: z.string(),
-  nodeId: z.string(),
-  progress: z.number(),
-  currentStep: z.string().optional(),
-});
-export const canvasGenerationProgressChannel = definePushChannel({
-  channel: 'canvas:generation:progress',
-  payload: CanvasGenerationProgressPayload,
-});
-export type CanvasGenerationProgressPayload = z.infer<typeof CanvasGenerationProgressPayload>;
-
-// ── canvas:generation:complete (push) ──────────────────────
-const CanvasGenerationCompletePayload = z.object({
-  canvasId: z.string(),
-  nodeId: z.string(),
-  variants: z.array(z.string()),
-  primaryAssetHash: z.string(),
-  cost: z.number().optional(),
-  generationTimeMs: z.number(),
-  characterRefs: z
-    .array(z.object({ entityId: z.string(), imageHashes: z.array(z.string()) }))
-    .optional(),
-  equipmentRefs: z
-    .array(z.object({ entityId: z.string(), imageHashes: z.array(z.string()) }))
-    .optional(),
-  locationRefs: z
-    .array(z.object({ entityId: z.string(), imageHashes: z.array(z.string()) }))
-    .optional(),
-  frameReferenceHashes: z
-    .object({ first: z.string().optional(), last: z.string().optional() })
-    .optional(),
-  sourceImageHash: z.string().optional(),
-  model: z.string().optional(),
-});
-export const canvasGenerationCompleteChannel = definePushChannel({
-  channel: 'canvas:generation:complete',
-  payload: CanvasGenerationCompletePayload,
-});
-export type CanvasGenerationCompletePayload = z.infer<typeof CanvasGenerationCompletePayload>;
-
-// ── canvas:generation:failed (push) ────────────────────────
-const CanvasGenerationFailedPayload = z.object({
-  canvasId: z.string(),
-  nodeId: z.string(),
-  error: z.string(),
-});
-export const canvasGenerationFailedChannel = definePushChannel({
-  channel: 'canvas:generation:failed',
-  payload: CanvasGenerationFailedPayload,
-});
-export type CanvasGenerationFailedPayload = z.infer<typeof CanvasGenerationFailedPayload>;
-
-// ── Channel tuples ──────────────────────────────────────────
-export const canvasGenerationChannels = [
-  canvasGenerateChannel,
-  canvasCancelGenerationChannel,
-] as const;
-
-export const canvasGenerationPushChannels = [
-  canvasGenerationProgressChannel,
-  canvasGenerationCompleteChannel,
-  canvasGenerationFailedChannel,
-] as const;
 
 export const presetChannels = [
   presetListChannel,

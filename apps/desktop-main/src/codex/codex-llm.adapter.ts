@@ -41,7 +41,12 @@ export class CodexLLMAdapter implements LLMAdapter {
     };
   }
 
-  configure(_apiKey: string, _options?: Record<string, unknown>): void {}
+  configure(_apiKey: string, options: Record<string, unknown> = {}): void {
+    this.runtime.configureLLM({
+      model: options.model,
+      reasoningEffort: options.reasoningEffort,
+    });
+  }
 
   async validate(): Promise<boolean> {
     await this.runtime.start().catch(() => undefined);

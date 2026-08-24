@@ -42,7 +42,6 @@ export class EvidenceLedger {
       ask_user_answered: 0,
       mutation_commit: 0,
       validation_error: 0,
-      guide_activated: 0,
       generation_started: 0,
       settings_write: 0,
       user_refused: 0,

@@ -20,6 +20,10 @@ export interface ProviderConfig {
   authStyle?: LLMProviderAuthStyle;
   credentialMode?: 'api-key' | 'oauth' | 'none';
   oauthTarget?: OAuthProviderTarget;
+  supportsModelOverride?: boolean;
+  supportsReasoningEffort?: boolean;
+  reasoningEffortsByModel?: Record<string, string[]>;
+  reasoningEffort?: string;
   supportsVision?: boolean;
   contextWindow?: number;
 }
@@ -31,6 +35,9 @@ export interface ProviderMetadata {
   /** How this built-in provider is authorized in the settings UI. */
   credentialMode?: 'api-key' | 'oauth' | 'none';
   oauthTarget?: OAuthProviderTarget;
+  supportsModelOverride?: boolean;
+  supportsReasoningEffort?: boolean;
+  reasoningEffortsByModel?: Record<string, string[]>;
   supportsVision?: boolean;
   modelExample?: string;
   capabilities: Capability[];
@@ -162,6 +169,7 @@ export interface SettingsState {
   production: ProductionConfig;
   styleGuide: StyleGuide;
   bootstrapped: boolean;
+  initializationError: string | null;
   crashReporting: boolean;
   analyticsEnabled: boolean;
 }

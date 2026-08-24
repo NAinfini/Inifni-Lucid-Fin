@@ -9,17 +9,14 @@ export interface NodeCallbacks {
   onPaste: (id: string) => void;
   onDisconnect: (id: string) => void;
   onConnectTo: (id: string) => void;
-  onRename: (id: string) => void;
   onGenerate: (id: string) => void;
   onLock: (id: string) => void;
   onColorTag: (id: string, color: string | undefined) => void;
   onCopyPromptForAI: (id: string) => void;
-  onUpload: (id: string) => void;
   onSelectVariant: (id: string, index: number) => void;
   onToggleSeedLock: (id: string) => void;
   onToggleCollapse: (id: string) => void;
   onOpacityChange: (id: string, opacity: number) => void;
-  onCloneVideo: () => void;
 }
 
 const NOOP = () => {};
@@ -32,17 +29,14 @@ const DEFAULT_CALLBACKS: NodeCallbacks = {
   onPaste: NOOP,
   onDisconnect: NOOP,
   onConnectTo: NOOP,
-  onRename: NOOP,
   onGenerate: NOOP,
   onLock: NOOP,
   onColorTag: NOOP,
   onCopyPromptForAI: NOOP,
-  onUpload: NOOP,
   onSelectVariant: NOOP,
   onToggleSeedLock: NOOP,
   onToggleCollapse: NOOP,
   onOpacityChange: NOOP,
-  onCloneVideo: NOOP,
 };
 
 export const NodeCallbacksContext = createContext<NodeCallbacks>(DEFAULT_CALLBACKS);

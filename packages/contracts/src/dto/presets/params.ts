@@ -450,6 +450,10 @@ export function toTitleCase(value: string): string {
     .join(' ');
 }
 
+export function buildFallbackPresetPrompt(category: PresetCategory, name: string): string {
+  return `${toTitleCase(name)}, ${CATEGORY_PROMPT_HINT[category]}`;
+}
+
 export function buildPresetId(category: PresetCategory, name: string): string {
   return `builtin-${category}-${name}`;
 }

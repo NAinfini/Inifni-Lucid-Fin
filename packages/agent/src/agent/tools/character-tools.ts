@@ -1,65 +1,42 @@
-import {
-  characterViewToSlot,
-  type Canvas,
-  type Character,
-  type CharacterRefImageView,
-} from '@lucid-fin/contracts';
-import type { AgentTool } from '../tool-registry.js';
-import { createRefImageTools } from './ref-image-factory.js';
+import type { Character } from '@lucid-fin/contracts';
+import { NO_TOOL_RESOURCE, toolResultSchema, type ToolDefinition } from '../tool-registry.js';
+import { arraySchema, characterSchema, numberSchema, objectSchema } from './tool-runtime-schemas.js';
 import {
   extractSet,
   warnExtraKeys,
   requireString,
   requireSetString,
 } from './tool-result-helpers.js';
-import { buildCharacterRefImagePrompt } from './character-prompt.js';
-
-function parseCharacterView(raw: unknown): CharacterRefImageView {
-  // Default to full-sheet when the agent omits the view field. This matches
-  // the Q27 directive that every character gets one composite image covering
-  // front/back/side/full-body + detailed expressions.
-  if (raw === undefined || raw === null) return { kind: 'full-sheet' };
-  if (typeof raw !== 'object') {
-    throw new Error(
-      'view must be an object: { kind: "full-sheet" | "extra-angle", angle?: string }',
-    );
-  }
-  const obj = raw as Record<string, unknown>;
-  const kind = obj.kind;
-  if (kind === 'full-sheet') return { kind: 'full-sheet' };
-  if (kind === 'extra-angle') {
-    if (typeof obj.angle !== 'string' || obj.angle.trim().length === 0) {
-      throw new Error('view.angle is required when kind=extra-angle');
-    }
-    return { kind: 'extra-angle', angle: obj.angle.trim() };
-  }
-  throw new Error(`view.kind must be "full-sheet" or "extra-angle" (got ${String(kind)})`);
-}
-
-export interface GenerateImageOptions {
-  providerId?: string;
-  width?: number;
-  height?: number;
-}
+import { authorityFact, contextProjector, records, resultRecord } from './context-replay.js';
 
 export interface CharacterToolDeps {
   listCharacters: () => Promise<Character[]>;
   saveCharacter: (character: Character) => Promise<void>;
   deleteCharacter: (id: string) => Promise<void>;
-  generateImage?: (
-    prompt: string,
-    options?: GenerateImageOptions,
-  ) => Promise<{ assetHash: string }>;
-  getCanvas?: (canvasId: string) => Promise<Canvas>;
 }
 
-export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
-  const characterList: AgentTool = {
+export function createCharacterTools(deps: CharacterToolDeps): ToolDefinition[] {
+  const characterList: ToolDefinition = {
     name: 'character.list',
+    process: 'entity-management',
+    category: 'query',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description: 'List all characters in the current project.',
     tags: ['character', 'read', 'search'],
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(objectSchema({
+      total: numberSchema,
+      offset: numberSchema,
+      limit: numberSchema,
+      characters: arraySchema(characterSchema),
+    })),
+    projectPublicResult: contextProjector((result) =>
+      records(resultRecord(result)?.characters).map((character) =>
+        authorityFact('character', 'read', character.id),
+      ),
+    ),
+    inputSchema: {
       type: 'object',
       properties: {
         query: {
@@ -107,13 +84,21 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     },
   };
 
-  const characterCreate: AgentTool = {
+  const characterCreate: ToolDefinition = {
     name: 'character.create',
+    process: 'entity-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description:
-      'Create a new character in the current project. To update an existing character, use character.update instead. To generate a reference image, use entity.generateRefImage after creation.',
+      'Create a new character in the current project. To update an existing character, use character.update instead. Generate reference images as Canvas image nodes through canvas.generation, then attach an accepted result with entity.setRefImageFromNode.',
     tags: ['character', 'mutate'],
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(characterSchema),
+    projectPublicResult: contextProjector((result) => [
+      authorityFact('character', 'created', resultRecord(result)?.id),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'The character name.' },
@@ -263,13 +248,21 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     },
   };
 
-  const characterUpdate: AgentTool = {
+  const characterUpdate: ToolDefinition = {
     name: 'character.update',
+    process: 'entity-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description:
       'Update an existing character by ID. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched. To create a new character, use character.create instead.',
     tags: ['character', 'mutate'],
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(characterSchema),
+    projectPublicResult: contextProjector((result, args) => [
+      authorityFact('character', 'updated', resultRecord(result)?.id ?? args.id),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         id: {
@@ -438,19 +431,27 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
           updatedAt: Date.now(),
         };
         await deps.saveCharacter(updated);
-        return { success: true, data: updated, ...(warnings.length > 0 && { warnings }) };
+        return { success: true, data: { ...updated, ...(warnings.length > 0 && { warnings }) } };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
   };
 
-  const characterDelete: AgentTool = {
+  const characterDelete: ToolDefinition = {
     name: 'character.delete',
+    process: 'entity-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description: 'Delete a character by ID.',
     tags: ['character', 'mutate'],
     tier: 3,
-    parameters: {
+    outputSchema: toolResultSchema(),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('character', 'deleted', args.id),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         id: {
@@ -471,27 +472,5 @@ export function createCharacterTools(deps: CharacterToolDeps): AgentTool[] {
     },
   };
 
-  const characterRefImages = createRefImageTools<Character, CharacterRefImageView>({
-    toolNamePrefix: 'character',
-    entityLabel: 'character',
-    tags: ['character', 'generation'],
-    description:
-      'Manage a character reference image. ' +
-      'Default view kind "full-sheet" produces ONE composite image: top row is the full-body turnaround (front, left profile, rear) at ~70% sheet height; bottom row is a small expression strip (neutral, happy, angry) at ~30% sheet height. Everything is on a single landscape sheet so the character has one canonical reference. ' +
-      'Use view={kind:"extra-angle", angle:"<free form>"} for rare custom angles that the full-sheet does not cover. ' +
-      'Always pass canvasId so the canonical Canvas visual-style draft is compiled into the prompt.',
-    getEntity: async (id) => {
-      const characters = await deps.listCharacters();
-      return characters.find((c) => c.id === id) ?? null;
-    },
-    saveEntity: deps.saveCharacter,
-    generateImage: deps.generateImage,
-    getCanvas: deps.getCanvas,
-    parseView: parseCharacterView,
-    buildPrompt: buildCharacterRefImagePrompt,
-    viewToSlot: characterViewToSlot,
-    kindEnum: ['full-sheet', 'extra-angle'],
-  });
-
-  return [characterList, characterCreate, characterUpdate, characterDelete, ...characterRefImages];
+  return [characterList, characterCreate, characterUpdate, characterDelete];
 }

@@ -86,7 +86,7 @@ async function setupWipeData(base: string): Promise<WipePaths> {
 
 function makeDeps(): WipeDeps {
   return {
-    cancelActiveJobs: vi.fn(),
+    stopBackgroundTasks: vi.fn(),
     flushPendingSaves: vi.fn().mockResolvedValue(undefined),
     closeDb: vi.fn(),
   };
@@ -142,8 +142,8 @@ describe('wipeAllData', () => {
     const deps = makeDeps();
 
     const callOrder: string[] = [];
-    (deps.cancelActiveJobs as ReturnType<typeof vi.fn>).mockImplementation(() => {
-      callOrder.push('cancelActiveJobs');
+    (deps.stopBackgroundTasks as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      callOrder.push('stopBackgroundTasks');
     });
     (deps.flushPendingSaves as ReturnType<typeof vi.fn>).mockImplementation(async () => {
       callOrder.push('flushPendingSaves');
@@ -154,7 +154,7 @@ describe('wipeAllData', () => {
 
     await wipeAllData(paths, deps);
 
-    expect(callOrder).toEqual(['cancelActiveJobs', 'flushPendingSaves', 'closeDb']);
+    expect(callOrder).toEqual(['stopBackgroundTasks', 'flushPendingSaves', 'closeDb']);
   });
 
   it('clears keytar entries', async () => {

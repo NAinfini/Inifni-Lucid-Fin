@@ -1,12 +1,18 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Canvas, CanvasNode } from '@lucid-fin/contracts';
+import type {
+  Canvas,
+  CanvasNode,
+  PresetDefinition,
+  PromptAssemblyOutputV1,
+} from '@lucid-fin/contracts';
 import { createEmptyPresetTrackSet } from '@lucid-fin/contracts';
 
 /**
- * Wrap flat entity spies into the new `.repos.entities` shape (Phase G1-4.7).
+ * Wrap flat entity spies in the repository bundle shape used by production.
  */
 function withEntityRepos<T extends Record<string, unknown>>(
   flat: T,
@@ -67,8 +73,21 @@ const compilePromptMock = vi.hoisted(() =>
   })),
 );
 
-vi.mock('@lucid-fin/application', () => ({
+vi.mock('@lucid-fin/application', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@lucid-fin/application')>()),
   compilePrompt: compilePromptMock,
+  resolvePromptTemplate: (
+    template: string,
+    definitions: Array<{ key: string; default: unknown }>,
+    values: Record<string, unknown>,
+  ) =>
+    definitions.reduce(
+      (result, definition) =>
+        result
+          .split(`{${definition.key}}`)
+          .join(String(values[definition.key] ?? definition.default)),
+      template,
+    ),
 }));
 
 // project-context has been removed — loadCurrentProjectStyleGuide now returns DEFAULT_STYLE_GUIDE directly
@@ -91,7 +110,11 @@ import {
   resolveMediaDimensions,
   resolveNodeProviderId,
   resolveVariantCount,
+  prepareGenerationPromptAssembly,
 } from './generation-context.js';
+import { hashPromptAssemblyInput } from '../../services/prompt-assembly.service.js';
+import { createMediaTaskHandler } from '../../task-execution/media-task-handler.js';
+import { registerCanvasTools } from './commander-tool-deps/canvas-tools.js';
 import {
   DEFAULT_AUDIO_DURATION,
   DEFAULT_VIDEO_DURATION,
@@ -310,6 +333,62 @@ function makeRegistry(adapter: ReturnType<typeof makeAdapter> | null = null) {
   };
 }
 
+function makePromptAssemblyService() {
+  const records = new Map<string, Record<string, unknown>>();
+  const prepare = vi.fn((draft: Record<string, unknown>) => {
+    const assemblyId = `assembly-${records.size + 1}`;
+    const sources = ((draft.sources as Array<Record<string, unknown>> | undefined) ?? []).map(
+      (source, index) => ({ ...source, sourceHash: `source-hash-${index + 1}` }),
+    );
+    const inputWithoutHash = {
+      ...draft,
+      version: 1,
+      assemblyId,
+      sources,
+    };
+    const input = {
+      ...inputWithoutHash,
+      inputHash: hashPromptAssemblyInput(inputWithoutHash as never),
+    };
+    const record = {
+      id: assemblyId,
+      canvasId: draft.canvasId,
+      nodeId: draft.nodeId,
+      nodeUpdatedAt: draft.nodeUpdatedAt,
+      mediaType: draft.mediaType,
+      mode: draft.mode,
+      purpose: draft.purpose,
+      inputHash: input.inputHash,
+      input,
+      status: 'prepared',
+      rowVersion: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    records.set(assemblyId, record);
+    return record;
+  });
+  const submitCommanderOutput = vi.fn((id: string, output: PromptAssemblyOutputV1) => {
+    const current = records.get(id);
+    if (!current) throw new Error(`Prompt Assembly not found: ${id}`);
+    const assembled = { ...current, status: 'assembled', output, rowVersion: 2, assembledAt: 2 };
+    records.set(id, assembled);
+    return assembled;
+  });
+  return {
+    prepare,
+    get: vi.fn((id: string) => records.get(id)),
+    submitCommanderOutput,
+    markSubmitted: vi.fn(),
+    markFailed: vi.fn(),
+    listByNode: vi.fn(() => []),
+  };
+}
+
+function makeLlmRegistry() {
+  return { get: vi.fn(), list: vi.fn(() => []) };
+}
+
 function makeDepsWithNode(
   node: CanvasNode,
   adapterOverrides: Partial<Parameters<typeof makeAdapter>[0]> = {},
@@ -348,9 +427,98 @@ function makeDepsWithNode(
       keychain: {
         getKey: vi.fn(async () => 'secret-key'),
       },
+      resolvePresetCatalog: vi.fn(() => []),
+      promptAssemblyService: makePromptAssemblyService(),
+      llmRegistry: makeLlmRegistry(),
     },
     canvas,
     adapter,
+  };
+}
+
+function registerCanvasGenerationTool(
+  deps: ReturnType<typeof makeDepsWithNode>['deps'],
+  mediaTaskService?: unknown,
+) {
+  const tools = new Map<string, { execute: (args: Record<string, unknown>) => Promise<unknown> }>();
+  registerCanvasTools(
+    {
+      register: vi.fn(
+        (tool: { name: string; execute: (args: Record<string, unknown>) => Promise<unknown> }) => {
+          tools.set(tool.name, tool);
+        },
+      ),
+    } as never,
+    {
+      ...deps,
+      defaultCanvasId: 'canvas-1',
+      authorizedCanvasIds: ['canvas-1'],
+      commanderContinuation: { sessionId: 'session-1' },
+      mediaTaskService,
+      presetCatalog: { list: deps.resolvePresetCatalog },
+      resolveProcessPrompt: vi.fn(() => 'process prompt'),
+    } as never,
+    () => null,
+    { emit: vi.fn() } as never,
+    async () => [],
+    async (preset) => preset,
+  );
+  const tool = tools.get('canvas.generation');
+  if (!tool) throw new Error('canvas.generation was not registered');
+  return tool;
+}
+
+function makeCanonicalMediaTaskService(
+  deps: ReturnType<typeof makeDepsWithNode>['deps'],
+  parentAttempt?: {
+    id: string;
+    status: 'accepted';
+    canvasId: string;
+    nodeId: string;
+    promptAssemblyId: string;
+    prompt: string;
+    promptHash: string;
+    assetHash?: string;
+  },
+) {
+  Object.assign(deps.db.repos, {
+    taskLists: {
+      getLatestProductionMediaAttempt: vi.fn(() => undefined),
+      getProductionMediaAttempt: vi.fn((id: string) =>
+        id === parentAttempt?.id ? parentAttempt : undefined,
+      ),
+    },
+  });
+  const handler = createMediaTaskHandler({
+    generationDeps: deps as never,
+    mediaGenerationService: { advance: vi.fn(), cancel: vi.fn() },
+  });
+
+  return {
+    start: vi.fn(
+      async (input: {
+        canvasId: string;
+        nodeId: string;
+        providerId?: string;
+        providerConfig?: { baseUrl: string; model: string };
+        commanderIntent?: string;
+        parentAttemptId?: string;
+        feedback?: string;
+      }) => {
+        const taskListId = 'task-list-refinement';
+        const result = await handler.execute({
+          taskList: { id: taskListId, entityType: 'canvas', entityId: input.canvasId },
+          task: { id: 'task-refinement', input, output: {} },
+          db: deps.db,
+        } as never);
+        const assemblyId = (result.output as { promptAssemblyId?: string } | undefined)
+          ?.promptAssemblyId;
+        return {
+          id: taskListId,
+          promptAssembly: assemblyId ? deps.promptAssemblyService.get(assemblyId) : undefined,
+        };
+      },
+    ),
   };
 }
 
@@ -809,6 +977,28 @@ describe('resolveMediaDimensions', () => {
     expect(result).toEqual({ width: 2048, height: 2048 });
   });
 
+  it('uses the Canvas reference-image policy for reference image nodes', () => {
+    const node = makeImageNode({ generationPurpose: 'reference-image' });
+    const canvas = makeCanvas([node]);
+    canvas.settings = {
+      refResolution: { width: 1536, height: 1024 },
+      publishImageResolution: { width: 2048, height: 2048 },
+    };
+
+    expect(resolveMediaDimensions(node, 'image', canvas)).toEqual({ width: 1536, height: 1024 });
+  });
+
+  it('keeps a reference image node override above the Canvas reference-image policy', () => {
+    const node = makeImageNode({
+      generationPurpose: 'reference-image',
+      resolutionIntent: { mode: 'exact', width: 896, height: 1152 },
+    });
+    const canvas = makeCanvas([node]);
+    canvas.settings = { refResolution: { width: 1536, height: 1024 } };
+
+    expect(resolveMediaDimensions(node, 'image', canvas)).toEqual({ width: 896, height: 1152 });
+  });
+
   it('prefers node dimensions over canvas publishImageResolution', () => {
     const node = makeImageNode({ width: 512, height: 768 });
     const canvas = makeCanvas([node]);
@@ -1062,6 +1252,9 @@ describe('buildGenerationContext', () => {
       }),
       canvasStore: { get: vi.fn(() => canvas), save: vi.fn() },
       keychain: { getKey: vi.fn(async () => 'key') },
+      resolvePresetCatalog: vi.fn(() => []),
+      promptAssemblyService: makePromptAssemblyService(),
+      llmRegistry: makeLlmRegistry(),
     };
 
     await expect(
@@ -1077,7 +1270,7 @@ describe('buildGenerationContext', () => {
       capabilities: ['text-to-image'],
     });
 
-    const ctx = await buildGenerationContext(deps as never, {
+    const ctx = await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-image',
     });
@@ -1092,7 +1285,129 @@ describe('buildGenerationContext', () => {
     expect(ctx.requestBase.type).toBe('image');
   });
 
-  it('compiles a Commander-authored base prompt instead of letting it bypass style locks', async () => {
+  it('uses the resolved custom preset catalog for image compilation and provider requests', async () => {
+    const preset: PresetDefinition = {
+      id: 'custom:image-look',
+      category: 'look',
+      name: 'Project Image Look',
+      description: 'Project-owned image look',
+      prompt: 'project custom image look fragment',
+      builtIn: false,
+      modified: false,
+      params: [],
+      defaults: {},
+    };
+    const presetTracks = createEmptyPresetTrackSet();
+    presetTracks.look.entries.push({
+      id: 'image-look-entry',
+      category: 'look',
+      presetId: preset.id,
+      params: {},
+      order: 0,
+      enabled: true,
+    });
+    const node = makeImageNode({ providerId: 'mock-provider', presetTracks });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
+    deps.resolvePresetCatalog.mockReturnValue([preset]);
+    compilePromptMock.mockReturnValue({
+      prompt: 'compiled image request with project custom image look fragment',
+      negativePrompt: undefined,
+      referenceImages: [],
+      params: {},
+      wordCount: 8,
+      budget: 100,
+      segments: [],
+      diagnostics: [],
+    });
+
+    const context = await prepareGenerationPromptAssembly(deps as never, {
+      canvasId: 'canvas-1',
+      nodeId: node.id,
+    });
+
+    expect(compilePromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ presetLibrary: [preset], presetTracks }),
+    );
+    expect(deps.promptAssemblyService.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sources: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'preset',
+            content: expect.stringContaining('project custom image look fragment'),
+          }),
+        ]),
+      }),
+    );
+    expect(context.requestBase.prompt).toBe(
+      'compiled image request with project custom image look fragment',
+    );
+  });
+
+  it('resolves active preset template parameters before presenting the source to Commander', async () => {
+    const preset: PresetDefinition = {
+      id: 'builtin-camera-test-arc',
+      category: 'camera',
+      name: 'Test Arc',
+      description: 'Parameterized camera direction',
+      prompt: 'default camera arc',
+      defaultPrompt: 'default camera arc',
+      promptTemplate: 'camera arcs {speed} around the subject',
+      promptParamDefs: [
+        {
+          key: 'speed',
+          label: 'Speed',
+          type: 'select',
+          default: 'smoothly',
+          options: ['smoothly', 'slowly'],
+        },
+      ],
+      builtIn: true,
+      modified: false,
+      params: [],
+      defaults: {},
+    };
+    const presetTracks = createEmptyPresetTrackSet();
+    presetTracks.camera.intensity = 50;
+    presetTracks.camera.entries.push({
+      id: 'camera-entry',
+      category: 'camera',
+      presetId: preset.id,
+      params: { speed: 'slowly' },
+      intensity: 50,
+      order: 0,
+      enabled: true,
+    });
+    const node = makeVideoNode({ providerId: 'mock-provider', presetTracks });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'video',
+      capabilities: ['text-to-video'],
+    });
+    deps.resolvePresetCatalog.mockReturnValue([preset]);
+
+    await prepareGenerationPromptAssembly(deps as never, {
+      canvasId: 'canvas-1',
+      nodeId: node.id,
+    });
+
+    expect(deps.promptAssemblyService.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sources: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'preset',
+            content: expect.stringContaining('camera arcs slowly around the subject'),
+            metadata: expect.objectContaining({ intensity: 25 }),
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it('stores Commander intent as a required assembly source while compiling node facts', async () => {
     const node = makeImageNode({ providerId: 'mock-provider' });
     const { deps } = makeDepsWithNode(node, {
       id: 'mock-provider',
@@ -1110,19 +1425,73 @@ describe('buildGenerationContext', () => {
       diagnostics: [],
     });
 
-    const ctx = await buildGenerationContext(deps as never, {
+    const ctx = await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-image',
-      finalPrompt: 'Commander scene delta',
+      commanderIntent: 'Commander scene delta',
     });
 
     expect(compilePromptMock).toHaveBeenCalledWith(
-      expect.objectContaining({ prompt: 'Commander scene delta' }),
+      expect.objectContaining({ prompt: 'Test Image' }),
+    );
+    expect(deps.promptAssemblyService.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sources: expect.arrayContaining([
+          expect.objectContaining({
+            sourceId: 'user-intent',
+            kind: 'user-intent',
+            content: 'Commander scene delta',
+            required: true,
+          }),
+          expect.objectContaining({
+            sourceId: 'node-prompt',
+            kind: 'node-prompt',
+            content: 'Test Image',
+            required: true,
+          }),
+        ]),
+      }),
     );
     expect(ctx.requestBase.prompt).toBe('compiled Commander prompt with style authority');
   });
 
-  it('keeps a host-loaded incremental prompt exact and does not compile it from zero', async () => {
+  it('makes reference-image purpose a required Commander source and applies its Canvas policy', async () => {
+    const node = makeImageNode({
+      providerId: 'mock-provider',
+      generationPurpose: 'reference-image',
+    });
+    const { deps, canvas } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
+    canvas.settings = {
+      resolutionPolicy: {
+        referenceImage: { mode: 'exact', width: 1536, height: 1024 },
+        image: { mode: 'exact', width: 2048, height: 2048 },
+      },
+    };
+
+    const context = await prepareGenerationPromptAssembly(deps as never, {
+      canvasId: canvas.id,
+      nodeId: node.id,
+    });
+
+    expect(context.requestBase).toEqual(expect.objectContaining({ width: 1536, height: 1024 }));
+    expect(deps.promptAssemblyService.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sources: expect.arrayContaining([
+          expect.objectContaining({
+            sourceId: 'generation-purpose',
+            required: true,
+            metadata: { generationPurpose: 'reference-image' },
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it('prepares a parent-linked refinement from the exact prior prompt and feedback', async () => {
     const node = makeImageNode({ providerId: 'mock-provider' });
     const { deps } = makeDepsWithNode(node, {
       id: 'mock-provider',
@@ -1132,14 +1501,257 @@ describe('buildGenerationContext', () => {
     const priorPrompt =
       'Exact prior provider prompt\nUSER QUALITY FEEDBACK (additive): brighten the eyes';
 
-    const ctx = await buildGenerationContext(deps as never, {
+    const ctx = await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-image',
-      finalPrompt: priorPrompt,
-      promptInputMode: 'precompiled',
+      promptAssemblyPurpose: 'user_refine',
+      promptAssemblyParent: {
+        assemblyId: 'parent-assembly',
+        finalPrompt: priorPrompt,
+        promptHash: 'a'.repeat(64),
+        userFeedback: 'brighten the eyes',
+      },
     });
 
-    expect(ctx.requestBase.prompt).toBe(priorPrompt);
+    expect(ctx.promptAssemblyId).toBe('assembly-1');
+    expect(deps.promptAssemblyService.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        purpose: 'user_refine',
+        parentAssemblyId: 'parent-assembly',
+        sources: expect.arrayContaining([
+          expect.objectContaining({
+            sourceId: 'parent-final-prompt',
+            kind: 'parent-prompt',
+            content: priorPrompt,
+            required: true,
+            metadata: expect.objectContaining({ promptHash: 'a'.repeat(64) }),
+          }),
+          expect.objectContaining({
+            sourceId: 'user-feedback',
+            kind: 'user-feedback',
+            content: 'brighten the eyes',
+            required: true,
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it('preserves every byte of the accepted parent prompt through canonical prepare', async () => {
+    const priorPrompt = '  Exact prior provider prompt\nkeep trailing space  ';
+    const node = makeImageNode({
+      providerId: 'mock-provider',
+      assetHash: 'asset-existing',
+    });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
+    const expectedHash = createHash('sha256').update(priorPrompt, 'utf8').digest('hex');
+    const mediaTaskService = makeCanonicalMediaTaskService(deps, {
+      id: 'parent-attempt',
+      status: 'accepted',
+      canvasId: 'canvas-1',
+      nodeId: 'node-image',
+      promptAssemblyId: 'parent-assembly',
+      prompt: priorPrompt,
+      promptHash: expectedHash,
+      assetHash: 'asset-existing',
+    });
+
+    await expect(
+      registerCanvasGenerationTool(deps, mediaTaskService).execute({
+        action: 'prepare',
+        canvasId: 'canvas-1',
+        nodeId: 'node-image',
+        parentAttemptId: 'parent-attempt',
+        feedback: 'Brighten the eyes',
+      }),
+    ).resolves.toMatchObject({ success: true });
+
+    expect(deps.promptAssemblyService.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        parentAssemblyId: 'parent-assembly',
+        sourceAssetHash: 'asset-existing',
+        sources: expect.arrayContaining([
+          expect.objectContaining({
+            sourceId: 'parent-final-prompt',
+            content: priorPrompt,
+            metadata: expect.objectContaining({ promptHash: expectedHash }),
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it('refuses a legacy asset without an accepted parent attempt during canonical prepare', async () => {
+    const node = makeImageNode({
+      providerId: 'mock-provider',
+      assetHash: 'legacy-asset',
+    });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
+    const mediaTaskService = makeCanonicalMediaTaskService(deps);
+
+    await expect(
+      registerCanvasGenerationTool(deps, mediaTaskService).execute({
+        action: 'prepare',
+        canvasId: 'canvas-1',
+        nodeId: 'node-image',
+        parentAttemptId: 'legacy-asset',
+        feedback: 'Brighten the eyes',
+      }),
+    ).resolves.toMatchObject({
+      success: false,
+      error: expect.stringContaining('exact accepted or definitively failed parent media attempt'),
+    });
+    expect(deps.promptAssemblyService.prepare).not.toHaveBeenCalled();
+  });
+
+  it('passes an external Commander final prompt and negative prompt to the provider unchanged', async () => {
+    const node = makeImageNode({ providerId: 'mock-provider' });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
+    const preparedContext = await prepareGenerationPromptAssembly(deps as never, {
+      canvasId: 'canvas-1',
+      nodeId: 'node-image',
+    });
+    const prepared = deps.promptAssemblyService.get(preparedContext.promptAssemblyId) as {
+      id: string;
+      input: {
+        inputHash: string;
+        sources: Array<{ sourceId: string; sourceHash: string }>;
+      };
+    };
+    const finalPrompt = 'Exact Commander final prompt — keep every byte.\nShot: close-up';
+    const negativePrompt = 'no host suffix\nno forced preset tail';
+    const output: PromptAssemblyOutputV1 = {
+      version: 1,
+      assemblyId: prepared.id,
+      inputHash: prepared.input.inputHash,
+      finalPrompt,
+      negativePrompt,
+      sourceDecisions: prepared.input.sources.map((source) => ({
+        sourceId: source.sourceId,
+        sourceHash: source.sourceHash,
+        disposition: 'applied',
+      })),
+      summary: 'Commander reconciled the sources',
+      warnings: [],
+    };
+    Object.assign(deps, {
+      preferredPromptAssembler: { id: 'commander-test', name: 'Commander Test' },
+    });
+
+    const context = await buildGenerationContext(deps as never, {
+      canvasId: 'canvas-1',
+      nodeId: 'node-image',
+      promptAssemblyId: prepared.id,
+      promptAssemblyOutput: output,
+    });
+
+    expect(context.requestBase.prompt).toBe(finalPrompt);
+    expect(context.requestBase.negativePrompt).toBe(negativePrompt);
+  });
+
+  it('fails closed when image generation has no persisted Prompt Assembly', async () => {
+    const node = makeImageNode({ providerId: 'mock-provider' });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
+
+    await expect(
+      buildGenerationContext(deps as never, {
+        canvasId: 'canvas-1',
+        nodeId: 'node-image',
+      }),
+    ).rejects.toThrow('requires a prepared Prompt Assembly');
+    expect(deps.promptAssemblyService.prepare).not.toHaveBeenCalled();
+  });
+
+  it('estimates image cost without preparing prompts or nesting an active Commander LLM', async () => {
+    const node = makeImageNode({ providerId: 'mock-provider' });
+    const { deps, canvas, adapter } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'image',
+      capabilities: ['text-to-image'],
+    });
+    canvas.settings = {
+      resolutionPolicy: {
+        image: { mode: 'exact', width: 1536, height: 1024 },
+      },
+    };
+    adapter.estimateCost.mockReturnValue({
+      estimatedCost: 0.37,
+      currency: 'USD',
+      provider: 'mock-provider',
+      unit: 'image',
+    });
+    deps.promptAssemblyService.prepare.mockReturnValue({
+      id: 'assembly-that-must-not-exist',
+      canvasId: canvas.id,
+      nodeId: node.id,
+      status: 'prepared',
+      input: { nodeUpdatedAt: node.updatedAt },
+    });
+
+    const tools = new Map<
+      string,
+      { execute: (args: Record<string, unknown>) => Promise<unknown> }
+    >();
+    registerCanvasTools(
+      {
+        register: vi.fn(
+          (tool: {
+            name: string;
+            execute: (args: Record<string, unknown>) => Promise<unknown>;
+          }) => {
+            tools.set(tool.name, tool);
+          },
+        ),
+      } as never,
+      {
+        ...deps,
+        defaultCanvasId: canvas.id,
+        authorizedCanvasIds: [canvas.id],
+        presetCatalog: { list: deps.resolvePresetCatalog },
+        activeLLMAdapter: { id: 'active-commander', name: 'Active Commander' },
+        resolveProcessPrompt: vi.fn(() => 'process prompt'),
+      } as never,
+      () => null,
+      { emit: vi.fn() } as never,
+      async () => [],
+      async (preset) => preset,
+    );
+
+    await expect(
+      tools.get('canvas.generation')?.execute({
+        action: 'estimate',
+        canvasId: canvas.id,
+        nodeIds: [node.id],
+      }),
+    ).resolves.toEqual({
+      success: true,
+      data: {
+        totalEstimatedCost: 0.37,
+        currency: 'USD',
+        nodeCosts: [{ nodeId: node.id, estimatedCost: 0.37 }],
+      },
+    });
+    expect(deps.promptAssemblyService.prepare).not.toHaveBeenCalled();
+    expect(adapter.resolutionController.resolve).toHaveBeenCalledOnce();
+    expect(adapter.estimateCost).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 1536, height: 1024 }),
+    );
   });
 
   it('passes the canonical Canvas visual-style policy into manual generation', async () => {
@@ -1157,7 +1769,7 @@ describe('buildGenerationContext', () => {
       },
     };
 
-    const ctx = await buildGenerationContext(deps as never, {
+    const ctx = await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-image',
     });
@@ -1183,7 +1795,7 @@ describe('buildGenerationContext', () => {
       visualStylePolicy: { version: 1, summary: 'unapproved Canvas draft' },
     };
 
-    await buildGenerationContext(deps as never, {
+    await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-image',
       styleAuthority: 'visual-constitution',
@@ -1211,7 +1823,7 @@ describe('buildGenerationContext', () => {
       capabilities: ['text-to-video'],
     });
 
-    const ctx = await buildGenerationContext(deps as never, {
+    const ctx = await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-video',
     });
@@ -1223,6 +1835,109 @@ describe('buildGenerationContext', () => {
     expect(ctx.requestBase.height).toBe(720);
     expect(ctx.requestBase.duration).toBe(5);
     expect(ctx.requestBase.params).toMatchObject({ fps: 24 });
+  });
+
+  it('uses a resolved built-in override for video compilation and provider requests', async () => {
+    const override: PresetDefinition = {
+      id: 'camera:arc-left',
+      category: 'camera',
+      name: 'Arc Left',
+      description: 'Project override',
+      prompt: 'project-overridden left arc with a restrained finish',
+      defaultPrompt: 'default left arc',
+      promptTemplate: 'camera arcs {speed} to the left',
+      promptParamDefs: [
+        {
+          key: 'speed',
+          label: 'Speed',
+          type: 'select',
+          default: 'quickly',
+          options: ['quickly', 'slowly'],
+        },
+      ],
+      builtIn: true,
+      modified: true,
+      params: [],
+      defaults: {},
+    };
+    const presetTracks = createEmptyPresetTrackSet();
+    presetTracks.camera.entries.push({
+      id: 'video-camera-entry',
+      category: 'camera',
+      presetId: override.id,
+      params: {},
+      order: 0,
+      enabled: true,
+    });
+    const node = makeVideoNode({ providerId: 'mock-provider', presetTracks });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'video',
+      capabilities: ['text-to-video'],
+    });
+    deps.resolvePresetCatalog.mockReturnValue([override]);
+    compilePromptMock.mockReturnValue({
+      prompt: 'compiled video request with project-overridden left arc',
+      negativePrompt: undefined,
+      referenceImages: [],
+      params: {},
+      wordCount: 7,
+      budget: 100,
+      segments: [],
+      diagnostics: [],
+    });
+
+    const context = await prepareGenerationPromptAssembly(deps as never, {
+      canvasId: 'canvas-1',
+      nodeId: node.id,
+    });
+
+    expect(compilePromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({ presetLibrary: [override], presetTracks }),
+    );
+    expect(deps.promptAssemblyService.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sources: expect.arrayContaining([
+          expect.objectContaining({
+            kind: 'preset',
+            content: expect.stringContaining(
+              'project-overridden left arc with a restrained finish',
+            ),
+          }),
+        ]),
+      }),
+    );
+    expect(context.requestBase.prompt).toBe(
+      'compiled video request with project-overridden left arc',
+    );
+  });
+
+  it('rejects an unknown active preset before prompt compilation', async () => {
+    const presetTracks = createEmptyPresetTrackSet();
+    presetTracks.camera.entries.push({
+      id: 'missing-camera-entry',
+      category: 'camera',
+      presetId: 'camera:missing-project-preset',
+      params: {},
+      order: 0,
+      enabled: true,
+    });
+    const node = makeVideoNode({ providerId: 'mock-provider', presetTracks });
+    const { deps } = makeDepsWithNode(node, {
+      id: 'mock-provider',
+      type: 'video',
+      capabilities: ['text-to-video'],
+    });
+
+    await expect(
+      buildGenerationContext(deps as never, {
+        canvasId: 'canvas-1',
+        nodeId: node.id,
+      }),
+    ).rejects.toThrow(
+      'Node "node-video" references unknown active preset "camera:missing-project-preset"',
+    );
+    expect(compilePromptMock).not.toHaveBeenCalled();
   });
 
   it('separates video frame refs from generic entity refs and forwards negativePrompt to the compiler', async () => {
@@ -1312,6 +2027,9 @@ describe('buildGenerationContext', () => {
       }),
       canvasStore: { get: vi.fn(() => canvas), save: vi.fn() },
       keychain: { getKey: vi.fn(async () => 'secret-key') },
+      resolvePresetCatalog: vi.fn(() => []),
+      promptAssemblyService: makePromptAssemblyService(),
+      llmRegistry: makeLlmRegistry(),
     };
 
     compilePromptMock.mockReturnValue({
@@ -1325,7 +2043,7 @@ describe('buildGenerationContext', () => {
       diagnostics: [],
     });
 
-    const ctx = await buildGenerationContext(deps as never, {
+    const ctx = await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-video',
     });
@@ -1386,9 +2104,12 @@ describe('buildGenerationContext', () => {
       }),
       canvasStore: { get: vi.fn(() => canvas), save: vi.fn() },
       keychain: { getKey: vi.fn(async () => 'key') },
+      resolvePresetCatalog: vi.fn(() => []),
+      promptAssemblyService: makePromptAssemblyService(),
+      llmRegistry: makeLlmRegistry(),
     };
 
-    const ctx = await buildGenerationContext(deps as never, {
+    const ctx = await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-backdrop',
     });
@@ -1405,7 +2126,7 @@ describe('buildGenerationContext', () => {
       capabilities: ['text-to-image'],
     });
 
-    const ctx = await buildGenerationContext(deps as never, {
+    const ctx = await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-image',
       requestedVariantCount: 3,
@@ -1422,7 +2143,7 @@ describe('buildGenerationContext', () => {
       capabilities: ['text-to-image'],
     });
 
-    const ctx = await buildGenerationContext(deps as never, {
+    const ctx = await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-image',
       requestedSeed: 77777,
@@ -1454,7 +2175,7 @@ describe('buildGenerationContext', () => {
       diagnostics: [],
     }));
 
-    const ctx = await buildGenerationContext(deps as never, {
+    const ctx = await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-image',
     });
@@ -1474,7 +2195,7 @@ describe('buildGenerationContext', () => {
       capabilities: ['text-to-image', 'image-to-image'],
     });
 
-    const ctx = await buildGenerationContext(deps as never, {
+    const ctx = await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-image',
     });
@@ -1512,7 +2233,7 @@ describe('buildGenerationContext', () => {
       capabilities: ['text-to-image'],
     });
 
-    const ctx = await buildGenerationContext(deps as never, {
+    const ctx = await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-image',
     });
@@ -1547,7 +2268,7 @@ describe('buildGenerationContext', () => {
       ],
     });
 
-    await buildGenerationContext(deps as never, {
+    await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-image',
     });
@@ -1574,7 +2295,7 @@ describe('buildGenerationContext', () => {
       capabilities: ['text-to-image'],
     });
 
-    await buildGenerationContext(deps as never, {
+    await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-image',
     });
@@ -1607,9 +2328,12 @@ describe('buildGenerationContext', () => {
       }),
       canvasStore: { get: vi.fn(() => canvas), save: vi.fn() },
       keychain: { getKey: vi.fn(async () => 'key') },
+      resolvePresetCatalog: vi.fn(() => []),
+      promptAssemblyService: makePromptAssemblyService(),
+      llmRegistry: makeLlmRegistry(),
     };
 
-    const ctx = await buildGenerationContext(deps as never, {
+    const ctx = await prepareGenerationPromptAssembly(deps as never, {
       canvasId: 'canvas-1',
       nodeId: 'node-image',
       requestedProviderId: 'mock-provider',

@@ -1,8 +1,14 @@
-import type { AgentTool } from '../tool-registry.js';
+import {
+  UNBOUNDED_METERED_TOOL_RESOURCE,
+  toolResultSchema,
+  type ToolDefinition,
+} from '../tool-registry.js';
 import { tryProviderId } from '@lucid-fin/contracts-parse';
 import { ok, fail, requireText } from './tool-result-helpers.js';
 import type { VisionToolDeps } from './vision-tools.js';
 import type { CopywritingToolDeps } from './copywriting-tools.js';
+import { authorityFact, contextProjector } from './context-replay.js';
+import { objectSchema, stringSchema, unionSchema } from './tool-runtime-schemas.js';
 
 export interface TextAnalyzeToolDeps extends VisionToolDeps, CopywritingToolDeps {}
 
@@ -17,13 +23,41 @@ const MODES: Record<string, string> = {
     'Add a compelling, attention-grabbing opening hook to this text that would make viewers want to keep watching.',
 };
 
-export function createTextAnalyzeTools(deps: TextAnalyzeToolDeps): AgentTool[] {
-  const textAnalyze: AgentTool = {
+const describeImageDataSchema = objectSchema(
+  {
+    prompt: stringSchema,
+    nodeId: stringSchema,
+    style: stringSchema,
+    providerId: stringSchema,
+  },
+  ['prompt', 'nodeId', 'style'],
+);
+const transformDataSchema = objectSchema({ result: stringSchema, mode: stringSchema });
+
+export function createTextAnalyzeTools(deps: TextAnalyzeToolDeps): ToolDefinition[] {
+  const textAnalyze: ToolDefinition = {
     name: 'text.analyze',
+    process: 'vision-analysis',
+    category: 'query',
+    contextReplay: 'authority_reread',
+    resource: UNBOUNDED_METERED_TOOL_RESOURCE,
     description:
       'Analyze images with vision AI or transform text with LLM. Use action to select the operation.',
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(unionSchema(describeImageDataSchema, transformDataSchema)),
+    projectPublicResult: contextProjector((_result, args) =>
+      args.action === 'describeImage'
+        ? [
+            authorityFact(
+              'canvas_node',
+              args.writeField === 'prompt' ? 'updated' : 'read',
+              args.nodeId,
+              { scopeId: args.canvasId },
+            ),
+          ]
+        : [],
+    ),
+    inputSchema: {
       type: 'object',
       properties: {
         action: {
@@ -84,7 +118,12 @@ export function createTextAnalyzeTools(deps: TextAnalyzeToolDeps): AgentTool[] {
           ) {
             await deps.writeNodeField(nodeId, args.writeField.trim(), result.prompt, canvasId);
           }
-          return ok({ prompt: result.prompt, nodeId, style, providerId });
+          return ok({
+            prompt: result.prompt,
+            nodeId,
+            style,
+            ...(providerId === undefined ? {} : { providerId }),
+          });
         } catch (error) {
           return fail(error);
         }

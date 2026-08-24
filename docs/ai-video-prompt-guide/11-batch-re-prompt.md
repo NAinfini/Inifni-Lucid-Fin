@@ -66,7 +66,7 @@ cartoon, anime, oversaturated, lens flare, style change]
 
 ---
 
-## Golden Prompt Workflow
+## Golden Prompt Procedure
 
 1. Write one prompt that produces the desired output ("golden prompt")
 2. Use Commander / LLM to rewrite all other prompts to match its structure and vocabulary

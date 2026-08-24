@@ -2,7 +2,7 @@
  * `commander/state/run-phase.ts` — v2 cutover.
  *
  * State machine describing what the agent is doing right now. Drives the
- * LiveActivityBar, honest elapsed timers, and cursor gating.
+ * Task progress, honest elapsed timers, and cancellation state.
  *
  * `phaseFromEvent` is a pure reducer: `(prev, event) → next`. Every
  * `TimelineEvent.kind` is handled explicitly. The `default` branch is
@@ -37,6 +37,7 @@ export type RunPhase =
       question: string;
       since: number;
     }
+  | { kind: 'paused'; since: number }
   | { kind: 'compacting'; since: number }
   | { kind: 'failed'; error: string }
   | { kind: 'done' };
@@ -47,6 +48,12 @@ export function phaseFromEvent(prev: RunPhase, event: TimelineEvent): RunPhase {
   switch (event.kind) {
     case 'run_start':
       return { kind: 'awaiting_model', step: event.step, since: event.emittedAt };
+    case 'run_paused':
+      return { kind: 'paused', since: event.emittedAt };
+    case 'run_resumed':
+      return { kind: 'awaiting_model', step: event.step, since: event.emittedAt };
+    case 'catalog_frozen':
+      return prev;
     case 'assistant_text': {
       const step = event.step;
       const now = event.emittedAt;
@@ -55,7 +62,8 @@ export function phaseFromEvent(prev: RunPhase, event: TimelineEvent): RunPhase {
       }
       return { kind: 'model_streaming', step, since: now, lastTextDeltaAt: now };
     }
-    case 'thinking': {
+    case 'public_progress': {
+      if (event.status !== 'running') return prev;
       if (prev.kind === 'model_streaming' && prev.step === event.step) return prev;
       return {
         kind: 'model_streaming',
@@ -64,6 +72,10 @@ export function phaseFromEvent(prev: RunPhase, event: TimelineEvent): RunPhase {
         lastTextDeltaAt: null,
       };
     }
+    case 'resource_usage':
+    case 'resource_state':
+    case 'context_fact':
+      return prev;
     case 'tool_call': {
       const tools =
         prev.kind === 'tool_running' && prev.step === event.step

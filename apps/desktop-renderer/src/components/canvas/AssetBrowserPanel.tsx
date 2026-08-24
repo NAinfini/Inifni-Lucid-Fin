@@ -13,7 +13,6 @@ import {
   removeFolder,
   setCurrentFolder,
   setFoldersLoading,
-  moveItemToFolder,
   type Asset,
 } from '../../store/slices/assets.js';
 import { t, getLocale } from '../../i18n.js';
@@ -52,11 +51,10 @@ const FILTER_OPTIONS: Array<{ value: Asset['type'] | 'all'; label: string }> = [
 export function AssetBrowserPanel() {
   const dispatch = useDispatch();
   const { filterType, searchQuery } = useSelector((state: RootState) => state.assets);
-  const allAssets = useSelector((state: RootState) => state.assets.items);
   const filteredAssets = useSelector(selectFilteredAssets);
 
   const ops = useAssetOperations();
-  const { loadAssets } = ops;
+  const { executeCopy, executeMove, loadAssets } = ops;
 
   const [detailAsset, setDetailAsset] = useState<Asset | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -90,27 +88,19 @@ export function AssetBrowserPanel() {
 
   const handleMoveToFolder = useCallback(
     async (ids: string[], folderId: string | null) => {
-      const api = getAPI();
-      if (!api?.asset) return;
-      for (const id of ids) {
-        const asset = allAssets.find((a) => a.id === id);
-        const hash = asset?.hash;
-        if (!hash) continue;
-        try {
-          await api.asset.setFolder(hash, folderId);
-          dispatch(moveItemToFolder({ hash, folderId }));
-        } catch (reason) {
-          dispatch(
-            enqueueToast({
-              variant: 'error',
-              title: t('toast.error.operationFailed'),
-              message: String(reason),
-            }),
-          );
-        }
+      try {
+        await executeMove(ids, folderId);
+      } catch (reason) {
+        dispatch(
+          enqueueToast({
+            variant: 'error',
+            title: t('toast.error.operationFailed'),
+            message: String(reason),
+          }),
+        );
       }
     },
-    [allAssets, dispatch],
+    [dispatch, executeMove],
   );
 
   useEffect(() => {
@@ -131,15 +121,10 @@ export function AssetBrowserPanel() {
 
   const confirmDelete = useCallback(async () => {
     setDeleteConfirmOpen(false);
-    const hashes = new Set<string>();
-    for (const id of pendingDeleteIds) {
-      const asset = allAssets.find((a) => a.id === id);
-      if (asset) hashes.add(asset.hash);
-    }
     try {
-      const deleted = await ops.executeDelete(hashes);
+      const deleted = await ops.executeDelete(new Set(pendingDeleteIds));
       setDetailAsset((prev) => {
-        if (prev && deleted.has(prev.hash)) {
+        if (prev && deleted.has(prev.id)) {
           setDrawerOpen(false);
           return null;
         }
@@ -155,29 +140,24 @@ export function AssetBrowserPanel() {
       );
     }
     setPendingDeleteIds([]);
-  }, [pendingDeleteIds, allAssets, ops, dispatch]);
+  }, [pendingDeleteIds, ops, dispatch]);
 
   const handlePaste = useCallback(
-    (payload: { mode: 'copy' | 'cut'; items: Asset[] }) => {
+    async (payload: { mode: 'copy' | 'cut'; items: Asset[] }) => {
       const folderId = folderApi.currentFolderId;
       if (payload.mode === 'cut') {
-        // Move the items into the current folder.
-        void handleMoveToFolder(
+        await handleMoveToFolder(
           payload.items.map((it) => it.id),
           folderId,
         );
       } else {
-        // Copy: duplicate hashes into current folder by re-registering them.
-        // Assets are content-addressed so true duplication doesn't make sense
-        // — we simply move them into this folder, preserving both clipboard
-        // state (so future pastes still work) and the original membership.
-        void handleMoveToFolder(
+        await executeCopy(
           payload.items.map((it) => it.id),
           folderId,
         );
       }
     },
-    [folderApi.currentFolderId, handleMoveToFolder],
+    [executeCopy, folderApi.currentFolderId, handleMoveToFolder],
   );
 
   const handleOpenItem = useCallback((asset: Asset) => {
@@ -187,11 +167,31 @@ export function AssetBrowserPanel() {
     setDrawerOpen(true);
   }, []);
 
-  const handleSaveName = useCallback(() => {
+  const handleSaveName = useCallback(async () => {
     if (!detailAsset) return;
-    dispatch(updateAsset({ id: detailAsset.id, data: { name: editingName } }));
-    setDetailAsset({ ...detailAsset, name: editingName });
-    setIsEditingName(false);
+    const displayName = editingName.trim();
+    if (displayName === detailAsset.name) {
+      setEditingName(displayName);
+      setIsEditingName(false);
+      return;
+    }
+    const api = getAPI();
+    try {
+      if (!api?.assetEntry) throw new Error(t('toast.error.operationFailed'));
+      const renamed = await api.assetEntry.rename(detailAsset.id, displayName);
+      dispatch(updateAsset({ id: detailAsset.id, data: { name: renamed.displayName } }));
+      setDetailAsset({ ...detailAsset, name: renamed.displayName });
+      setEditingName(renamed.displayName);
+      setIsEditingName(false);
+    } catch (reason) {
+      dispatch(
+        enqueueToast({
+          variant: 'error',
+          title: t('toast.error.operationFailed'),
+          message: String(reason),
+        }),
+      );
+    }
   }, [detailAsset, editingName, dispatch]);
 
   const handleExportOne = useCallback(
@@ -277,7 +277,7 @@ export function AssetBrowserPanel() {
             paste: clipboard.paste,
             cutIds,
           }}
-          onPaste={handlePaste}
+          onPaste={(payload) => void handlePaste(payload)}
           header={
             <div className="flex items-center gap-2">
               <FolderSearch className="h-3.5 w-3.5 text-primary" />
@@ -332,7 +332,7 @@ export function AssetBrowserPanel() {
                 onChange={(e) => setEditingName(e.target.value)}
                 disabled={!isEditingName}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && isEditingName) handleSaveName();
+                  if (e.key === 'Enter' && isEditingName) void handleSaveName();
                   if (e.key === 'Escape') {
                     setEditingName(detailAsset.name);
                     setIsEditingName(false);
@@ -349,7 +349,7 @@ export function AssetBrowserPanel() {
                 <>
                   <button
                     type="button"
-                    onClick={handleSaveName}
+                    onClick={() => void handleSaveName()}
                     className="rounded bg-primary px-2 py-1 text-[10px] text-primary-foreground"
                   >
                     {t('action.save')}

@@ -18,7 +18,6 @@ import {
   selectVariant,
   toggleSeedLock,
   setNodeColorTag,
-  setNodeUploadedAsset,
   toggleLock,
   toggleBackdropCollapse,
   setBackdropOpacity,
@@ -32,19 +31,16 @@ import {
   localizePresetName,
 } from './canvas-utils.js';
 import { buildExternalAIPrompt } from '../../utils/prompt-export.js';
-import { getAPI } from '../../utils/api.js';
 
 export interface UseCanvasNodeCallbacksParams {
   /** Called when the user triggers generation on a node. */
   generate: (id: string) => Promise<void>;
   /** Setter for the "connecting from" mode (connect-to action). */
   setConnectingFromNodeId: (id: string | null) => void;
-  /** Open the video clone dialog. */
-  setVideoCloneOpen: (open: boolean) => void;
 }
 
 export function useCanvasNodeCallbacks(params: UseCanvasNodeCallbacksParams): NodeCallbacks {
-  const { generate, setConnectingFromNodeId, setVideoCloneOpen } = params;
+  const { generate, setConnectingFromNodeId } = params;
   const dispatch = useDispatch<AppDispatch>();
   const canvas = useSelector(selectActiveCanvas);
   const clipboard = useSelector((s: RootState) => s.canvas.clipboard, shallowEqual);
@@ -84,11 +80,6 @@ export function useCanvasNodeCallbacks(params: UseCanvasNodeCallbacksParams): No
     },
     [dispatch],
   );
-
-  const handleNodeRename = useCallback((_id: string) => {
-    // Rename is handled inline via double-click on title in node components.
-    // This callback is a no-op placeholder for the context menu.
-  }, []);
 
   const handleNodeGenerate = useCallback(
     (id: string) => {
@@ -224,25 +215,6 @@ export function useCanvasNodeCallbacks(params: UseCanvasNodeCallbacksParams): No
     [dispatch],
   );
 
-  const handleNodeUpload = useCallback(
-    async (id: string) => {
-      const api = getAPI();
-      if (!api) return;
-      const node = canvasRef.current?.nodes.find((n) => n.id === id);
-      if (!node) return;
-      const ref = (await api.asset.pickFile(node.type)) as {
-        hash: string;
-      } | null;
-      if (!ref) return;
-      dispatch(setNodeUploadedAsset({ id, assetHash: ref.hash }));
-    },
-    [dispatch],
-  );
-
-  const handleCloneVideo = useCallback(() => {
-    setVideoCloneOpen(true);
-  }, [setVideoCloneOpen]);
-
   return useMemo<NodeCallbacks>(
     () => ({
       onTitleChange: handleTitleChange,
@@ -255,19 +227,14 @@ export function useCanvasNodeCallbacks(params: UseCanvasNodeCallbacksParams): No
       },
       onDisconnect: handleNodeDisconnect,
       onConnectTo: handleConnectTo,
-      onRename: handleNodeRename,
       onGenerate: handleNodeGenerate,
       onLock: handleNodeLock,
       onColorTag: handleNodeColorTag,
       onCopyPromptForAI: handleCopyPromptForAI,
-      onUpload: (id: string) => {
-        void handleNodeUpload(id);
-      },
       onSelectVariant: handleSelectVariant,
       onToggleSeedLock: handleToggleSeedLock,
       onToggleCollapse: handleToggleCollapse,
       onOpacityChange: handleOpacityChange,
-      onCloneVideo: handleCloneVideo,
     }),
     [
       handleTitleChange,
@@ -278,17 +245,14 @@ export function useCanvasNodeCallbacks(params: UseCanvasNodeCallbacksParams): No
       handleNodePaste,
       handleNodeDisconnect,
       handleConnectTo,
-      handleNodeRename,
       handleNodeGenerate,
       handleNodeLock,
       handleNodeColorTag,
       handleCopyPromptForAI,
-      handleNodeUpload,
       handleSelectVariant,
       handleToggleSeedLock,
       handleToggleCollapse,
       handleOpacityChange,
-      handleCloneVideo,
     ],
   );
 }

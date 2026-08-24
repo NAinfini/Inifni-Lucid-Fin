@@ -49,6 +49,17 @@ function fakeHash(seed: string): string {
   return (base + 'a'.repeat(64)).slice(0, 64);
 }
 
+function createLibraryEntry(db: BetterSqlite3.Database, hash: string, id = `entry-${hash}`): void {
+  db.prepare(
+    `INSERT INTO asset_contents (hash, type, format, created_at)
+     VALUES (?, 'image', 'png', ?)`,
+  ).run(hash, Date.now());
+  db.prepare(
+    `INSERT INTO asset_entries (id, asset_hash, display_name, tags, created_at)
+     VALUES (?, ?, ?, '[]', ?)`,
+  ).run(id, hash, hash.slice(0, 12), Date.now());
+}
+
 describe('CAS Garbage Collector', () => {
   let base: string;
   let assetsRoot: string;
@@ -118,14 +129,9 @@ describe('CAS Garbage Collector', () => {
     const hashD = fakeHash('ddd');
     const hashE = fakeHash('eee');
 
-    // Insert hashes A, B, C into the assets table (referenced)
+    // Insert hashes A, B, C as logical library entries (referenced).
     for (const h of [hashA, hashB, hashC]) {
-      db.prepare('INSERT INTO assets (hash, type, format, created_at) VALUES (?, ?, ?, ?)').run(
-        h,
-        'image',
-        'png',
-        Date.now(),
-      );
+      createLibraryEntry(db, h);
     }
 
     // Create CAS files for A, B, C, D, E
@@ -180,16 +186,40 @@ describe('CAS Garbage Collector', () => {
     const pastTime = Date.now() - 60_000;
     const filePath = createCasFile(assetsRoot, hashRef, 'image', 'png', pastTime);
 
-    db.prepare('INSERT INTO assets (hash, type, format, created_at) VALUES (?, ?, ?, ?)').run(
-      hashRef,
-      'image',
-      'png',
-      Date.now(),
-    );
+    createLibraryEntry(db, hashRef);
 
     const result = collectGarbage(db, assetsRoot, { dryRun: false });
 
     expect(result.orphans.length).toBe(0);
+    expect(fs.existsSync(filePath)).toBe(true);
+  });
+
+  it('keeps content referenced only by a Commander run attachment', () => {
+    const hash = fakeHash('commanderattachment');
+    const filePath = createCasFile(assetsRoot, hash, 'image', 'png', Date.now() - 60_000);
+    createLibraryEntry(db, hash, 'entry-attachment');
+    const now = Date.now();
+    db.prepare(
+      `INSERT INTO commander_sessions
+         (id, default_canvas_id, title, messages, created_at, updated_at)
+       VALUES ('session-attachment', NULL, '', '[]', ?, ?)`,
+    ).run(now, now);
+    db.prepare(
+      `INSERT INTO commander_runs
+         (id, session_id, default_canvas_id, intent, status, accepted_at, last_seq)
+       VALUES ('run-attachment', 'session-attachment', 'canvas-1', 'inspect', 'completed', ?, 0)`,
+    ).run(now);
+    db.prepare(
+      `INSERT INTO commander_run_attachments
+         (run_id, ordinal, content_hash, role, original_name, mime_type)
+       VALUES ('run-attachment', 0, ?, 'reference', 'reference.png', 'image/png')`,
+    ).run(hash);
+    db.prepare("DELETE FROM asset_entries WHERE id = 'entry-attachment'").run();
+
+    const result = collectGarbage(db, assetsRoot, { dryRun: false });
+
+    expect(result.orphans.map(({ hash: orphanHash }) => orphanHash)).not.toContain(hash);
+    expect(result.sourcesScanned).toContain('commander_run_attachments.content_hash');
     expect(fs.existsSync(filePath)).toBe(true);
   });
 
@@ -326,29 +356,45 @@ describe('CAS Garbage Collector', () => {
     expect(orphanHashes).not.toContain(hash);
   });
 
-  it('collects hashes from workflow_artifacts.asset_hash', () => {
-    const hash = fakeHash('wfartif01');
+  it('collects hashes from task_artifacts.asset_hash', () => {
+    const hash = fakeHash('taskart01');
     const pastTime = Date.now() - 60_000;
     createCasFile(assetsRoot, hash, 'image', 'png', pastTime);
 
     const now = Date.now();
-    // Need to insert prerequisite workflow run + stage run + task run
     db.prepare(
-      "INSERT INTO workflow_runs (id, workflow_type, entity_type, trigger_source, status, created_at, updated_at) VALUES (?, 'gen', 'image', 'manual', 'completed', ?, ?)",
-    ).run('wr1', now, now);
+      "INSERT INTO task_lists (id, task_list_type, entity_type, trigger_source, status, created_at, updated_at) VALUES (?, 'gen', 'image', 'manual', 'completed', ?, ?)",
+    ).run('list-1', now, now);
     db.prepare(
-      "INSERT INTO workflow_stage_runs (id, workflow_run_id, stage_id, name, status, stage_order, updated_at) VALUES (?, 'wr1', 's1', 'stage1', 'completed', 0, ?)",
-    ).run('wsr1', now);
+      "INSERT INTO tasks (id, task_list_id, phase_key, phase_name, phase_order, task_key, name, kind, status, updated_at) VALUES (?, 'list-1', 'generate', 'Generate', 0, 'task-1', 'Task 1', 'adapter_generation', 'completed', ?)",
+    ).run('task-1', now);
     db.prepare(
-      "INSERT INTO workflow_task_runs (id, workflow_run_id, stage_run_id, task_id, name, kind, status, updated_at) VALUES (?, 'wr1', 'wsr1', 't1', 'task1', 'generate', 'completed', ?)",
-    ).run('wtr1', now);
-    db.prepare(
-      "INSERT INTO workflow_artifacts (id, workflow_run_id, task_run_id, artifact_type, asset_hash, created_at) VALUES (?, 'wr1', 'wtr1', 'image', ?, ?)",
-    ).run('wa1', hash, now);
+      "INSERT INTO task_artifacts (id, task_list_id, task_id, artifact_type, asset_hash, created_at) VALUES (?, 'list-1', 'task-1', 'image', ?, ?)",
+    ).run('artifact-1', hash, now);
 
     const result = collectGarbage(db, assetsRoot);
     const orphanHashes = result.orphans.map((o) => o.hash);
     expect(orphanHashes).not.toContain(hash);
+  });
+
+  it('keeps assets pinned by Canvas delivery references', () => {
+    const hash = fakeHash('delivery01');
+    const pastTime = Date.now() - 60_000;
+    createCasFile(assetsRoot, hash, 'video', 'mp4', pastTime);
+    db.prepare(
+      "INSERT INTO asset_contents (hash, type, format, created_at) VALUES (?, 'video', 'mp4', ?)",
+    ).run(hash, Date.now());
+    db.prepare(
+      'INSERT INTO canvases (id, name, viewport, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run('delivery-canvas', 'Delivery', '{"x":0,"y":0,"zoom":1}', '[]', 1, 1);
+    db.prepare('INSERT INTO delivery_asset_refs (canvas_id, asset_hash) VALUES (?, ?)').run(
+      'delivery-canvas',
+      hash,
+    );
+
+    const result = collectGarbage(db, assetsRoot);
+    expect(result.orphans.map((orphan) => orphan.hash)).not.toContain(hash);
+    expect(result.sourcesScanned).toContain('delivery_asset_refs.asset_hash');
   });
 
   it('collects hashes from color_styles.source_asset', () => {
@@ -366,18 +412,19 @@ describe('CAS Garbage Collector', () => {
     expect(orphanHashes).not.toContain(hash);
   });
 
-  it('collects hashes from asset_embeddings', () => {
-    const hash = fakeHash('embed0001');
+  it('deletes orphan content metadata only after deleting CAS bytes', () => {
+    const hash = fakeHash('orphan001');
     const pastTime = Date.now() - 60_000;
-    createCasFile(assetsRoot, hash, 'image', 'png', pastTime);
+    const filePath = createCasFile(assetsRoot, hash, 'image', 'png', pastTime);
 
     db.prepare(
-      'INSERT INTO asset_embeddings (hash, description, tokens, model, created_at) VALUES (?, ?, ?, ?, ?)',
-    ).run(hash, 'test desc', '["a","b"]', 'test-model', Date.now());
-
-    const result = collectGarbage(db, assetsRoot);
+      "INSERT INTO asset_contents (hash, type, format, created_at) VALUES (?, 'image', 'png', ?)",
+    ).run(hash, Date.now());
+    const result = collectGarbage(db, assetsRoot, { dryRun: false });
     const orphanHashes = result.orphans.map((o) => o.hash);
-    expect(orphanHashes).not.toContain(hash);
+    expect(orphanHashes).toContain(hash);
+    expect(fs.existsSync(filePath)).toBe(false);
+    expect(db.prepare('SELECT hash FROM asset_contents WHERE hash = ?').get(hash)).toBeUndefined();
   });
 
   it('collects hashes from generationHistory nested in canvas node data', () => {
@@ -452,12 +499,7 @@ describe('CAS Garbage Collector', () => {
     createCasFile(assetsRoot, hashOrphan1, 'image', 'png', pastTime);
     createCasFile(assetsRoot, hashOrphan2, 'video', 'mp4', pastTime);
 
-    db.prepare('INSERT INTO assets (hash, type, format, created_at) VALUES (?, ?, ?, ?)').run(
-      hashLive,
-      'image',
-      'png',
-      Date.now(),
-    );
+    createLibraryEntry(db, hashLive);
 
     const result = collectGarbage(db, assetsRoot);
 
@@ -466,7 +508,7 @@ describe('CAS Garbage Collector', () => {
     expect(result.orphans.length).toBe(2);
     expect(result.totalBytes).toBeGreaterThan(0);
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
-    expect(result.sourcesScanned).toContain('assets.hash');
+    expect(result.sourcesScanned).toContain('asset_entries.asset_hash');
     expect(result.sourcesScanned).toContain('canvas_nodes.data_json');
   });
 

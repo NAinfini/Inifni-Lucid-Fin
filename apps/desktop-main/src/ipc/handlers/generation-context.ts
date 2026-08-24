@@ -4,6 +4,7 @@ import {
   resolveEffectiveResolutionIntent,
   type AdapterRegistry,
 } from '@lucid-fin/adapters-ai';
+import { createHash } from 'node:crypto';
 import { compilePrompt, type PromptMode } from '@lucid-fin/application';
 import type {
   AIProviderAdapter,
@@ -14,13 +15,25 @@ import type {
   GenerationRequest,
   GenerationType,
   ImageNodeData,
+  PromptAssemblyInputV1,
+  PromptAssemblyOutputV1,
+  PromptAssemblyRecord,
+  PromptAssemblySource,
+  PresetDefinition,
   PresetTrackSet,
+  ResolutionMediaType,
   VideoNodeData,
 } from '@lucid-fin/contracts';
-import { BUILT_IN_PRESET_LIBRARY, getBuiltinMediaProvider } from '@lucid-fin/contracts';
+import { getBuiltinMediaProvider } from '@lucid-fin/contracts';
+import { isDeepStrictEqual } from 'node:util';
 import { resolveCanvasVisualStylePolicy } from '@lucid-fin/shared-utils';
 import type { CAS, Keychain } from '@lucid-fin/storage';
 import log from '../../logger.js';
+import { buildPromptAssemblyDraft } from '../../services/prompt-assembly-input.js';
+import {
+  hashPromptAssemblyInput,
+  validatePromptAssemblyOutput,
+} from '../../services/prompt-assembly.service.js';
 import { isStoredKeyAllowedForBaseUrl } from './provider-host-allowlist.js';
 import {
   type BuiltGenerationContext,
@@ -39,6 +52,7 @@ import {
 } from './generation-helpers.js';
 import {
   applyStyleGuideDefaultsToEmptyTracks,
+  buildCanvasGenerationIndex,
   collectConnectedTextContent,
   findConnectedImageHash,
   hasCharacterRefs,
@@ -58,27 +72,148 @@ import {
 // Generation context builder
 // ---------------------------------------------------------------------------
 
+export type GenerationContextInput = {
+  canvasId: string;
+  nodeId: string;
+  requestedProviderId?: string;
+  requestedProviderConfig?: ProviderConfigOverride;
+  requestedVariantCount?: number;
+  requestedSeed?: number;
+  /** Commander-authored intent. It remains a separate assembly source. */
+  commanderIntent?: string;
+  promptAssemblyId?: string;
+  promptAssemblyOutput?: PromptAssemblyOutputV1;
+  promptAssemblyPurpose?: PromptAssemblyInputV1['purpose'];
+  promptAssemblyAuthority?: PromptAssemblyInputV1['authority'];
+  promptAssemblyParent?: {
+    assemblyId?: string;
+    finalPrompt: string;
+    promptHash: string;
+    assetHash?: string;
+    userFeedback?: string;
+  };
+  promptAssemblyAdditionalSources?: Array<Omit<PromptAssemblySource, 'sourceHash'>>;
+  /** Approved production ignores mutable Canvas draft styling. */
+  styleAuthority?: 'canvas' | 'visual-constitution';
+};
+
 export async function buildGenerationContext(
   deps: CanvasGenerationDeps,
-  input: {
-    canvasId: string;
-    nodeId: string;
-    requestedProviderId?: string;
-    requestedProviderConfig?: ProviderConfigOverride;
-    requestedVariantCount?: number;
-    requestedSeed?: number;
-    // Commander-authored creative body. It never bypasses deterministic style compilation.
-    finalPrompt?: string;
-    /** Host-only exact-prompt mode for additive refinement from a stored asset. */
-    promptInputMode?: 'base' | 'precompiled';
-    /** Approved production ignores mutable Canvas draft styling. */
-    styleAuthority?: 'canvas' | 'visual-constitution';
-  },
+  input: GenerationContextInput,
+): Promise<BuiltGenerationContext> {
+  const context = await buildGenerationContextBase(deps, input);
+  if (context.generationType !== 'image' && context.generationType !== 'video') {
+    preflightGenerationPrompt(context.adapter, context.requestBase);
+    return context;
+  }
+
+  const assemblyId = normalizeOptionalString(input.promptAssemblyId);
+  if (!assemblyId) {
+    throw new Error(
+      'Image/video generation requires a prepared Prompt Assembly from Commander AI',
+    );
+  }
+  let assembly = deps.promptAssemblyService.get(assemblyId);
+  if (!assembly) throw new Error(`Prompt Assembly not found: ${assemblyId}`);
+  assertPromptAssemblyBinding(deps, context, input, assembly);
+
+  if (assembly.status === 'prepared') {
+    if (!input.promptAssemblyOutput) {
+      throw new Error(`Prompt Assembly ${assembly.id} requires Commander output before generation`);
+    }
+    const author = deps.preferredPromptAssembler;
+    if (!author) {
+      throw new Error('Commander Prompt Assembly output has no active Commander model binding');
+    }
+    assembly = deps.promptAssemblyService.submitCommanderOutput(
+      assembly.id,
+      input.promptAssemblyOutput,
+      { providerId: author.id, model: author.name },
+    );
+  } else if (
+    input.promptAssemblyOutput &&
+    (!assembly.output || !isDeepStrictEqual(assembly.output, input.promptAssemblyOutput))
+  ) {
+    throw new Error('Prompt Assembly output differs from the persisted Commander revision');
+  }
+
+  if (assembly.status !== 'assembled' || !assembly.output) {
+    throw new Error(`Prompt Assembly ${assembly.id} is not ready for generation`);
+  }
+  assertPromptAssemblyBinding(deps, context, input, assembly);
+  const requestBase = {
+    ...context.requestBase,
+    prompt: assembly.output.finalPrompt,
+    negativePrompt: assembly.output.negativePrompt,
+  };
+  preflightGenerationPrompt(context.adapter, requestBase);
+  return { ...context, requestBase, promptAssemblyId: assembly.id };
+}
+
+export async function prepareGenerationPromptAssembly(
+  deps: CanvasGenerationDeps,
+  input: Omit<GenerationContextInput, 'promptAssemblyId' | 'promptAssemblyOutput'>,
+): Promise<BuiltGenerationContext> {
+  const context = await buildGenerationContextBase(deps, input);
+  if (context.generationType !== 'image' && context.generationType !== 'video') {
+    throw new Error('Prompt Assembly prepare supports image and video nodes only');
+  }
+  const nodeData = context.node.data as ImageNodeData | VideoNodeData;
+  const presetTracks = hasPresetTracks(nodeData) ? nodeData.presetTracks : undefined;
+  const presetLibrary = deps.resolvePresetCatalog();
+  const nodePrompt = normalizeOptionalString(nodeData.prompt) ?? context.node.title;
+  const processPromptKey =
+    context.generationType === 'image' ? 'image-node-generation' : 'video-node-generation';
+  const prepared = deps.promptAssemblyService.prepare(
+    buildPromptAssemblyDraft({
+      canvas: context.canvas,
+      node: context.node,
+      mediaType: context.generationType,
+      mode: context.mode,
+      adapter: context.adapter,
+      request: context.requestBase,
+      compiled: context.compiled,
+      presetTracks,
+      presetLibrary,
+      referenceBindings: resolveEntityRefsAndImages(deps.db, context.node).referenceBindings,
+      nodePrompt,
+      nodeNegativePrompt: normalizeOptionalString(nodeData.negativePrompt),
+      commanderIntent: normalizeOptionalString(input.commanderIntent),
+      processPrompt: deps.resolveProcessPrompt?.(processPromptKey) ?? undefined,
+      authority: input.promptAssemblyAuthority,
+      purpose: input.promptAssemblyPurpose,
+      parent: input.promptAssemblyParent,
+      additionalSources: input.promptAssemblyAdditionalSources,
+    }),
+  );
+  return { ...context, promptAssemblyId: prepared.id };
+}
+
+export async function buildGenerationEstimateContext(
+  deps: CanvasGenerationDeps,
+  input: Omit<
+    GenerationContextInput,
+    | 'commanderIntent'
+    | 'promptAssemblyId'
+    | 'promptAssemblyOutput'
+    | 'promptAssemblyPurpose'
+    | 'promptAssemblyAuthority'
+    | 'promptAssemblyParent'
+    | 'promptAssemblyAdditionalSources'
+  >,
+): Promise<BuiltGenerationContext> {
+  return buildGenerationContextBase(deps, input);
+}
+
+async function buildGenerationContextBase(
+  deps: CanvasGenerationDeps,
+  input: GenerationContextInput,
 ): Promise<BuiltGenerationContext> {
   const canvas = deps.canvasStore.get(input.canvasId);
   if (!canvas) throw new Error(`Canvas not found: ${input.canvasId}`);
 
-  const node = canvas.nodes.find((entry) => entry.id === input.nodeId);
+  const canvasIndex = buildCanvasGenerationIndex(canvas);
+  const node = canvasIndex.nodesById.get(input.nodeId);
   if (!node) throw new Error(`Node not found: ${input.nodeId}`);
   if (node.type === 'text') {
     throw new Error('Text nodes cannot be generated');
@@ -87,9 +222,14 @@ export async function buildGenerationContext(
   const generableNodeType: 'image' | 'video' | 'audio' =
     node.type === 'backdrop' ? 'image' : node.type;
 
-  const connectedTextContent = collectConnectedTextContent(canvas, node.id);
+  const connectedTextContent = collectConnectedTextContent(canvas, node.id, canvasIndex);
   const entityRefsAndImages = resolveEntityRefsAndImages(deps.db, node);
-  const mode = determinePromptMode(canvas, node, entityRefsAndImages.referenceImages.length > 0);
+  const mode = determinePromptMode(
+    canvas,
+    node,
+    entityRefsAndImages.referenceImages.length > 0,
+    canvasIndex,
+  );
   const generationType = determineGenerationType(node);
   const providerId = resolveNodeProviderId(node, input.requestedProviderId);
   const adapter = await resolveAdapter(
@@ -113,17 +253,15 @@ export async function buildGenerationContext(
       ? undefined
       : loadCurrentProjectStyleGuide(deps.db);
   const nodePresetTracks = hasPresetTracks(nodeData) ? nodeData.presetTracks : undefined;
+  const presetLibrary = deps.resolvePresetCatalog();
 
   const presetTracks =
     generableNodeType === 'audio'
       ? undefined
       : projectStyleGuide
-        ? applyStyleGuideDefaultsToEmptyTracks(
-            nodePresetTracks,
-            projectStyleGuide,
-            BUILT_IN_PRESET_LIBRARY,
-          )
+        ? applyStyleGuideDefaultsToEmptyTracks(nodePresetTracks, projectStyleGuide, presetLibrary)
         : nodePresetTracks;
+  assertActivePresetsResolvable(node.id, presetTracks, presetLibrary);
   const characterRefs = hasCharacterRefs(nodeData) ? nodeData.characterRefs : undefined;
   const equipmentRefs = hasEquipmentRefs(nodeData) ? nodeData.equipmentRefs : undefined;
   const locationRefs = hasLocationRefs(nodeData) ? nodeData.locationRefs : undefined;
@@ -133,9 +271,13 @@ export async function buildGenerationContext(
   const resolvedEquipment = resolveStandaloneEquipment(deps.db, equipmentRefs, resolvedCharacters);
   const referenceImages = entityRefsAndImages.referenceImages;
   const videoFrameReferenceImages =
-    generableNodeType === 'video' ? resolveVideoFrameReferenceImageSet(canvas, node) : undefined;
+    generableNodeType === 'video'
+      ? resolveVideoFrameReferenceImageSet(canvas, node, canvasIndex)
+      : undefined;
   const connectedSourceHash =
-    generableNodeType === 'video' ? findConnectedImageHash(canvas, node.id) : undefined;
+    generableNodeType === 'video'
+      ? findConnectedImageHash(canvas, node.id, canvasIndex)
+      : undefined;
   const sourceNodeData =
     node.type === 'image' || node.type === 'video'
       ? (node.data as ImageNodeData | VideoNodeData)
@@ -148,16 +290,11 @@ export async function buildGenerationContext(
 
   // Select the best prompt for this generation type:
   // All nodes: prompt > title
-  const suppliedPrompt = normalizeOptionalString(input.finalPrompt);
-  const precompiledPrompt = input.promptInputMode === 'precompiled' ? suppliedPrompt : undefined;
-  const effectivePrompt =
-    (input.promptInputMode !== 'precompiled' ? suppliedPrompt : undefined) ??
-    normalizeOptionalString(nodeData.prompt) ??
-    node.title;
+  const nodePrompt = normalizeOptionalString(nodeData.prompt) ?? node.title;
 
   const compiled = compilePrompt({
     nodeType: generableNodeType,
-    prompt: effectivePrompt,
+    prompt: nodePrompt,
     negativePrompt: normalizeOptionalString(nodeData.negativePrompt),
     presetTracks: presetTracks as PresetTrackSet | undefined,
     characterRefs,
@@ -169,7 +306,7 @@ export async function buildGenerationContext(
     connectedTextContent,
     providerId: adapter.id,
     mode,
-    presetLibrary: BUILT_IN_PRESET_LIBRARY,
+    presetLibrary,
     referenceImages,
     referenceBindings: entityRefsAndImages.referenceBindings,
     visualStylePolicy: canvasVisualStyle?.policy,
@@ -181,18 +318,6 @@ export async function buildGenerationContext(
         }
       : undefined,
   });
-
-  // The host may preserve an exact stored provider prompt only for additive
-  // refinement. preparePromptRefinement verifies its style provenance first.
-  if (precompiledPrompt) {
-    compiled.prompt = precompiledPrompt;
-    log.info('[prompt] using stored provider prompt for additive refinement', {
-      category: 'prompt-compiler',
-      canvasId: input.canvasId,
-      nodeId: input.nodeId,
-      wordCount: precompiledPrompt.split(/\s+/).filter(Boolean).length,
-    });
-  }
 
   if (compiled.diagnostics.length > 0) {
     for (const diag of compiled.diagnostics) {
@@ -246,13 +371,12 @@ export async function buildGenerationContext(
       generableNodeType === 'audio' ? (nodeData as AudioNodeData).emotionVector : undefined,
   };
 
-  preflightGenerationPrompt(adapter, requestBase);
   ensureAdapterConditioningSupports(adapter, requestBase, deps.cas);
 
   let resolutionPreflight: BuiltGenerationContext['resolutionPreflight'];
   if (generationType === 'image' || generationType === 'video') {
     const effective = resolveEffectiveResolutionIntent({
-      mediaType: generationType,
+      mediaType: resolveGenerationResolutionMediaType(node, generationType),
       canvasSettings: canvas.settings,
       nodeData: node.data as ImageNodeData | VideoNodeData,
     });
@@ -304,6 +428,74 @@ export async function buildGenerationContext(
   };
 }
 
+function assertActivePresetsResolvable(
+  nodeId: string,
+  presetTracks: PresetTrackSet | undefined,
+  presetLibrary: PresetDefinition[],
+): void {
+  if (!presetTracks) return;
+  const knownPresetIds = new Set(presetLibrary.map((preset) => preset.id));
+  for (const track of Object.values(presetTracks)) {
+    for (const entry of track.entries) {
+      if (entry.enabled === false) continue;
+      for (const presetId of [entry.presetId, entry.blend?.presetIdB]) {
+        if (presetId && !knownPresetIds.has(presetId)) {
+          throw new Error(`Node "${nodeId}" references unknown active preset "${presetId}"`);
+        }
+      }
+    }
+  }
+}
+
+function assertPromptAssemblyBinding(
+  deps: CanvasGenerationDeps,
+  context: BuiltGenerationContext,
+  input: GenerationContextInput,
+  record: PromptAssemblyRecord,
+): void {
+  const { inputHash, ...hashableInput } = record.input;
+  const expectedAuthority = input.promptAssemblyAuthority ?? { kind: 'canvas-draft' as const };
+  if (
+    record.inputHash !== inputHash ||
+    hashPromptAssemblyInput(hashableInput) !== inputHash ||
+    record.canvasId !== context.canvas.id ||
+    record.input.canvasId !== context.canvas.id ||
+    record.nodeId !== context.node.id ||
+    record.input.nodeId !== context.node.id ||
+    record.nodeUpdatedAt !== context.node.updatedAt ||
+    record.input.nodeUpdatedAt !== context.node.updatedAt ||
+    record.mediaType !== context.generationType ||
+    record.input.mediaType !== context.generationType ||
+    record.mode !== context.mode ||
+    record.input.mode !== context.mode ||
+    record.input.providerProfile.providerId !== context.adapter.id ||
+    !isDeepStrictEqual(record.input.authority, expectedAuthority)
+  ) {
+    throw new Error(
+      'Prompt Assembly is stale or does not match the current node, provider, mode, or approval authority',
+    );
+  }
+  if (input.promptAssemblyPurpose && record.purpose !== input.promptAssemblyPurpose) {
+    throw new Error('Prompt Assembly purpose does not match this generation request');
+  }
+  if (record.output) validatePromptAssemblyOutput(record.input, record.output);
+
+  if (!record.parentAssemblyId) return;
+  const parent = deps.promptAssemblyService.get(record.parentAssemblyId);
+  const parentSource = record.input.sources.find((source) => source.kind === 'parent-prompt');
+  if (
+    !parent?.output ||
+    parentSource?.content !== parent.output.finalPrompt ||
+    parentSource.metadata?.promptHash !== sha256(parent.output.finalPrompt)
+  ) {
+    throw new Error('Prompt Assembly parent lineage is stale or does not preserve the exact prompt');
+  }
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
 // ---------------------------------------------------------------------------
 // Prompt mode / generation type
 // ---------------------------------------------------------------------------
@@ -312,6 +504,7 @@ export function determinePromptMode(
   canvas: Canvas,
   node: CanvasNode,
   hasEntityReferenceImages = false,
+  canvasIndex = buildCanvasGenerationIndex(canvas),
 ): PromptMode {
   if (node.type === 'image' || node.type === 'backdrop') {
     const data = node.data as ImageNodeData;
@@ -325,13 +518,13 @@ export function determinePromptMode(
     if (hasEntityReferenceImages) {
       return 'image-to-video';
     }
-    if (resolveVideoFrameReferenceImages(canvas, node).length > 0) {
+    if (resolveVideoFrameReferenceImages(canvas, node, canvasIndex).length > 0) {
       return 'image-to-video';
     }
     if (normalizeOptionalString(data.sourceImageHash)) {
       return 'image-to-video';
     }
-    const connectedSource = findConnectedImageHash(canvas, node.id);
+    const connectedSource = findConnectedImageHash(canvas, node.id, canvasIndex);
     if (connectedSource) {
       return 'image-to-video';
     }
@@ -676,7 +869,7 @@ export function resolveMediaDimensions(
   if (generationType === 'image') {
     const data = node.data as ImageNodeData;
     const effective = resolveEffectiveResolutionIntent({
-      mediaType: 'image',
+      mediaType: resolveGenerationResolutionMediaType(node, generationType),
       canvasSettings: canvas?.settings,
       nodeData: data,
     });
@@ -706,6 +899,22 @@ export function resolveMediaDimensions(
     };
   }
   return {};
+}
+
+/** Image content and identity-reference nodes intentionally inherit different Canvas policies. */
+export function resolveGenerationResolutionMediaType(
+  node: CanvasNode,
+  generationType: GenerationType,
+): ResolutionMediaType {
+  if (
+    generationType === 'image' &&
+    node.type === 'image' &&
+    (node.data as ImageNodeData).generationPurpose === 'reference-image'
+  ) {
+    return 'reference-image';
+  }
+  if (generationType === 'video') return 'video';
+  return 'image';
 }
 
 export function mergeGenerationParams(

@@ -105,6 +105,33 @@ describe('ClaudeLLMAdapter.completeWithTools', () => {
     });
   });
 
+  it('sends configured reasoning strength and omits a blank value', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: string | URL, init?: RequestInit) => {
+        requestBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+        return new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: 'ok' }],
+            stop_reason: 'end_turn',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }),
+    );
+
+    const adapter = new ClaudeLLMAdapter();
+    adapter.configure('test-key', { reasoningEffort: 'max' });
+    await complete(adapter, [{ role: 'user', content: 'hello' }]);
+
+    adapter.configure('test-key', { reasoningEffort: '   ' });
+    await complete(adapter, [{ role: 'user', content: 'hello again' }]);
+
+    expect(requestBodies[0]).toMatchObject({ output_config: { effort: 'max' } });
+    expect(requestBodies[1]).not.toHaveProperty('output_config');
+  });
+
   it('surfaces model refusals as an explicit invalid request', async () => {
     vi.stubGlobal(
       'fetch',

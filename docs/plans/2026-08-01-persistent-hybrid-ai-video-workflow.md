@@ -269,7 +269,7 @@ subject revision, and row-version binding.
 
 Mixed-action risk is resolved from arguments: workflow cancellation is tier 4; pause/resume/retry
 remain tier 2; manual generation start/refine is tier 3; estimate is tier 1; preset delete/reset and
-shot-template delete are tier 3. `prompt.setCustom` and `video.clone` are human-only and absent from
+shot-template delete are tier 3. `prompt.setCustom` is human-only and absent from
 the Commander registry.
 
 #### 4. Validation and error matrix

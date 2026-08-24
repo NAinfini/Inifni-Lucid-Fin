@@ -166,7 +166,6 @@ Deliberate absence of sound is a powerful tool:
 ### Kling 2.6+ / 3.0
 
 - Audio-aware video generation via `enable_audio: true` API parameter
-- Lip sync capabilities for dialogue — specify who is speaking and when
 - Best results when audio prompt describes a single dominant sound layer
 - Supports voice description for character speech
 - Pro mode recommended for audio generation (2x cost of standard)
@@ -205,22 +204,25 @@ Deliberate absence of sound is a powerful tool:
 
 ---
 
-## Audio Prompt Concatenation
+## Audio Prompt Assembly
 
-When audio prompts are stacked with visual presets in Lucid Fin's generation pipeline:
+When a provider supports combined audiovisual generation, audio directions are separately identified sources in the same Prompt Assembly as visual sources:
 
 ```
-Final prompt = [Visual scene/narrative text]
-             + [Visual preset prompts (camera, lighting, style...)]
-             + [Audio: Ambient layer]
-             + [Audio: Music/score layer]
-             + [Audio: SFX layer]
-             + [Audio: Dialogue/voice layer]
+Prompt Assembly input = [Visual scene/narrative text]
+                      + [Visual preset sources]
+                      + [Audio: Ambient source]
+                      + [Audio: Music/score source]
+                      + [Audio: SFX source]
+                      + [Audio: Dialogue/voice source]
+
+Commander output = [Persisted provider prompt]
 ```
 
 Rules:
 
-1. Audio prompts should not re-describe visual elements
-2. Each audio layer should be self-contained
-3. Keep each audio layer to 1-2 sentences
-4. Spatial audio descriptions should be consistent with camera position
+1. Audio sources should not re-describe visual elements.
+2. Each audio source should be self-contained.
+3. Keep each audio source to 1-2 sentences.
+4. Spatial audio descriptions should be consistent with camera position.
+5. Commander resolves source conflicts and provider capability before persisting the one final prompt; the host never concatenates layers itself.

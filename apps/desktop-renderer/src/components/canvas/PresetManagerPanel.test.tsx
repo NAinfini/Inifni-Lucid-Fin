@@ -125,4 +125,22 @@ describe('PresetManagerPanel', () => {
 
     expect(confirmSpy).not.toHaveBeenCalled();
   });
+
+  it('does not reload the preset library when selecting or creating a preset', async () => {
+    const presets = [
+      createPreset('preset-1', 'Preset One'),
+      createPreset('preset-2', 'Preset Two'),
+    ];
+    const list = vi.fn().mockResolvedValue(presets);
+    vi.mocked(getAPI).mockReturnValue({ preset: { list } } as never);
+    renderWithStore(presets);
+
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByText('Preset Two'));
+    await waitFor(() => expect(screen.getByDisplayValue('Preset Two')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: t('presetManager.newPreset') }));
+    await waitFor(() => expect(screen.getByDisplayValue('New Preset')).toBeTruthy());
+    expect(list).toHaveBeenCalledTimes(1);
+  });
 });

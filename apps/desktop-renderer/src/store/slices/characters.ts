@@ -31,6 +31,9 @@ export const charactersSlice = createSlice({
     addCharacter(state, action: PayloadAction<CharacterState>) {
       state.items.push(action.payload);
     },
+    addCharacters(state, action: PayloadAction<CharacterState[]>) {
+      state.items.push(...action.payload);
+    },
     updateCharacter(state, action: PayloadAction<{ id: string; data: Partial<CharacterState> }>) {
       const ch = state.items.find((c) => c.id === action.payload.id);
       if (ch) Object.assign(ch, action.payload.data);
@@ -38,6 +41,11 @@ export const charactersSlice = createSlice({
     removeCharacter(state, action: PayloadAction<string>) {
       state.items = state.items.filter((c) => c.id !== action.payload);
       if (state.selectedId === action.payload) state.selectedId = null;
+    },
+    removeCharacters(state, action: PayloadAction<string[]>) {
+      const ids = new Set(action.payload);
+      state.items = state.items.filter((character) => !ids.has(character.id));
+      if (state.selectedId && ids.has(state.selectedId)) state.selectedId = null;
     },
     selectCharacter(state, action: PayloadAction<string | null>) {
       state.selectedId = action.payload;
@@ -117,14 +125,22 @@ export const charactersSlice = createSlice({
       const ch = state.items.find((c) => c.id === action.payload.id);
       if (ch) ch.folderId = action.payload.folderId;
     },
+    moveItemsToFolder(state, action: PayloadAction<{ ids: string[]; folderId: string | null }>) {
+      const ids = new Set(action.payload.ids);
+      for (const character of state.items) {
+        if (ids.has(character.id)) character.folderId = action.payload.folderId;
+      }
+    },
   },
 });
 
 export const {
   setCharacters,
   addCharacter,
+  addCharacters,
   updateCharacter,
   removeCharacter,
+  removeCharacters,
   selectCharacter,
   setLoading,
   setCharacterRefImage,
@@ -138,4 +154,5 @@ export const {
   setCurrentFolder,
   setFoldersLoading,
   moveItemToFolder,
+  moveItemsToFolder,
 } = charactersSlice.actions;

@@ -2,9 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AIProviderAdapter, GenerationRequest } from '@lucid-fin/contracts';
 import { preflightGenerationPrompt } from './prompt-preflight.js';
 
-function adapter(
-  getPromptLimits?: AIProviderAdapter['getPromptLimits'],
-): AIProviderAdapter {
+function adapter(getPromptLimits?: AIProviderAdapter['getPromptLimits']): AIProviderAdapter {
   return {
     id: 'prompt-test',
     name: 'Prompt test',

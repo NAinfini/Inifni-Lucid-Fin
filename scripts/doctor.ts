@@ -265,7 +265,7 @@ function checkTypeScript(): CheckResult {
     'packages/domain',
     'packages/storage',
     'packages/media-engine',
-    'packages/workflows',
+    'packages/task-execution',
     'packages/agent',
   ];
 

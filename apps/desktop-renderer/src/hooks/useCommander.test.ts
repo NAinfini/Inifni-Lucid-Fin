@@ -5,8 +5,8 @@ import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
 import { setCanvases, setActiveCanvas } from '../store/slices/canvas/canvas.js';
 import {
-  clearHistory,
   deleteSession,
+  ensureActiveSession,
   setProviderId,
   startStreaming,
 } from '../store/slices/commander.js';
@@ -21,10 +21,47 @@ import {
   settingsSlice,
 } from '../store/slices/settings.js';
 import { clearLogs } from '../store/slices/logger.js';
+import { resetTimeline } from '../commander/state/commander-timeline-slice.js';
 
 vi.mock('../utils/api.js', () => ({
   getAPI: vi.fn(),
 }));
+
+type CommanderStartRequest = Parameters<LucidAPI['commander']['start']>[0];
+
+function createStartMock() {
+  return vi.fn(async (request: CommanderStartRequest) => ({
+    runId: 'run-started',
+    sessionId: request.sessionId,
+    acceptedAt: 1,
+  }));
+}
+
+function createCommanderStub(overrides: Partial<LucidAPI['commander']> = {}) {
+  return {
+    start: createStartMock(),
+    eventsHydrate: vi.fn(async ({ runId }: { runId: string }) => ({
+      run: {
+        id: runId,
+        sessionId: 'session-1',
+        defaultCanvasId: 'canvas-1',
+        authorizedCanvasIds: ['canvas-1'],
+        intent: 'hello commander',
+        status: 'running' as const,
+        acceptedAt: 1,
+        startedAt: 1,
+        lastSeq: 0,
+        attachments: [],
+      },
+      events: [],
+    })),
+    onStream: () => () => {},
+    onCanvasDispatch: () => () => {},
+    onEntitiesUpdated: () => () => {},
+    onSettingsDispatch: () => () => {},
+    ...overrides,
+  };
+}
 
 describe('syncCommanderEntitiesForTool', () => {
   it('refreshes equipment state for equipment tool updates', async () => {
@@ -90,9 +127,9 @@ function SendHarness() {
 
 afterEach(() => {
   cleanup();
-  store.dispatch(clearHistory());
   store.dispatch(clearLogs());
   for (const session of store.getState().commander.sessions) {
+    store.dispatch(resetTimeline(session.id));
     store.dispatch(deleteSession(session.id));
   }
   store.dispatch(setCanvases([]));
@@ -104,20 +141,16 @@ afterEach(() => {
 
 describe('useCommander stream completion', () => {
   it('blocks commander chat until backend bootstrap finishes', async () => {
-    const chat = vi.fn().mockResolvedValue(undefined);
+    const start = createStartMock();
 
     vi.mocked(getAPI).mockReturnValue({
       settings: {
         save: vi.fn().mockResolvedValue(undefined),
       },
-      commander: {
-        chat,
-        onStream: () => () => {},
-        onCanvasUpdated: () => () => {},
-        onEntitiesUpdated: () => () => {},
-        onSettingsDispatch: () => () => {},
-        onUndoDispatch: () => () => {},
+      canvas: {
+        save: vi.fn().mockResolvedValue(undefined),
       },
+      commander: createCommanderStub({ start }),
     } as never);
 
     store.dispatch(
@@ -148,10 +181,7 @@ describe('useCommander stream completion', () => {
     });
 
     await waitFor(() => {
-      expect(chat).not.toHaveBeenCalled();
-      expect(store.getState().commander.error).toBe(
-        'Commander backend is still starting. Wait for the app to finish loading and try again.',
-      );
+      expect(start).not.toHaveBeenCalled();
       expect(store.getState().logger.entries).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -172,16 +202,12 @@ describe('useCommander stream completion', () => {
       settings: {
         save: vi.fn().mockResolvedValue(undefined),
       },
-      commander: {
+      commander: createCommanderStub({
         onStream: (cb: Parameters<LucidAPI['commander']['onStream']>[0]) => {
           onStream = cb;
           return () => {};
         },
-        onCanvasUpdated: () => () => {},
-        onEntitiesUpdated: () => () => {},
-        onSettingsDispatch: () => () => {},
-        onUndoDispatch: () => () => {},
-      },
+      }),
     } as never);
 
     store.dispatch(
@@ -199,13 +225,15 @@ describe('useCommander stream completion', () => {
       ]),
     );
     store.dispatch(setActiveCanvas('canvas-1'));
-    store.dispatch(startStreaming());
+    store.dispatch(ensureActiveSession({ id: 'session-1', defaultCanvasId: 'canvas-1' }));
+    store.dispatch(startStreaming('session-1'));
 
     render(React.createElement(Provider, { store, children: React.createElement(HookHarness) }));
 
     await act(async () => {
       onStream?.({
         wireVersion: 2,
+        sessionId: 'session-1',
         event: {
           kind: 'assistant_text',
           content: 'Final answer',
@@ -218,12 +246,13 @@ describe('useCommander stream completion', () => {
       });
       onStream?.({
         wireVersion: 2,
+        sessionId: 'session-1',
         event: { kind: 'run_end', status: 'completed', runId: 'r', step: 1, seq: 1, emittedAt: 0 },
       });
     });
 
     await waitFor(() => {
-      expect(store.getState().commander.messages).toEqual([
+      expect(store.getState().commander.sessions[0]?.messages).toEqual([
         expect.objectContaining({
           role: 'assistant',
           content: 'Final answer',
@@ -235,20 +264,16 @@ describe('useCommander stream completion', () => {
   });
 
   it('uses the commander-selected provider instead of settings-owned active provider', async () => {
-    const chat = vi.fn().mockResolvedValue(undefined);
+    const start = createStartMock();
 
     vi.mocked(getAPI).mockReturnValue({
       settings: {
         save: vi.fn().mockResolvedValue(undefined),
       },
-      commander: {
-        chat,
-        onStream: () => () => {},
-        onCanvasUpdated: () => () => {},
-        onEntitiesUpdated: () => () => {},
-        onSettingsDispatch: () => () => {},
-        onUndoDispatch: () => () => {},
+      canvas: {
+        save: vi.fn().mockResolvedValue(undefined),
       },
+      commander: createCommanderStub({ start }),
     } as never);
 
     store.dispatch(
@@ -267,6 +292,7 @@ describe('useCommander stream completion', () => {
     );
     store.dispatch(setActiveCanvas('canvas-1'));
     store.dispatch(setBootstrapped());
+    store.dispatch(ensureActiveSession({ id: 'session-1', defaultCanvasId: 'canvas-1' }));
     store.dispatch(
       addCustomProvider({
         group: 'llm',
@@ -290,42 +316,34 @@ describe('useCommander stream completion', () => {
     });
 
     await waitFor(() => {
-      expect(chat).toHaveBeenCalledTimes(1);
+      expect(start).toHaveBeenCalledTimes(1);
     });
 
-    const [canvasId, message, history, selectedNodeIds, activeTemplates, provider, permissionMode] =
-      chat.mock.calls[0]!;
+    const request = start.mock.calls[0]?.[0];
 
-    expect(canvasId).toBe('canvas-1');
-    expect(message).toBe('hello commander');
-    expect(history).toEqual([]);
-    expect(selectedNodeIds).toEqual([]);
-    expect(Array.isArray(activeTemplates)).toBe(true);
-    expect(provider).toEqual(
+    expect(request.defaultCanvasId).toBe('canvas-1');
+    expect(request.authorizedCanvasIds).toEqual(['canvas-1']);
+    expect(request.intent).toEqual({ kind: 'user_message', message: 'hello commander' });
+    expect(request.selectedNodes).toEqual([]);
+    expect(Array.isArray(request.promptGuides)).toBe(true);
+    expect(request.customLLMProvider).toEqual(
       expect.objectContaining({
         id: 'custom-llm-test',
         baseUrl: 'https://custom.example/v1',
         model: 'custom-model',
       }),
     );
-    expect(permissionMode).toBe('normal');
+    expect(request.permissionMode).toBe('normal');
   });
 
-  it('sends workflow and skill guides alongside prompt templates', async () => {
-    const chat = vi.fn().mockResolvedValue(undefined);
+  it('sends task-list and skill guides alongside prompt templates', async () => {
+    const start = createStartMock();
 
     vi.mocked(getAPI).mockReturnValue({
       settings: {
         save: vi.fn().mockResolvedValue(undefined),
       },
-      commander: {
-        chat,
-        onStream: () => () => {},
-        onCanvasUpdated: () => () => {},
-        onEntitiesUpdated: () => () => {},
-        onSettingsDispatch: () => () => {},
-        onUndoDispatch: () => () => {},
-      },
+      commander: createCommanderStub({ start }),
     } as never);
 
     store.dispatch(
@@ -357,10 +375,10 @@ describe('useCommander stream completion', () => {
     });
 
     await waitFor(() => {
-      expect(chat).toHaveBeenCalledTimes(1);
+      expect(start).toHaveBeenCalledTimes(1);
     });
 
-    const promptGuides = chat.mock.calls[0]?.[4] as Array<{
+    const promptGuides = start.mock.calls[0]?.[0].promptGuides as Array<{
       id: string;
       name: string;
       content: string;
@@ -369,14 +387,13 @@ describe('useCommander stream completion', () => {
     expect(promptGuides).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'meta-prompt' }),
-        expect.objectContaining({ id: 'wf-video-clone' }),
-        expect.objectContaining({ id: 'sk-lip-sync' }),
+        expect.objectContaining({ id: 'task-style-transfer' }),
       ]),
     );
   });
 
   it('creates one stable session id for the first auto snapshot and chat request', async () => {
-    const chat = vi.fn().mockResolvedValue(undefined);
+    const start = createStartMock();
     const upsert = vi.fn().mockResolvedValue(undefined);
     const capture = vi.fn().mockResolvedValue({
       id: 'snap-1',
@@ -399,14 +416,7 @@ describe('useCommander stream completion', () => {
       canvas: {
         save: vi.fn().mockResolvedValue(undefined),
       },
-      commander: {
-        chat,
-        onStream: () => () => {},
-        onCanvasUpdated: () => () => {},
-        onEntitiesUpdated: () => () => {},
-        onSettingsDispatch: () => () => {},
-        onUndoDispatch: () => () => {},
-      },
+      commander: createCommanderStub({ start }),
     } as never);
 
     store.dispatch(
@@ -438,30 +448,34 @@ describe('useCommander stream completion', () => {
     });
 
     await waitFor(() => {
-      expect(chat).toHaveBeenCalledTimes(1);
-      expect(upsert).toHaveBeenCalledTimes(1);
+      expect(start).toHaveBeenCalledTimes(1);
+      expect(upsert).toHaveBeenCalledTimes(2);
       expect(capture).toHaveBeenCalledTimes(1);
     });
 
-    const [stubSession] = upsert.mock.calls[0] as [
+    const persistedSessions = upsert.mock.calls.map(([session]) => session) as Array<
       {
         id: string;
-        canvasId: string | null;
+        defaultCanvasId: string | null;
         title: string;
         messages: string;
         createdAt: number;
         updatedAt: number;
-      },
-    ];
+      }
+    >;
+    const stubSession = persistedSessions[0]!;
 
     expect(stubSession.id).not.toBe('canvas-1');
+    expect(new Set(persistedSessions.map(({ id }) => id))).toEqual(new Set([stubSession.id]));
+    expect(JSON.parse(persistedSessions[0]!.messages)).toEqual([]);
+    expect(JSON.parse(persistedSessions[1]!.messages)).toHaveLength(1);
     expect(capture).toHaveBeenCalledWith(stubSession.id, 'Before Commander session', 'auto');
-    expect(chat.mock.calls[0]?.[11]).toBe(stubSession.id);
+    expect(start.mock.calls[0]?.[0].sessionId).toBe(stubSession.id);
   });
 
   it('captures the auto snapshot only once per session', async () => {
     let onStream: Parameters<LucidAPI['commander']['onStream']>[0] | undefined;
-    const chat = vi.fn().mockResolvedValue(undefined);
+    const start = createStartMock();
     const capture = vi.fn().mockResolvedValue({
       id: 'snap-1',
       sessionId: 'session-1',
@@ -483,17 +497,13 @@ describe('useCommander stream completion', () => {
       canvas: {
         save: vi.fn().mockResolvedValue(undefined),
       },
-      commander: {
-        chat,
+      commander: createCommanderStub({
+        start,
         onStream: (cb: Parameters<LucidAPI['commander']['onStream']>[0]) => {
           onStream = cb;
           return () => {};
         },
-        onCanvasUpdated: () => () => {},
-        onEntitiesUpdated: () => () => {},
-        onSettingsDispatch: () => () => {},
-        onUndoDispatch: () => () => {},
-      },
+      }),
     } as never);
 
     store.dispatch(
@@ -525,19 +535,39 @@ describe('useCommander stream completion', () => {
     });
 
     await waitFor(() => {
-      expect(chat).toHaveBeenCalledTimes(1);
+      expect(start).toHaveBeenCalledTimes(1);
       expect(capture).toHaveBeenCalledTimes(1);
     });
+
+    const sessionId = start.mock.calls[0]![0].sessionId;
 
     await act(async () => {
       onStream?.({
         wireVersion: 2,
-        event: { kind: 'run_end', status: 'completed', runId: 'r', step: 1, seq: 0, emittedAt: 0 },
+        sessionId,
+        event: {
+          kind: 'run_start',
+          workType: 'agent',
+          intent: 'hello commander',
+          runId: 'r',
+          step: 0,
+          seq: 0,
+          emittedAt: 0,
+          resourceBudget: {},
+        },
+      });
+      onStream?.({
+        wireVersion: 2,
+        sessionId,
+        event: { kind: 'run_end', status: 'completed', runId: 'r', step: 1, seq: 1, emittedAt: 1 },
       });
     });
 
     await waitFor(() => {
-      expect(store.getState().commander.activeSessionId).toBeTruthy();
+      expect(
+        store.getState().commander.sessions.find((session) => session.id === sessionId)?.runtime
+          .phase.kind,
+      ).toBe('idle');
     });
 
     await act(async () => {
@@ -545,7 +575,7 @@ describe('useCommander stream completion', () => {
     });
 
     await waitFor(() => {
-      expect(chat).toHaveBeenCalledTimes(2);
+      expect(start).toHaveBeenCalledTimes(2);
     });
 
     expect(capture).toHaveBeenCalledTimes(1);

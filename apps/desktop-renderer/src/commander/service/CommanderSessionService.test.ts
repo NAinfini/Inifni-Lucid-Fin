@@ -1,427 +1,421 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CommanderSessionService } from './CommanderSessionService.js';
-import { CommanderTransport } from '../transport/CommanderTransport.js';
-import type { AppDispatch, RootState } from '../../store/index.js';
+import type { Canvas } from '@lucid-fin/contracts';
 import { COMMANDER_WIRE_VERSION } from '@lucid-fin/contracts';
+import type { AppDispatch, RootState } from '../../store/index.js';
+import { canvasReducer, setActiveCanvas, setCanvases } from '../../store/slices/canvas/canvas.js';
+import {
+  commanderSlice,
+  enqueueMessage,
+  ensureActiveSession,
+  finishStreaming,
+  setRunResourceBudget,
+  startStreaming,
+} from '../../store/slices/commander.js';
+import { appendEvent, commanderTimelineSlice } from '../state/commander-timeline-slice.js';
+import { CommanderTransport } from '../transport/CommanderTransport.js';
+import { CommanderSessionService } from './CommanderSessionService.js';
 
-/**
- * Minimal stub of the commander bridge the transport expects.
- */
-function makeStubCommander() {
-  const streamListeners: Array<(p: unknown) => void> = [];
+function canvas(id: string, name = id): Canvas {
   return {
-    chat: vi.fn(async () => undefined),
+    id,
+    name,
+    nodes: [],
+    edges: [],
+    notes: [],
+    viewport: { x: 0, y: 0, zoom: 1 },
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+function makeStubCommander() {
+  const streamListeners: Array<(payload: unknown) => void> = [];
+  const canvasListeners: Array<(payload: unknown) => void> = [];
+  return {
+    start: vi.fn(async (request: { sessionId: string }) => ({
+      runId: `run-${request.sessionId}`,
+      sessionId: request.sessionId,
+      acceptedAt: 1,
+    })),
     cancel: vi.fn(async () => undefined),
-    cancelCurrentStep: vi.fn(async () => ({ escalated: false })),
+    cancelStep: vi.fn(async () => ({ escalated: false })),
     injectMessage: vi.fn(async () => undefined),
-    confirmTool: vi.fn(async () => undefined),
-    answerQuestion: vi.fn(async () => undefined),
-    onStream: vi.fn((cb: (p: unknown) => void) => {
-      streamListeners.push(cb);
-      return () => {
-        const idx = streamListeners.indexOf(cb);
-        if (idx >= 0) streamListeners.splice(idx, 1);
-      };
+    toolDecision: vi.fn(async () => ({ accepted: true as const, delivery: 'active_run' as const })),
+    toolAnswer: vi.fn(async () => ({ accepted: true as const, delivery: 'active_run' as const })),
+    runGet: vi.fn(),
+    eventsHydrate: vi.fn(async (request: { runId: string }) => ({
+      run: {
+        id: request.runId,
+        sessionId: request.runId.replace(/^run-/, ''),
+        authorizedCanvasIds: [],
+        intent: 'test',
+        status: 'running' as const,
+        acceptedAt: 1,
+        lastSeq: -1,
+        attachments: [],
+      },
+      events: [],
+    })),
+    onStream: vi.fn((listener: (payload: unknown) => void) => {
+      streamListeners.push(listener);
+      return () => {};
     }),
-    onCanvasUpdated: vi.fn(() => () => {}),
+    onCanvasDispatch: vi.fn((listener: (payload: unknown) => void) => {
+      canvasListeners.push(listener);
+      return () => {};
+    }),
     onEntitiesUpdated: vi.fn(() => () => {}),
     onSettingsDispatch: vi.fn(() => () => {}),
-    onUndoDispatch: vi.fn(() => () => {}),
-    emitStream: (event: Record<string, unknown>) => {
-      const envelope = { wireVersion: COMMANDER_WIRE_VERSION, event };
-      for (const cb of streamListeners) cb(envelope);
+    emitStream(sessionId: string, event: Record<string, unknown>) {
+      for (const listener of streamListeners) {
+        listener({ wireVersion: COMMANDER_WIRE_VERSION, sessionId, event });
+      }
+    },
+    emitCanvas(payload: Record<string, unknown>) {
+      for (const listener of canvasListeners) listener(payload);
     },
   };
 }
 
-interface ServiceOverrides {
-  commanderState?: Partial<RootState['commander']>;
-  timelineState?: Partial<RootState['commanderTimeline']>;
-  canvasState?: Partial<RootState['canvas']>;
-  settingsState?: Partial<RootState['settings']>;
-}
-
-function makeService(overrides: ServiceOverrides = {}) {
+function makeHarness(canvases: Canvas[] = []) {
   const commander = makeStubCommander();
-  const transport = new CommanderTransport(commander as never);
-  const dispatch = vi.fn() as unknown as AppDispatch;
-
-  const state: RootState = {
-    commander: {
-      messages: [],
-      streaming: false,
-      activeSessionId: null,
-      activeCanvasId: null,
-      sessions: [],
-      confirmAutoMode: 'none',
-      permissionMode: 'normal',
-      phase: { kind: 'idle' },
-      providerId: null,
-      maxSteps: 50,
-      temperature: 0.7,
-      maxTokens: 200000,
-      qualityGateBehavior: 'auto-expand',
-      requireStylePlateBeforeRefImage: true,
-      finalizedRunIds: [],
-      ...overrides.commanderState,
-    },
-    commanderTimeline: {
-      events: [],
-      byRunId: {},
-      currentRunId: null,
-      droppedOutOfOrder: 0,
-      locallyResolvedConfirmations: [],
-      locallyResolvedQuestions: [],
-      ...overrides.timelineState,
-    },
-    canvas: {
-      activeCanvasId: null,
-      canvases: { entities: {} },
-      selectedNodeIds: [],
-      ...overrides.canvasState,
-    },
-    settings: {
-      bootstrapped: true,
-      llm: { providers: [] },
-      image: {},
-      video: {},
-      audio: {},
-      ...overrides.settingsState,
-    },
-    skillDefinitions: { skills: [] },
-    workflowDefinitions: { entries: [] },
-  } as unknown as RootState;
-
+  let commanderState = commanderSlice.reducer(undefined, { type: '@@INIT' });
+  let timelineState = commanderTimelineSlice.reducer(undefined, { type: '@@INIT' });
+  let canvasState = canvasReducer(undefined, { type: '@@INIT' });
+  canvasState = canvasReducer(canvasState, setCanvases(canvases));
+  const actions: Array<{ type: string; payload?: unknown }> = [];
+  const dispatch = vi.fn((action: { type: string; payload?: unknown }) => {
+    actions.push(action);
+    commanderState = commanderSlice.reducer(commanderState, action);
+    timelineState = commanderTimelineSlice.reducer(timelineState, action);
+    canvasState = canvasReducer(canvasState, action);
+    return action;
+  }) as unknown as AppDispatch;
+  const sessionUpsert = vi.fn(async () => undefined);
+  const canvasSave = vi.fn(async (_canvas: Canvas) => undefined);
+  const api = {
+    commander,
+    session: { upsert: sessionUpsert },
+    snapshot: { capture: vi.fn(async () => undefined) },
+    canvas: { save: canvasSave },
+  };
+  const getState = () =>
+    ({
+      commander: commanderState,
+      commanderTimeline: timelineState,
+      canvas: canvasState,
+      settings: {
+        bootstrapped: true,
+        llm: { providers: [] },
+        image: {},
+        video: {},
+        audio: {},
+      },
+      skillDefinitions: { skills: [] },
+      taskLists: { allIds: [], summariesById: {}, tasksByTaskListId: {} },
+    }) as unknown as RootState;
   const service = new CommanderSessionService({
-    transport,
-    api: { commander } as never,
+    transport: new CommanderTransport(commander as never),
+    api: api as never,
     dispatch,
-    getState: () => state,
-    t: (k) => k,
+    getState,
+    t: (key) => key,
     getLocale: () => 'en',
   });
-  return { service, dispatch, commander, state };
-}
-
-/** Pull the list of dispatched action types from the vi.fn() dispatcher. */
-function dispatchedTypes(dispatch: AppDispatch): string[] {
-  const calls = (dispatch as unknown as { mock: { calls: unknown[][] } }).mock.calls;
-  return calls.map((args) => (args[0] as { type?: string })?.type ?? 'unknown');
+  return {
+    actions,
+    api,
+    commander,
+    dispatch,
+    getState,
+    service,
+  };
 }
 
 describe('CommanderSessionService', () => {
-  it('subscribe wires up all push-channel listeners and returns a disposable', () => {
-    const { service, commander } = makeService();
-    const unsub = service.subscribe();
-    expect(commander.onStream).toHaveBeenCalledOnce();
-    expect(commander.onCanvasUpdated).toHaveBeenCalledOnce();
-    expect(commander.onEntitiesUpdated).toHaveBeenCalledOnce();
-    expect(commander.onSettingsDispatch).toHaveBeenCalledOnce();
-    expect(commander.onUndoDispatch).toHaveBeenCalledOnce();
-    expect(typeof unsub).toBe('function');
+  it('uses sessionId for tool decisions and runId for injected messages', async () => {
+    const commander = makeStubCommander();
+    const transport = new CommanderTransport(commander as never);
+    await transport.confirmTool('session-1', 'run-1', 'tool-1', true);
+    await transport.injectMessage('run-1', 'follow up');
+
+    expect(commander.toolDecision).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      runId: 'run-1',
+      toolCallId: 'tool-1',
+      approved: true,
+    });
+    expect(commander.injectMessage).toHaveBeenCalledWith({ runId: 'run-1', message: 'follow up' });
   });
 
-  it('appends each incoming TimelineEvent to the timeline slice', () => {
-    const { service, dispatch, commander } = makeService();
-    service.subscribe();
-    commander.emitStream({
-      kind: 'assistant_text',
-      content: 'hi',
-      isDelta: true,
-      runId: 'r1',
-      step: 1,
-      seq: 0,
-      emittedAt: 0,
-    });
-    expect(dispatch).toHaveBeenCalledWith(
+  it('starts an unassigned chat with an empty authorized scope', async () => {
+    const harness = makeHarness([canvas('canvas-viewed')]);
+    harness.dispatch(ensureActiveSession({ id: 'session-1', defaultCanvasId: null }));
+    harness.dispatch(setRunResourceBudget({ maxTokens: 80_000, maxCostUsd: 0 }));
+    harness.dispatch(setActiveCanvas('canvas-viewed'));
+
+    await expect(harness.service.start('hello')).resolves.toBe(true);
+
+    expect(harness.commander.start).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'commanderTimeline/appendEvent',
-        payload: expect.objectContaining({ kind: 'assistant_text', content: 'hi' }),
+        sessionId: 'session-1',
+        authorizedCanvasIds: [],
+        selectedNodes: [],
+        resourceBudget: { maxTokens: 80_000, maxCostUsd: 0 },
       }),
+    );
+    expect(harness.commander.start.mock.calls[0]?.[0]).not.toHaveProperty('defaultCanvasId');
+    expect(harness.api.session.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ defaultCanvasId: null }),
+    );
+    expect(harness.api.canvas.save).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates default and explicit canvases, saves each, and scopes selected nodes', async () => {
+    const canvasA = canvas('canvas-a');
+    const canvasB = {
+      ...canvas('canvas-b'),
+      nodes: [
+        {
+          id: 'node-b',
+          type: 'image' as const,
+          title: 'B',
+          position: { x: 0, y: 0 },
+          bypassed: false,
+          locked: false,
+          data: { status: 'empty' as const, variants: [], selectedVariantIndex: 0 },
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    };
+    const harness = makeHarness([canvasA, canvasB]);
+    harness.dispatch(ensureActiveSession({ id: 'session-1', defaultCanvasId: 'canvas-a' }));
+    harness.dispatch(setActiveCanvas('canvas-b'));
+    harness.dispatch({
+      type: 'canvas/setSelection',
+      payload: { nodeIds: ['node-b'], edgeIds: [] },
+    });
+
+    await harness.service.start('edit both', {
+      extraCanvasIds: ['canvas-b', 'canvas-a', 'canvas-b'],
+    });
+
+    expect(harness.commander.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultCanvasId: 'canvas-a',
+        authorizedCanvasIds: ['canvas-a', 'canvas-b'],
+        selectedNodes: [{ canvasId: 'canvas-b', nodeId: 'node-b' }],
+      }),
+    );
+    expect(harness.api.canvas.save.mock.calls.map(([saved]) => saved.id)).toEqual([
+      'canvas-a',
+      'canvas-b',
+    ]);
+  });
+
+  it('fails closed when an authorized canvas cannot be saved before the run', async () => {
+    const harness = makeHarness([canvas('canvas-a')]);
+    harness.dispatch(ensureActiveSession({ id: 'session-1', defaultCanvasId: 'canvas-a' }));
+    Object.assign(harness.api.canvas, { save: undefined });
+
+    await expect(harness.service.start('inspect the canvas')).resolves.toBe(false);
+
+    expect(harness.commander.start).not.toHaveBeenCalled();
+  });
+
+  it('requires restoring an archived default Canvas before starting another run', async () => {
+    const archived = { ...canvas('canvas-a'), archivedAt: 10 };
+    const harness = makeHarness([archived]);
+    harness.dispatch(ensureActiveSession({ id: 'session-1', defaultCanvasId: 'canvas-a' }));
+
+    await expect(harness.service.start('continue')).resolves.toBe(false);
+
+    expect(harness.api.canvas.save).not.toHaveBeenCalled();
+    expect(harness.commander.start).not.toHaveBeenCalled();
+  });
+
+  it('injects into the selected session run without starting another run', async () => {
+    const harness = makeHarness();
+    harness.dispatch(ensureActiveSession({ id: 'session-1', defaultCanvasId: null }));
+    harness.dispatch(startStreaming('session-1'));
+    harness.dispatch(
+      appendEvent({
+        sessionId: 'session-1',
+        event: {
+          kind: 'run_start',
+          workType: 'agent',
+          runId: 'run-1',
+          step: 0,
+          seq: 0,
+          emittedAt: 1,
+          intent: 'first',
+          resourceBudget: {},
+        },
+      }),
+    );
+
+    await harness.service.start('follow up');
+
+    expect(harness.commander.injectMessage).toHaveBeenCalledWith({
+      runId: 'run-1',
+      message: 'follow up',
+    });
+    expect(harness.commander.start).not.toHaveBeenCalled();
+  });
+
+  it('rejects scope changes while injecting and preserves the active run', async () => {
+    const harness = makeHarness([canvas('canvas-extra')]);
+    harness.dispatch(ensureActiveSession({ id: 'session-1', defaultCanvasId: null }));
+    harness.dispatch(startStreaming('session-1'));
+    harness.dispatch(
+      appendEvent({
+        sessionId: 'session-1',
+        event: {
+          kind: 'run_start',
+          workType: 'agent',
+          runId: 'run-1',
+          step: 0,
+          seq: 0,
+          emittedAt: 1,
+          intent: 'first',
+          resourceBudget: {},
+        },
+      }),
+    );
+
+    await expect(
+      harness.service.start('follow up', { extraCanvasIds: ['canvas-extra'] }),
+    ).resolves.toBe(false);
+
+    expect(harness.commander.injectMessage).not.toHaveBeenCalled();
+    expect(harness.getState().commanderTimeline.currentRunIdBySessionId['session-1']).toBe('run-1');
+    expect(harness.getState().commander.sessions[0]?.runtime.phase.kind).toBe('awaiting_model');
+  });
+
+  it('retains a queued turn canvas scope until the next run is accepted', async () => {
+    const harness = makeHarness([canvas('canvas-extra')]);
+    harness.dispatch(ensureActiveSession({ id: 'session-1', defaultCanvasId: null }));
+    harness.dispatch(startStreaming('session-1'));
+    harness.dispatch(
+      appendEvent({
+        sessionId: 'session-1',
+        event: {
+          kind: 'run_start',
+          workType: 'agent',
+          runId: 'run-1',
+          step: 0,
+          seq: 0,
+          emittedAt: 1,
+          intent: 'first',
+          resourceBudget: {},
+        },
+      }),
+    );
+    harness.dispatch(
+      enqueueMessage({
+        sessionId: 'session-1',
+        content: 'queued turn',
+        extraCanvasIds: ['canvas-extra'],
+      }),
+    );
+
+    harness.dispatch(
+      appendEvent({
+        sessionId: 'session-1',
+        event: {
+          kind: 'run_end',
+          status: 'completed',
+          runId: 'run-1',
+          step: 1,
+          seq: 1,
+          emittedAt: 2,
+        },
+      }),
+    );
+    harness.dispatch(finishStreaming('session-1'));
+    const session = harness.getState().commander.sessions[0]!;
+    const queued = session.runtime.messageQueue[session.runtime.messageQueueCursor]!;
+
+    await harness.service.start(queued.content, { extraCanvasIds: queued.extraCanvasIds });
+
+    expect(harness.commander.start).toHaveBeenCalledWith(
+      expect.objectContaining({ authorizedCanvasIds: ['canvas-extra'] }),
     );
   });
 
-  it('records tool-call telemetry on a tool_result event', () => {
-    const { service, dispatch, commander } = makeService();
-    service.subscribe();
-    commander.emitStream({
-      kind: 'tool_call',
-      toolCallId: 'tc1',
-      toolRef: { domain: 'canvas', action: 'getNode' },
-      args: {},
-      runId: 'r1',
-      step: 1,
-      seq: 0,
-      emittedAt: 0,
-    });
-    commander.emitStream({
-      kind: 'tool_result',
-      toolCallId: 'tc1',
-      result: { success: true },
-      durationMs: 5,
-      runId: 'r1',
-      step: 1,
-      seq: 1,
-      emittedAt: 0,
-    });
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'settings/recordToolCall',
-        payload: expect.objectContaining({ toolName: 'canvas.getNode', error: false }),
+  it('finalizes a background session without stopping the selected session', () => {
+    const harness = makeHarness();
+    harness.dispatch(ensureActiveSession({ id: 'session-a', defaultCanvasId: null }));
+    harness.dispatch(startStreaming('session-a'));
+    harness.dispatch(ensureActiveSession({ id: 'session-b', defaultCanvasId: null }));
+    harness.dispatch(startStreaming('session-b'));
+    harness.dispatch(
+      appendEvent({
+        sessionId: 'session-a',
+        event: {
+          kind: 'run_start',
+          workType: 'agent',
+          runId: 'run-a',
+          step: 0,
+          seq: 0,
+          emittedAt: 1,
+          intent: 'background',
+          resourceBudget: {},
+        },
       }),
     );
-  });
+    harness.dispatch(
+      appendEvent({
+        sessionId: 'session-b',
+        event: {
+          kind: 'run_start',
+          workType: 'agent',
+          runId: 'run-b',
+          step: 0,
+          seq: 0,
+          emittedAt: 1,
+          intent: 'selected',
+          resourceBudget: {},
+        },
+      }),
+    );
+    harness.service.subscribe();
 
-  it('on completed run_end: dispatches appendFinalizedAssistantMessage then finishStreaming', () => {
-    const { service, dispatch, commander } = makeService({
-      timelineState: {
-        events: [
-          {
-            kind: 'run_start',
-            runId: 'r1',
-            step: 0,
-            seq: 0,
-            emittedAt: 100,
-            intent: 'test',
-          },
-          {
-            kind: 'assistant_text',
-            content: 'hello',
-            isDelta: false,
-            runId: 'r1',
-            step: 1,
-            seq: 1,
-            emittedAt: 200,
-          },
-        ],
-        byRunId: { r1: [0, 1] },
-        currentRunId: 'r1',
-      },
-    });
-    service.subscribe();
-    commander.emitStream({
+    harness.commander.emitStream('session-a', {
       kind: 'run_end',
       status: 'completed',
-      runId: 'r1',
+      runId: 'run-a',
       step: 1,
-      seq: 2,
-      emittedAt: 300,
+      seq: 1,
+      emittedAt: 2,
     });
-    const types = dispatchedTypes(dispatch);
-    const appendIdx = types.indexOf('commander/appendFinalizedAssistantMessage');
-    const finishIdx = types.indexOf('commander/finishStreaming');
-    expect(appendIdx).toBeGreaterThanOrEqual(0);
-    expect(finishIdx).toBeGreaterThan(appendIdx);
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'commander/appendFinalizedAssistantMessage',
-        payload: expect.objectContaining({ runId: 'r1' }),
-      }),
-    );
+
+    const state = harness.getState();
+    expect(state.commander.activeSessionId).toBe('session-b');
+    expect(
+      state.commander.sessions.find((session) => session.id === 'session-a')?.runtime.phase.kind,
+    ).toBe('idle');
+    expect(
+      state.commander.sessions.find((session) => session.id === 'session-b')?.runtime.phase.kind,
+    ).toBe('awaiting_model');
+    expect(state.commanderTimeline.currentRunIdBySessionId).toEqual({ 'session-b': 'run-b' });
   });
 
-  it('on failed run_end: dispatches recordError + appendFinalizedAssistantMessage (failed) + finishStreaming', () => {
-    const { service, dispatch, commander } = makeService({
-      timelineState: {
-        events: [
-          {
-            kind: 'run_start',
-            runId: 'r1',
-            step: 0,
-            seq: 0,
-            emittedAt: 100,
-            intent: 'test',
-          },
-          {
-            kind: 'assistant_text',
-            content: 'partial',
-            isDelta: false,
-            runId: 'r1',
-            step: 1,
-            seq: 1,
-            emittedAt: 200,
-          },
-        ],
-        byRunId: { r1: [0, 1] },
-        currentRunId: 'r1',
-      },
-    });
-    service.subscribe();
-    commander.emitStream({
-      kind: 'run_end',
-      status: 'failed',
-      runId: 'r1',
-      step: 1,
-      seq: 2,
-      emittedAt: 300,
-    });
-    const types = dispatchedTypes(dispatch);
-    expect(types).toContain('settings/recordError');
-    expect(types).toContain('commander/appendFinalizedAssistantMessage');
-    expect(types).toContain('commander/finishStreaming');
-    // D4: no streamError on run_end.failed path.
-    expect(types).not.toContain('commander/streamError');
-  });
+  it('applies a background canvas snapshot only to its addressed canvas', () => {
+    const canvasA = canvas('canvas-a', 'A');
+    const canvasB = canvas('canvas-b', 'B');
+    const harness = makeHarness([canvasA, canvasB]);
+    harness.dispatch(setActiveCanvas('canvas-a'));
+    harness.service.subscribe();
 
-  it('upserts on late run_end when runId already in finalizedRunIds (cancel-then-run_end race)', () => {
-    const { service, dispatch, commander } = makeService({
-      commanderState: { finalizedRunIds: ['r1'] },
-      timelineState: {
-        events: [
-          {
-            kind: 'run_start',
-            runId: 'r1',
-            step: 0,
-            seq: 0,
-            emittedAt: 100,
-            intent: 'test',
-          },
-          {
-            kind: 'assistant_text',
-            content: 'partial',
-            isDelta: false,
-            runId: 'r1',
-            step: 1,
-            seq: 1,
-            emittedAt: 200,
-          },
-        ],
-        byRunId: { r1: [0, 1] },
-        currentRunId: 'r1',
-      },
-    });
-    service.subscribe();
-    commander.emitStream({
-      kind: 'run_end',
-      status: 'cancelled',
-      runId: 'r1',
-      step: 1,
-      seq: 2,
-      emittedAt: 300,
-    });
-    const types = dispatchedTypes(dispatch);
-    expect(types).toContain('commander/upsertFinalizedAssistantMessage');
-    expect(types).not.toContain('commander/appendFinalizedAssistantMessage');
-  });
-
-  it('on cancelled TimelineEvent: no finalize, no finishStreaming (informational-only)', () => {
-    const { service, dispatch, commander } = makeService({
-      timelineState: {
-        byRunId: { r1: [] },
-        currentRunId: 'r1',
-      },
-    });
-    service.subscribe();
-    commander.emitStream({
-      kind: 'cancelled',
-      runId: 'r1',
-      step: 1,
-      seq: 0,
-      emittedAt: 100,
-      reason: 'user',
-      completedToolCalls: 0,
-      pendingToolCalls: 0,
-    });
-    const types = dispatchedTypes(dispatch);
-    // Only appendEvent + updateRunPhase should have fired.
-    expect(types).not.toContain('commander/finishStreaming');
-    expect(types).not.toContain('commander/appendFinalizedAssistantMessage');
-    expect(types).not.toContain('commander/upsertFinalizedAssistantMessage');
-  });
-
-  it('cancel() with no activeCanvasId: local finalize + finishStreaming, does not call transport.cancel', async () => {
-    const { service, dispatch, commander } = makeService({
-      commanderState: { activeCanvasId: null },
-      timelineState: { currentRunId: 'r1' },
-    });
-    await service.cancel();
-    expect(commander.cancel).not.toHaveBeenCalled();
-    const types = dispatchedTypes(dispatch);
-    expect(types).toContain('commander/finishStreaming');
-  });
-
-  it('cancel() with activeCanvasId: calls transport.cancel(canvasId)', async () => {
-    vi.useFakeTimers();
-    try {
-      const { service, commander } = makeService({
-        commanderState: { activeCanvasId: 'canvas-1' },
-        timelineState: { currentRunId: 'r1' },
-      });
-      const cancelPromise = service.cancel();
-
-      await vi.advanceTimersByTimeAsync(2000);
-      await cancelPromise;
-
-      expect(commander.cancel).toHaveBeenCalledWith('canvas-1');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('cancel() swallows transport.cancel errors (backend already gone)', async () => {
-    vi.useFakeTimers();
-    try {
-      const { service, dispatch, commander } = makeService({
-        commanderState: { activeCanvasId: 'canvas-1' },
-        timelineState: { currentRunId: 'r1' },
-      });
-      commander.cancel.mockRejectedValueOnce(new Error('already gone'));
-      const cancelPromise = service.cancel();
-
-      await vi.advanceTimersByTimeAsync(2000);
-      await cancelPromise;
-
-      const types = dispatchedTypes(dispatch);
-      expect(types).toContain('commander/finishStreaming');
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('start rejects with a backend-not-ready error when settings are unbootstrapped', async () => {
-    const { service, dispatch } = makeService({
-      settingsState: { bootstrapped: false } as never,
-    });
-    await service.start('hello');
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'commander/streamError' }),
-    );
-  });
-
-  it('start forwards process behavior settings to the commander transport', async () => {
-    const { service, commander } = makeService({
-      commanderState: {
-        activeCanvasId: 'canvas-1',
-        qualityGateBehavior: 'block-generation',
-        requireStylePlateBeforeRefImage: true,
-      },
-      canvasState: {
-        activeCanvasId: 'canvas-1',
-        canvases: { entities: { 'canvas-1': { id: 'canvas-1', settings: {}, viewport: {} } } },
-        selectedNodeIds: [],
-      } as never,
+    harness.commander.emitCanvas({
+      canvasId: 'canvas-b',
+      canvas: { ...canvasB, name: 'B updated', updatedAt: 2 },
     });
 
-    await service.start('generate');
-
-    expect(commander.chat).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.any(String),
-      expect.any(Array),
-      expect.any(Array),
-      expect.any(Array),
-      undefined,
-      'normal',
-      'en',
-      50,
-      0.7,
-      200000,
-      expect.any(String),
-      undefined,
-      {
-        qualityGateBehavior: 'block-generation',
-        requireStylePlateBeforeRefImage: true,
-      },
-    );
+    expect(harness.getState().canvas.canvases.entities['canvas-a']).toEqual(canvasA);
+    expect(harness.getState().canvas.canvases.entities['canvas-b']?.name).toBe('B updated');
+    expect(harness.getState().canvas.activeCanvasId).toBe('canvas-a');
   });
 });

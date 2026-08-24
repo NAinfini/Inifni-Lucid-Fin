@@ -8,7 +8,6 @@ import { AppShell } from './AppShell.js';
 import { uiSlice } from '../../store/slices/ui.js';
 import { canvasSlice } from '../../store/slices/canvas/canvas.js';
 import { settingsSlice } from '../../store/slices/settings.js';
-import { jobsSlice } from '../../store/slices/jobs.js';
 
 function createStore() {
   return configureStore({
@@ -16,7 +15,6 @@ function createStore() {
       ui: uiSlice.reducer,
       canvas: canvasSlice.reducer,
       settings: settingsSlice.reducer,
-      jobs: jobsSlice.reducer,
     },
   });
 }

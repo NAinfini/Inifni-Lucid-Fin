@@ -18,13 +18,3 @@ export interface Snapshot {
   createdAt: number;
   description?: string;
 }
-
-export interface Series {
-  id: string;
-  title: string;
-  description: string;
-  styleGuide: StyleGuide;
-  episodeIds: string[];
-  createdAt: number;
-  updatedAt: number;
-}

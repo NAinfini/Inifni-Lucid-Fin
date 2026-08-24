@@ -49,6 +49,9 @@ describe('llm-provider-runtime helpers', () => {
       authStyle: 'bearer',
       credentialMode: 'api-key',
       oauthTarget: undefined,
+      supportsModelOverride: true,
+      supportsReasoningEffort: true,
+      reasoningEffort: undefined,
     });
     expect(getLLMProviderLogFields(null)).toEqual({});
   });

@@ -1,7 +1,7 @@
 /**
  * FTS5 batch utilities for bulk asset operations (R21).
  *
- * Problem: FTS5 insert/update/delete triggers on the `assets` table fire
+ * Problem: FTS5 entry and content-prompt triggers fire
  * for every individual row. During bulk imports (100+ assets), this causes
  * significant per-row overhead as each trigger round rebuilds FTS index
  * segments.
@@ -33,28 +33,41 @@ import type BetterSqlite3 from 'better-sqlite3';
 // These must stay in sync with the trigger definitions in schema-sql.ts.
 
 const TRIGGER_DROP_SQL = `
-DROP TRIGGER IF EXISTS assets_ai;
-DROP TRIGGER IF EXISTS assets_ad;
-DROP TRIGGER IF EXISTS assets_au;
+DROP TRIGGER IF EXISTS asset_entries_ai;
+DROP TRIGGER IF EXISTS asset_entries_ad;
+DROP TRIGGER IF EXISTS asset_entries_au;
+DROP TRIGGER IF EXISTS asset_contents_prompt_au;
 `;
 
 const TRIGGER_CREATE_SQL = `
-CREATE TRIGGER IF NOT EXISTS assets_ai AFTER INSERT ON assets BEGIN
-  INSERT INTO assets_fts(rowid, tags, prompt) VALUES (new.rowid, new.tags, new.prompt);
+CREATE TRIGGER IF NOT EXISTS asset_entries_ai AFTER INSERT ON asset_entries BEGIN
+  INSERT INTO asset_entries_fts(entry_id, display_name, tags, prompt)
+  SELECT new.id, new.display_name, new.tags, prompt
+    FROM asset_contents WHERE hash = new.asset_hash;
 END;
 
-CREATE TRIGGER IF NOT EXISTS assets_ad AFTER DELETE ON assets BEGIN
-  INSERT INTO assets_fts(assets_fts, rowid, tags, prompt) VALUES('delete', old.rowid, old.tags, old.prompt);
+CREATE TRIGGER IF NOT EXISTS asset_entries_ad AFTER DELETE ON asset_entries BEGIN
+  DELETE FROM asset_entries_fts WHERE entry_id = old.id;
 END;
 
-CREATE TRIGGER IF NOT EXISTS assets_au AFTER UPDATE ON assets BEGIN
-  INSERT INTO assets_fts(assets_fts, rowid, tags, prompt) VALUES('delete', old.rowid, old.tags, old.prompt);
-  INSERT INTO assets_fts(rowid, tags, prompt) VALUES (new.rowid, new.tags, new.prompt);
+CREATE TRIGGER IF NOT EXISTS asset_entries_au AFTER UPDATE ON asset_entries BEGIN
+  UPDATE asset_entries_fts
+     SET display_name = new.display_name,
+         tags = new.tags,
+         prompt = (SELECT prompt FROM asset_contents WHERE hash = new.asset_hash)
+   WHERE entry_id = old.id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS asset_contents_prompt_au
+AFTER UPDATE OF prompt ON asset_contents BEGIN
+  UPDATE asset_entries_fts
+     SET prompt = new.prompt
+   WHERE entry_id IN (SELECT id FROM asset_entries WHERE asset_hash = new.hash);
 END;
 `;
 
 /**
- * Rebuild the FTS5 index from the source `assets` table.
+ * Rebuild the FTS5 index from canonical content and entry rows.
  *
  * Uses the FTS5 `rebuild` command which drops and repopulates the index
  * from the content table. This is idempotent — calling it multiple times
@@ -63,13 +76,19 @@ END;
  * Can be called independently as a recovery/maintenance operation.
  */
 export function rebuildFtsIndex(db: BetterSqlite3.Database): void {
-  db.exec("INSERT INTO assets_fts(assets_fts) VALUES('rebuild')");
+  db.exec(`
+    DELETE FROM asset_entries_fts;
+    INSERT INTO asset_entries_fts(entry_id, display_name, tags, prompt)
+    SELECT entry.id, entry.display_name, entry.tags, content.prompt
+      FROM asset_entries entry
+      JOIN asset_contents content ON content.hash = entry.asset_hash;
+  `);
 }
 
 /**
  * Execute a batch operation with FTS triggers temporarily disabled.
  *
- * Workflow:
+ * Process:
  *   1. Drop FTS triggers (DDL inside transaction)
  *   2. Execute the caller-provided batch function
  *   3. Rebuild FTS index from source data in a single pass

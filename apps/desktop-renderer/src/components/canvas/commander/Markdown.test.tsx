@@ -86,12 +86,17 @@ describe('Markdown', () => {
     expect(container.textContent).toContain('abc');
   });
 
-  it('renders DeepSeek think tags as collapsed details', () => {
-    render(<Markdown content="<think>reasoning here</think>\n\nfinal answer" />);
-    const details = document.querySelector('details');
-    expect(details).toBeTruthy();
-    expect(details!.textContent).toContain('reasoning here');
+  it('discards provider reasoning blocks and renders only the public answer', () => {
+    render(<Markdown content="<think>SECRET_REASONING_SENTINEL</think>\n\nfinal answer" />);
+    expect(document.querySelector('details')).toBeNull();
+    expect(document.body.textContent).not.toContain('SECRET_REASONING_SENTINEL');
     expect(document.body.textContent).toContain('final answer');
+  });
+
+  it('fails closed for an unfinished provider reasoning block', () => {
+    render(<Markdown content="public prefix<think>SECRET_UNFINISHED_REASONING" />);
+    expect(document.body.textContent).toContain('public prefix');
+    expect(document.body.textContent).not.toContain('SECRET_UNFINISHED_REASONING');
   });
 
   it('handles empty string', () => {

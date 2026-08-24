@@ -58,7 +58,9 @@ export function buildRunSummary(
   const excerptSource =
     resultText ||
     normalizeRunExcerpt(errorMessage ?? '') ||
-    (toolCount > 0
+    (status === 'blocked'
+      ? ''
+      : toolCount > 0
       ? `${status === 'failed' ? 'Attempted' : 'Completed'} ${toolCount} tool call${toolCount === 1 ? '' : 's'}.`
       : status === 'failed'
         ? 'Run failed before producing output.'

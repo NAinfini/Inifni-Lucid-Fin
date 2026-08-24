@@ -4,7 +4,7 @@ import type {
   CostEstimate,
   JobStatus,
   GenerationType,
-} from './job.js';
+} from './generation.js';
 import type { AdapterError } from '../errors/index.js';
 import type { ProviderProfile } from './provider-profile.js';
 import type { AdapterResolutionController } from './resolution.js';
@@ -157,6 +157,8 @@ export interface AIProviderAdapter {
   configure(apiKey: string, options?: AdapterConfigureOptions): void;
   validate(): Promise<boolean>;
   generate(req: GenerationRequest): Promise<GenerationResult>;
+  /** Retrieve the completed asset for providers whose initial response only reserves a job. */
+  getResult?(jobId: string): Promise<GenerationResult>;
   /**
    * Subscribe to real-time generation updates (optional).
    * Provides streaming progress, queue updates, and logs.
@@ -185,23 +187,47 @@ export interface LLMMessage {
   toolCallId?: string; // for role='tool' messages
 }
 
-export interface LLMToolParameter {
-  type: 'string' | 'number' | 'boolean' | 'object' | 'array';
-  description: string;
-  enum?: string[];
-  required?: boolean;
-  properties?: Record<string, LLMToolParameter>;
-  items?: LLMToolParameter;
+interface LLMToolSchemaBase {
+  description?: string;
+  nullable?: boolean;
 }
+
+export type LLMToolParameter =
+  | (LLMToolSchemaBase & {
+      type: 'string';
+      enum?: string[];
+    })
+  | (LLMToolSchemaBase & {
+      type: 'number';
+      enum?: number[];
+    })
+  | (LLMToolSchemaBase & {
+      type: 'boolean';
+      enum?: boolean[];
+    })
+  | (LLMToolSchemaBase & {
+      type: 'object';
+      properties: Record<string, LLMToolParameter>;
+      required?: string[];
+      additionalProperties?: boolean | LLMToolParameter;
+    })
+  | (LLMToolSchemaBase & {
+      type: 'array';
+      items: LLMToolParameter;
+    })
+  | (LLMToolSchemaBase & {
+      const: string | number | boolean | null;
+    })
+  | (LLMToolSchemaBase & {
+      anyOf: LLMToolParameter[];
+    });
+
+export type LLMToolInputSchema = Extract<LLMToolParameter, { type: 'object' }>;
 
 export interface LLMToolDefinition {
   name: string;
   description: string;
-  parameters: {
-    type: 'object';
-    properties: Record<string, LLMToolParameter>;
-    required?: string[];
-  };
+  parameters: LLMToolInputSchema;
 }
 
 export interface LLMToolCall {
@@ -272,6 +298,17 @@ export interface LLMRequestOptions {
   providerToolBridge?: ProviderToolBridge;
 }
 
+/**
+ * Pre-execution billing fact supplied by an adapter. Approximate price
+ * tables are not sufficient: `upper_bound` must be a finite conservative
+ * ceiling for this exact request, while `free` is an explicit provider
+ * guarantee. Missing capability is treated as `unknown`.
+ */
+export type LLMCostUpperBound =
+  | { kind: 'free' }
+  | { kind: 'upper_bound'; knowledge: 'known' | 'estimated'; amountUsd: number }
+  | { kind: 'unknown' };
+
 export interface LLMAdapter {
   readonly id: string;
   readonly name: string;
@@ -287,6 +324,9 @@ export interface LLMAdapter {
   readonly userContextWindow?: number;
   /** Effective context window: user override if set, else auto-detected. */
   readonly effectiveContextWindow?: number;
+
+  /** Pure request quote used before any network call or billable work. */
+  quoteCostUpperBound?(messages: readonly LLMMessage[], opts: LLMRequestOptions): LLMCostUpperBound;
 
   configure(apiKey: string, options?: Record<string, unknown>): void;
   validate(): Promise<boolean>;

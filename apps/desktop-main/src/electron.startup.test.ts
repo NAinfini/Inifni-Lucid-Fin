@@ -83,12 +83,8 @@ vi.mock('./bootstrap/init-app.js', () => ({
   selectConfiguredLLMAdapter: vi.fn(),
 }));
 
-vi.mock('./workflow/style-workflow-handlers.js', () => ({
-  createStyleWorkflowHandlers: vi.fn(() => []),
-}));
-
-vi.mock('./workflow/ref-image-workflow-handlers.js', () => ({
-  createRefImageWorkflowHandlers: vi.fn(() => []),
+vi.mock('./task-execution/style-task-handlers.js', () => ({
+  createStyleTaskHandlers: vi.fn(() => []),
 }));
 
 vi.mock('./auto-updater.js', () => ({
@@ -106,10 +102,8 @@ vi.mock('./update-safety.js', () => ({
 
 vi.mock('@lucid-fin/application', () => ({
   AgentOrchestrator: class {},
-  JobQueue: class {},
-  WorkflowEngine: class {},
-  WorkflowRecovery: class {},
-  registerDefaultWorkflows: vi.fn(() => ({})),
+  TaskExecutionEngine: class {},
+  registerDefaultTaskLists: vi.fn(() => ({})),
 }));
 
 async function loadModule() {
@@ -189,18 +183,10 @@ describe('electron startup observability', () => {
     expect(send).toHaveBeenCalledWith('logger:entry', expect.objectContaining({ id: 'log-1' }));
   });
 
-  it('logs startup recovery milestones for the job queue and workflow engine', () => {
-    startupModule.logJobQueueRecovered();
-    startupModule.logWorkflowEngineRecovered();
-
+  it('logs the task execution engine recovery milestone', () => {
+    startupModule.logTaskExecutionEngineRecovered();
     expect(logger.info).toHaveBeenCalledWith(
-      'Job queue recovered and started',
-      expect.objectContaining({
-        category: 'startup',
-      }),
-    );
-    expect(logger.info).toHaveBeenCalledWith(
-      'Workflow engine recovered',
+      'Task execution engine recovered',
       expect.objectContaining({
         category: 'startup',
       }),

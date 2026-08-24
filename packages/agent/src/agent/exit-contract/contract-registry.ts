@@ -14,9 +14,9 @@ import type { CompletionContract, RunIntent } from './types.js';
  *   module-load time and never removed.
  * - `select(intent)` resolves the contract for an intent at run start. For
  *   `informational` we return the `info-answer` fallback so the engine's
- *   info-exemption short-circuit fires; for `execution` with a workflow we
- *   try an exact id match first (legacy compat), then fall back to
- *   `workflow-execution`; for `execution` without a workflow we return
+ *   info-exemption short-circuit fires; for `execution` with a task list we
+ *   try an exact id match first, then fall back to
+ *   `task-list-execution`; for `execution` without a task list we return
  *   `mutation-execution`.
  * - Phase F exposes `register` / `unregister` as the stable plugin surface
  *   via `packages/application/src/index.ts`.
@@ -82,13 +82,13 @@ class ContractRegistry {
       case 'informational':
         return fallback;
       case 'execution': {
-        if (intent.workflow) {
-          // Check for exact workflow match first (legacy compat),
-          // then fall back to the generic workflow-execution contract.
-          const hit = this.byId.get(intent.workflow);
+        if (intent.taskList) {
+          // Check for an exact task-list match first,
+          // then fall back to the generic task-list-execution contract.
+          const hit = this.byId.get(intent.taskList);
           if (hit) return hit;
-          const wf = this.byId.get('workflow-execution');
-          if (wf) return wf;
+          const taskListContract = this.byId.get('task-list-execution');
+          if (taskListContract) return taskListContract;
         }
         const me = this.byId.get('mutation-execution');
         if (me) return me;

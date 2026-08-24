@@ -149,7 +149,7 @@ Every entity supports `extra-angle` with a free-form angle string for rare custo
 
 ### Character Consistency
 
-- Fill the character record (face, hair, body, skinTone, distinctTraits, costume) before generating. `buildCharacterAppearancePrompt` assembles those fields automatically.
+- Fill the character record (face, hair, body, skinTone, distinctTraits, costume) before generating. Prompt Assembly exposes those structured identity facts to Commander as required sources.
 - Generate 3–5 variants and promote the cleanest via `entity.setRefImage` / `entity.setRefImageFromNode`.
 - If variants keep missing, describe the failure in one line ("top row collapsed, only expressions returned") and regenerate with corrective language — do not retry blindly.
 
@@ -171,12 +171,13 @@ Every entity supports `extra-angle` with a free-form angle string for rare custo
 
 ## Integration with Lucid Fin
 
-These layouts are emitted by `buildCharacterRefImagePrompt`, `buildEquipmentRefImagePrompt`, and `buildLocationRefImagePrompt` when the agent calls the unified `entity.generateRefImage` tool (with the entity's `type`). The workflow is:
+These layouts are creative guidance for the same Prompt Assembly path used by ordinary Canvas image generation. There is no separate reference-image provider shortcut. The task procedure is:
 
 1. Fill the entity record first — durable identity is the source of truth.
-2. Call `entity.generateRefImage` with the entity's `type` and `id`. The builder compiles the prompt from the record and the layout rules above.
-3. Only pass a custom `prompt` when you need direction the record cannot express. Do not repeat record fields in the custom prompt — it fights the auto-compiled appearance line.
-4. Review whether the sheet actually proves silhouette, construction, and identity before accepting it. The sheet is an anchor for the whole project — a broken anchor drifts every downstream shot.
+2. Create a Canvas image node bound to that entity. Put only the desired sheet layout and one-off direction in the node prompt.
+3. Prepare the node's Prompt Assembly. Commander receives the entity facts, node prompt, presets, style policy, Task List guidance, references, and any parent prompt as separately identified sources, resolves conflicts, and writes the only final provider prompt.
+4. Submit the persisted assembly without host-side creative text changes. Review whether the sheet actually proves silhouette, construction, and identity before accepting it.
+5. Attach the accepted asset with `entity.setRefImageFromNode`. For a small correction, refine from the exact prior Prompt Assembly instead of rebuilding from the raw node prompt.
 
 ## Customization
 

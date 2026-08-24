@@ -96,6 +96,23 @@ export class SunoAdapter implements AIProviderAdapter {
     return map[parsed.status] ?? JobStatus.Running;
   }
 
+  async getResult(jobId: string): Promise<GenerationResult> {
+    const res = await fetchWithTimeout(`${this.baseUrl}/feed/${jobId}`, {
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+    });
+    if (!res.ok) {
+      throw new LucidError(ErrorCode.ServiceUnavailable, `Suno result fetch failed: ${res.status}`);
+    }
+    const parsed = parseSunoResponse((await res.json()) as Record<string, unknown>);
+    if (!parsed.audioUrl) throw new Error(`Suno job ${jobId} completed without an audio URL`);
+    return {
+      assetHash: '',
+      assetPath: parsed.audioUrl,
+      provider: this.id,
+      metadata: { id: parsed.id, status: parsed.status },
+    };
+  }
+
   async cancel(jobId: string): Promise<void> {
     const res = await fetchWithTimeout(`${this.baseUrl}/generate/${jobId}/cancel`, {
       method: 'POST',

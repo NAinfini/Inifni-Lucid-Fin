@@ -69,4 +69,21 @@ describe('ToolCallDeduplicator', () => {
     const prior = d.check(ref, {}, 2);
     expect(prior?.wasError).toBe(true);
   });
+
+  it('hydrates recovery seeds into the existing dedup window', () => {
+    const d = new ToolCallDeduplicator(3);
+    d.seed([{
+      toolRef: ref,
+      args: { canvasId: 'canvas-1', prompt: 'same' },
+      toolCallId: 'persisted-call',
+      step: 4,
+      wasError: false,
+    }]);
+
+    expect(d.check(ref, { prompt: 'same', canvasId: 'canvas-1' }, 5)).toEqual({
+      toolCallId: 'persisted-call',
+      step: 4,
+      wasError: false,
+    });
+  });
 });

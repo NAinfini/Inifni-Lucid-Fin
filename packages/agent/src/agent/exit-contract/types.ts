@@ -22,10 +22,10 @@
  * v2: Simplified from 4 kinds to 2.
  * - `informational`: the user asked a question; no mutation expected.
  * - `execution`: the user wants something persisted (canvas nodes,
- *   settings write, entity records, generation). The workflow hint, when
+ *   settings write, entity records, generation). The task-list hint, when
  *   known, picks the matching contract.
  */
-export type RunIntent = { kind: 'informational' } | { kind: 'execution'; workflow?: string };
+export type RunIntent = { kind: 'informational' } | { kind: 'execution'; taskList?: string };
 
 // ---------------------------------------------------------------------------
 // CompletionContract — what does "done" look like for this run?
@@ -105,11 +105,14 @@ export type CompletionEvidence =
   | { kind: 'ask_user_answered'; answer: string; at: number }
   | { kind: 'mutation_commit'; toolName: string; args: unknown; resultOk: boolean; at: number }
   | { kind: 'validation_error'; toolName: string; errorText: string; at: number }
-  | { kind: 'guide_activated'; key: string; reason: string; at: number }
   | { kind: 'generation_started'; nodeId: string; at: number }
   | { kind: 'settings_write'; canvasId: string; keys: string[]; at: number }
   | { kind: 'user_refused'; message: string; at: number }
-  | { kind: 'budget_exhausted'; metric: 'steps' | 'tokens'; at: number }
+  | {
+      kind: 'budget_exhausted';
+      metric: 'tokens' | 'tool_calls' | 'wall_time' | 'cost' | 'context';
+      at: number;
+    }
   | { kind: 'progress_stall'; stepsSinceLastMutation: number; at: number }
   | { kind: 'tool_retry_loop'; toolName: string; attempts: number; at: number };
 
@@ -166,7 +169,10 @@ export type ExitDecision =
   | { outcome: 'informational_answered'; reason: string }
   | { outcome: 'blocked_waiting_user'; question: string }
   | { outcome: 'refused'; reason: string }
-  | { outcome: 'budget_exhausted'; metric: 'steps' | 'tokens' }
+  | {
+      outcome: 'budget_exhausted';
+      metric: 'tokens' | 'tool_calls' | 'wall_time' | 'cost' | 'context';
+    }
   | { outcome: 'unsatisfied'; contractId: string; blocker: BlockerReason }
   | { outcome: 'error'; message: string };
 

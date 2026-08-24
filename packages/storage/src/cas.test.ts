@@ -39,7 +39,6 @@ describe('CAS', () => {
     expect(ref.format).toBe('png');
     expect(meta.originalName).toBe('test-image.png');
     expect(meta.fileSize).toBeGreaterThan(0);
-    expect(meta.tags).toEqual([]);
     expect(fs.existsSync(ref.path)).toBe(true);
   });
 

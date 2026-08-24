@@ -34,6 +34,15 @@ describe('StrictCanvasSchema', () => {
     expect(StrictCanvasSchema.safeParse(makeCanvas(nodeType)).success).toBe(true);
   });
 
+  it('accepts a persisted archive timestamp but not null', () => {
+    expect(
+      StrictCanvasSchema.safeParse({ ...makeCanvas('text'), archivedAt: 123 }).success,
+    ).toBe(true);
+    expect(
+      StrictCanvasSchema.safeParse({ ...makeCanvas('text'), archivedAt: null }).success,
+    ).toBe(false);
+  });
+
   it('accepts a structured Canvas visual-style draft and rejects an empty one', () => {
     const canvas = makeCanvas('image');
     expect(
@@ -70,6 +79,7 @@ describe('CanvasPatchSchema', () => {
     const result = CanvasPatchSchema.safeParse({
       canvasId: 'canvas-1',
       timestamp: 2,
+      operations: ['updateNode'],
       updatedNodes: [
         {
           id: 'node-1',
@@ -91,6 +101,7 @@ describe('CanvasPatchSchema', () => {
     const result = CanvasPatchSchema.safeParse({
       canvasId: 'canvas-1',
       timestamp: 2,
+      operations: ['updateNode'],
       updatedNodes: [{ id: 'node-1', changes: { id: 'node-2', createdAt: 2 } }],
     });
 

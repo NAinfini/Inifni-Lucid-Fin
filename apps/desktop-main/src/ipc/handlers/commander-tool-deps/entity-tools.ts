@@ -1,5 +1,5 @@
 import {
-  requireCanvas,
+  requireAuthorizedCanvas,
   createScriptTools,
   createEntityTools,
   EXCLUDED_TOOLS,
@@ -12,14 +12,10 @@ import {
   fs,
   path,
   type ToolRegistrationDeps,
-  type AgentToolRegistry,
+  type ToolRegistry,
 } from './helpers.js';
 
-export function registerEntityTools(
-  registry: AgentToolRegistry,
-  deps: ToolRegistrationDeps,
-  generateImage: ReturnType<typeof import('./helpers.js').makeGenerateImage>,
-): void {
+export function registerEntityTools(registry: ToolRegistry, deps: ToolRegistrationDeps): void {
   for (const tool of createScriptTools({
     loadScript: async (filePath?: string) => {
       if (!filePath) {
@@ -56,19 +52,24 @@ export function registerEntityTools(
     saveCharacter: async (c) => {
       deps.db.repos.entities.upsertCharacter({ ...c });
     },
-    deleteCharacter: async (id) => deps.db.repos.entities.deleteCharacter(parseCharacterId(id)),
+    deleteCharacter: async (id) => {
+      deps.db.repos.entities.deleteCharacter([parseCharacterId(id)]);
+    },
     listLocations: async () => deps.db.repos.entities.listLocations().rows,
     saveLocation: async (l) => {
       deps.db.repos.entities.upsertLocation({ ...l });
     },
-    deleteLocation: async (id) => deps.db.repos.entities.deleteLocation(parseLocationId(id)),
+    deleteLocation: async (id) => {
+      deps.db.repos.entities.deleteLocation([parseLocationId(id)]);
+    },
     listEquipment: async () => deps.db.repos.entities.listEquipment().rows,
     saveEquipment: async (e) => {
       deps.db.repos.entities.upsertEquipment({ ...e });
     },
-    deleteEquipment: async (id) => deps.db.repos.entities.deleteEquipment(parseEquipmentId(id)),
-    generateImage,
-    getCanvas: async (canvasId: string) => requireCanvas(deps.canvasStore, canvasId),
+    deleteEquipment: async (id) => {
+      deps.db.repos.entities.deleteEquipment([parseEquipmentId(id)]);
+    },
+    getCanvas: async (canvasId: string) => requireAuthorizedCanvas(deps, canvasId),
   })) {
     if (!EXCLUDED_TOOLS.has(tool.name)) registry.register(tool);
   }

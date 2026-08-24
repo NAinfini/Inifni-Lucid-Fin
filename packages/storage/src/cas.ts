@@ -68,7 +68,6 @@ export class CAS {
       format: ext,
       originalName: path.basename(filePath),
       fileSize: stat.size,
-      tags: [],
       createdAt: Date.now(),
     };
     atomicWrite(metaPath, meta);
@@ -110,7 +109,6 @@ export class CAS {
       format: ext,
       originalName: fileName,
       fileSize: buffer.length,
-      tags: [],
       createdAt: Date.now(),
     };
     atomicWrite(metaPath, meta);

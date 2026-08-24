@@ -108,11 +108,26 @@ function OAuthProviderCard({
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState<OAuthProviderStatus | null>(null);
   const [action, setAction] = useState<OAuthAction | null>(null);
-  const target = metadata.oauthTarget!;
+  const [draftModel, setDraftModel] = useState(provider.model);
+  const [draftReasoningEffort, setDraftReasoningEffort] = useState(provider.reasoningEffort ?? '');
+  const oauthProvider = metadata.oauthTarget!.provider;
+  const oauthCapability = metadata.oauthTarget!.capability;
+  const target = useMemo<OAuthProviderTarget>(
+    () => ({ provider: oauthProvider, capability: oauthCapability }),
+    [oauthCapability, oauthProvider],
+  );
 
   const displayName = translateOrFallback(`providerNames.${provider.id}`, provider.name);
   const statusState = status?.state;
   const readyStatus = status?.state === 'ready' ? status : null;
+  const modelCapabilities = readyStatus?.modelCapabilities;
+  const selectedModelCapability = modelCapabilities?.models.find(
+    (entry) => entry.model === draftModel.trim() || entry.id === draftModel.trim(),
+  );
+  const showModel = modelCapabilities?.supportsModelOverride === true;
+  const showReasoningEffort = modelCapabilities?.supportsReasoningEffort === true;
+  const configDirty =
+    draftModel !== provider.model || draftReasoningEffort !== (provider.reasoningEffort ?? '');
   const statusIssue =
     status?.state === 'unavailable'
       ? status.reason
@@ -121,11 +136,9 @@ function OAuthProviderCard({
         : null;
   const canSignIn =
     statusState === 'signedOut' ||
-    (status?.state === 'unavailable' && target.provider === 'chatgpt') ||
+    status?.state === 'unavailable' ||
     (status?.state === 'error' && status.retryable);
-  const canSignOut =
-    status?.state === 'ready' ||
-    (status?.state === 'error' && status.code !== 'configuration_missing');
+  const canSignOut = status?.state === 'ready' || status?.state === 'error';
 
   const statusLabel =
     statusState === 'signedOut'
@@ -196,7 +209,59 @@ function OAuthProviderCard({
       unsubscribeChanged();
       unsubscribeReady();
     };
-  }, [dispatch, provider.id, target.capability, target.provider]);
+  }, [dispatch, provider.id, target]);
+
+  useEffect(() => {
+    setDraftModel(provider.model);
+    setDraftReasoningEffort(provider.reasoningEffort ?? '');
+  }, [provider.model, provider.reasoningEffort]);
+
+  function saveModelConfiguration() {
+    if (!modelCapabilities) return;
+    const model = draftModel.trim();
+    const reasoningEffort = draftReasoningEffort.trim();
+    const selected = modelCapabilities.models.find(
+      (entry) => entry.model === model || entry.id === model,
+    );
+    if (!model || !selected) {
+      showErrorToast({
+        title: t('settings.providerCard.configurationInvalid'),
+        message: t('settings.providerCard.modelUnavailable'),
+      });
+      return;
+    }
+    if (
+      reasoningEffort &&
+      (!modelCapabilities.supportsReasoningEffort ||
+        !selected.supportedReasoningEfforts.includes(reasoningEffort))
+    ) {
+      showErrorToast({
+        title: t('settings.providerCard.configurationInvalid'),
+        message: t('settings.providerCard.reasoningEffortUnsupported'),
+      });
+      return;
+    }
+    dispatch(
+      commitProvider({
+        group: target.capability,
+        providerId: provider.id,
+        config: {
+          baseUrl: provider.baseUrl,
+          model,
+          protocol: provider.protocol,
+          authStyle: provider.authStyle,
+          supportsModelOverride: modelCapabilities.supportsModelOverride,
+          supportsReasoningEffort: modelCapabilities.supportsReasoningEffort,
+          reasoningEffortsByModel: Object.fromEntries(
+            modelCapabilities.models.map((entry) => [entry.model, entry.supportedReasoningEfforts]),
+          ),
+          reasoningEffort: reasoningEffort || undefined,
+        },
+      }),
+    );
+    setDraftModel(model);
+    setDraftReasoningEffort(reasoningEffort);
+  }
 
   async function runAuthAction(nextAction: OAuthAction) {
     const providerOAuth = getAPI()?.providerOAuth;
@@ -287,22 +352,63 @@ function OAuthProviderCard({
 
           {readyStatus && <OAuthUsagePanel status={readyStatus} />}
 
+          {(showModel || showReasoningEffort) && (
+            <div className="grid grid-cols-2 gap-2">
+              {showModel && (
+                <div>
+                  <label className="mb-1 block text-[10px] text-muted-foreground">
+                    {t('settings.providerCard.model')}
+                  </label>
+                  <input
+                    type="text"
+                    value={draftModel}
+                    onChange={(event) => setDraftModel(event.target.value)}
+                    className="w-full rounded border border-border bg-secondary px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+              )}
+              {showReasoningEffort && (
+                <div>
+                  <label className="mb-1 block text-[10px] text-muted-foreground">
+                    {t('settings.providerCard.reasoningStrength')}
+                  </label>
+                  <input
+                    type="text"
+                    value={draftReasoningEffort}
+                    onChange={(event) => setDraftReasoningEffort(event.target.value)}
+                    className="w-full rounded border border-border bg-secondary px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {configDirty && modelCapabilities && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={saveModelConfiguration}
+                className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground"
+              >
+                {t('settings.providerCard.save')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDraftModel(provider.model);
+                  setDraftReasoningEffort(provider.reasoningEffort ?? '');
+                }}
+                className="rounded border border-border px-2 py-1 text-xs hover:bg-muted"
+              >
+                {t('settings.providerCard.discard')}
+              </button>
+            </div>
+          )}
+
           {statusIssue && (
             <div className="flex items-start gap-1.5 rounded border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-xs text-destructive">
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <div className="space-y-1">
-                <div>{statusIssue}</div>
-                {status?.state === 'unavailable' && status.setupUrl && (
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-1 underline underline-offset-2"
-                    onClick={() => void getAPI()?.openExternal(status.setupUrl!)}
-                  >
-                    {t('settings.providerCard.oauth.setup')}
-                    <ExternalLink className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
+              <div>{statusIssue}</div>
             </div>
           )}
 
@@ -350,20 +456,9 @@ function OAuthProviderCard({
 
 function OAuthUsagePanel({ status }: { status: Extract<OAuthProviderStatus, { state: 'ready' }> }) {
   if (status.usage.state === 'unavailable') {
-    const dashboardUrl = status.usage.dashboardUrl;
     return (
       <div className="rounded border border-border/60 bg-secondary/30 px-2 py-2 text-[11px] text-muted-foreground">
         <div>{status.usage.reason}</div>
-        {dashboardUrl && (
-          <button
-            type="button"
-            className="mt-1 inline-flex items-center gap-1 text-foreground underline underline-offset-2"
-            onClick={() => void getAPI()?.openExternal(dashboardUrl)}
-          >
-            {t('settings.providerCard.oauth.openQuotaDashboard')}
-            <ExternalLink className="h-3 w-3" />
-          </button>
-        )}
       </div>
     );
   }
@@ -433,6 +528,7 @@ function ApiKeyProviderCard({
   // --- Draft state (local, not Redux) ---
   const [draftBaseUrl, setDraftBaseUrl] = useState(provider.baseUrl);
   const [draftModel, setDraftModel] = useState(provider.model);
+  const [draftReasoningEffort, setDraftReasoningEffort] = useState(provider.reasoningEffort ?? '');
   const [draftProtocol, setDraftProtocol] = useState<LLMProviderProtocol | undefined>(
     provider.protocol,
   );
@@ -452,11 +548,17 @@ function ApiKeyProviderCard({
   const showHubGuidance = metadata?.kind === 'hub';
   const providerDefaults = getProviderDefaults(group, provider.id);
   const isBuiltinProvider = !provider.isCustom && providerDefaults !== undefined;
+  const isLLMConfiguration = group === 'llm' || group === 'vision';
+  const showModel =
+    !isLLMConfiguration || provider.isCustom || provider.supportsModelOverride !== false;
+  const showReasoningEffort =
+    isLLMConfiguration && (provider.isCustom || provider.supportsReasoningEffort !== false);
 
   // Dirty detection: compare draft against committed Redux state + loaded key
   const configDirty =
     draftBaseUrl !== provider.baseUrl ||
     draftModel !== provider.model ||
+    draftReasoningEffort !== (provider.reasoningEffort ?? '') ||
     draftProtocol !== provider.protocol ||
     (provider.isCustom && draftName !== provider.name);
   const keyDirty = draftKey !== loadedKey;
@@ -512,9 +614,16 @@ function ApiKeyProviderCard({
   useEffect(() => {
     setDraftBaseUrl(provider.baseUrl);
     setDraftModel(provider.model);
+    setDraftReasoningEffort(provider.reasoningEffort ?? '');
     setDraftProtocol(provider.protocol);
     setDraftName(provider.name);
-  }, [provider.baseUrl, provider.model, provider.protocol, provider.name]);
+  }, [
+    provider.baseUrl,
+    provider.model,
+    provider.name,
+    provider.protocol,
+    provider.reasoningEffort,
+  ]);
 
   // Load API key from keychain when card expands
   useEffect(() => {
@@ -564,6 +673,18 @@ function ApiKeyProviderCard({
     try {
       const api = getAPI();
       if (!api) throw new Error('API not available');
+      const model = draftModel.trim();
+      const reasoningEffort = draftReasoningEffort.trim();
+      if (configDirty && showModel && !model) {
+        throw new Error(t('settings.providerCard.modelUnavailable'));
+      }
+      if (reasoningEffort && !showReasoningEffort) {
+        throw new Error(t('settings.providerCard.reasoningEffortUnsupported'));
+      }
+      const knownEfforts = provider.reasoningEffortsByModel?.[model];
+      if (reasoningEffort && knownEfforts && !knownEfforts.includes(reasoningEffort)) {
+        throw new Error(t('settings.providerCard.reasoningEffortUnsupported'));
+      }
 
       // 1. Save API key to keychain if changed
       if (keyDirty) {
@@ -594,8 +715,12 @@ function ApiKeyProviderCard({
             providerId: provider.id,
             config: {
               baseUrl: draftBaseUrl,
-              model: draftModel,
+              model: showModel ? model : provider.model,
               protocol: draftProtocol,
+              supportsModelOverride: provider.supportsModelOverride,
+              supportsReasoningEffort: provider.isCustom ? true : provider.supportsReasoningEffort,
+              reasoningEffortsByModel: provider.reasoningEffortsByModel,
+              reasoningEffort: reasoningEffort || undefined,
               name: provider.isCustom ? draftName : undefined,
             },
           }),
@@ -607,7 +732,7 @@ function ApiKeyProviderCard({
         if (mountedRef.current) setSaved(false);
       }, 2000);
     } catch (error) {
-      const title = t('settings.providerCard.saveKeyFailed');
+      const title = t('settings.providerCard.configurationFailed');
       logProviderFailure(title, error);
       showErrorToast({
         title,
@@ -621,6 +746,7 @@ function ApiKeyProviderCard({
   function handleDiscard() {
     setDraftBaseUrl(provider.baseUrl);
     setDraftModel(provider.model);
+    setDraftReasoningEffort(provider.reasoningEffort ?? '');
     setDraftProtocol(provider.protocol);
     setDraftName(provider.name);
     setDraftKey(loadedKey);
@@ -646,6 +772,10 @@ function ApiKeyProviderCard({
           baseUrl: draftBaseUrl,
           id: provider.id,
           model: draftModel,
+          supportsModelOverride: provider.supportsModelOverride,
+          supportsReasoningEffort: provider.isCustom ? true : provider.supportsReasoningEffort,
+          reasoningEffortsByModel: provider.reasoningEffortsByModel,
+          reasoningEffort: draftReasoningEffort.trim() || undefined,
           name: provider.isCustom ? draftName : provider.name,
           protocol: draftProtocol,
         },
@@ -781,7 +911,7 @@ function ApiKeyProviderCard({
                 className="w-full rounded border border-border bg-secondary px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </div>
-            {provider.model !== undefined && (
+            {showModel && (
               <div>
                 <label className="mb-1 block text-[10px] text-muted-foreground">
                   {t('settings.providerCard.model')}
@@ -816,6 +946,19 @@ function ApiKeyProviderCard({
                 )}
               </div>
             )}
+            {showReasoningEffort && (
+              <div>
+                <label className="mb-1 block text-[10px] text-muted-foreground">
+                  {t('settings.providerCard.reasoningStrength')}
+                </label>
+                <input
+                  type="text"
+                  value={draftReasoningEffort}
+                  onChange={(event) => setDraftReasoningEffort(event.target.value)}
+                  className="w-full rounded border border-border bg-secondary px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                />
+              </div>
+            )}
           </div>
 
           {(group === 'llm' || group === 'vision') && provider.isCustom && (
@@ -825,7 +968,10 @@ function ApiKeyProviderCard({
               </label>
               <select
                 value={draftProtocol ?? 'openai-compatible'}
-                onChange={(e) => setDraftProtocol(e.target.value as LLMProviderProtocol)}
+                onChange={(e) => {
+                  const nextProtocol = e.target.value as LLMProviderProtocol;
+                  setDraftProtocol(nextProtocol);
+                }}
                 className="w-full rounded border border-border bg-secondary px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
               >
                 <option value="openai-compatible">

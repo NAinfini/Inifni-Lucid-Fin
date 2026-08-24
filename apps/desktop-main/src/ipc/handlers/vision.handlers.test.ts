@@ -102,7 +102,7 @@ describe('registerVisionHandlers', () => {
 
   it('reuses the active visual LLM and never reads a fallback credential', async () => {
     const { cas } = imageFixture();
-    const activeLLM = adapter('gemini-oauth', true, 'same-model analysis');
+    const activeLLM = adapter('chatgpt-oauth', true, 'same-model analysis');
     const analyzer = createVisualAnalyzer({
       cas: cas as never,
       llmRegistry: { get: vi.fn() },
@@ -113,7 +113,7 @@ describe('registerVisionHandlers', () => {
       preferredLLMAdapter: activeLLM,
     });
 
-    expect(result).toMatchObject({ text: 'same-model analysis', providerId: 'gemini-oauth' });
+    expect(result).toMatchObject({ text: 'same-model analysis', providerId: 'chatgpt-oauth' });
     expect(activeLLM.validate).not.toHaveBeenCalled();
     expect(activeLLM.complete).toHaveBeenCalledWith(
       expect.arrayContaining([
@@ -131,18 +131,18 @@ describe('registerVisionHandlers', () => {
       vision: {
         providers: [
           {
-            id: 'gemini-vision-oauth',
+            id: 'gemini-vision',
             name: 'Gemini Vision',
             baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
             model: 'gemini-3.6-flash',
             hasKey: true,
-            credentialMode: 'oauth',
+            credentialMode: 'api-key',
           },
         ],
       },
     });
     const textOnlyLLM = adapter('deepseek', false, 'must not run');
-    const fallback = adapter('gemini-vision-oauth', true, 'fallback analysis');
+    const fallback = adapter('gemini-vision', true, 'fallback analysis');
     const analyzer = createVisualAnalyzer({
       cas: cas as never,
       llmRegistry: { get: vi.fn((id) => (id === fallback.id ? fallback : undefined)) },
@@ -155,7 +155,7 @@ describe('registerVisionHandlers', () => {
 
     expect(result).toMatchObject({
       text: 'fallback analysis',
-      providerId: 'gemini-vision-oauth',
+      providerId: 'gemini-vision',
     });
     expect(textOnlyLLM.complete).not.toHaveBeenCalled();
     expect(fallback.complete).toHaveBeenCalledTimes(1);
@@ -163,11 +163,11 @@ describe('registerVisionHandlers', () => {
 
   it('surfaces an active visual LLM failure without invoking the fallback provider', async () => {
     const { cas } = imageFixture();
-    const activeLLM = adapter('gemini-oauth', true, 'unused');
+    const activeLLM = adapter('chatgpt-oauth', true, 'unused');
     activeLLM.complete = vi.fn(async () => {
       throw new Error('active visual LLM failed');
     });
-    const fallback = adapter('gemini-vision-oauth', true, 'must not run');
+    const fallback = adapter('gemini-vision', true, 'must not run');
     const analyzer = createVisualAnalyzer({
       cas: cas as never,
       llmRegistry: { get: vi.fn(() => fallback) },
@@ -188,9 +188,9 @@ describe('registerVisionHandlers', () => {
       llm: {
         providers: [
           {
-            id: 'gemini-oauth',
-            name: 'Gemini',
-            model: 'gemini-3.6-flash',
+            id: 'chatgpt-oauth',
+            name: 'ChatGPT',
+            model: 'gpt-5.6-sol',
             supportsVision: true,
           },
         ],
@@ -199,7 +199,7 @@ describe('registerVisionHandlers', () => {
         providers: [{ id: 'openai-vision', name: 'OpenAI Vision', model: 'gpt-5.6-sol' }],
       },
     });
-    const activeLLM = adapter('gemini-oauth', true, 'must not run');
+    const activeLLM = adapter('chatgpt-oauth', true, 'must not run');
     activeLLM.validate = vi.fn(async () => false);
     const fallback = adapter('openai-vision', true, 'must not run');
     const analyzer = createVisualAnalyzer({
@@ -210,7 +210,7 @@ describe('registerVisionHandlers', () => {
     });
 
     await expect(analyzer.analyzeImageAsset('asset', { systemPrompt: 'Analyze' })).rejects.toThrow(
-      'Visual provider is not ready: gemini-oauth',
+      'Visual provider is not ready: chatgpt-oauth',
     );
     expect(fallback.validate).not.toHaveBeenCalled();
     expect(fallback.complete).not.toHaveBeenCalled();
@@ -221,9 +221,9 @@ describe('registerVisionHandlers', () => {
       vision: {
         providers: [
           {
-            id: 'gemini-vision-oauth',
-            name: 'Gemini Vision',
-            model: 'gemini-3.6-flash',
+            id: 'chatgpt-vision-oauth',
+            name: 'ChatGPT Vision',
+            model: 'gpt-5.6-sol',
             credentialMode: 'oauth',
           },
         ],

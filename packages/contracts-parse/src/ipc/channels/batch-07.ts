@@ -1,33 +1,18 @@
 /**
  * canvas:* core channels — Batch 7 (non-generation).
  *
- * Covers the 7 invoke handlers in
+ * Covers the core invoke handlers in
  * `apps/desktop-main/src/ipc/handlers/canvas.handlers.ts`
  * (`canvas:list`, `canvas:load`, `canvas:save`, `canvas:create`,
- * `canvas:delete`, `canvas:rename`, `canvas:patch`) plus the
- * `canvas:estimateCost` invoke handler that physically lives in
- * `canvas-generation.handlers.ts` but does not emit generation progress and
- * is treated as a canvas core channel (its name has no `generation:` segment).
+ * `canvas:delete`, `canvas:rename`, `canvas:patch`).
  *
- * Canvas DTOs (`Canvas`, `CanvasNode`, `CanvasEdge`, `CanvasPatch`) remain
- * `z.unknown()` per Phase B-1 precedent — Phase C will zodify them once the
- * DTOs move into contract ownership.
- *
- * `canvas:generation:*` push channels and `canvas:generate` /
- * `canvas:cancelGeneration` invoke channels are covered by Batch 8.
- *
- * No `webContents.send('canvas:…')` push channels exist outside the
- * `canvas:generation:*` namespace.
  */
 import { z } from 'zod';
 import { defineInvokeChannel } from '../../channels.js';
+import { CanvasPatchSchema, StrictCanvasSchema } from '../../schemas/canvas.js';
+import { OrderedDeliverySequenceSchema } from '../../dto/ordered-delivery.js';
 
 // ── Shared primitives ────────────────────────────────────────
-// Canvas / CanvasPatch / CanvasNode / CanvasEdge stay opaque (`unknown`) at
-// this stage — Phase C will zodify the DTOs.
-const CanvasShape = z.unknown();
-const CanvasPatchShape = z.unknown();
-
 // ── canvas:list (invoke) ─────────────────────────────────────
 const CanvasListRequest = z.object({}).strict();
 const CanvasListResponse = z.array(
@@ -35,6 +20,7 @@ const CanvasListResponse = z.array(
     id: z.string(),
     name: z.string(),
     updatedAt: z.number(),
+    archivedAt: z.number().int().nonnegative().optional(),
   }),
 );
 export const canvasListChannel = defineInvokeChannel({
@@ -45,9 +31,20 @@ export const canvasListChannel = defineInvokeChannel({
 export type CanvasListRequest = z.infer<typeof CanvasListRequest>;
 export type CanvasListResponse = z.infer<typeof CanvasListResponse>;
 
+// ── canvas:loadAll (invoke) ──────────────────────────────────
+const CanvasLoadAllRequest = z.object({}).strict();
+const CanvasLoadAllResponse = z.array(StrictCanvasSchema);
+export const canvasLoadAllChannel = defineInvokeChannel({
+  channel: 'canvas:loadAll',
+  request: CanvasLoadAllRequest,
+  response: CanvasLoadAllResponse,
+});
+export type CanvasLoadAllRequest = z.infer<typeof CanvasLoadAllRequest>;
+export type CanvasLoadAllResponse = z.infer<typeof CanvasLoadAllResponse>;
+
 // ── canvas:load (invoke) ─────────────────────────────────────
 const CanvasLoadRequest = z.object({ id: z.string().min(1) });
-const CanvasLoadResponse = CanvasShape;
+const CanvasLoadResponse = StrictCanvasSchema;
 export const canvasLoadChannel = defineInvokeChannel({
   channel: 'canvas:load',
   request: CanvasLoadRequest,
@@ -57,8 +54,7 @@ export type CanvasLoadRequest = z.infer<typeof CanvasLoadRequest>;
 export type CanvasLoadResponse = z.infer<typeof CanvasLoadResponse>;
 
 // ── canvas:save (invoke) ─────────────────────────────────────
-// Request is the full Canvas DTO — kept opaque at this stage.
-const CanvasSaveRequest = CanvasShape;
+const CanvasSaveRequest = StrictCanvasSchema;
 const CanvasSaveResponse = z.void();
 export const canvasSaveChannel = defineInvokeChannel({
   channel: 'canvas:save',
@@ -70,7 +66,7 @@ export type CanvasSaveResponse = z.infer<typeof CanvasSaveResponse>;
 
 // ── canvas:create (invoke) ───────────────────────────────────
 const CanvasCreateRequest = z.object({ name: z.string().min(1) });
-const CanvasCreateResponse = CanvasShape;
+const CanvasCreateResponse = StrictCanvasSchema;
 export const canvasCreateChannel = defineInvokeChannel({
   channel: 'canvas:create',
   request: CanvasCreateRequest,
@@ -90,6 +86,28 @@ export const canvasDeleteChannel = defineInvokeChannel({
 export type CanvasDeleteRequest = z.infer<typeof CanvasDeleteRequest>;
 export type CanvasDeleteResponse = z.infer<typeof CanvasDeleteResponse>;
 
+// ── canvas:restore (invoke) ──────────────────────────────────
+const CanvasRestoreRequest = z.object({ id: z.string().min(1) });
+const CanvasRestoreResponse = z.void();
+export const canvasRestoreChannel = defineInvokeChannel({
+  channel: 'canvas:restore',
+  request: CanvasRestoreRequest,
+  response: CanvasRestoreResponse,
+});
+export type CanvasRestoreRequest = z.infer<typeof CanvasRestoreRequest>;
+export type CanvasRestoreResponse = z.infer<typeof CanvasRestoreResponse>;
+
+// ── canvas:deletePermanent (invoke) ──────────────────────────
+const CanvasDeletePermanentRequest = z.object({ id: z.string().min(1) });
+const CanvasDeletePermanentResponse = z.void();
+export const canvasDeletePermanentChannel = defineInvokeChannel({
+  channel: 'canvas:deletePermanent',
+  request: CanvasDeletePermanentRequest,
+  response: CanvasDeletePermanentResponse,
+});
+export type CanvasDeletePermanentRequest = z.infer<typeof CanvasDeletePermanentRequest>;
+export type CanvasDeletePermanentResponse = z.infer<typeof CanvasDeletePermanentResponse>;
+
 // ── canvas:rename (invoke) ───────────────────────────────────
 const CanvasRenameRequest = z.object({
   id: z.string().min(1),
@@ -105,11 +123,9 @@ export type CanvasRenameRequest = z.infer<typeof CanvasRenameRequest>;
 export type CanvasRenameResponse = z.infer<typeof CanvasRenameResponse>;
 
 // ── canvas:patch (invoke) ────────────────────────────────────
-// `patch` carries the full CanvasPatch DTO (name/node/edge deltas) — kept
-// opaque until Phase C zodifies CanvasNode / CanvasEdge.
 const CanvasPatchRequest = z.object({
   canvasId: z.string().min(1),
-  patch: CanvasPatchShape,
+  patch: CanvasPatchSchema,
 });
 const CanvasPatchResponse = z.void();
 export const canvasPatchChannel = defineInvokeChannel({
@@ -120,39 +136,44 @@ export const canvasPatchChannel = defineInvokeChannel({
 export type CanvasPatchRequest = z.infer<typeof CanvasPatchRequest>;
 export type CanvasPatchResponse = z.infer<typeof CanvasPatchResponse>;
 
-// ── canvas:estimateCost (invoke) ─────────────────────────────
-// Non-generation canvas channel — lives in canvas-generation.handlers.ts for
-// implementation convenience but belongs to the canvas core namespace.
-// The cost-breakdown response is currently `{ estimatedCost, currency }`
-// in ipc.ts; kept opaque here per precedent until Phase C zodifies the shape.
-const CanvasEstimateCostRequest = z.object({
-  canvasId: z.string().min(1),
-  nodeId: z.string().min(1),
-  providerId: z.string().min(1),
-  providerConfig: z
-    .object({
-      baseUrl: z.string(),
-      model: z.string(),
-      apiKey: z.string().optional(),
-    })
-    .optional(),
+// ── canvasDelivery:update (invoke) ─────────────────────────────
+const CanvasDeliveryUpdateRequest = z
+  .object({
+    canvasId: z.string().min(1),
+    expectedRevision: z.number().int().nonnegative(),
+    deliverySequence: OrderedDeliverySequenceSchema,
+  })
+  .strict()
+  .superRefine((request, ctx) => {
+    if (request.deliverySequence.revision !== request.expectedRevision + 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['deliverySequence', 'revision'],
+        message: 'deliverySequence.revision must equal expectedRevision + 1',
+      });
+    }
+  });
+const CanvasDeliveryUpdateResponse = z
+  .object({ deliverySequence: OrderedDeliverySequenceSchema })
+  .strict();
+export const canvasDeliveryUpdateChannel = defineInvokeChannel({
+  channel: 'canvasDelivery:update',
+  request: CanvasDeliveryUpdateRequest,
+  response: CanvasDeliveryUpdateResponse,
 });
-const CanvasEstimateCostResponse = z.unknown();
-export const canvasEstimateCostChannel = defineInvokeChannel({
-  channel: 'canvas:estimateCost',
-  request: CanvasEstimateCostRequest,
-  response: CanvasEstimateCostResponse,
-});
-export type CanvasEstimateCostRequest = z.infer<typeof CanvasEstimateCostRequest>;
-export type CanvasEstimateCostResponse = z.infer<typeof CanvasEstimateCostResponse>;
+export type CanvasDeliveryUpdateRequest = z.infer<typeof CanvasDeliveryUpdateRequest>;
+export type CanvasDeliveryUpdateResponse = z.infer<typeof CanvasDeliveryUpdateResponse>;
 
 export const canvasChannels = [
   canvasListChannel,
+  canvasLoadAllChannel,
   canvasLoadChannel,
   canvasSaveChannel,
   canvasCreateChannel,
   canvasDeleteChannel,
+  canvasRestoreChannel,
+  canvasDeletePermanentChannel,
   canvasRenameChannel,
   canvasPatchChannel,
-  canvasEstimateCostChannel,
+  canvasDeliveryUpdateChannel,
 ] as const;

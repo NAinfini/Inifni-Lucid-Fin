@@ -62,6 +62,7 @@ describe('OpenAIResponsesLLM', () => {
         model: 'gpt-5.6-sol',
         instructions: 'system rule',
         max_output_tokens: 128,
+        reasoning: { effort: 'high' },
         tools: [
           {
             type: 'function',
@@ -127,8 +128,9 @@ describe('OpenAIResponsesLLM', () => {
         name: 'OpenAI Responses',
         defaultBaseUrl: 'https://responses.example/v1',
         defaultModel: 'gpt-5.6-sol',
+        reasoningEffortsByModel: { 'gpt-5.6-sol': ['high'] },
       });
-      adapter.configure('sk-responses');
+      adapter.configure('sk-responses', { reasoningEffort: 'high' });
 
       await expect(
         complete(

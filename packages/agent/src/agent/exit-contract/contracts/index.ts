@@ -13,8 +13,8 @@
 
 import './info-answer.js'; // MUST be first — sets the fallback.
 import './mutation-execution.js';
-import './workflow-execution.js';
+import './task-list-execution.js';
 
 export { infoAnswerContract } from './info-answer.js';
 export { mutationExecutionContract } from './mutation-execution.js';
-export { workflowExecutionContract } from './workflow-execution.js';
+export { taskListExecutionContract } from './task-list-execution.js';

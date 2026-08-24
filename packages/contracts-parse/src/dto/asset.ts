@@ -1,11 +1,10 @@
 /**
- * AssetMeta + EmbeddingRecord DTOs — Phase G1-2.4.
+ * AssetMeta DTOs — Phase G1-2.4.
  *
  * Mirrors the shapes returned by `queryAssets` / `searchAssets` /
- * `queryEmbeddingByHash` in the legacy `sqlite-assets.ts`. Reads in
- * `AssetRepository` go through `parseOrDegrade` with these schemas so
- * a corrupt row surfaces as degraded-read telemetry + skip, not a
- * crash in the asset browser or embedding search flow.
+ * Reads in `AssetRepository` go through `parseOrDegrade` with these schemas
+ * so a corrupt row surfaces as degraded-read telemetry + skip, not a crash
+ * in the asset browser.
  */
 
 import { z } from 'zod';
@@ -41,8 +40,10 @@ const AssetGenerationMetadataSchema = z
     model: z.string().optional(),
     generationTimeMs: z.number().optional(),
     cost: z.number().optional(),
-    workflowRunId: z.string().optional(),
+    taskListId: z.string().optional(),
+    taskId: z.string().optional(),
     attemptId: z.string().optional(),
+    promptAssemblyId: z.string().optional(),
     specHash: z.string().optional(),
     promptHash: z.string().optional(),
     referenceAssetHashes: z.array(z.string()).optional(),
@@ -65,22 +66,22 @@ export const AssetMetaSchema = z.object({
   width: z.number().optional(),
   height: z.number().optional(),
   duration: z.number().optional(),
+  hasAudio: z.boolean().optional(),
   prompt: z.string().optional(),
   provider: z.string().optional(),
-  tags: z.array(z.string()),
-  folderId: z.string().nullable().optional(),
   createdAt: z.number().int().nonnegative(),
   generationMetadata: AssetGenerationMetadataSchema,
 });
 
 export type AssetMetaDto = z.infer<typeof AssetMetaSchema>;
 
-export const EmbeddingRecordSchema = z.object({
-  hash: z.string().min(1),
-  description: z.string(),
-  tokens: z.array(z.string()),
-  model: z.string(),
+export const AssetEntrySchema = AssetMetaSchema.omit({ createdAt: true }).extend({
+  id: z.string().min(1),
+  displayName: z.string().min(1),
+  tags: z.array(z.string()),
+  folderId: z.string().nullable(),
   createdAt: z.number().int().nonnegative(),
+  contentCreatedAt: z.number().int().nonnegative(),
 });
 
-export type EmbeddingRecordDto = z.infer<typeof EmbeddingRecordSchema>;
+export type AssetEntryDto = z.infer<typeof AssetEntrySchema>;

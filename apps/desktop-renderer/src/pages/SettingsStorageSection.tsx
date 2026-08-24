@@ -186,20 +186,6 @@ export function SettingsStorageSection() {
     }
   }, [refresh, showMessage]);
 
-  const handleClearEmbeddings = useCallback(async () => {
-    setActionLoading('clearEmbeddings');
-    try {
-      await window.lucidAPI.storage.clearEmbeddings();
-      showMessage('success', t('settings.storage.embeddingsCleared'));
-      void refresh();
-    } catch {
-      /* IPC call failed — show generic error message */
-      showMessage('error', t('settings.storage.actionFailed'));
-    } finally {
-      setActionLoading(null);
-    }
-  }, [refresh, showMessage]);
-
   const handleVacuum = useCallback(async () => {
     setActionLoading('vacuum');
     try {
@@ -383,13 +369,6 @@ export function SettingsStorageSection() {
             label={t('settings.storage.clearLogs')}
             onClick={() => void handleClearLogs()}
             loading={actionLoading === 'clearLogs'}
-            variant="danger"
-          />
-          <ActionButton
-            icon={Trash2}
-            label={t('settings.storage.clearEmbeddings')}
-            onClick={() => void handleClearEmbeddings()}
-            loading={actionLoading === 'clearEmbeddings'}
             variant="danger"
           />
         </div>

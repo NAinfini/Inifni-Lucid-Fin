@@ -5,7 +5,7 @@ with a real LLM provider but
 **mocked generation** (`canvas.generate`, `*.generateRefImage`). Produces a
 reproducible corpus of session traces for system-level debugging:
 
-- Which process prompts / workflow guides never get invoked?
+- Which process prompts / task-list guides never get invoked?
 - Can a user produce a ref image without a `stylePlate` being locked?
   (Phase 3 style-plate regression test.)
 - What's the tool-call distribution per persona archetype?
@@ -92,7 +92,7 @@ a **regression net** for behaviors that depend on cross-tool sequencing.
 harness/
   run-all.ts              entry point; CLI args; spawns sessions.
   run-single.ts           one user session — full agent loop.
-  test-env.ts             per-user temp sqlite + stores + real JobQueue/WorkflowEngine.
+  test-env.ts             per-user temp sqlite + stores + real JobQueue/TaskExecutionEngine.
   mock-generation.ts      overrides canvas.generate + ref-image tools post-registerAllTools.
   personas.ts             50 hand-crafted personas across 6 archetypes.
   llm-factory.ts          builds a ready-to-use LLMAdapter from Codex spec + keychain.

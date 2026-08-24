@@ -23,34 +23,17 @@ describe('preload commander bridge', () => {
     ipcInvoke.mockResolvedValue(undefined);
   });
 
-  it('exposes commander tool discovery methods through lucidAPI', async () => {
-    await import('./preload.cjs');
-
-    expect(exposeInMainWorld).toHaveBeenCalledOnce();
-
-    const api = exposeInMainWorld.mock.calls[0]?.[1] as {
-      commander: {
-        toolList?: () => Promise<unknown>;
-        toolSearch?: (query?: string) => Promise<unknown>;
-      };
-    };
-
-    expect(api.commander.toolList).toEqual(expect.any(Function));
-    expect(api.commander.toolSearch).toEqual(expect.any(Function));
-
-    await api.commander.toolList?.();
-    await api.commander.toolSearch?.('guide');
-
-    expect(ipcInvoke).toHaveBeenNthCalledWith(1, 'commander:tool-list');
-    expect(ipcInvoke).toHaveBeenNthCalledWith(2, 'commander:tool-search', { query: 'guide' });
-  });
-
-  it('exposes session and snapshot APIs through lucidAPI', async () => {
+  it('exposes session, snapshot, Commander control, Canvas lifecycle, Delivery, and Review Cut APIs through lucidAPI', async () => {
     await import('./preload.cjs');
 
     const api = exposeInMainWorld.mock.calls[0]?.[1] as {
       session: Record<string, unknown>;
       snapshot: Record<string, unknown>;
+      commander: Record<string, unknown>;
+      canvas: Record<string, unknown>;
+      canvasDelivery: Record<string, unknown>;
+      deliveryPackage: Record<string, unknown>;
+      reviewCut: Record<string, unknown>;
     };
 
     expect(api.session).toBeDefined();
@@ -58,12 +41,45 @@ describe('preload commander bridge', () => {
     expect(typeof api.session.list).toBe('function');
     expect(typeof api.session.get).toBe('function');
     expect(typeof api.session.delete).toBe('function');
+    expect(typeof api.session.move).toBe('function');
 
     expect(api.snapshot).toBeDefined();
     expect(typeof api.snapshot.capture).toBe('function');
     expect(typeof api.snapshot.list).toBe('function');
     expect(typeof api.snapshot.restore).toBe('function');
     expect(typeof api.snapshot.delete).toBe('function');
+    expect(typeof api.commander.runControl).toBe('function');
+    expect(typeof api.commander.runTree).toBe('function');
+    expect(typeof api.canvas.restore).toBe('function');
+    expect(typeof api.canvas.deletePermanent).toBe('function');
+    expect(typeof api.canvasDelivery.update).toBe('function');
+    expect(Object.keys(api.deliveryPackage).sort()).toEqual([
+      'cancel',
+      'open',
+      'retry',
+      'start',
+      'status',
+    ]);
+    expect(Object.keys(api.reviewCut).sort()).toEqual(['cancel', 'open', 'start', 'status']);
+  });
+
+  it('replays an initialization error emitted before the renderer subscribes', async () => {
+    let initErrorListener: ((event: unknown, error: unknown) => void) | undefined;
+    ipcOn.mockImplementation((channel: string, listener: (...args: unknown[]) => void) => {
+      if (channel === 'app:init-error') initErrorListener = listener;
+    });
+
+    await import('./preload.cjs');
+    initErrorListener?.({}, 'Canonical schema validation failed');
+
+    const api = exposeInMainWorld.mock.calls[0]?.[1] as {
+      onInitError: (callback: (error: string) => void) => () => void;
+    };
+    const callback = vi.fn();
+    const unsubscribe = api.onInitError(callback);
+
+    expect(callback).toHaveBeenCalledWith('Canonical schema validation failed');
+    expect(unsubscribe).toBeTypeOf('function');
   });
 });
 
@@ -104,46 +120,6 @@ describe('preload IPC timeout', () => {
 
     const result = await api.app.version();
     expect(result).toBe('1.0.0');
-  });
-});
-
-describe('preload IPC rate limiting', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.resetModules();
-    ipcInvoke.mockResolvedValue(undefined);
-  });
-
-  it('throws rate limit error when exceeding maxPerSecond for rate-limited channel', async () => {
-    await import('./preload.cjs');
-    const api = exposeInMainWorld.mock.calls[0]?.[1] as {
-      canvasGeneration: {
-        generate: (...args: unknown[]) => Promise<unknown>;
-      };
-    };
-
-    // canvas:generate has maxPerSecond: 2
-    // First two calls should succeed
-    await api.canvasGeneration.generate('c1', 'n1');
-    await api.canvasGeneration.generate('c1', 'n2');
-
-    // Third call within the same second should throw
-    expect(() => api.canvasGeneration.generate('c1', 'n3')).toThrow(
-      /IPC rate limited.*canvas:generate/,
-    );
-  });
-
-  it('does not rate limit non-limited channels', async () => {
-    await import('./preload.cjs');
-    const api = exposeInMainWorld.mock.calls[0]?.[1] as {
-      character: { list: () => Promise<unknown> };
-    };
-
-    // character:list is not rate limited, many rapid calls should be fine
-    for (let i = 0; i < 20; i++) {
-      await api.character.list();
-    }
-    expect(ipcInvoke).toHaveBeenCalledTimes(20);
   });
 });
 

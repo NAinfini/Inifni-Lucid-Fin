@@ -51,6 +51,19 @@ class FakeClient {
       },
     ],
   }));
+  readonly listModels = vi.fn(async () => ({
+    data: [
+      {
+        id: 'gpt-5.6-sol',
+        model: 'gpt-5.6-sol',
+        supportedReasoningEfforts: [
+          { reasoningEffort: 'high' },
+          { reasoningEffort: 'xhigh' },
+        ],
+      },
+    ],
+    nextCursor: null,
+  }));
   readonly startThread = vi.fn(async () => ({ thread: { id: 'thread-1' } }));
   readonly startTurn = vi.fn(async () => ({ turn: { id: 'turn-1' } }));
   readonly interruptTurn = vi.fn(async () => ({}));
@@ -80,7 +93,7 @@ class FakeClient {
 function createRuntime(
   client: FakeClient,
   generationTimeoutMs = 1_000,
-  capability: Exclude<OAuthCapability, 'video'> = 'image',
+  capability: OAuthCapability = 'image',
 ): {
   runtime: CodexRuntime;
   home: string;
@@ -98,6 +111,35 @@ function createRuntime(
 }
 
 describe('Codex runtime', () => {
+  it('passes the configured model and non-empty reasoning effort to Codex', async () => {
+    const client = new FakeClient();
+    const { runtime } = createRuntime(client, 1_000, 'llm');
+    await runtime.start();
+    runtime.configureLLM({ model: 'gpt-5.6-sol', reasoningEffort: 'xhigh' });
+    client.startTurn.mockImplementationOnce(async () => {
+      setImmediate(() => {
+        client.emit('turn/completed', {
+          threadId: 'thread-1',
+          turn: { id: 'turn-1', status: 'completed' },
+        });
+      });
+      return { turn: { id: 'turn-1' } };
+    });
+
+    const stream = await runtime.completeWithTools([{ role: 'user', content: 'Plan it' }]);
+    for await (const _event of stream) {
+      // Drain the finite turn.
+    }
+
+    expect(client.startThread).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gpt-5.6-sol' }),
+    );
+    expect(client.startTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ effort: 'xhigh' }),
+    );
+    await runtime.stop();
+  });
+
   it('bridges only registered dynamic tools through the host-owned Commander executor', async () => {
     const client = new FakeClient();
     const { runtime } = createRuntime(client, 1_000, 'llm');

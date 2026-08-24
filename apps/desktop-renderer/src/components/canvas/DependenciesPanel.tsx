@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { GitBranch } from 'lucide-react';
 import type { RootState } from '../../store/index.js';
@@ -14,20 +15,20 @@ export function DependenciesPanel() {
   const activeCanvas = useSelector(selectActiveCanvas) ?? null;
   const nodesById = useSelector(selectNodesById);
 
-  const buildDepMap = () => {
+  const { upstream, downstream } = useMemo(() => {
     if (!activeCanvas) return { upstream: [] as string[], downstream: [] as string[] };
     const selected = selectedNodeIds[0];
     if (!selected) return { upstream: [], downstream: [] };
 
-    const upstream = [
-      ...new Set(activeCanvas.edges.filter((e) => e.target === selected).map((e) => e.source)),
-    ].filter((id) => id !== selected);
-    const downstream = [
-      ...new Set(activeCanvas.edges.filter((e) => e.source === selected).map((e) => e.target)),
-    ].filter((id) => id !== selected);
+    const upstreamIds = new Set<string>();
+    const downstreamIds = new Set<string>();
+    for (const edge of activeCanvas.edges) {
+      if (edge.target === selected && edge.source !== selected) upstreamIds.add(edge.source);
+      if (edge.source === selected && edge.target !== selected) downstreamIds.add(edge.target);
+    }
 
-    return { upstream, downstream };
-  };
+    return { upstream: [...upstreamIds], downstream: [...downstreamIds] };
+  }, [activeCanvas, selectedNodeIds]);
 
   const nodeLabel = (id: string) => {
     const node = nodesById.get(id);
@@ -51,7 +52,6 @@ export function DependenciesPanel() {
     dispatch(setHoveredDependencyNodeId(null));
   };
 
-  const { upstream, downstream } = buildDepMap();
   const hasSelection = selectedNodeIds.length > 0;
 
   return (

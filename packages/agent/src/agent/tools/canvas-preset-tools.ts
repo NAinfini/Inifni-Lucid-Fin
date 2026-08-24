@@ -6,7 +6,12 @@ import {
   type PresetTrackEntry,
   type PresetTrackSet,
 } from '@lucid-fin/contracts';
-import type { AgentTool, CanvasToolDeps, TrackMap } from './canvas-tool-utils.js';
+import {
+  NO_TOOL_RESOURCE,
+  type ToolDefinition,
+  type CanvasToolDeps,
+  type TrackMap,
+} from './canvas-tool-utils.js';
 import {
   CANVAS_CONTEXT,
   ok,
@@ -21,8 +26,36 @@ import {
   normalizeTrackOrders,
   requirePresetTrackEntryChanges,
 } from './canvas-tool-utils.js';
+import { authorityFact, contextProjector, records, resultRecord, stringValues } from './context-replay.js';
+import { toolResultSchema } from '../tool-registry.js';
+import {
+  arraySchema,
+  booleanSchema,
+  numberSchema,
+  objectSchema,
+  presetCategorySchema,
+  presetTrackEntrySchema,
+  presetTrackSchema,
+  presetTrackSetSchema,
+  stringArraySchema,
+  stringSchema,
+  unionSchema,
+} from './tool-runtime-schemas.js';
 
-export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
+const presetMutationAttemptSchema = objectSchema(
+  {
+    nodeId: stringSchema,
+    success: booleanSchema,
+    entry: presetTrackEntrySchema,
+    templateName: stringSchema,
+    templateId: stringSchema,
+    appliedCategories: stringArraySchema,
+    error: stringSchema,
+  },
+  ['nodeId', 'success'],
+);
+
+export function createCanvasPresetTools(deps: CanvasToolDeps): ToolDefinition[] {
   // ---------------------------------------------------------------------------
   // Helper: build tracks from entries array
   // ---------------------------------------------------------------------------
@@ -59,13 +92,55 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
   // canvas.presetTracks — merged preset track tool
   // ---------------------------------------------------------------------------
 
-  const presetTracks: AgentTool = {
+  const presetTracks: ToolDefinition = {
     name: 'canvas.presetTracks',
+    process: 'node-preset-tracks',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description:
       'Read, write, or apply preset tracks on image/video nodes. Use action to select the operation.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema({ nodeId: stringSchema, presetTracks: presetTrackSetSchema }),
+        objectSchema({ nodeId: stringSchema, category: presetCategorySchema, track: presetTrackSchema }),
+        objectSchema({
+          nodeId: stringSchema,
+          tracks: arraySchema(objectSchema({ category: presetCategorySchema, track: presetTrackSchema })),
+        }),
+        objectSchema({ nodeId: stringSchema, category: presetCategorySchema, entry: presetTrackEntrySchema }),
+        objectSchema({ nodeId: stringSchema, category: presetCategorySchema, entryId: stringSchema }),
+        objectSchema({
+          nodeId: stringSchema,
+          templateId: stringSchema,
+          templateName: stringSchema,
+          appliedCategories: stringArraySchema,
+        }),
+        objectSchema(
+          {
+            updated: numberSchema,
+            total: numberSchema,
+            category: presetCategorySchema,
+            results: arraySchema(presetMutationAttemptSchema),
+          },
+          ['updated', 'total', 'results'],
+        ),
+      ),
+    ),
+    projectPublicResult: contextProjector((_result, args) =>
+      [...stringValues(args.nodeIds), ...stringValues(args.nodeId)].map((nodeId) =>
+        authorityFact(
+          'canvas_node',
+          args.action === 'read' ? 'read' : 'updated',
+          nodeId,
+          { scopeId: args.canvasId },
+        ),
+      ),
+    ),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -114,7 +189,7 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
           },
         },
         tracks: {
-          type: 'object',
+          ...presetTrackSetSchema as Extract<typeof presetTrackSetSchema, { type: 'object' }>,
           description:
             'Object keyed by category name. Each value has optional "intensity" (0-100) and optional "entries" array. Used by writeBatch action.',
         },
@@ -213,8 +288,12 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
                 presetId,
                 params: {},
                 order: idx,
-                intensity: clampIntensity(raw.intensity),
-                direction: parseOptionalCameraDirection(raw.direction),
+                ...(clampIntensity(raw.intensity) !== undefined
+                  ? { intensity: clampIntensity(raw.intensity) }
+                  : {}),
+                ...(parseOptionalCameraDirection(raw.direction)
+                  ? { direction: parseOptionalCameraDirection(raw.direction) }
+                  : {}),
               };
             });
             track.entries = entries;
@@ -279,8 +358,12 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
                   presetId,
                   params: {},
                   order: idx,
-                  intensity: clampIntensity(raw.intensity),
-                  direction: parseOptionalCameraDirection(raw.direction),
+                  ...(clampIntensity(raw.intensity) !== undefined
+                    ? { intensity: clampIntensity(raw.intensity) }
+                    : {}),
+                  ...(parseOptionalCameraDirection(raw.direction)
+                    ? { direction: parseOptionalCameraDirection(raw.direction) }
+                    : {}),
                 };
               });
               track.entries = entries;
@@ -329,7 +412,9 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
                 presetId,
                 params: {},
                 order: track.entries.length,
-                intensity: clampIntensity(args.intensity),
+                ...(clampIntensity(args.intensity) !== undefined
+                  ? { intensity: clampIntensity(args.intensity) }
+                  : {}),
               };
               track.entries.push(entry);
               normalizeTrackOrders(track);
@@ -343,8 +428,12 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
               });
             }
           }
-          if (results.length === 1)
-            return ok({ nodeId: nodeIds[0], category, entry: results[0]?.entry });
+          if (results.length === 1) {
+            const result = results[0];
+            return result.success && result.entry
+              ? ok({ nodeId: nodeIds[0], category, entry: result.entry })
+              : fail(result.error ?? 'Failed to add preset entry');
+          }
           return ok({
             updated: results.filter((r) => r.success).length,
             total: nodeIds.length,
@@ -499,6 +588,9 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
           if (results.length === 1) {
             const r = results[0];
             if (!r.success) return fail(r.error!);
+            if (!r.templateId || !r.templateName || !r.appliedCategories) {
+              return fail('Template application completed without canonical result metadata');
+            }
             return ok({
               nodeId: r.nodeId,
               templateId: r.templateId,
@@ -528,11 +620,59 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
   // shotTemplate.manage — merged shot template management tool
   // ---------------------------------------------------------------------------
 
-  const shotTemplateManage: AgentTool = {
+  const shotTemplateManage: ToolDefinition = {
     name: 'shotTemplate.manage',
+    process: 'shot-template-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description: 'Manage shot templates: list, create, update, or delete.',
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema({
+          total: numberSchema,
+          templates: arraySchema(
+            objectSchema({
+              id: stringSchema,
+              name: stringSchema,
+              description: stringSchema,
+              builtIn: booleanSchema,
+              categories: stringArraySchema,
+              entryCount: numberSchema,
+            }),
+          ),
+        }),
+        objectSchema(
+          {
+            id: stringSchema,
+            name: stringSchema,
+            description: stringSchema,
+            categories: stringArraySchema,
+            entryCount: numberSchema,
+          },
+          ['id', 'name', 'description'],
+        ),
+        objectSchema({ deleted: stringSchema }),
+      ),
+    ),
+    projectPublicResult: contextProjector((result, args) => {
+      const data = resultRecord(result);
+      if (args.action === 'list') {
+        return records(data?.templates).map((template) =>
+          authorityFact('shot_template', 'read', template.id),
+        );
+      }
+      return [
+        authorityFact(
+          'shot_template',
+          args.action === 'create' ? 'created' : args.action === 'delete' ? 'deleted' : 'updated',
+          data?.id ?? data?.deleted ?? args.templateId,
+        ),
+      ];
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
         action: {
@@ -573,7 +713,7 @@ export function createCanvasPresetTools(deps: CanvasToolDeps): AgentTool[] {
               presetId: { type: 'string', description: 'The preset ID to include.' },
               intensity: { type: 'number', description: 'Intensity 0-100. Default 75.' },
             },
-            required: true,
+            required: ['category', 'presetId'],
           },
           description: 'Preset entries to bundle. Used by create and update.',
         },

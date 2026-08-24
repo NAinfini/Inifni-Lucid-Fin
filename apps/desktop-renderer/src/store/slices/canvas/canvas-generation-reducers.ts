@@ -122,6 +122,9 @@ export function setNodeGenerationComplete(
     primaryAssetHash: string;
     cost?: number;
     generationTimeMs: number;
+    promptAssemblyId?: string;
+    prompt?: string;
+    negativePrompt?: string;
     characterRefs?: GenerationEntityRef[];
     equipmentRefs?: GenerationEntityRef[];
     locationRefs?: GenerationEntityRef[];
@@ -153,37 +156,38 @@ export function setNodeGenerationComplete(
     data.cost = action.payload.cost;
     data.estimatedCost = action.payload.cost;
   }
-  if ('generationHistory' in data) {
-    const history = (data as ImageNodeData | VideoNodeData | AudioNodeData).generationHistory ?? [];
-    const imgVidData = data as ImageNodeData | VideoNodeData;
-    const entry: GenerationHistoryEntry = {
-      assetHash: action.payload.primaryAssetHash,
-      prompt: data.prompt ?? '',
-      negativePrompt: 'negativePrompt' in data ? (data as ImageNodeData).negativePrompt : undefined,
-      providerId: data.providerId ?? '',
-      seed: data.seed,
-      cost: action.payload.cost,
-      generationTimeMs: action.payload.generationTimeMs,
-      createdAt: Date.now(),
-      sourceImageHash: action.payload.sourceImageHash ?? imgVidData?.sourceImageHash,
-      characterRefs: action.payload.characterRefs,
-      equipmentRefs: action.payload.equipmentRefs,
-      locationRefs: action.payload.locationRefs,
-      frameReferenceHashes: action.payload.frameReferenceHashes,
-      width: 'width' in data ? (data as ImageNodeData).width : undefined,
-      height: 'height' in data ? (data as ImageNodeData).height : undefined,
-      steps: 'steps' in imgVidData ? imgVidData.steps : undefined,
-      cfgScale: 'cfgScale' in imgVidData ? imgVidData.cfgScale : undefined,
-      scheduler: 'scheduler' in imgVidData ? imgVidData.scheduler : undefined,
-      img2imgStrength: 'img2imgStrength' in imgVidData ? imgVidData.img2imgStrength : undefined,
-      model: action.payload.model,
-    };
-    history.push(entry);
-    if (history.length > MAX_GENERATION_HISTORY) {
-      history.splice(0, history.length - MAX_GENERATION_HISTORY);
-    }
-    (data as ImageNodeData | VideoNodeData | AudioNodeData).generationHistory = history;
+  const history = (data as ImageNodeData | VideoNodeData | AudioNodeData).generationHistory ?? [];
+  const imgVidData = data as ImageNodeData | VideoNodeData;
+  const entry: GenerationHistoryEntry = {
+    assetHash: action.payload.primaryAssetHash,
+    promptAssemblyId: action.payload.promptAssemblyId,
+    prompt: action.payload.prompt ?? data.prompt ?? '',
+    negativePrompt:
+      action.payload.negativePrompt ??
+      ('negativePrompt' in data ? (data as ImageNodeData).negativePrompt : undefined),
+    providerId: data.providerId ?? '',
+    seed: data.seed,
+    cost: action.payload.cost,
+    generationTimeMs: action.payload.generationTimeMs,
+    createdAt: Date.now(),
+    sourceImageHash: action.payload.sourceImageHash ?? imgVidData?.sourceImageHash,
+    characterRefs: action.payload.characterRefs,
+    equipmentRefs: action.payload.equipmentRefs,
+    locationRefs: action.payload.locationRefs,
+    frameReferenceHashes: action.payload.frameReferenceHashes,
+    width: 'width' in data ? (data as ImageNodeData).width : undefined,
+    height: 'height' in data ? (data as ImageNodeData).height : undefined,
+    steps: 'steps' in imgVidData ? imgVidData.steps : undefined,
+    cfgScale: 'cfgScale' in imgVidData ? imgVidData.cfgScale : undefined,
+    scheduler: 'scheduler' in imgVidData ? imgVidData.scheduler : undefined,
+    img2imgStrength: 'img2imgStrength' in imgVidData ? imgVidData.img2imgStrength : undefined,
+    model: action.payload.model,
+  };
+  history.push(entry);
+  if (history.length > MAX_GENERATION_HISTORY) {
+    history.splice(0, history.length - MAX_GENERATION_HISTORY);
   }
+  (data as ImageNodeData | VideoNodeData | AudioNodeData).generationHistory = history;
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
 }
@@ -507,7 +511,7 @@ export function setNodeSourceImage(
 }
 
 // ---------------------------------------------------------------------------
-// Node duration / scene metadata for NLE export (L19)
+// Node duration / scene metadata used by delivery preparation
 // ---------------------------------------------------------------------------
 
 export function setNodeDurationOverride(
@@ -556,21 +560,4 @@ export function clearGenerationHistory(
   (data as ImageNodeData | VideoNodeData | AudioNodeData).generationHistory = [];
   node.updatedAt = Date.now();
   canvas.updatedAt = node.updatedAt;
-}
-
-// ---------------------------------------------------------------------------
-// Lip Sync (F2)
-// ---------------------------------------------------------------------------
-
-export function setNodeLipSync(
-  state: CanvasSliceState,
-  action: PayloadAction<{ nodeId: string; enabled: boolean }>,
-): void {
-  const canvas = findActiveCanvas(state);
-  if (!canvas) return;
-  const node = canvas.nodes.find((n) => n.id === action.payload.nodeId);
-  if (!node || node.type !== 'video') return;
-  const data = node.data as VideoNodeData;
-  data.lipSyncEnabled = action.payload.enabled;
-  canvas.updatedAt = Date.now();
 }

@@ -97,7 +97,7 @@ export function SingleReferenceImage({
         const filePath = (file as { path?: string }).path ?? '';
         if (filePath) {
           const api = getAPI();
-          void api?.asset
+          void api?.assetEntry
             .import(filePath, 'image')
             .then((ref) => {
               const r = ref as { hash: string } | null;

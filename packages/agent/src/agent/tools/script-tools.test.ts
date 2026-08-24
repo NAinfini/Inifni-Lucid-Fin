@@ -40,7 +40,7 @@ describe('createScriptTools', () => {
     const tools = createScriptTools(deps);
 
     expect(tools.map((tool) => tool.name)).toEqual(['script.manage', 'script.import']);
-    expect(getTool('script.manage', deps).context).toEqual([
+    expect(getTool('script.manage', deps).contexts).toEqual([
       'script-editor',
       'storyboard',
       'orchestrator',
@@ -52,7 +52,7 @@ describe('createScriptTools', () => {
 
     await expect(getTool('script.manage', deps).execute({ action: 'read' })).resolves.toEqual({
       success: true,
-      data: { content: script.content, parsedScenes },
+      data: { id: script.id, content: script.content, parsedScenes },
     });
 
     vi.mocked(deps.loadScript).mockResolvedValueOnce(null);
@@ -69,7 +69,7 @@ describe('createScriptTools', () => {
       getTool('script.manage', deps).execute({ action: 'write', content: 'INT. HALL - NIGHT' }),
     ).resolves.toEqual({
       success: true,
-      data: { parsedScenes },
+      data: { id: script.id, parsedScenes },
     });
     expect(deps.saveScript).toHaveBeenCalledWith('INT. HALL - NIGHT');
     expect(deps.parseScript).toHaveBeenCalledWith('INT. HALL - NIGHT');
@@ -82,7 +82,7 @@ describe('createScriptTools', () => {
       getTool('script.import', deps).execute({ path: ' C:/tmp/script.fountain ' }),
     ).resolves.toEqual({
       success: true,
-      data: { path: 'C:/tmp/script.fountain' },
+      data: { id: script.id, path: 'C:/tmp/script.fountain' },
     });
     expect(deps.loadScript).toHaveBeenCalledWith('C:/tmp/script.fountain');
   });
@@ -97,7 +97,7 @@ describe('createScriptTools', () => {
       }),
     ).resolves.toEqual({
       success: true,
-      data: { content: 'INT. ROOM - DAY', parsedScenes, format: 'fountain' },
+      data: { id: script.id, content: 'INT. ROOM - DAY', parsedScenes, format: 'fountain' },
     });
     expect(deps.importScript).toHaveBeenCalledWith('INT. ROOM - DAY', 'fountain');
   });

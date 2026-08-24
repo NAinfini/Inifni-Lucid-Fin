@@ -1,48 +1,36 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import os from 'node:os';
 import type { AdapterRegistry, LLMRegistry } from '@lucid-fin/adapters-ai';
 import { buildRuntimeLLMAdapter } from '@lucid-fin/adapters-ai';
 import {
-  AgentToolRegistry,
+  ToolRegistry,
   createAssetTools,
   createCanvasTools,
   createEntityTools,
   createPresetTools,
   createPromptTools,
   createProviderTools,
-  createRenderTools,
   createScriptTools,
   createMetaTools,
-  createWorkflowTools,
+  createTaskListTools,
   createTextAnalyzeTools,
   createSnapshotTools,
   registerToolModule,
   registerFiltered,
   EXCLUDED_TOOLS,
-  jobToolModule,
   colorStyleToolModule,
-  seriesToolModule,
-  createTodoTools,
-  type JobQueue,
-  type WorkflowEngine,
-  type WorkflowCommanderContinuationConfig,
+  createRunChecklistTools,
+  type TaskExecutionEngine,
+  type TaskListCommanderContinuationConfig,
 } from '@lucid-fin/application';
 import { parseScript } from '@lucid-fin/domain';
 import {
   settingsProviderKeyUpdatedChannel,
-  refimageStartChannel,
-  refimageCompleteChannel,
-  refimageFailedChannel,
   commanderSettingsDispatchChannel,
-  commanderUndoDispatchChannel,
   parseSessionId,
   parseSnapshotId,
-  parsePresetId,
   parseShotTemplateId,
-  parseSeriesId,
-  parseEpisodeId,
   parseCharacterId,
   parseEquipmentId,
   parseLocationId,
@@ -69,59 +57,48 @@ import {
 } from '@lucid-fin/contracts';
 import type { CAS, SqliteIndex, PromptStore } from '@lucid-fin/storage';
 import type { CanvasStore } from '../canvas.handlers.js';
-import { startCanvasGeneration, cancelCanvasGeneration } from '../canvas-generation.handlers.js';
-import { buildGenerationContext } from '../generation-context.js';
+import {
+  buildGenerationEstimateContext,
+  resolveGenerationResolutionMediaType,
+} from '../generation-context.js';
 import { getCachedProviders } from '../../settings-cache.js';
 import { getBufferedLogs } from '../../../logger.js';
-import { makeGenerateImage } from '../commander-image-gen.js';
 import {
   createRendererPushGateway,
   type RendererPushGateway,
 } from '../../../features/ipc/push-gateway.js';
 import type { BrowserWindow } from 'electron';
-import { createVideoTools } from '../video-tools.js';
-import { detectScenes, extractFrameAtTime } from '@lucid-fin/media-engine';
 import type { VisualAnalyzer } from '../../../services/visual-analyzer.service.js';
+import type { ProjectPresetCatalog } from '../preset.handlers.js';
 
 export {
   fs,
   path,
   randomUUID,
-  os,
   buildRuntimeLLMAdapter,
-  AgentToolRegistry,
+  ToolRegistry,
   createAssetTools,
   createCanvasTools,
   createEntityTools,
   createPresetTools,
   createPromptTools,
   createProviderTools,
-  createRenderTools,
   createScriptTools,
   createMetaTools,
-  createWorkflowTools,
+  createTaskListTools,
   createTextAnalyzeTools,
   createSnapshotTools,
   registerToolModule,
   registerFiltered,
   EXCLUDED_TOOLS,
-  jobToolModule,
   colorStyleToolModule,
-  seriesToolModule,
-  createTodoTools,
+  createRunChecklistTools,
   parseScript,
   settingsProviderKeyUpdatedChannel,
-  refimageStartChannel,
-  refimageCompleteChannel,
-  refimageFailedChannel,
   commanderSettingsDispatchChannel,
-  commanderUndoDispatchChannel,
   parseSessionId,
   parseSnapshotId,
-  parsePresetId,
   parseShotTemplateId,
-  parseSeriesId,
-  parseEpisodeId,
   parseCharacterId,
   parseEquipmentId,
   parseLocationId,
@@ -131,23 +108,17 @@ export {
   createEmptyPresetTrackSet,
   normalizeLLMProviderRuntimeConfig,
   getBuiltinVisionProviderPreset,
-  startCanvasGeneration,
-  cancelCanvasGeneration,
-  buildGenerationContext,
+  buildGenerationEstimateContext,
+  resolveGenerationResolutionMediaType,
   getCachedProviders,
   getBufferedLogs,
-  makeGenerateImage,
   createRendererPushGateway,
-  createVideoTools,
-  detectScenes,
-  extractFrameAtTime,
 };
 
 export type {
   AdapterRegistry,
   LLMRegistry,
-  JobQueue,
-  WorkflowEngine,
+  TaskExecutionEngine,
   Canvas,
   CanvasEdge,
   CanvasNode,
@@ -187,6 +158,37 @@ export function requireNode(
   return { canvas, node };
 }
 
+export function requireAuthorizedCanvas(
+  deps: Pick<ToolRegistrationDeps, 'authorizedCanvasIds' | 'canvasStore'>,
+  canvasId: string,
+): Canvas {
+  if (!deps.authorizedCanvasIds.includes(canvasId)) {
+    throw new Error(`Canvas is not authorized for this Commander run: ${canvasId}`);
+  }
+  return requireCanvas(deps.canvasStore, canvasId);
+}
+
+export function requireAuthorizedNode(
+  deps: Pick<ToolRegistrationDeps, 'authorizedCanvasIds' | 'canvasStore'>,
+  canvasId: string,
+  nodeId: string,
+): { canvas: Canvas; node: CanvasNode } {
+  const canvas = requireAuthorizedCanvas(deps, canvasId);
+  const node = canvas.nodes.find((entry) => entry.id === nodeId);
+  if (!node) throw new Error(`Node not found: ${nodeId}`);
+  return { canvas, node };
+}
+
+export function requireDefaultCanvasId(
+  deps: Pick<ToolRegistrationDeps, 'defaultCanvasId' | 'authorizedCanvasIds' | 'canvasStore'>,
+): string {
+  if (!deps.defaultCanvasId) {
+    throw new Error('This Commander operation requires a default Canvas');
+  }
+  requireAuthorizedCanvas(deps, deps.defaultCanvasId);
+  return deps.defaultCanvasId;
+}
+
 export function touchCanvas(canvas: Canvas, store: CanvasStore): void {
   canvas.updatedAt = Date.now();
   store.save(canvas);
@@ -221,19 +223,26 @@ export interface ToolRegistrationDeps {
   llmRegistry: LLMRegistry;
   /** Configured LLM for this Commander run; reused for image analysis when visual-capable. */
   activeLLMAdapter?: LLMAdapter;
+  defaultCanvasId?: string;
+  authorizedCanvasIds: string[];
   visualAnalyzer: VisualAnalyzer;
   canvasStore: CanvasStore;
-  presetLibrary: PresetDefinition[];
-  jobQueue: JobQueue;
-  workflowEngine: WorkflowEngine;
+  presetCatalog: ProjectPresetCatalog;
+  taskExecutionEngine: TaskExecutionEngine;
   db: SqliteIndex;
   cas: CAS;
   keychain: import('@lucid-fin/storage').Keychain;
   promptStore: PromptStore;
-  finalExportService: import('../../../services/final-export.service.js').FinalExportService;
   productionMediaService: import('../../../services/production-media.service.js').ProductionMediaService;
-  /** Host-built, keyless binding persisted atomically with a new production workflow. */
-  commanderContinuation?: WorkflowCommanderContinuationConfig;
+  mediaGenerationService: import('../../../services/media-generation.service.js').MediaGenerationService;
+  promptAssemblyService: import('../../../services/prompt-assembly.service.js').PromptAssemblyService;
+  audioTaskService: import('../../../services/audio-task.service.js').AudioTaskService;
+  mediaTaskService: import('../../../services/media-task.service.js').MediaTaskService;
+  resolveProcessPrompt: (processKey: string) => string | null;
+  /** Resolve one model-selected gate decision against host-owned, freshly read SQLite state. */
+  decidePendingGate: (decision: 'approve' | 'request_changes') => Promise<unknown>;
+  /** Host-built, keyless binding persisted atomically with a new production Task List. */
+  commanderContinuation?: TaskListCommanderContinuationConfig;
 }
 
 export function mergePromptGuidesWithBuiltIns(

@@ -5,7 +5,8 @@ import {
   type CanvasSettings,
 } from '@lucid-fin/contracts';
 import { CanvasVisualStylePolicySchema, tryProviderId } from '@lucid-fin/contracts-parse';
-import type { AgentTool, CanvasToolDeps } from './canvas-tool-utils.js';
+import { toolResultSchema } from '../tool-registry.js';
+import { NO_TOOL_RESOURCE, type ToolDefinition, type CanvasToolDeps } from './canvas-tool-utils.js';
 import {
   CANVAS_CONTEXT,
   ok,
@@ -30,20 +31,82 @@ import {
   formatValidationError,
 } from './canvas-tool-utils.js';
 import { extractSet, warnExtraKeys } from './tool-result-helpers.js';
+import { authorityFact, contextProjector, records, resultRecord, stringValues } from './context-replay.js';
+import {
+  arraySchema,
+  booleanSchema,
+  canvasEdgeSchema,
+  canvasEdgeSummarySchema,
+  canvasNodeSchema,
+  canvasNodeSummarySchema,
+  canvasSchema,
+  canvasSettingsSchema,
+  enumSchema,
+  numberSchema,
+  objectSchema,
+  pointSchema,
+  resolutionIntentSchema,
+  stringArraySchema,
+  stringSchema,
+  toProviderParameterSchema,
+  unionSchema,
+  visualStylePolicySchema,
+} from './tool-runtime-schemas.js';
+
+const canvasIdResultSchema = objectSchema({ canvasId: stringSchema });
+const nodeIdResultSchema = objectSchema({
+  nodeId: stringSchema,
+  opacity: numberSchema,
+  color: stringSchema,
+  borderStyle: enumSchema(['dashed', 'solid', 'dotted']),
+  titleSize: enumSchema(['sm', 'md', 'lg']),
+  lockChildren: booleanSchema,
+  collapsed: booleanSchema,
+  warnings: stringArraySchema,
+}, ['nodeId']);
 
 export function createCanvasCoreTools(deps: CanvasToolDeps): {
-  tools: AgentTool[];
+  tools: ToolDefinition[];
   clipboardRef: { nodes: CanvasNode[] };
 } {
   const clipboardRef = { nodes: [] as CanvasNode[] };
 
-  const connectNodes: AgentTool = {
+  const connectNodes: ToolDefinition = {
     name: 'canvas.connectNodes',
+    process: 'canvas-graph-and-layout',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description:
       'Create directional edges between nodes. Single pair: pass sourceId+targetId. Batch: pass "connections" array of {sourceId, targetId, label?} objects. Use this for edge connections between nodes; for spatial layout/positioning, use canvas.layout instead.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        canvasEdgeSchema,
+        objectSchema({
+          connected: numberSchema,
+          total: numberSchema,
+          results: arraySchema(
+            objectSchema(
+              {
+                sourceId: stringSchema,
+                targetId: stringSchema,
+                success: booleanSchema,
+                edge: canvasEdgeSchema,
+                error: stringSchema,
+              },
+              ['sourceId', 'targetId', 'success'],
+            ),
+          ),
+        }),
+      ),
+    ),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('canvas', 'updated', args.canvasId),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -105,8 +168,8 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
               target: pair.targetId,
               ...selectEdgeHandles(sourceNode, targetNode),
               data: {
-                label: pair.label,
                 status: 'idle',
+                ...(pair.label ? { label: pair.label } : {}),
               },
             };
             await deps.connectNodes(canvasId, edge);
@@ -133,12 +196,24 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
     },
   };
 
-  const duplicateNodes: AgentTool = {
+  const duplicateNodes: ToolDefinition = {
     name: 'canvas.duplicateNodes',
+    process: 'canvas-structure',
+    category: 'query',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description: 'Duplicate one or more nodes with new IDs and offset positions by 50 pixels.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 3,
-    parameters: {
+    outputSchema: toolResultSchema(
+      objectSchema({ nodeIds: stringArraySchema, nodes: arraySchema(canvasNodeSchema) }),
+    ),
+    projectPublicResult: contextProjector((result, args) =>
+      records(resultRecord(result)?.nodes).map((node) =>
+        authorityFact('canvas_node', 'created', node.id, { scopeId: args.canvasId }),
+      ),
+    ),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -168,12 +243,21 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
     },
   };
 
-  const deleteCanvas: AgentTool = {
+  const deleteCanvas: ToolDefinition = {
     name: 'canvas.deleteCanvas',
+    process: 'canvas-structure',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description: 'Delete an entire canvas by ID. This is irreversible.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 4,
-    parameters: {
+    outputSchema: toolResultSchema(canvasIdResultSchema),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('canvas', 'deleted', args.canvasId),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -192,16 +276,25 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
     },
   };
 
-  const importWorkflow: AgentTool = {
-    name: 'canvas.importWorkflow',
-    description: 'Import a workflow JSON document into the current canvas.',
-    context: CANVAS_CONTEXT,
+  const importCanvasDocument: ToolDefinition = {
+    name: 'canvas.importDocument',
+    process: 'canvas-structure',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
+    description: 'Import a canvas JSON document into the current canvas.',
+    contexts: CANVAS_CONTEXT,
     tier: 3,
-    parameters: {
+    outputSchema: toolResultSchema(canvasSchema),
+    projectPublicResult: contextProjector((result) => [
+      authorityFact('canvas', 'created', resultRecord(result)?.id),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
-        json: { type: 'string', description: 'Serialized workflow JSON document.' },
+        json: { type: 'string', description: 'Serialized canvas JSON document.' },
       },
       required: ['canvasId', 'json'],
     },
@@ -209,7 +302,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
       try {
         const canvasId = requireString(args, 'canvasId');
         const json = requireText(args, 'json');
-        const canvas = await deps.importWorkflow(canvasId, json);
+        const canvas = await deps.importCanvasDocument(canvasId, json);
         return ok(canvas);
       } catch (error) {
         return fail(error);
@@ -217,12 +310,20 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
     },
   };
 
-  const exportWorkflow: AgentTool = {
-    name: 'canvas.exportWorkflow',
-    description: 'Export the current canvas as a workflow JSON document.',
-    context: CANVAS_CONTEXT,
+  const exportCanvasDocument: ToolDefinition = {
+    name: 'canvas.exportDocument',
+    process: 'canvas-structure',
+    category: 'query',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    description: 'Export the current canvas as a canvas JSON document.',
+    contexts: CANVAS_CONTEXT,
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(objectSchema({ json: stringSchema })),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('canvas', 'read', args.canvasId),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -233,7 +334,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
       try {
         const canvasId = requireString(args, 'canvasId');
         await requireCanvas(deps, canvasId);
-        const json = await deps.exportWorkflow(canvasId);
+        const json = await deps.exportCanvasDocument(canvasId);
         return ok({ json });
       } catch (error) {
         return fail(error);
@@ -241,8 +342,12 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
     },
   };
 
-  const listNodes: AgentTool = {
+  const listNodes: ToolDefinition = {
     name: 'canvas.listNodes',
+    process: 'canvas-structure',
+    category: 'query',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description:
       'List nodes on a canvas with pagination. Returns { total, offset, limit, nodes[] }. ' +
       'Check "total" — if total > offset+limit, there are more pages. ' +
@@ -250,9 +355,20 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
       'Pass detail=true to include full node data (prompt, presets, refs, variants) inline — ' +
       'prefer this over listNodes + N× getNode when you need to read many nodes.',
     tags: ['canvas', 'read'],
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(
+      objectSchema({
+        total: numberSchema,
+        offset: numberSchema,
+        limit: numberSchema,
+        nodes: unionSchema(arraySchema(canvasNodeSummarySchema), arraySchema(canvasNodeSchema)),
+      }),
+    ),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('canvas', 'read', args.canvasId),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -333,8 +449,8 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
                 type: node.type,
                 title: node.title,
                 position: node.position,
-                width: node.width,
-                height: node.height,
+                ...(node.width !== undefined ? { width: node.width } : {}),
+                ...(node.height !== undefined ? { height: node.height } : {}),
                 status: typeof data.status === 'string' ? data.status : deriveNodeStatus(node),
               };
             });
@@ -345,15 +461,30 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
     },
   };
 
-  const listEdges: AgentTool = {
+  const listEdges: ToolDefinition = {
     name: 'canvas.listEdges',
+    process: 'canvas-structure',
+    category: 'query',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description:
       'List edges on a canvas with pagination. Returns { total, offset, limit, edges[] }. ' +
       'Check "total" — if total > offset+limit, there are more pages. Direction matters: source→target.',
     tags: ['canvas', 'read'],
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(
+      objectSchema({
+        total: numberSchema,
+        offset: numberSchema,
+        limit: numberSchema,
+        edges: arraySchema(canvasEdgeSummarySchema),
+      }),
+    ),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('canvas', 'read', args.canvasId),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -374,7 +505,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
           id: edge.id,
           source: edge.source,
           target: edge.target,
-          label: edge.data?.label,
+          ...(edge.data?.label ? { label: edge.data.label } : {}),
         }));
         return ok({ total: canvas.edges.length, offset, limit, edges: page });
       } catch (error) {
@@ -383,18 +514,27 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
     },
   };
 
-  const getNode: AgentTool = {
+  const getNode: ToolDefinition = {
     name: 'canvas.getNode',
+    process: 'canvas-structure',
+    category: 'query',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description:
       'Read full details (prompt, presets, refs, variants) for one or more nodes. ' +
       'IMPORTANT: Pass ALL the node IDs you need in a single call as an array — ' +
       'do NOT call this tool once per node in a loop. One batched call is orders of ' +
-      'magnitude cheaper than N sequential calls. Single-ID string form is only for the ' +
-      'truly-one-node case; for 2+ nodes, always use the array form.',
+      'magnitude cheaper than N sequential calls.',
     tags: ['canvas', 'read'],
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(arraySchema(canvasNodeSchema)),
+    projectPublicResult: contextProjector((_result, args) =>
+      stringValues(args.nodeIds).map((nodeId) =>
+        authorityFact('canvas_node', 'read', nodeId, { scopeId: args.canvasId }),
+      ),
+    ),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -402,7 +542,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
           type: 'array',
           items: { type: 'string', description: 'Node ID.' },
           description:
-            'Array of node IDs to fetch in one call (preferred). Pass every ID you need here, not one per call. A single string is also accepted for the one-node case.',
+            'Array of node IDs to fetch in one call. Pass every ID you need here, including a one-item array for a single node.',
         },
       },
       required: ['canvasId', 'nodeIds'],
@@ -415,12 +555,6 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
         if (Array.isArray(rawIds) && rawIds.length === 0) {
           return fail('nodeIds array must not be empty');
         }
-        if (typeof rawIds === 'string') {
-          const nodeId = rawIds.trim();
-          const node = canvas.nodes.find((n) => n.id === nodeId);
-          if (!node) return fail(new Error(`Node not found: ${nodeId}`));
-          return ok(node);
-        }
         if (Array.isArray(rawIds)) {
           const results = [];
           for (const entry of rawIds) {
@@ -431,20 +565,34 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
           }
           return ok(results);
         }
-        return fail('nodeIds must be a string or array of strings');
+        return fail('nodeIds must be an array of strings');
       } catch (error) {
         return fail(error);
       }
     },
   };
 
-  const layout: AgentTool = {
+  const layout: ToolDefinition = {
     name: 'canvas.layout',
+    process: 'canvas-graph-and-layout',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description:
       'Arrange all canvas nodes spatially. "auto" arranges by type and edge connections into columns: first-frame images (left) | video (center) | last-frame images (right) | text (far right). "horizontal"/"vertical" arrange in a single line. Use this for spatial positioning; for creating/deleting edge connections, use canvas.connectNodes or canvas.deleteEdge instead.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      objectSchema({
+        direction: enumSchema(['horizontal', 'vertical', 'auto']),
+        positions: arraySchema(objectSchema({ id: stringSchema, position: pointSchema })),
+      }),
+    ),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('canvas', 'updated', args.canvasId),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -469,60 +617,60 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
     },
   };
 
-  const setSettings: AgentTool = {
+  const setSettings: ToolDefinition = {
     name: 'canvas.setSettings',
+    process: 'canvas-settings',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description:
       'Patch canvas-scoped settings. Include only the fields you want to change. ' +
       'Pass null for a field to clear it. ' +
-      'visualStylePolicy is the canonical manual/pre-approval Canvas draft and is injected into reference images plus manual image/video generation. ' +
-      'Approved persistent workflows ignore this draft and use their immutable Visual Constitution. ' +
+      'visualStylePolicy is the canonical manual/pre-approval Canvas draft and is supplied to Commander as a required Prompt Assembly source for image/video generation. ' +
+      'Approved persistent task lists ignore this draft and use their immutable Visual Constitution. ' +
       'stylePlate and negativePrompt are legacy compatibility mirrors. ' +
-      'refResolution sets the default size for ref-image generation (overrides per-entity defaults). ' +
+      'refResolution sets the default size for image nodes marked generationPurpose=reference-image. ' +
       'publishImageResolution sets the default size for image-node outputs. ' +
       'publishVideoResolution sets the default size for video-node outputs. ' +
       'resolutionPolicy is canonical and supports provider-default, exact pixels, or provider tiers independently for referenceImage/image/video. ' +
       'Valid aspectRatio: 16:9 | 9:16 | 1:1 | 2.39:1.',
     tags: ['canvas', 'write', 'settings'],
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      objectSchema({ canvasId: stringSchema, settings: canvasSettingsSchema }),
+    ),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('canvas', 'updated', args.canvasId),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         visualStylePolicy: {
-          type: 'object',
+          ...visualStylePolicySchema as Extract<typeof visualStylePolicySchema, { type: 'object' }>,
+          nullable: true,
           description:
             'Canonical Canvas style draft: {version:1, summary?, locked?, allowedVariations?, negativeConstraints?}. Pass null to clear. This cannot override an approved Visual Constitution.',
-          properties: {
-            version: { type: 'number', description: 'Must be 1.' },
-            summary: { type: 'string', description: 'Human-readable visual direction.' },
-            locked: { type: 'object', description: 'Structured visual grammar fields to lock.' },
-            allowedVariations: {
-              type: 'array',
-              description: 'Permitted shot-to-shot variations within the draft style.',
-              items: { type: 'string', description: 'Permitted shot-to-shot variation.' },
-            },
-            negativeConstraints: {
-              type: 'array',
-              description: 'Visual failure modes that manual generation should exclude.',
-              items: { type: 'string', description: 'Visual failure modes to exclude.' },
-            },
-          },
         },
         stylePlate: {
           type: 'string',
+          nullable: true,
           description:
             'Free-form style prompt (e.g. "neo-noir watercolor, muted teal and ochre palette, soft chiaroscuro lighting"). ' +
             'Pass null to clear.',
         },
         negativePrompt: {
           type: 'string',
+          nullable: true,
           description:
             'Free-form negative prompt (e.g. "text, watermark, blurry, low-quality, extra limbs"). ' +
             'Legacy mirror compiled into manual image/video and ref-image exclusions. Pass null to clear.',
         },
         refResolution: {
           type: 'object',
+          nullable: true,
           description:
             'Default resolution for ref-image generation. Both width and height are required when set. Pass null to clear.',
           properties: {
@@ -532,6 +680,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
         },
         publishImageResolution: {
           type: 'object',
+          nullable: true,
           description:
             'Default resolution for image-node outputs (publishing format). Both width and height are required when set. Pass null to clear.',
           properties: {
@@ -541,6 +690,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
         },
         publishVideoResolution: {
           type: 'object',
+          nullable: true,
           description:
             'Default resolution for video-node outputs (publishing format). Both width and height are required when set. Pass null to clear.',
           properties: {
@@ -550,30 +700,35 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
         },
         resolutionPolicy: {
           type: 'object',
+          nullable: true,
           description:
             'Canonical Canvas resolution policy. Each media key accepts {mode:"provider-default"}, {mode:"exact",width,height}, or {mode:"tier",tier,aspectRatio?}. Pass null to clear the policy. Do not combine with legacy resolution fields in one call.',
           properties: {
-            referenceImage: { type: 'object', description: 'Reference-image resolution intent.' },
-            image: { type: 'object', description: 'Image-node resolution intent.' },
-            video: { type: 'object', description: 'Video-node resolution intent.' },
+            referenceImage: toProviderParameterSchema(resolutionIntentSchema),
+            image: toProviderParameterSchema(resolutionIntentSchema),
+            video: toProviderParameterSchema(resolutionIntentSchema),
           },
         },
         aspectRatio: {
           type: 'string',
+          nullable: true,
           description: 'Publishing aspect ratio override.',
           enum: ['16:9', '9:16', '1:1', '2.39:1'],
         },
-        llmProviderId: { type: 'string', description: 'Active LLM provider id for this canvas.' },
+        llmProviderId: { type: 'string', nullable: true, description: 'Active LLM provider id for this canvas.' },
         imageProviderId: {
           type: 'string',
+          nullable: true,
           description: 'Active image provider id for this canvas.',
         },
         videoProviderId: {
           type: 'string',
+          nullable: true,
           description: 'Active video provider id for this canvas.',
         },
         audioProviderId: {
           type: 'string',
+          nullable: true,
           description: 'Active audio provider id for this canvas.',
         },
       },
@@ -738,13 +893,34 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
     },
   };
 
-  const createNodes: AgentTool = {
+  const createNodes: ToolDefinition = {
     name: 'canvas.createNodes',
+    process: 'canvas-structure',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description:
       'Create one or more nodes on the canvas. Pass a single node or an array. Optional edges array uses fromIndex/toIndex (0-based) referencing the nodes array.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        canvasNodeSchema,
+        objectSchema({ nodes: arraySchema(canvasNodeSchema), edges: arraySchema(canvasEdgeSchema) }),
+      ),
+    ),
+    projectPublicResult: contextProjector((result, args) => {
+      const data = resultRecord(result);
+      const nodes = records(data?.nodes);
+      if (nodes.length > 0) {
+        return nodes.map((node) =>
+          authorityFact('canvas_node', 'created', node.id, { scopeId: args.canvasId }),
+        );
+      }
+      return [authorityFact('canvas_node', 'created', data?.id, { scopeId: args.canvasId })];
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -763,6 +939,12 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
               title: { type: 'string', description: 'Node title.' },
               content: { type: 'string', description: 'Text content (text nodes).' },
               prompt: { type: 'string', description: 'Prompt (media nodes).' },
+              generationPurpose: {
+                type: 'string',
+                enum: ['content', 'reference-image'],
+                description:
+                  'Image-node purpose. Use reference-image for character, location, or equipment identity sheets so the Canvas reference-image resolution policy applies.',
+              },
               providerId: { type: 'string', description: 'AI provider ID for generation.' },
               characterIds: {
                 type: 'array',
@@ -834,6 +1016,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
             title: nodeDesc.title,
             content: nodeDesc.content,
             prompt: nodeDesc.prompt,
+            generationPurpose: nodeDesc.generationPurpose,
             providerId: nodeDesc.providerId,
             characterIds: nodeDesc.characterIds,
             locationIds: nodeDesc.locationIds,
@@ -886,6 +1069,13 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
           if (type !== 'text') {
             const mediaData = node.data as Record<string, unknown>;
             if (typeof singleArgs.prompt === 'string') mediaData.prompt = singleArgs.prompt;
+            if (
+              type === 'image' &&
+              (singleArgs.generationPurpose === 'content' ||
+                singleArgs.generationPurpose === 'reference-image')
+            ) {
+              mediaData.generationPurpose = singleArgs.generationPurpose;
+            }
             // Auto-assign provider: explicit arg > default from settings > none
             const providerId =
               tryProviderId(singleArgs.providerId) ??
@@ -997,6 +1187,13 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
             } else if (type !== 'text') {
               const mediaData = data as Record<string, unknown>;
               if (typeof desc.prompt === 'string') mediaData.prompt = desc.prompt;
+              if (
+                type === 'image' &&
+                (desc.generationPurpose === 'content' ||
+                  desc.generationPurpose === 'reference-image')
+              ) {
+                mediaData.generationPurpose = desc.generationPurpose;
+              }
               const batchProviderId =
                 typeof desc.providerId === 'string'
                   ? desc.providerId
@@ -1056,8 +1253,8 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
                 target: createdNodes[toIdx].id,
                 ...selectEdgeHandles(createdNodes[fromIdx], createdNodes[toIdx]),
                 data: {
-                  label: typeof edgeDesc.label === 'string' ? edgeDesc.label : undefined,
                   status: 'idle',
+                  ...(typeof edgeDesc.label === 'string' ? { label: edgeDesc.label } : {}),
                 },
               };
               await deps.connectNodes(canvasId, edge);
@@ -1073,14 +1270,37 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
     },
   };
 
-  const getInfo: AgentTool = {
+  const getInfo: ToolDefinition = {
     name: 'canvas.getInfo',
+    process: 'canvas-structure',
+    category: 'query',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description:
       "Read canvas metadata, edge list, and/or settings. Use scope to control what's returned.",
     tags: ['canvas', 'read'],
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema({ canvasId: stringSchema, settings: canvasSettingsSchema }),
+        objectSchema(
+          {
+            id: stringSchema,
+            name: stringSchema,
+            nodeCount: numberSchema,
+            edgeCount: numberSchema,
+            edges: arraySchema(canvasEdgeSummarySchema),
+            settings: canvasSettingsSchema,
+          },
+          ['id', 'name', 'nodeCount', 'edgeCount', 'edges'],
+        ),
+      ),
+    ),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('canvas', 'read', args.canvasId),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -1115,7 +1335,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
               id: e.id,
               source: e.source,
               target: e.target,
-              label: e.data?.label,
+              ...(e.data?.label ? { label: e.data.label } : {}),
             })),
           };
           if (!deps.getCanvasSettings) {
@@ -1135,7 +1355,7 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
               id: e.id,
               source: e.source,
               target: e.target,
-              label: e.data?.label,
+              ...(e.data?.label ? { label: e.data.label } : {}),
             })),
           });
         }
@@ -1145,12 +1365,28 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
     },
   };
 
-  const manage: AgentTool = {
+  const manage: ToolDefinition = {
     name: 'canvas.manage',
+    process: 'canvas-structure',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description: 'Canvas-level operations: rename or update backdrop node properties.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema({ canvasId: stringSchema, name: stringSchema }),
+        nodeIdResultSchema,
+      ),
+    ),
+    projectPublicResult: contextProjector((_result, args) => [
+      args.action === 'updateBackdrop'
+        ? authorityFact('canvas_node', 'updated', args.nodeId, { scopeId: args.canvasId })
+        : authorityFact('canvas', 'updated', args.canvasId),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -1255,8 +1491,8 @@ export function createCanvasCoreTools(deps: CanvasToolDeps): {
       deleteCanvas,
       connectNodes,
       duplicateNodes,
-      importWorkflow,
-      exportWorkflow,
+      importCanvasDocument,
+      exportCanvasDocument,
       getInfo,
       listNodes,
       listEdges,

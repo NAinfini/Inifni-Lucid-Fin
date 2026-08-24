@@ -2,7 +2,7 @@
  * `commander/state/settings-persistence.ts` — Phase E split-1.
  *
  * localStorage persistence for Commander's user-tunable settings
- * (permissionMode, maxSteps, temperature, ...). Separated from session
+ * (permissionMode, resource budgets, temperature, ...). Separated from session
  * persistence so each concern has a single-reason-to-change module.
  */
 
@@ -30,10 +30,10 @@ function persistSettings(settings: PersistedSettings): void {
 export function persistSettingsFromState(state: CommanderState): void {
   persistSettings({
     permissionMode: state.permissionMode,
-    maxSteps: state.maxSteps,
+    resourceBudget: state.resourceBudget,
     temperature: state.temperature,
-    maxTokens: state.maxTokens,
-    llmRetries: state.llmRetries,
+    contextWindowTokens: state.contextWindowTokens,
+    maxOutputTokens: state.maxOutputTokens,
     maxSessions: state.maxSessions,
     maxMessagesPerSession: state.maxMessagesPerSession,
     undoStackDepth: state.undoStackDepth,

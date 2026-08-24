@@ -35,9 +35,9 @@ describe('registerColorStyleHandlers', () => {
     fs.rmSync(base, { recursive: true, force: true });
   });
 
-  it('routes colorStyle:extract through the style.extract workflow and returns a workflow id', async () => {
-    const workflowEngine = {
-      start: vi.fn(() => 'wf-1'),
+  it('routes colorStyle:extract through the style.extract task list and returns its id', async () => {
+    const taskExecutionEngine = {
+      start: vi.fn(() => 'task-list-1'),
     };
 
     registerColorStyleHandlers(
@@ -48,7 +48,7 @@ describe('registerColorStyleHandlers', () => {
       } as Parameters<typeof registerColorStyleHandlers>[0],
       db,
       {} as Parameters<typeof registerColorStyleHandlers>[2],
-      workflowEngine as Parameters<typeof registerColorStyleHandlers>[3],
+      taskExecutionEngine as Parameters<typeof registerColorStyleHandlers>[3],
     );
 
     const extract = handlers.get('colorStyle:extract');
@@ -61,12 +61,12 @@ describe('registerColorStyleHandlers', () => {
         assetHash: 'asset-hash',
         assetType: 'image',
       },
-    )) as { workflowRunId: string };
+    )) as { taskListId: string };
 
-    expect(result).toEqual({ workflowRunId: 'wf-1' });
-    expect(workflowEngine.start).toHaveBeenCalledWith(
+    expect(result).toEqual({ taskListId: 'task-list-1' });
+    expect(taskExecutionEngine.start).toHaveBeenCalledWith(
       expect.objectContaining({
-        workflowType: 'style.extract',
+        taskListType: 'style.extract',
         entityType: 'asset',
         entityId: 'asset-hash',
         triggerSource: 'colorStyle:extract',

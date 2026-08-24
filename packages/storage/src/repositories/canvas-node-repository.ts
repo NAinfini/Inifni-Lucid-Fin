@@ -216,7 +216,7 @@ export class CanvasNodeRepository {
 
   patchApply(
     canvasId: string,
-    added: CanvasNode[],
+    added: Array<{ node: CanvasNode; zIndex: number }>,
     removedIds: string[],
     updated: Array<{ node: CanvasNode; zIndex: number }>,
     tx?: Tx,
@@ -247,8 +247,8 @@ export class CanvasNodeRepository {
            ${C.zIndex.sqlName}    = excluded.${C.zIndex.sqlName},
            ${C.updatedAt.sqlName} = excluded.${C.updatedAt.sqlName}`,
       );
-      for (const node of added) {
-        const p = canvasNodeToParams(canvasId, node, 0);
+      for (const { node, zIndex } of added) {
+        const p = canvasNodeToParams(canvasId, node, zIndex);
         upsertStmt.run(
           p.id,
           p.canvasId,

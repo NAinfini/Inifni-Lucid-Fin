@@ -18,7 +18,7 @@ export function registerSnapshotHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
       _e,
       args: {
         id: string;
-        canvasId: string | null;
+        defaultCanvasId: string | null;
         title: string;
         messages: string;
         createdAt: number;
@@ -31,16 +31,14 @@ export function registerSnapshotHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
       const all = sessions.list(MAX_SESSIONS + 10).rows;
       if (all.length > MAX_SESSIONS) {
         for (const old of all.slice(MAX_SESSIONS)) {
-          sessions.delete(parseSessionId(old.id));
+          sessions.deleteTerminal(parseSessionId(old.id));
         }
       }
     },
   );
 
   ipcMain.handle('session:list', async (_e, args?: { limit?: number }) => {
-    const list = sessions.list(args?.limit ?? MAX_SESSIONS).rows;
-    // Strip messages from list response (heavy payload)
-    return list.map(({ messages: _m, ...rest }) => rest);
+    return sessions.listSummaries(args?.limit ?? MAX_SESSIONS).rows;
   });
 
   ipcMain.handle('session:get', async (_e, args: { id: string }) => {
@@ -55,6 +53,21 @@ export function registerSnapshotHandlers(ipcMain: IpcMain, db: SqliteIndex): voi
     sessions.delete(parseSessionId(args.id));
     return { success: true };
   });
+
+  ipcMain.handle(
+    'session:move',
+    async (_e, args: { id: string; defaultCanvasId: string | null }) => {
+      if (!args?.id) throw new Error('id is required');
+      if (
+        args.defaultCanvasId !== null &&
+        (typeof args.defaultCanvasId !== 'string' || args.defaultCanvasId.length === 0)
+      ) {
+        throw new Error('defaultCanvasId must be a non-empty string or null');
+      }
+      sessions.move(parseSessionId(args.id), args.defaultCanvasId);
+      return { success: true as const };
+    },
+  );
 
   // ---------------------------------------------------------------------------
   // Snapshots

@@ -12,7 +12,6 @@ import os from 'node:os';
 import type { IpcMain } from 'electron';
 import * as electron from 'electron';
 import type { SqliteIndex, CAS, Keychain } from '@lucid-fin/storage';
-import type { JobQueue } from '@lucid-fin/application';
 import log from '../../logger.js';
 import { exportAllData, estimateExportSize, type ExportPaths } from '../../data-export.js';
 import { wipeAllData, WIPE_CONFIRMATION_TOKEN, type WipePaths } from '../../data-wipe.js';
@@ -60,7 +59,7 @@ export interface DataHandlerDeps {
   db: SqliteIndex;
   cas: CAS;
   keychain: Keychain;
-  jobQueue: JobQueue | null;
+  stopBackgroundTasks: () => void;
 }
 
 export function registerDataHandlers(ipcMain: IpcMain, deps: DataHandlerDeps): void {
@@ -129,11 +128,7 @@ export function registerDataHandlers(ipcMain: IpcMain, deps: DataHandlerDeps): v
     const paths = resolveWipePaths();
 
     return wipeAllData(paths, {
-      cancelActiveJobs: () => {
-        if (deps.jobQueue) {
-          deps.jobQueue.stop();
-        }
-      },
+      stopBackgroundTasks: deps.stopBackgroundTasks,
       flushPendingSaves: async () => {
         // Best-effort WAL checkpoint before closing
         try {

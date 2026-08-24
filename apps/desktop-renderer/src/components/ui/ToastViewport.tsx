@@ -77,7 +77,7 @@ export function ToastViewport() {
 
   return (
     <section
-      className="pointer-events-none fixed right-4 top-4 z-[120] flex w-[22rem] max-w-[calc(100vw-2rem)] flex-col gap-2"
+      className="pointer-events-none fixed right-4 bottom-4 z-[120] flex w-[22rem] max-w-[calc(100vw-2rem)] flex-col gap-2"
       aria-label={t('toast.list')}
     >
       {toasts.map((toast) => (

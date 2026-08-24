@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import type { CommanderRunIntent } from '@lucid-fin/contracts';
 
 import { store, type AppDispatch, type RootState } from '../store/index.js';
 import { selectIsStreaming } from '../store/slices/commander.js';
@@ -17,6 +18,7 @@ import { getAPI } from '../utils/api.js';
 import { CommanderTransport } from '../commander/transport/CommanderTransport.js';
 import {
   CommanderSessionService,
+  type CommanderStartResources,
   syncCommanderEntitiesForTool,
 } from '../commander/service/CommanderSessionService.js';
 
@@ -24,7 +26,8 @@ import {
 export { syncCommanderEntitiesForTool };
 
 export function useCommander(): {
-  sendMessage: (message: string) => Promise<void>;
+  sendMessage: (message: string, resources?: CommanderStartResources) => Promise<boolean>;
+  sendIntent: (intent: CommanderRunIntent, resources?: CommanderStartResources) => Promise<boolean>;
   cancel: () => Promise<void>;
   cancelCurrentStep: () => Promise<{ escalated: boolean }>;
   isStreaming: boolean;
@@ -51,9 +54,18 @@ export function useCommander(): {
 
   useEffect(() => service.subscribe(), [service]);
 
-  const sendMessage = useCallback(async (message: string) => service.start(message), [service]);
+  const sendMessage = useCallback(
+    async (message: string, resources?: CommanderStartResources) =>
+      service.start(message, resources),
+    [service],
+  );
   const cancel = useCallback(async () => service.cancel(), [service]);
+  const sendIntent = useCallback(
+    async (intent: CommanderRunIntent, resources?: CommanderStartResources) =>
+      service.startIntent(intent, resources),
+    [service],
+  );
   const cancelCurrentStep = useCallback(async () => service.cancelCurrentStep(), [service]);
 
-  return { sendMessage, cancel, cancelCurrentStep, isStreaming };
+  return { sendMessage, sendIntent, cancel, cancelCurrentStep, isStreaming };
 }

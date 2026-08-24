@@ -7,12 +7,15 @@ import type {
   GenerationEntityRef,
   GenerationRequest,
   GenerationType,
+  LLMAdapter,
+  PresetDefinition,
   ResolutionPreflightResult,
   VisualStyleProvenance,
 } from '@lucid-fin/contracts';
 import type { CAS, Keychain, SqliteIndex } from '@lucid-fin/storage';
 import type { MediaProbeResult } from '@lucid-fin/media-engine';
 import type { CanvasStore } from './canvas.handlers.js';
+import type { PromptAssemblyService } from '../../services/prompt-assembly.service.js';
 
 export type CanvasGenerationDeps = {
   adapterRegistry: AdapterRegistry;
@@ -21,6 +24,12 @@ export type CanvasGenerationDeps = {
   canvasStore: CanvasStore;
   keychain: Keychain;
   getWindow: () => import('electron').BrowserWindow | null;
+  resolvePresetCatalog: () => PresetDefinition[];
+  promptAssemblyService: PromptAssemblyService;
+  /** Active outer Commander model. Used only to attribute submitted output, never recursively called. */
+  preferredPromptAssembler?: LLMAdapter;
+  /** Effective editable task prompt supplied as an advisory assembly source. */
+  resolveProcessPrompt?: (processKey: string) => string | null | undefined;
   /** Test seam; production uses the packaged ffprobe implementation. */
   probeMedia?: (filePath: string) => Promise<MediaProbeResult>;
 };
@@ -29,43 +38,7 @@ export type SendTarget = {
   send: (channel: string, payload: unknown) => void;
 };
 
-export type RunningCanvasJob = {
-  jobId: string;
-  canvasId: string;
-  nodeId: string;
-  adapterId: string;
-  providerJobIds: Set<string>;
-  cancelled: boolean;
-  cancelReason?: string;
-};
-
 export type ProviderConfigOverride = { baseUrl: string; model: string; apiKey?: string };
-
-export type GenerateArgs = {
-  canvasId: string;
-  nodeId: string;
-  providerId?: string;
-  providerConfig?: ProviderConfigOverride;
-  variantCount?: number;
-  seed?: number;
-  // Commander-authored creative body. The host still injects deterministic
-  // style/entity/preset constraints before calling a provider.
-  finalPrompt?: string;
-  /** Host-only: exact prior provider prompt used for an additive refinement. */
-  promptInputMode?: 'base' | 'precompiled';
-};
-
-export type EstimateArgs = {
-  canvasId: string;
-  nodeId: string;
-  providerId: string;
-  providerConfig?: ProviderConfigOverride;
-};
-
-export type CancelArgs = {
-  canvasId: string;
-  nodeId: string;
-};
 
 export type BuiltGenerationContext = {
   canvas: Canvas;
@@ -78,6 +51,7 @@ export type BuiltGenerationContext = {
   variantCount: number;
   baseSeed?: number;
   compiled: CompiledPrompt;
+  promptAssemblyId?: string;
   visualStyle?: VisualStyleProvenance;
   resolutionPreflight?: Extract<ResolutionPreflightResult, { supported: true }> & {
     request: GenerationRequest;

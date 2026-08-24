@@ -1,13 +1,23 @@
 import {
   getBuiltinProviderCapabilityProfile,
   listBuiltinVideoProvidersWithAudio,
+  type Canvas,
   type CanvasEdge,
+  type CanvasNode,
   type CharacterRef,
   type EquipmentRef,
   type LocationRef,
+  type PromptAssemblyOutputV1,
+  type PromptAssemblySourceDecision,
+  type ContextFactRelation,
 } from '@lucid-fin/contracts';
-import { tryProviderId } from '@lucid-fin/contracts-parse';
-import type { AgentTool, CanvasToolDeps } from './canvas-tool-utils.js';
+import {
+  NO_TOOL_RESOURCE,
+  meteredToolResource,
+  type ToolDefinition,
+  type CanvasToolDeps,
+  type MediaProviderConfig,
+} from './canvas-tool-utils.js';
 import {
   CANVAS_CONTEXT,
   ok,
@@ -22,10 +32,35 @@ import {
   requireMediaNode,
   parseResolutionIntent,
   TypedToolError,
-  replaceNodePreservingEdges,
 } from './canvas-tool-utils.js';
 import { extractSet, warnExtraKeys } from './tool-result-helpers.js';
+import {
+  authorityFact,
+  contextProjector,
+  record,
+  records,
+  resultRecord,
+  stringValues,
+  valueFact,
+} from './context-replay.js';
 import { isGeneratableMedia, isVisualMedia } from '@lucid-fin/shared-utils';
+import { toolResultSchema } from '../tool-registry.js';
+import {
+  arraySchema,
+  booleanSchema,
+  canonicalJsonSchema,
+  canvasEdgeSchema,
+  canvasNoteSchema,
+  entityReferenceSchema,
+  mediaTaskViewSchema,
+  numberSchema,
+  objectSchema,
+  promptAssemblyRecordSchema,
+  resolutionPreflightSchema,
+  stringArraySchema,
+  stringSchema,
+  unionSchema,
+} from './tool-runtime-schemas.js';
 
 const AUDIO_CAPABLE_VIDEO_PROVIDER_IDS = listBuiltinVideoProvidersWithAudio().join(', ');
 const KLING_QUALITY_TIERS = getBuiltinProviderCapabilityProfile('kling-v1')?.qualityTiers ?? [];
@@ -34,13 +69,69 @@ const KLING_QUALITY_DESCRIPTION =
     ? `kling-v1: ${KLING_QUALITY_TIERS.map((tier) => `"${tier}"`).join(' or ')}`
     : 'provider-specific';
 
-export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
+const nodeMutationSchema = objectSchema(
+  { nodeId: stringSchema, updated: canonicalJsonSchema },
+  ['nodeId', 'updated'],
+);
+const mutationAttemptSchema = objectSchema(
+  { nodeId: stringSchema, success: booleanSchema, error: stringSchema },
+  ['nodeId', 'success'],
+);
+const characterRefSchema = entityReferenceSchema('characterId');
+const equipmentRefSchema = entityReferenceSchema('equipmentId');
+const locationRefSchema = entityReferenceSchema('locationId');
+
+export function createCanvasGenerationTools(deps: CanvasToolDeps): ToolDefinition[] {
+  const nodeReplayFacts = (
+    args: Record<string, unknown>,
+    relation: ContextFactRelation,
+  ) => [
+    ...stringValues(args.nodeIds),
+    ...stringValues(args.nodeId),
+    ...records(args.nodes).flatMap((node) => stringValues(node.nodeId)),
+  ].map((nodeId) =>
+    authorityFact('canvas_node', relation, nodeId, { scopeId: args.canvasId }),
+  );
+
   /** Resolve nodeId (string) or nodeIds (string[]) from tool args. */
   function resolveNodeIds(args: Record<string, unknown>): string[] {
     if (Array.isArray(args.nodeIds) && args.nodeIds.length > 0) {
       return args.nodeIds.map((id: unknown) => (typeof id === 'string' ? id.trim() : String(id)));
     }
     return [requireString(args, 'nodeId')];
+  }
+
+  function indexNodes(canvas: Canvas): Map<string, CanvasNode> {
+    return new Map(canvas.nodes.map((node) => [node.id, node]));
+  }
+
+  function requireIndexedNode(nodesById: Map<string, CanvasNode>, nodeId: string): CanvasNode {
+    const node = nodesById.get(nodeId);
+    if (!node) throw new Error(`Node not found: ${nodeId}`);
+    return node;
+  }
+
+  function mergedNodeData(
+    node: CanvasNode,
+    data: Record<string, unknown>,
+    clearFields: string[] = [],
+  ): CanvasNode['data'] {
+    const next = { ...(node.data as unknown as Record<string, unknown>), ...data };
+    for (const field of clearFields) delete next[field];
+    return next as unknown as CanvasNode['data'];
+  }
+
+  async function commitNodeUpdates(
+    canvasId: string,
+    updatedNodes: Array<{ id: string; changes: Record<string, unknown> }>,
+  ): Promise<void> {
+    if (updatedNodes.length === 0) return;
+    await deps.patchCanvas(canvasId, {
+      canvasId,
+      timestamp: Date.now(),
+      operations: ['updateNode'],
+      updatedNodes,
+    });
   }
 
   function buildResolutionMutation(set: Record<string, unknown>): {
@@ -81,267 +172,245 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
     return { data: { resolutionIntent: intent }, clearFields: ['width', 'height'] };
   }
 
-  async function applyResolutionMutation(
-    canvasId: string,
-    nodeId: string,
-    data: Record<string, unknown>,
-    clearFields: string[],
-  ): Promise<void> {
-    if (Object.keys(data).length > 0) await deps.updateNodeData(canvasId, nodeId, data);
-    if (clearFields.length === 0) return;
-    if (deps.clearNodeDataFields) {
-      await deps.clearNodeDataFields(canvasId, nodeId, clearFields);
-      return;
+  // ---------------------------------------------------------------------------
+  // canvas.generation — durable media.generation.v1 Task List control
+  // ---------------------------------------------------------------------------
+  async function prepareMediaTask(args: Record<string, unknown>) {
+    const canvasId = requireString(args, 'canvasId');
+    const nodeId = requireString(args, 'nodeId');
+    const providerId = readOptionalString(args.providerId, 'providerId');
+    const intent = readOptionalString(args.intent, 'intent');
+    const parentAttemptId = readOptionalString(args.parentAttemptId, 'parentAttemptId');
+    const feedback = readOptionalString(args.feedback, 'feedback');
+    if (Boolean(parentAttemptId) !== Boolean(feedback)) {
+      throw new TypedToolError(
+        'parentAttemptId and feedback must be provided together for refinement',
+        'validation',
+      );
     }
-    await deps.updateNodeData(
+    const providerConfig = parseProviderConfig(args.providerConfig);
+    const task = await deps.prepareMediaTask({
       canvasId,
       nodeId,
-      Object.fromEntries(clearFields.map((field) => [field, undefined])),
-    );
+      ...(providerId ? { providerId } : {}),
+      ...(providerConfig ? { providerConfig } : {}),
+      ...(intent ? { intent } : {}),
+      ...(parentAttemptId ? { parentAttemptId, feedback } : {}),
+    });
+    if (!task.promptAssembly) {
+      throw new Error(`Media Task List ${task.id} did not prepare a Prompt Assembly`);
+    }
+    return ok({ taskListId: task.id, promptAssembly: task.promptAssembly });
   }
 
-  // ---------------------------------------------------------------------------
-  // canvas.generation — start, incrementally refine, cancel, or estimate cost
-  // ---------------------------------------------------------------------------
-  const generation: AgentTool = {
+  const generation: ToolDefinition = {
     name: 'canvas.generation',
+    process: 'image-node-generation',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: meteredToolResource(
+      (args) => args.action === 'submit' || args.action === 'retryEvaluation',
+    ),
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description:
-      "Manual or exploratory generation control: start, incrementally refine, cancel, or estimate media generation. refine loads the selected asset's exact previous provider prompt in the host, appends the user's small quality comment, and sends that compiled prompt to the same generation path without starting from zero. It is fail-closed for media owned by an active persistent workflow; use workflow.mediaFeedback there.",
-    context: CANVAS_CONTEXT,
+      'Durable manual image/video generation through media.generation.v1 Task Lists. Call prepare to persist the task and immutable Prompt Assembly input, then submit its exact Commander-authored assembly. Use inspectAssembly with assemblyId to audit its sources, decisions, warnings, and lineage later. Use status, cancel, or retryEvaluation with taskListId. retryEvaluation retries only visual evaluation and never resubmits the provider. prepare accepts feedback and parentAttemptId together for a durable refinement. estimate never creates a task.',
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema({ taskListId: stringSchema, promptAssembly: promptAssemblyRecordSchema }),
+        mediaTaskViewSchema,
+        promptAssemblyRecordSchema,
+        objectSchema({
+          totalEstimatedCost: numberSchema,
+          currency: stringSchema,
+          nodeCosts: arraySchema(
+            objectSchema({ nodeId: stringSchema, estimatedCost: numberSchema }),
+          ),
+        }),
+      ),
+    ),
+    projectPublicResult: contextProjector((result, args) => {
+      const data = resultRecord(result);
+      const promptAssembly = record(data?.promptAssembly);
+      if (args.action === 'prepare') {
+        return [
+          authorityFact('task_list', 'created', data?.taskListId),
+          authorityFact('prompt_assembly', 'created', promptAssembly?.assemblyId, {
+            revision: promptAssembly?.revision,
+            contentHash: promptAssembly?.inputHash,
+          }),
+        ];
+      }
+      if (args.action === 'inspectAssembly') {
+        return [authorityFact('prompt_assembly', 'read', args.assemblyId, {
+          revision: data?.revision,
+          contentHash: data?.inputHash,
+        })];
+      }
+      if (args.action === 'estimate') {
+        return [authorityFact('canvas', 'read', args.canvasId)];
+      }
+      return [
+        authorityFact(
+          'task_list',
+          args.action === 'status' ? 'read' : 'updated',
+          data?.id ?? args.taskListId,
+          { revision: data?.rowVersion },
+        ),
+        ...(args.action === 'submit'
+          ? [authorityFact('prompt_assembly', 'read', args.assemblyId)]
+          : []),
+      ];
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
         action: {
           type: 'string',
-          enum: ['start', 'refine', 'cancel', 'estimate'],
-          description: 'The generation action to perform.',
+          enum: [
+            'prepare',
+            'submit',
+            'inspectAssembly',
+            'status',
+            'cancel',
+            'retryEvaluation',
+            'estimate',
+          ],
+          description: 'The durable media Task List action to perform.',
         },
+        canvasId: { type: 'string', description: 'Required for prepare and estimate.' },
         nodeId: {
           type: 'string',
-          description: 'The node ID (required for start; optional for cancel).',
+          description: 'Required for prepare.',
         },
-        prompt: {
+        intent: {
           type: 'string',
           description:
-            'Manual-mode only: a Commander-authored creative scene/shot body for start. The host still injects the Canvas visual-style policy, references, presets, and negative constraints. Never use this for an active persistent workflow; use workflow.media there. Omit to compile from node fields.',
+            'For prepare only: current user intent as a separate prompt source.',
+        },
+        providerId: { type: 'string', description: 'Optional provider override for prepare.' },
+        providerConfig: {
+          type: 'object',
+          description: 'Optional prepare-only custom provider configuration. When present, both baseUrl and model are required; never include apiKey.',
+          properties: {
+            baseUrl: { type: 'string', description: 'Custom provider base URL.' },
+            model: { type: 'string', description: 'Custom provider model.' },
+          },
+        },
+        parentAttemptId: {
+          type: 'string',
+          description: 'For prepare-only refinement: prior durable media attempt ID. Requires feedback.',
         },
         feedback: {
           type: 'string',
           description:
-            "For refine only: the user's small image/video quality comment. The host appends it to the exact selected asset prompt; never provide a full replacement prompt.",
+            'For prepare-only refinement: concise user feedback. Requires parentAttemptId.',
+        },
+        taskListId: {
+          type: 'string',
+          description: 'Required for submit, status, cancel, and retryEvaluation.',
+        },
+        assemblyId: {
+          type: 'string',
+          description: 'For submit or inspectAssembly: durable Prompt Assembly ID.',
+        },
+        assembly: {
+          type: 'object',
+          description:
+            'For submit only: exact Commander-authored Prompt Assembly output for assemblyId.',
+          properties: {
+            version: { type: 'number', description: 'Must be 1.' },
+            assemblyId: { type: 'string', description: 'Prepared assembly ID.' },
+            inputHash: { type: 'string', description: 'Prepared immutable input hash.' },
+            finalPrompt: {
+              type: 'string',
+              description: 'The single provider-facing image/video prompt.',
+            },
+            negativePrompt: {
+              type: 'string',
+              description: 'Optional provider-facing negative prompt.',
+            },
+            sourceDecisions: {
+              type: 'array',
+              description: 'Exactly one decision for every prepared source.',
+              items: {
+                type: 'object',
+                description: 'How one source was reconciled.',
+                properties: {
+                  sourceId: { type: 'string', description: 'Copy from the source.' },
+                  sourceHash: { type: 'string', description: 'Copy from the source.' },
+                  disposition: {
+                    type: 'string',
+                    enum: ['applied', 'omitted', 'conflict-resolved'],
+                    description: 'How the source affected the final prompt.',
+                  },
+                  reason: { type: 'string', description: 'Optional concise reason.' },
+                },
+              },
+            },
+            summary: { type: 'string', description: 'Concise assembly rationale.' },
+            warnings: {
+              type: 'array',
+              description: 'Non-blocking prompt risks.',
+              items: { type: 'string', description: 'Warning text.' },
+            },
+          },
         },
         nodeIds: {
           type: 'array',
           items: { type: 'string', description: 'Node ID.' },
-          description: 'Batch: array of node IDs (for cancel or estimate).',
-        },
-        nodeType: {
-          type: 'string',
-          description:
-            'Optional node type hint for orchestration context: "image", "video", or "audio".',
-          enum: ['image', 'video', 'audio'],
-        },
-        audioType: {
-          type: 'string',
-          description:
-            'Optional audio subtype hint (only used when nodeType is "audio"): "voice", "music", or "sfx". Routes the process-bound prompt. Defaults to "voice" when nodeType is "audio" and audioType is omitted.',
-          enum: ['voice', 'music', 'sfx'],
-        },
-        providerId: { type: 'string', description: 'Optional provider override (for start).' },
-        variantCount: {
-          type: 'number',
-          description: 'Optional number of variants to generate (for start).',
-        },
-        wait: {
-          type: 'boolean',
-          description:
-            'If true, block until generation completes (up to 5 min). Default: false (fire-and-forget). For start only.',
+          description: 'Optional node IDs for estimate.',
         },
       },
-      required: ['canvasId', 'action'],
+      required: ['action'],
     },
     async execute(args) {
-      const action = requireString(args, 'action');
-      if (action === 'start') {
-        try {
-          const canvasId = requireString(args, 'canvasId');
-          const nodeId = requireString(args, 'nodeId');
-          await requireNode(deps, canvasId, nodeId);
-          const providerId = tryProviderId(args.providerId);
-          const variantCount =
-            typeof args.variantCount === 'number' ? Math.round(args.variantCount) : undefined;
-          const finalPrompt =
-            typeof args.prompt === 'string' && args.prompt.trim().length > 0
-              ? args.prompt
-              : undefined;
-          await deps.triggerGeneration(canvasId, nodeId, providerId, variantCount, finalPrompt);
-
-          const shouldWait = args.wait === true;
-          if (!shouldWait) {
-            return ok({ nodeId, status: 'generating' });
-          }
-
-          // Poll node status until generation completes or fails (max 5 minutes)
-          const maxWaitMs = 5 * 60 * 1000;
-          const pollIntervalMs = 3000;
-          const start = Date.now();
-          while (Date.now() - start < maxWaitMs) {
-            await new Promise((r) => setTimeout(r, pollIntervalMs));
-            const { node } = await requireNode(deps, canvasId, nodeId);
-            const data = node.data as Record<string, unknown>;
-            const status = data.status as string | undefined;
-            if (status === 'done') {
-              return ok({
-                nodeId,
-                status: 'done',
-                variants: Array.isArray(data.variants) ? data.variants : [],
-                assetHash: data.assetHash,
-              });
+      try {
+        const action = requireString(args, 'action');
+        switch (action) {
+          case 'prepare':
+            return await prepareMediaTask(args);
+          case 'submit': {
+            const taskListId = requireString(args, 'taskListId');
+            const assemblyId = requireString(args, 'assemblyId');
+            const assembly = parsePromptAssemblyOutput(args.assembly);
+            if (assembly.assemblyId !== assemblyId) {
+              throw new TypedToolError(
+                'assemblyId does not match assembly.assemblyId',
+                'validation',
+              );
             }
-            if (status === 'failed') {
-              return ok({
-                nodeId,
-                status: 'failed',
-                error: typeof data.error === 'string' ? data.error : 'Generation failed',
-              });
-            }
-            // still generating — continue polling
+            return ok(await deps.submitMediaPrompt({ taskListId, assemblyId, assembly }));
           }
-          return ok({
-            nodeId,
-            status: 'timeout',
-            error: 'Generation did not complete within 5 minutes',
-          });
-        } catch (error) {
-          return fail(error);
+          case 'status':
+            return ok(await deps.getMediaTask(requireString(args, 'taskListId')));
+          case 'inspectAssembly': {
+            if (!deps.getPromptAssembly) {
+              throw new Error('Prompt Assembly inspection is unavailable');
+            }
+            return ok(await deps.getPromptAssembly(requireString(args, 'assemblyId')));
+          }
+          case 'cancel':
+            return ok(await deps.cancelMediaTask(requireString(args, 'taskListId')));
+          case 'retryEvaluation':
+            return ok(await deps.retryMediaEvaluation(requireString(args, 'taskListId')));
+          case 'estimate': {
+            const canvasId = requireString(args, 'canvasId');
+            await requireCanvas(deps, canvasId);
+            const nodeIds =
+              Array.isArray(args.nodeIds) && args.nodeIds.length > 0
+                ? requireStringArray(args, 'nodeIds')
+                : undefined;
+            return ok(await deps.estimateCost(canvasId, nodeIds));
+          }
+          default:
+            return fail(
+              `Unknown action "${action}". Must be one of: prepare, submit, inspectAssembly, status, cancel, retryEvaluation, estimate.`,
+            );
         }
-      } else if (action === 'refine') {
-        try {
-          const canvasId = requireString(args, 'canvasId');
-          const nodeId = requireString(args, 'nodeId');
-          const feedback = requireText(args, 'feedback').trim();
-          if (!feedback) {
-            throw new TypedToolError('feedback is required', 'validation');
-          }
-          if (feedback.length > 2_000) {
-            throw new TypedToolError('feedback must be 2000 characters or fewer', 'validation');
-          }
-          const { node } = await requireNode(deps, canvasId, nodeId);
-          if (node.type !== 'image' && node.type !== 'video') {
-            throw new TypedToolError('refine supports image and video nodes only', 'validation');
-          }
-          if (!deps.preparePromptRefinement) {
-            throw new Error('Incremental prompt refinement is unavailable in this host');
-          }
-          const lineage = await deps.preparePromptRefinement(canvasId, nodeId, feedback);
-          const providerId = tryProviderId(args.providerId);
-          const variantCount =
-            typeof args.variantCount === 'number' ? Math.round(args.variantCount) : undefined;
-          await deps.triggerGeneration(
-            canvasId,
-            nodeId,
-            providerId,
-            variantCount,
-            lineage.prompt,
-            'precompiled',
-          );
-
-          const common = {
-            nodeId,
-            lineage: {
-              sourceAssetHash: lineage.sourceAssetHash,
-              basePromptHash: lineage.basePromptHash,
-              promptHash: lineage.promptHash,
-            },
-          };
-          if (args.wait !== true) {
-            return ok({
-              ...common,
-              status: 'generating',
-              steps: refinementSteps('in_progress', 'pending'),
-            });
-          }
-
-          const maxWaitMs = 5 * 60 * 1000;
-          const pollIntervalMs = 3000;
-          const start = Date.now();
-          while (Date.now() - start < maxWaitMs) {
-            await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-            const current = await requireNode(deps, canvasId, nodeId);
-            const data = current.node.data as Record<string, unknown>;
-            const status = data.status as string | undefined;
-            if (status === 'done') {
-              return ok({
-                ...common,
-                status: 'done',
-                variants: Array.isArray(data.variants) ? data.variants : [],
-                assetHash: data.assetHash,
-                steps: refinementSteps('completed', 'pending'),
-              });
-            }
-            if (status === 'failed') {
-              return ok({
-                ...common,
-                status: 'failed',
-                error: typeof data.error === 'string' ? data.error : 'Generation failed',
-                steps: refinementSteps('failed', 'pending'),
-              });
-            }
-          }
-          return ok({
-            ...common,
-            status: 'timeout',
-            error: 'Generation did not complete within 5 minutes',
-            steps: refinementSteps('in_progress', 'pending'),
-          });
-        } catch (error) {
-          return fail(error);
-        }
-      } else if (action === 'cancel') {
-        try {
-          const canvasId = requireString(args, 'canvasId');
-          const ids = resolveNodeIds(args);
-          const results: Array<{ nodeId: string; success: boolean; error?: string }> = [];
-          for (const nodeId of ids) {
-            try {
-              const { node } = await requireNode(deps, canvasId, nodeId);
-              requireMediaNode(node);
-              await deps.cancelGeneration(canvasId, nodeId);
-              results.push({ nodeId, success: true });
-            } catch (error) {
-              results.push({
-                nodeId,
-                success: false,
-                error: error instanceof Error ? error.message : String(error),
-              });
-            }
-          }
-          if (ids.length === 1)
-            return results[0].success ? ok({ nodeId: ids[0] }) : fail(results[0].error!);
-          return ok({
-            cancelled: results.filter((r) => r.success).length,
-            total: ids.length,
-            results,
-          });
-        } catch (error) {
-          return fail(error);
-        }
-      } else if (action === 'estimate') {
-        try {
-          const canvasId = requireString(args, 'canvasId');
-          await requireCanvas(deps, canvasId);
-          const nodeIds =
-            Array.isArray(args.nodeIds) && args.nodeIds.length > 0
-              ? requireStringArray(args, 'nodeIds')
-              : undefined;
-          return ok(await deps.estimateCost(canvasId, nodeIds));
-        } catch (error) {
-          return fail(error);
-        }
-      } else {
-        return fail(`Unknown action "${action}". Must be one of: start, cancel, estimate.`);
+      } catch (error) {
+        return fail(error);
       }
     },
   };
@@ -349,16 +418,34 @@ export function createCanvasGenerationTools(deps: CanvasToolDeps): AgentTool[] {
   // ---------------------------------------------------------------------------
   // canvas.updateNodes — content & prompt fields only
   // ---------------------------------------------------------------------------
-  const updateNodes: AgentTool = {
+  const updateNodes: ToolDefinition = {
     name: 'canvas.updateNodes',
+    process: 'canvas-node-editing',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    projectPublicResult: contextProjector((_result, args) => nodeReplayFacts(args, 'updated')),
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description: `Batch-update content and prompt fields on nodes. Two modes:
 1. Same update for multiple nodes: use nodeId/nodeIds + "set": { ... }
 2. Different updates per node: use "nodes": [{ nodeId, set: {...} }, ...] — preferred for efficiency when each node needs different values.
 Supported fields in "set": title, content (text only), prompt, negativePrompt (media only).
 For media generation params (width/height/steps/cfgScale/duration/audio/quality/audioType/emotionVector), use canvas.setMediaParams. For entity refs (character/location/equipment), use canvas.setNodeRefs. For layout (position/bypassed/locked), use canvas.setNodeLayout.`,
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema(
+          { nodeId: stringSchema, updated: canonicalJsonSchema, warnings: stringArraySchema },
+          ['nodeId', 'updated'],
+        ),
+        objectSchema(
+          { nodes: arraySchema(nodeMutationSchema), warnings: stringArraySchema },
+          ['nodes'],
+        ),
+      ),
+    ),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -423,22 +510,31 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
           workItems = ids.map((id) => ({ nodeId: id, set }));
         }
 
+        const canvas = await requireCanvas(deps, canvasId);
+        const nodesById = indexNodes(canvas);
+        const updatedAt = Date.now();
+        const patchUpdates: Array<{ id: string; changes: Record<string, unknown> }> = [];
         const results: Array<{ nodeId: string; updated: Record<string, unknown> }> = [];
         for (const { nodeId, set } of workItems) {
-          const { node } = await requireNode(deps, canvasId, nodeId);
+          const node = requireIndexedNode(nodesById, nodeId);
           const data: Record<string, unknown> = {};
           const isMedia = isGeneratableMedia(node.type);
+          const changes: Record<string, unknown> = {};
 
           if (typeof set.title === 'string') {
             const title = (set.title as string).trim();
-            if (title.length > 0) await deps.renameNode(canvasId, nodeId, title);
+            if (title.length > 0) changes.title = title;
           }
           if (node.type === 'text' && typeof set.content === 'string') data.content = set.content;
           if (isMedia && typeof set.prompt === 'string') data.prompt = set.prompt;
           if (isMedia && typeof set.negativePrompt === 'string')
             data.negativePrompt = set.negativePrompt;
 
-          if (Object.keys(data).length > 0) await deps.updateNodeData(canvasId, nodeId, data);
+          if (Object.keys(data).length > 0) changes.data = mergedNodeData(node, data);
+          if (Object.keys(changes).length > 0) {
+            changes.updatedAt = updatedAt;
+            patchUpdates.push({ id: nodeId, changes });
+          }
           results.push({
             nodeId,
             updated: {
@@ -447,6 +543,7 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
             },
           });
         }
+        await commitNodeUpdates(canvasId, patchUpdates);
         if (results.length === 1)
           return ok({
             nodeId: results[0].nodeId,
@@ -463,12 +560,19 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
   // ---------------------------------------------------------------------------
   // canvas.setNodeLayout — position, flags, colorTag
   // ---------------------------------------------------------------------------
-  const setNodeLayout: AgentTool = {
+  const setNodeLayout: ToolDefinition = {
     name: 'canvas.setNodeLayout',
+    process: 'canvas-node-editing',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description: `Set layout properties (position/bypassed/locked/colorTag) on one or more nodes. Wrap fields in "set": { ... }. Use this for node position and display state; for prompt text, use canvas.updateNodes. For entity refs, use canvas.setNodeRefs.`,
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(unionSchema(nodeMutationSchema, arraySchema(nodeMutationSchema))),
+    projectPublicResult: contextProjector((_result, args) => nodeReplayFacts(args, 'updated')),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -503,19 +607,25 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
         const canvasId = requireString(args, 'canvasId');
         const ids = resolveNodeIds(args);
         const set = extractSet(args);
+        const canvas = await requireCanvas(deps, canvasId);
+        const nodesById = indexNodes(canvas);
+        const updatedAt = Date.now();
+        const patchUpdates: Array<{ id: string; changes: Record<string, unknown> }> = [];
 
         const results: Array<{ nodeId: string; updated: Record<string, unknown> }> = [];
         for (const nodeId of ids) {
+          requireIndexedNode(nodesById, nodeId);
           const updated: Record<string, unknown> = {};
+          const changes: Record<string, unknown> = {};
 
           if (typeof set.colorTag === 'string') {
-            await deps.setNodeColorTag(canvasId, nodeId, set.colorTag as string);
+            changes.colorTag = set.colorTag;
             updated.colorTag = set.colorTag;
           }
           if (set.position && typeof set.position === 'object') {
             const pos = set.position as Record<string, unknown>;
             if (typeof pos.x === 'number' && typeof pos.y === 'number') {
-              await deps.moveNode(canvasId, nodeId, { x: pos.x, y: pos.y });
+              changes.position = { x: pos.x, y: pos.y };
               updated.position = set.position;
             }
           }
@@ -523,12 +633,16 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
           if (typeof set.bypassed === 'boolean') nodeFlags.bypassed = set.bypassed as boolean;
           if (typeof set.locked === 'boolean') nodeFlags.locked = set.locked as boolean;
           if (Object.keys(nodeFlags).length > 0) {
-            const { node } = await requireNode(deps, canvasId, nodeId);
-            await replaceNodePreservingEdges(deps, canvasId, node, nodeFlags);
+            Object.assign(changes, nodeFlags);
             Object.assign(updated, nodeFlags);
+          }
+          if (Object.keys(changes).length > 0) {
+            changes.updatedAt = updatedAt;
+            patchUpdates.push({ id: nodeId, changes });
           }
           results.push({ nodeId, updated });
         }
+        await commitNodeUpdates(canvasId, patchUpdates);
         return ok(results.length === 1 ? results[0] : results);
       } catch (error) {
         return fail(error);
@@ -539,12 +653,30 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
   // ---------------------------------------------------------------------------
   // canvas.configureNode — provider, seed, seedLock, variantCount
   // ---------------------------------------------------------------------------
-  const configureNode: AgentTool = {
+  const configureNode: ToolDefinition = {
     name: 'canvas.configureNode',
+    process: 'node-provider-selection',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description: `Set provider, seed, and variant options on image/video/audio nodes. Wrap fields in "set": { ... }. Use this for per-node provider override and seed control; for project-wide defaults, use provider.manage.`,
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema(
+          { nodeId: stringSchema, updated: canonicalJsonSchema, _warning: stringSchema },
+          ['nodeId', 'updated'],
+        ),
+        objectSchema(
+          { nodes: arraySchema(nodeMutationSchema), _warning: stringSchema },
+          ['nodes'],
+        ),
+      ),
+    ),
+    projectPublicResult: contextProjector((_result, args) => nodeReplayFacts(args, 'updated')),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -568,6 +700,12 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
             variantCount: {
               type: 'number',
               description: 'Variant count: 1, 2, 4, 9, or 25 (image/video only).',
+            },
+            generationPurpose: {
+              type: 'string',
+              enum: ['content', 'reference-image'],
+              description:
+                'Image-node purpose. reference-image inherits the Canvas reference-image resolution policy; content inherits the normal image policy.',
             },
           },
         },
@@ -594,9 +732,13 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
           }
         }
 
+        const canvas = await requireCanvas(deps, canvasId);
+        const nodesById = indexNodes(canvas);
+        const updatedAt = Date.now();
+        const patchUpdates: Array<{ id: string; changes: Record<string, unknown> }> = [];
         const results: Array<{ nodeId: string; updated: Record<string, unknown> }> = [];
         for (const nodeId of ids) {
-          const { node } = await requireNode(deps, canvasId, nodeId);
+          const node = requireIndexedNode(nodesById, nodeId);
           const data: Record<string, unknown> = {};
           const isMedia = isGeneratableMedia(node.type);
           const isVisual = isVisualMedia(node.type);
@@ -604,19 +746,42 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
           if (isMedia && typeof set.providerId === 'string')
             data.providerId = (set.providerId as string).trim();
           if (isMedia && typeof set.seed === 'number') data.seed = Math.round(set.seed as number);
-          if (isMedia && set.seedLock === true) await deps.toggleSeedLock(canvasId, nodeId);
+          if (isMedia && set.seedLock === true) {
+            data.seedLocked = !(node.data as { seedLocked?: boolean }).seedLocked;
+          }
           if (isVisual && typeof set.variantCount === 'number')
             data.variantCount = Math.round(set.variantCount as number);
+          if (set.generationPurpose !== undefined) {
+            if (node.type !== 'image') {
+              throw new Error('generationPurpose is only valid for image nodes');
+            }
+            if (
+              set.generationPurpose !== 'content' &&
+              set.generationPurpose !== 'reference-image'
+            ) {
+              throw new Error('generationPurpose must be content or reference-image');
+            }
+            data.generationPurpose = set.generationPurpose;
+          }
 
-          if (Object.keys(data).length > 0) await deps.updateNodeData(canvasId, nodeId, data);
+          if (Object.keys(data).length > 0) {
+            patchUpdates.push({
+              id: nodeId,
+              changes: { data: mergedNodeData(node, data), updatedAt },
+            });
+          }
           results.push({
             nodeId,
             updated: { ...data, ...(set.seedLock === true ? { seedLockToggled: true } : {}) },
           });
         }
+        await commitNodeUpdates(canvasId, patchUpdates);
         const warningObj = keyWarning ? { _warning: keyWarning } : {};
-        const payload = results.length === 1 ? results[0] : results;
-        return ok({ ...payload, ...warningObj });
+        return ok(
+          results.length === 1
+            ? { ...results[0], ...warningObj }
+            : { nodes: results, ...warningObj },
+        );
       } catch (error) {
         return fail(error);
       }
@@ -626,13 +791,20 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
   // ---------------------------------------------------------------------------
   // canvas.setMediaParams — image, video, or audio generation parameters
   // ---------------------------------------------------------------------------
-  const setMediaParams: AgentTool = {
+  const setMediaParams: ToolDefinition = {
     name: 'canvas.setMediaParams',
+    process: 'media-config',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description:
       'Set media generation parameters on nodes. Resolution precedence is node override → Canvas policy → provider default. Use resolution for provider-default/exact/tier; clearResolutionOverride=true restores Canvas inheritance. Legacy width+height remains accepted as an exact override and must be provided together.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(unionSchema(nodeMutationSchema, arraySchema(nodeMutationSchema))),
+    projectPublicResult: contextProjector((_result, args) => nodeReplayFacts(args, 'updated')),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -699,7 +871,6 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
               type: 'string',
               description: `Quality tier (video). ${KLING_QUALITY_DESCRIPTION}.`,
             },
-            lipSyncEnabled: { type: 'boolean', description: 'Enable lip sync (video).' },
             audioType: {
               type: 'string',
               enum: ['voice', 'sfx', 'music'],
@@ -725,104 +896,105 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
       required: ['canvasId', 'mediaType', 'set'],
     },
     async execute(args) {
-      const mediaType = requireString(args, 'mediaType');
-      if (mediaType === 'image') {
-        try {
-          const canvasId = requireString(args, 'canvasId');
-          const ids = resolveNodeIds(args);
-          const set = extractSet(args);
+      try {
+        const mediaType = requireString(args, 'mediaType');
+        if (mediaType !== 'image' && mediaType !== 'video' && mediaType !== 'audio') {
+          return fail(`Unknown mediaType "${mediaType}". Must be one of: image, video, audio.`);
+        }
+        const canvasId = requireString(args, 'canvasId');
+        const ids = resolveNodeIds(args);
+        const set = extractSet(args);
+        const canvas = await requireCanvas(deps, canvasId);
+        const nodesById = indexNodes(canvas);
+        const updatedAt = Date.now();
+        const patchUpdates: Array<{ id: string; changes: Record<string, unknown> }> = [];
+        const results: Array<{ nodeId: string; updated: Record<string, unknown> }> = [];
 
-          const results: Array<{ nodeId: string; updated: Record<string, unknown> }> = [];
-          for (const nodeId of ids) {
-            const { node } = await requireNode(deps, canvasId, nodeId);
-            if (node.type !== 'image' && node.type !== 'video') {
-              throw new Error(`Node "${nodeId}" type "${node.type}" is not an image or video node`);
-            }
-            const data: Record<string, unknown> = {};
-            const resolutionMutation = buildResolutionMutation(set);
-            Object.assign(data, resolutionMutation.data);
+        for (const nodeId of ids) {
+          const node = requireIndexedNode(nodesById, nodeId);
+          if (mediaType === 'image' && node.type !== 'image' && node.type !== 'video') {
+            throw new Error(`Node "${nodeId}" type "${node.type}" is not an image or video node`);
+          }
+          if (mediaType === 'video' && node.type !== 'video') {
+            throw new Error(`Node "${nodeId}" type "${node.type}" is not a video node`);
+          }
+          if (mediaType === 'audio' && node.type !== 'audio') {
+            throw new Error(`Node "${nodeId}" type "${node.type}" is not an audio node`);
+          }
+
+          const data: Record<string, unknown> = {};
+          const resolutionMutation =
+            mediaType === 'audio' ? { data: {}, clearFields: [] } : buildResolutionMutation(set);
+          Object.assign(data, resolutionMutation.data);
+          if (mediaType === 'image') {
             if (typeof set.steps === 'number') data.steps = Math.round(set.steps as number);
             if (typeof set.cfgScale === 'number') data.cfgScale = set.cfgScale;
             if (typeof set.scheduler === 'string') data.scheduler = set.scheduler;
-            if (typeof set.img2imgStrength === 'number')
+            if (typeof set.img2imgStrength === 'number') {
               data.img2imgStrength = Math.max(0, Math.min(1, set.img2imgStrength as number));
-
-            await applyResolutionMutation(canvasId, nodeId, data, resolutionMutation.clearFields);
-            results.push({ nodeId, updated: data });
-          }
-          return ok(results.length === 1 ? results[0] : results);
-        } catch (error) {
-          return fail(error);
-        }
-      } else if (mediaType === 'video') {
-        try {
-          const canvasId = requireString(args, 'canvasId');
-          const ids = resolveNodeIds(args);
-          const set = extractSet(args);
-
-          const results: Array<{ nodeId: string; updated: Record<string, unknown> }> = [];
-          for (const nodeId of ids) {
-            const { node } = await requireNode(deps, canvasId, nodeId);
-            if (node.type !== 'video') {
-              throw new Error(`Node "${nodeId}" type "${node.type}" is not a video node`);
             }
-            const data: Record<string, unknown> = {};
-            const resolutionMutation = buildResolutionMutation(set);
-            Object.assign(data, resolutionMutation.data);
+          } else if (mediaType === 'video') {
             if (typeof set.duration === 'number') data.duration = set.duration;
             if (typeof set.audio === 'boolean') data.audio = set.audio;
             if (typeof set.quality === 'string') data.quality = set.quality;
-            if (typeof set.lipSyncEnabled === 'boolean') data.lipSyncEnabled = set.lipSyncEnabled;
-
-            await applyResolutionMutation(canvasId, nodeId, data, resolutionMutation.clearFields);
-            results.push({ nodeId, updated: data });
-          }
-          return ok(results.length === 1 ? results[0] : results);
-        } catch (error) {
-          return fail(error);
-        }
-      } else if (mediaType === 'audio') {
-        try {
-          const canvasId = requireString(args, 'canvasId');
-          const ids = resolveNodeIds(args);
-          const set = extractSet(args);
-
-          const results: Array<{ nodeId: string; updated: Record<string, unknown> }> = [];
-          for (const nodeId of ids) {
-            const { node } = await requireNode(deps, canvasId, nodeId);
-            if (node.type !== 'audio') {
-              throw new Error(`Node "${nodeId}" type "${node.type}" is not an audio node`);
-            }
-            const data: Record<string, unknown> = {};
+          } else {
             if (typeof set.audioType === 'string') {
               const validAudioTypes = ['voice', 'sfx', 'music'];
-              if (!validAudioTypes.includes(set.audioType as string))
+              if (!validAudioTypes.includes(set.audioType as string)) {
                 throw new Error(`audioType must be one of: ${validAudioTypes.join(', ')}`);
+              }
               data.audioType = set.audioType;
             }
-            if (set.emotionVector !== undefined && set.emotionVector !== null)
+            if (set.emotionVector !== undefined && set.emotionVector !== null) {
               data.emotionVector = set.emotionVector;
-
-            if (Object.keys(data).length > 0) await deps.updateNodeData(canvasId, nodeId, data);
-            results.push({ nodeId, updated: data });
+            }
           }
-          return ok(results.length === 1 ? results[0] : results);
-        } catch (error) {
-          return fail(error);
+
+          if (Object.keys(data).length > 0 || resolutionMutation.clearFields.length > 0) {
+            patchUpdates.push({
+              id: nodeId,
+              changes: {
+                data: mergedNodeData(node, data, resolutionMutation.clearFields),
+                updatedAt,
+              },
+            });
+          }
+          results.push({ nodeId, updated: data });
         }
-      } else {
-        return fail(`Unknown mediaType "${mediaType}". Must be one of: image, video, audio.`);
+
+        await commitNodeUpdates(canvasId, patchUpdates);
+        return ok(results.length === 1 ? results[0] : results);
+      } catch (error) {
+        return fail(error);
       }
     },
   };
 
-  const resolveResolution: AgentTool = {
+  const resolveResolution: ToolDefinition = {
     name: 'provider.resolveResolution',
+    process: 'media-config',
+    category: 'query',
+    contextReplay: 'public_facts',
+    resource: NO_TOOL_RESOURCE,
     description:
       'Run a local-only resolution capability and cost preflight for an image/video node. It never validates remotely or starts paid generation. Omit resolution to inspect the node → Canvas → provider effective policy; pass a candidate intent to test it before changing the node.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(resolutionPreflightSchema),
+    projectPublicResult: contextProjector((result) => {
+      const data = resultRecord(result);
+      const plan = record(data?.plan);
+      return [
+        valueFact('resolution.supported', data?.supported),
+        valueFact('resolution.providerId', plan?.providerId),
+        valueFact('resolution.mediaType', plan?.mediaType),
+        valueFact('resolution.tier', plan?.tier),
+        valueFact('resolution.outputKnown', plan?.outputKnown),
+        valueFact('resolution.estimatedCostUsd', data?.estimatedCostUsd),
+        valueFact('resolution.currency', data?.currency),
+      ];
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -868,12 +1040,19 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
     },
   };
 
-  const selectVariant: AgentTool = {
+  const selectVariant: ToolDefinition = {
     name: 'canvas.selectVariant',
+    process: 'canvas-node-editing',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description: 'Select the active generated variant for an image, video, or audio node.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(objectSchema({ nodeId: stringSchema, index: numberSchema })),
+    projectPublicResult: contextProjector((_result, args) => nodeReplayFacts(args, 'updated')),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -897,41 +1076,83 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
     },
   };
 
-  const previewPrompt: AgentTool = {
+  const previewPrompt: ToolDefinition = {
     name: 'canvas.previewPrompt',
+    process: 'canvas-node-editing',
+    category: 'query',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description:
-      'Preview a REFERENCE draft of the prompt the deterministic compiler would build from this node (preset fragments, entity descriptions, and connected text), plus diagnostics. The `segments` array breaks the draft into sources — entries with `source: "synergy"` are bonus phrases auto-suggested when specific presets combine, and `diagnostics` surfaces conflicts and advisories (e.g. co-active presets, image-to-video static clauses, video temporal order). Use this as INPUT when you author the final prompt: read the synergy segments and diagnostics, then fold what helps into the prompt you pass to canvas.generation. Does NOT trigger generation.',
-    context: CANVAS_CONTEXT,
+      'Alias for canvas.generation action=prepare. Creates or resumes a durable media.generation.v1 Task List and returns taskListId plus the prepared Prompt Assembly. Does not submit media generation.',
+    contexts: CANVAS_CONTEXT,
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(
+      objectSchema({ taskListId: stringSchema, promptAssembly: promptAssemblyRecordSchema }),
+    ),
+    projectPublicResult: contextProjector((result) => {
+      const data = resultRecord(result);
+      const promptAssembly = record(data?.promptAssembly);
+      return [
+        authorityFact('task_list', 'created', data?.taskListId),
+        authorityFact('prompt_assembly', 'created', promptAssembly?.assemblyId, {
+          revision: promptAssembly?.revision,
+          contentHash: promptAssembly?.inputHash,
+        }),
+      ];
+    }),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
         nodeId: { type: 'string', description: 'The node ID to preview.' },
+        intent: {
+          type: 'string',
+          description: 'Optional current user intent as a separate prompt source.',
+        },
+        providerId: { type: 'string', description: 'Optional provider override.' },
+        providerConfig: {
+          type: 'object',
+          description: 'Optional custom provider configuration. When present, both baseUrl and model are required; never include apiKey.',
+          properties: {
+            baseUrl: { type: 'string', description: 'Custom provider base URL.' },
+            model: { type: 'string', description: 'Custom provider model.' },
+          },
+        },
+        parentAttemptId: {
+          type: 'string',
+          description: 'Prior durable media attempt ID; requires feedback.',
+        },
+        feedback: {
+          type: 'string',
+          description: 'Concise refinement feedback; requires parentAttemptId.',
+        },
       },
       required: ['canvasId', 'nodeId'],
     },
     async execute(args) {
       try {
-        if (!deps.previewPrompt) {
-          return fail('previewPrompt is not available');
-        }
-        const canvasId = requireString(args, 'canvasId');
-        const nodeId = requireString(args, 'nodeId');
-        await requireNode(deps, canvasId, nodeId);
-        return ok(await deps.previewPrompt(canvasId, nodeId));
+        return await prepareMediaTask(args);
       } catch (error) {
         return fail(error);
       }
     },
   };
 
-  const addNote: AgentTool = {
+  const addNote: ToolDefinition = {
     name: 'canvas.addNote',
+    process: 'canvas-structure',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description: 'Add a new note to the canvas.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(canvasNoteSchema),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('canvas', 'updated', args.canvasId),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -950,12 +1171,21 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
     },
   };
 
-  const updateNote: AgentTool = {
+  const updateNote: ToolDefinition = {
     name: 'canvas.updateNote',
+    process: 'canvas-structure',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description: 'Update an existing canvas note.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(objectSchema({ noteId: stringSchema, content: stringSchema })),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('canvas', 'updated', args.canvasId),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -977,12 +1207,21 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
     },
   };
 
-  const deleteNote: AgentTool = {
+  const deleteNote: ToolDefinition = {
     name: 'canvas.deleteNote',
+    process: 'canvas-structure',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description: 'Delete a canvas note.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 3,
-    parameters: {
+    outputSchema: toolResultSchema(objectSchema({ noteId: stringSchema })),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('canvas', 'updated', args.canvasId),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -1002,61 +1241,29 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
     },
   };
 
-  const undo: AgentTool = {
-    name: 'canvas.undo',
-    description: 'Undo the most recent canvas action.',
-    context: CANVAS_CONTEXT,
-    tier: 4,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-      },
-      required: ['canvasId'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        await requireCanvas(deps, canvasId);
-        await deps.undo(canvasId);
-        return ok({ canvasId });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const redo: AgentTool = {
-    name: 'canvas.redo',
-    description: 'Redo the most recently undone canvas action.',
-    context: CANVAS_CONTEXT,
-    tier: 4,
-    parameters: {
-      type: 'object',
-      properties: {
-        canvasId: { type: 'string', description: 'The target canvas ID.' },
-      },
-      required: ['canvasId'],
-    },
-    async execute(args) {
-      try {
-        const canvasId = requireString(args, 'canvasId');
-        await requireCanvas(deps, canvasId);
-        await deps.redo(canvasId);
-        return ok({ canvasId });
-      } catch (error) {
-        return fail(error);
-      }
-    },
-  };
-
-  const deleteNode: AgentTool = {
+  const deleteNode: ToolDefinition = {
     name: 'canvas.deleteNode',
+    process: 'canvas-structure',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description:
       'Delete one or more nodes from the canvas (also removes connected edges). Supports batch: pass nodeIds array.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 3,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema({ nodeId: stringSchema }),
+        objectSchema({
+          deleted: numberSchema,
+          total: numberSchema,
+          results: arraySchema(mutationAttemptSchema),
+        }),
+      ),
+    ),
+    projectPublicResult: contextProjector((_result, args) => nodeReplayFacts(args, 'deleted')),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -1073,11 +1280,18 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
       try {
         const canvasId = requireString(args, 'canvasId');
         const ids = resolveNodeIds(args);
+        const canvas = await requireCanvas(deps, canvasId);
+        const nodesById = indexNodes(canvas);
+        const removedNodeIds: string[] = [];
+        const removedEdgeIds = new Set<string>();
         const results: Array<{ nodeId: string; success: boolean; error?: string }> = [];
         for (const nodeId of ids) {
           try {
-            await requireNode(deps, canvasId, nodeId);
-            await deps.deleteNode(canvasId, nodeId);
+            requireIndexedNode(nodesById, nodeId);
+            removedNodeIds.push(nodeId);
+            for (const edge of canvas.edges) {
+              if (edge.source === nodeId || edge.target === nodeId) removedEdgeIds.add(edge.id);
+            }
             results.push({ nodeId, success: true });
           } catch (error) {
             results.push({
@@ -1086,6 +1300,15 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
               error: error instanceof Error ? error.message : String(error),
             });
           }
+        }
+        if (removedNodeIds.length > 0) {
+          await deps.patchCanvas(canvasId, {
+            canvasId,
+            timestamp: Date.now(),
+            operations: ['removeNode', ...(removedEdgeIds.size > 0 ? ['removeEdge' as const] : [])],
+            removedNodeIds,
+            removedEdgeIds: [...removedEdgeIds],
+          });
         }
         if (ids.length === 1)
           return results[0].success ? ok({ nodeId: ids[0] }) : fail(results[0].error!);
@@ -1099,13 +1322,54 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
   // ---------------------------------------------------------------------------
   // canvas.manageEdge — delete, swap direction, or disconnect
   // ---------------------------------------------------------------------------
-  const manageEdge: AgentTool = {
+  const manageEdge: ToolDefinition = {
     name: 'canvas.manageEdge',
+    process: 'canvas-graph-and-layout',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description:
       'Manage canvas edges: delete, swap direction, or disconnect all edges from a node.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema({ edgeId: stringSchema }),
+        canvasEdgeSchema,
+        objectSchema({ nodeId: stringSchema, edgeIds: stringArraySchema, count: numberSchema }),
+        objectSchema({
+          deleted: numberSchema,
+          total: numberSchema,
+          results: arraySchema(
+            objectSchema(
+              { edgeId: stringSchema, success: booleanSchema, error: stringSchema },
+              ['edgeId', 'success'],
+            ),
+          ),
+        }),
+        objectSchema({
+          disconnected: numberSchema,
+          total: numberSchema,
+          results: arraySchema(
+            objectSchema(
+              {
+                nodeId: stringSchema,
+                success: booleanSchema,
+                edgeIds: stringArraySchema,
+                count: numberSchema,
+                error: stringSchema,
+              },
+              ['nodeId', 'success'],
+            ),
+          ),
+        }),
+      ),
+    ),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('canvas', 'updated', args.canvasId),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -1137,10 +1401,14 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
           const ids: string[] = Array.isArray(args.edgeIds)
             ? args.edgeIds.map((id: unknown) => (typeof id === 'string' ? id.trim() : String(id)))
             : [requireString(args, 'edgeId')];
+          const canvas = await requireCanvas(deps, canvasId);
+          const edgesById = new Map(canvas.edges.map((edge) => [edge.id, edge]));
+          const removedEdgeIds: string[] = [];
           const results: Array<{ edgeId: string; success: boolean; error?: string }> = [];
           for (const edgeId of ids) {
             try {
-              await deps.deleteEdge(canvasId, edgeId);
+              if (!edgesById.has(edgeId)) throw new Error(`Edge not found: ${edgeId}`);
+              removedEdgeIds.push(edgeId);
               results.push({ edgeId, success: true });
             } catch (error) {
               results.push({
@@ -1149,6 +1417,14 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
                 error: error instanceof Error ? error.message : String(error),
               });
             }
+          }
+          if (removedEdgeIds.length > 0) {
+            await deps.patchCanvas(canvasId, {
+              canvasId,
+              timestamp: Date.now(),
+              operations: ['removeEdge'],
+              removedEdgeIds,
+            });
           }
           if (ids.length === 1)
             return results[0].success ? ok({ edgeId: ids[0] }) : fail(results[0].error!);
@@ -1170,17 +1446,25 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
             ...(structuredClone(edge) as CanvasEdge),
             source: edge.target,
             target: edge.source,
-            sourceHandle: edge.targetHandle?.startsWith('tgt-')
-              ? edge.targetHandle.slice(4)
-              : edge.targetHandle,
-            targetHandle:
-              edge.sourceHandle && !edge.sourceHandle.startsWith('tgt-')
-                ? `tgt-${edge.sourceHandle}`
-                : edge.sourceHandle,
           };
+          const nextSourceHandle = edge.targetHandle?.startsWith('tgt-')
+            ? edge.targetHandle.slice(4)
+            : edge.targetHandle;
+          const nextTargetHandle =
+            edge.sourceHandle && !edge.sourceHandle.startsWith('tgt-')
+              ? `tgt-${edge.sourceHandle}`
+              : edge.sourceHandle;
+          if (nextSourceHandle) swappedEdge.sourceHandle = nextSourceHandle;
+          else delete swappedEdge.sourceHandle;
+          if (nextTargetHandle) swappedEdge.targetHandle = nextTargetHandle;
+          else delete swappedEdge.targetHandle;
 
-          await deps.deleteEdge(canvasId, edgeId);
-          await deps.connectNodes(canvasId, swappedEdge);
+          await deps.patchCanvas(canvasId, {
+            canvasId,
+            timestamp: Date.now(),
+            operations: ['updateEdge'],
+            updatedEdges: [{ id: edgeId, edge: swappedEdge }],
+          });
           return ok(swappedEdge);
         } catch (error) {
           return fail(error);
@@ -1189,6 +1473,9 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
         try {
           const canvasId = requireString(args, 'canvasId');
           const ids = resolveNodeIds(args);
+          const canvas = await requireCanvas(deps, canvasId);
+          const nodesById = indexNodes(canvas);
+          const removedEdgeIds = new Set<string>();
           const results: Array<{
             nodeId: string;
             success: boolean;
@@ -1198,13 +1485,11 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
           }> = [];
           for (const nodeId of ids) {
             try {
-              const { canvas } = await requireNode(deps, canvasId, nodeId);
+              requireIndexedNode(nodesById, nodeId);
               const edgeIds = canvas.edges
                 .filter((edge) => edge.source === nodeId || edge.target === nodeId)
                 .map((edge) => edge.id);
-              for (const edgeId of edgeIds) {
-                await deps.deleteEdge(canvasId, edgeId);
-              }
+              for (const edgeId of edgeIds) removedEdgeIds.add(edgeId);
               results.push({ nodeId, success: true, edgeIds, count: edgeIds.length });
             } catch (error) {
               results.push({
@@ -1213,6 +1498,14 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
                 error: error instanceof Error ? error.message : String(error),
               });
             }
+          }
+          if (removedEdgeIds.size > 0) {
+            await deps.patchCanvas(canvasId, {
+              canvasId,
+              timestamp: Date.now(),
+              operations: ['removeEdge'],
+              removedEdgeIds: [...removedEdgeIds],
+            });
           }
           if (ids.length === 1) {
             const r = results[0];
@@ -1283,16 +1576,40 @@ For media generation params (width/height/steps/cfgScale/duration/audio/quality/
     },
   };
 
-  const setNodeRefs: AgentTool = {
+  const setNodeRefs: ToolDefinition = {
     name: 'canvas.setNodeRefs',
+    process: 'canvas-node-editing',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    projectPublicResult: contextProjector((_result, args) => nodeReplayFacts(args, 'updated')),
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description: `Set character, equipment, and/or location references on image/video nodes. Two modes:
 1. Same refs for multiple nodes: use nodeId/nodeIds + characterRefs/equipmentRefs/locationRefs at top level.
 2. Different refs per node: use "nodes": [{ nodeId, characterRefs?, equipmentRefs?, locationRefs? }, ...] — preferred for efficiency.
 Pass empty array to clear refs of that type. Only provide the ref types you want to change — omitted types are left unchanged.
 Use this for entity refs (character/location/equipment). For prompt text changes, use canvas.updateNodes. For layout, use canvas.setNodeLayout.`,
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema(
+          {
+            nodeId: stringSchema,
+            characterRefs: arraySchema(characterRefSchema),
+            equipmentRefs: arraySchema(equipmentRefSchema),
+            locationRefs: arraySchema(locationRefSchema),
+          },
+          ['nodeId'],
+        ),
+        objectSchema({
+          updated: numberSchema,
+          total: numberSchema,
+          results: arraySchema(mutationAttemptSchema),
+        }),
+      ),
+    ),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -1416,8 +1733,7 @@ Use this for entity refs (character/location/equipment). For prompt text changes
               );
               return {
                 characterId: parseRequiredRefString(ref, 'characterId', 'characterRefs', index),
-                loadoutId:
-                  parseOptionalRefString(ref, 'loadoutId', 'characterRefs', index) ?? '',
+                loadoutId: parseOptionalRefString(ref, 'loadoutId', 'characterRefs', index) ?? '',
                 ...(costume ? { costume } : {}),
                 ...(emotion ? { emotion } : {}),
                 ...(angleSlot ? { angleSlot } : {}),
@@ -1482,6 +1798,10 @@ Use this for entity refs (character/location/equipment). For prompt text changes
           workItems = nodeIds.map((id) => ({ nodeId: id, refs: sharedRefs }));
         }
 
+        const canvas = await requireCanvas(deps, canvasId);
+        const nodesById = indexNodes(canvas);
+        const updatedAt = Date.now();
+        const patchUpdates: Array<{ id: string; changes: Record<string, unknown> }> = [];
         const results: Array<{ nodeId: string; success: boolean; error?: string }> = [];
         for (const { nodeId, refs } of workItems) {
           try {
@@ -1493,7 +1813,7 @@ Use this for entity refs (character/location/equipment). For prompt text changes
               });
               continue;
             }
-            const { node } = await requireNode(deps, canvasId, nodeId);
+            const node = requireIndexedNode(nodesById, nodeId);
             if (node.type !== 'image' && node.type !== 'video') {
               results.push({
                 nodeId,
@@ -1506,7 +1826,10 @@ Use this for entity refs (character/location/equipment). For prompt text changes
             if (refs.characterRefs !== undefined) data.characterRefs = refs.characterRefs;
             if (refs.equipmentRefs !== undefined) data.equipmentRefs = refs.equipmentRefs;
             if (refs.locationRefs !== undefined) data.locationRefs = refs.locationRefs;
-            await deps.updateNodeData(canvasId, nodeId, data);
+            patchUpdates.push({
+              id: nodeId,
+              changes: { data: mergedNodeData(node, data), updatedAt },
+            });
             results.push({ nodeId, success: true });
           } catch (error) {
             results.push({
@@ -1516,6 +1839,7 @@ Use this for entity refs (character/location/equipment). For prompt text changes
             });
           }
         }
+        await commitNodeUpdates(canvasId, patchUpdates);
         if (workItems.length === 1) {
           const r = results[0];
           if (!r.success) return fail(r.error!);
@@ -1537,13 +1861,45 @@ Use this for entity refs (character/location/equipment). For prompt text changes
     },
   };
 
-  const setVideoFrames: AgentTool = {
+  const setVideoFrames: ToolDefinition = {
     name: 'canvas.setVideoFrames',
+    process: 'canvas-graph-and-layout',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description:
       'Set first and/or last frame reference for video nodes. Accepts a single nodeId or nodeIds array for batch. IMPORTANT: First frame requires an INCOMING edge (image→video), last frame requires an OUTGOING edge (video→image). Connect edges with correct direction BEFORE calling this tool.',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema(
+          {
+            nodeId: stringSchema,
+            firstFrameNodeId: stringSchema,
+            lastFrameNodeId: stringSchema,
+            firstFrameAssetHash: stringSchema,
+            lastFrameAssetHash: stringSchema,
+          },
+          ['nodeId'],
+        ),
+        arraySchema(
+          objectSchema(
+            {
+              nodeId: stringSchema,
+              firstFrameNodeId: stringSchema,
+              lastFrameNodeId: stringSchema,
+              firstFrameAssetHash: stringSchema,
+              lastFrameAssetHash: stringSchema,
+            },
+            ['nodeId'],
+          ),
+        ),
+      ),
+    ),
+    projectPublicResult: contextProjector((_result, args) => nodeReplayFacts(args, 'updated')),
+    inputSchema: {
       type: 'object',
       properties: {
         canvasId: { type: 'string', description: 'The target canvas ID.' },
@@ -1576,30 +1932,39 @@ Use this for entity refs (character/location/equipment). For prompt text changes
       try {
         const canvasId = requireString(args, 'canvasId');
         const ids = resolveNodeIds(args);
+        const canvas = await requireCanvas(deps, canvasId);
+        const nodesById = indexNodes(canvas);
+        const updatedAt = Date.now();
+        const patchUpdates: Array<{ id: string; changes: Record<string, unknown> }> = [];
         const results: Array<{ nodeId: string; [k: string]: unknown }> = [];
         for (const nodeId of ids) {
-          const { node } = await requireNode(deps, canvasId, nodeId);
+          const node = requireIndexedNode(nodesById, nodeId);
           if (node.type !== 'video') {
             throw new Error(`Node "${nodeId}" type "${node.type}" is not a video node`);
           }
           const data: Record<string, unknown> = {};
+          const clearFields: string[] = [];
           if (typeof args.firstFrameNodeId === 'string') {
             data.firstFrameNodeId = args.firstFrameNodeId;
-            data.firstFrameAssetHash = undefined;
+            clearFields.push('firstFrameAssetHash');
           } else if (typeof args.firstFrameAssetHash === 'string') {
             data.firstFrameAssetHash = args.firstFrameAssetHash;
-            data.firstFrameNodeId = undefined;
+            clearFields.push('firstFrameNodeId');
           }
           if (typeof args.lastFrameNodeId === 'string') {
             data.lastFrameNodeId = args.lastFrameNodeId;
-            data.lastFrameAssetHash = undefined;
+            clearFields.push('lastFrameAssetHash');
           } else if (typeof args.lastFrameAssetHash === 'string') {
             data.lastFrameAssetHash = args.lastFrameAssetHash;
-            data.lastFrameNodeId = undefined;
+            clearFields.push('lastFrameNodeId');
           }
-          await deps.updateNodeData(canvasId, nodeId, data);
+          patchUpdates.push({
+            id: nodeId,
+            changes: { data: mergedNodeData(node, data, clearFields), updatedAt },
+          });
           results.push({ nodeId, ...data });
         }
+        await commitNodeUpdates(canvasId, patchUpdates);
         return ok(results.length === 1 ? results[0] : results);
       } catch (error) {
         return fail(error);
@@ -1619,8 +1984,6 @@ Use this for entity refs (character/location/equipment). For prompt text changes
     addNote,
     updateNote,
     deleteNote,
-    undo,
-    redo,
     deleteNode,
     manageEdge,
     setVideoFrames,
@@ -1628,14 +1991,107 @@ Use this for entity refs (character/location/equipment). For prompt text changes
   ];
 }
 
-function refinementSteps(
-  generationStatus: 'pending' | 'in_progress' | 'completed' | 'failed',
-  gradeStatus: 'pending' | 'in_progress' | 'completed' | 'failed',
-) {
-  return [
-    { id: 'load_existing_prompt', status: 'completed' },
-    { id: 'apply_feedback_delta', status: 'completed' },
-    { id: 'generate', status: generationStatus },
-    { id: 'grade', status: gradeStatus },
-  ];
+function readOptionalString(value: unknown, field: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new TypedToolError(`${field} must be a non-empty string`, 'validation');
+  }
+  return value.trim();
+}
+
+function parseProviderConfig(value: unknown): MediaProviderConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypedToolError('providerConfig must be an object', 'validation');
+  }
+  const config = value as Record<string, unknown>;
+  if ('apiKey' in config) {
+    throw new TypedToolError('providerConfig.apiKey is not allowed', 'validation');
+  }
+  const unsupportedKey = Object.keys(config).find((key) => key !== 'baseUrl' && key !== 'model');
+  if (unsupportedKey) {
+    throw new TypedToolError(
+      `providerConfig.${unsupportedKey} is not supported; only baseUrl and model are allowed`,
+      'validation',
+    );
+  }
+  const baseUrl = readOptionalString(config.baseUrl, 'providerConfig.baseUrl');
+  if (!baseUrl) {
+    throw new TypedToolError('providerConfig.baseUrl is required', 'validation');
+  }
+  const model = readOptionalString(config.model, 'providerConfig.model');
+  if (!model) {
+    throw new TypedToolError('providerConfig.model is required', 'validation');
+  }
+  return { baseUrl, model };
+}
+
+function parsePromptAssemblyOutput(value: unknown): PromptAssemblyOutputV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypedToolError('assembly must be an object', 'validation');
+  }
+  const record = value as Record<string, unknown>;
+  if (record.version !== 1) {
+    throw new TypedToolError('assembly.version must be 1', 'validation');
+  }
+  const assemblyId = readAssemblyString(record, 'assemblyId');
+  const inputHash = readAssemblyString(record, 'inputHash');
+  const finalPrompt = readAssemblyString(record, 'finalPrompt');
+  const summary = readAssemblyString(record, 'summary', true);
+  if (!Array.isArray(record.sourceDecisions)) {
+    throw new TypedToolError('assembly.sourceDecisions must be an array', 'validation');
+  }
+  const sourceDecisions: PromptAssemblySourceDecision[] = record.sourceDecisions.map(
+    (entry, index) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        throw new TypedToolError(
+          `assembly.sourceDecisions[${index}] must be an object`,
+          'validation',
+        );
+      }
+      const decision = entry as Record<string, unknown>;
+      const disposition = readAssemblyString(decision, 'disposition');
+      if (!['applied', 'omitted', 'conflict-resolved'].includes(disposition)) {
+        throw new TypedToolError(
+          `assembly.sourceDecisions[${index}].disposition is invalid`,
+          'validation',
+        );
+      }
+      return {
+        sourceId: readAssemblyString(decision, 'sourceId'),
+        sourceHash: readAssemblyString(decision, 'sourceHash'),
+        disposition: disposition as PromptAssemblySourceDecision['disposition'],
+        ...(typeof decision.reason === 'string' && decision.reason.trim()
+          ? { reason: decision.reason.trim() }
+          : {}),
+      };
+    },
+  );
+  if (!Array.isArray(record.warnings) || record.warnings.some((item) => typeof item !== 'string')) {
+    throw new TypedToolError('assembly.warnings must be a string array', 'validation');
+  }
+  return {
+    version: 1,
+    assemblyId,
+    inputHash,
+    finalPrompt,
+    ...(typeof record.negativePrompt === 'string' && record.negativePrompt.trim()
+      ? { negativePrompt: record.negativePrompt.trim() }
+      : {}),
+    sourceDecisions,
+    summary,
+    warnings: (record.warnings as string[]).map((warning) => warning.trim()).filter(Boolean),
+  };
+}
+
+function readAssemblyString(
+  record: Record<string, unknown>,
+  key: string,
+  allowEmpty = false,
+): string {
+  const value = record[key];
+  if (typeof value !== 'string' || (!allowEmpty && !value.trim())) {
+    throw new TypedToolError(`assembly.${key} must be a string`, 'validation');
+  }
+  return value.trim();
 }

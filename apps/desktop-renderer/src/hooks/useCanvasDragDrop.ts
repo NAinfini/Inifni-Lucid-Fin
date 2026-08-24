@@ -195,11 +195,11 @@ export function useCanvasDragDrop(rfInstanceRef: RefObject<ReactFlowInstance | n
             if (api) {
               const filePath = (file as { path?: string }).path ?? '';
               const importPromise = filePath
-                ? api.asset.import(filePath, 'image')
-                : api.asset.importBuffer
+                ? api.assetEntry.import(filePath, 'image')
+                : api.assetEntry.importBuffer
                   ? file
                       .arrayBuffer()
-                      .then((buf) => api.asset.importBuffer!(buf, file.name, 'image'))
+                      .then((buf) => api.assetEntry.importBuffer(buf, file.name, 'image'))
                   : Promise.resolve(null);
               void importPromise
                 .then((ref: unknown) => {
@@ -233,11 +233,11 @@ export function useCanvasDragDrop(rfInstanceRef: RefObject<ReactFlowInstance | n
             if (api) {
               const filePath = (file as { path?: string }).path ?? '';
               const importPromise = filePath
-                ? api.asset.import(filePath, 'video')
-                : api.asset.importBuffer
+                ? api.assetEntry.import(filePath, 'video')
+                : api.assetEntry.importBuffer
                   ? file
                       .arrayBuffer()
-                      .then((buf) => api.asset.importBuffer!(buf, file.name, 'video'))
+                      .then((buf) => api.assetEntry.importBuffer(buf, file.name, 'video'))
                   : Promise.resolve(null);
               void importPromise
                 .then((ref: unknown) => {

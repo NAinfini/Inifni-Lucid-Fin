@@ -203,6 +203,10 @@ function groupChannels(channels: readonly PreparedChannel[]): Map<string, Prepar
   return new Map([...groups.entries()].sort(([left], [right]) => compareText(left, right)));
 }
 
+function apiNamespace(namespace: string): string {
+  return namespace === 'taskList' ? 'taskLists' : namespace;
+}
+
 function renderPreload(channels: readonly PreparedChannel[]): string {
   const groups = groupChannels(channels);
   const lines = [
@@ -251,7 +255,7 @@ function renderPreload(channels: readonly PreparedChannel[]): string {
   ];
 
   for (const [namespace, namespaceChannels] of groups) {
-    lines.push(`  ${namespace}: {`);
+    lines.push(`  ${apiNamespace(namespace)}: {`);
     for (const channel of namespaceChannels) {
       if (channel.kind === 'push') {
         lines.push(
@@ -361,7 +365,7 @@ function renderLucidApi(
 
   lines.push('export interface LucidAPI extends LucidAPIInfrastructure {');
   for (const namespace of groups.keys()) {
-    lines.push(`  ${namespace}: LucidAPI_${channelToSymbolBase(namespace)};`);
+    lines.push(`  ${apiNamespace(namespace)}: LucidAPI_${channelToSymbolBase(namespace)};`);
   }
   lines.push('}', '');
   return lines.join('\n');

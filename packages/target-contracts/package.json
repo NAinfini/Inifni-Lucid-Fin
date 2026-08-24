@@ -1,0 +1,21 @@
+{
+  "name": "@lucid-fin/target-contracts",
+  "version": "0.0.8",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "scripts": {
+    "clean": "rimraf dist tsconfig.tsbuildinfo",
+    "build": "rimraf dist tsconfig.tsbuildinfo && tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.2"
+  }
+}

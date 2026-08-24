@@ -51,12 +51,14 @@ function registerHandlers(db?: Record<string, unknown>) {
         }),
         getCharacter: db.getCharacter,
         upsertCharacter: db.upsertCharacter,
+        copyCharacters: db.copyCharacters,
         deleteCharacter: db.deleteCharacter,
       }
     : {
         listCharacters: vi.fn(() => ({ rows: [], degradedCount: 0 })),
         getCharacter: vi.fn(),
         upsertCharacter: vi.fn(),
+        copyCharacters: vi.fn(),
         deleteCharacter: vi.fn(),
       };
 
@@ -86,6 +88,7 @@ describe('registerCharacterHandlers', () => {
     const handlers = registerHandlers();
 
     expect([...handlers.keys()].sort()).toEqual([
+      'character:copy',
       'character:delete',
       'character:deleteLoadout',
       'character:get',
@@ -95,6 +98,39 @@ describe('registerCharacterHandlers', () => {
       'character:saveLoadout',
       'character:setRefImage',
     ]);
+  });
+
+  it('copies and deletes multiple characters with one repository call', async () => {
+    resetCommon();
+    const created = [makeCharacter({ id: 'copy-1' }), makeCharacter({ id: 'copy-2' })];
+    const db = {
+      listCharacters: vi.fn(),
+      getCharacter: vi.fn(),
+      upsertCharacter: vi.fn(),
+      copyCharacters: vi.fn(() => created),
+      deleteCharacter: vi.fn((ids: string[]) => [...new Set(ids)]),
+    };
+    const handlers = registerHandlers(db);
+
+    await expect(
+      handlers.get('character:copy')?.(
+        {},
+        { ids: ['char-1', 'char-2'], targetFolderId: 'folder-1' },
+      ),
+    ).resolves.toEqual({ created });
+    expect(db.copyCharacters).toHaveBeenCalledOnce();
+    expect(db.copyCharacters).toHaveBeenCalledWith(['char-1', 'char-2'], 'folder-1');
+
+    await expect(
+      handlers.get('character:delete')?.({}, { ids: ['char-1', 'char-2'] }),
+    ).resolves.toEqual({ deletedIds: ['char-1', 'char-2'] });
+    expect(db.deleteCharacter).toHaveBeenCalledOnce();
+    expect(db.deleteCharacter).toHaveBeenCalledWith(['char-1', 'char-2']);
+
+    await expect(handlers.get('character:delete')?.({}, { ids: [] })).rejects.toThrow(
+      'ids are required',
+    );
+    expect(db.deleteCharacter).toHaveBeenCalledOnce();
   });
 
   it('lists all characters', async () => {

@@ -57,8 +57,26 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     connectNodes: vi.fn(async () => undefined),
     setNodePresets: vi.fn(async () => undefined),
     layoutNodes: vi.fn(async () => undefined),
-    triggerGeneration: vi.fn(async () => undefined),
-    cancelGeneration: vi.fn(async () => undefined),
+    prepareMediaTask: vi.fn(async (input) => ({
+      id: 'task-list-1', canvasId: input.canvasId, nodeId: input.nodeId,
+      status: 'running', taskStatus: 'awaiting_prompt_assembly', progress: 0,
+    })),
+    getMediaTask: vi.fn(async (id) => ({
+      id, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'running', taskStatus: 'awaiting_prompt_assembly', progress: 0,
+    })),
+    submitMediaPrompt: vi.fn(async (input) => ({
+      id: input.taskListId, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'running', taskStatus: 'awaiting_provider', progress: 0,
+    })),
+    cancelMediaTask: vi.fn(async (id) => ({
+      id, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'cancelled', taskStatus: 'cancelled', progress: 0,
+    })),
+    retryMediaEvaluation: vi.fn(async (id) => ({
+      id, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'running', taskStatus: 'evaluating', progress: 0,
+    })),
     deleteNode: vi.fn(async () => undefined),
     deleteEdge: vi.fn(async () => undefined),
     updateNodeData: vi.fn(async (_canvasId, nodeId, data) => {
@@ -71,8 +89,8 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     listShotTemplates: vi.fn(async () => []),
     saveShotTemplate: vi.fn(async (t) => t),
     deleteShotTemplate: vi.fn(async () => {}),
-    importWorkflow: vi.fn(async () => canvas),
-    exportWorkflow: vi.fn(async () => '{}'),
+    importCanvasDocument: vi.fn(async () => canvas),
+    exportCanvasDocument: vi.fn(async () => '{}'),
     setNodeColorTag: vi.fn(async () => undefined),
     toggleSeedLock: vi.fn(async () => undefined),
     selectVariant: vi.fn(async () => undefined),

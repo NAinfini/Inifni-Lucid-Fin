@@ -1,6 +1,21 @@
-import type { AgentTool } from '../tool-registry.js';
+import { NO_TOOL_RESOURCE, toolResultSchema, type ToolDefinition } from '../tool-registry.js';
 import { defineToolModule } from '../tool-module.js';
 import { ok, fail, requireString } from './tool-result-helpers.js';
+import { authorityFact, contextProjector, records, resultRecord } from './context-replay.js';
+import {
+  arraySchema,
+  booleanSchema,
+  numberSchema,
+  objectSchema,
+  stringSchema,
+} from './tool-runtime-schemas.js';
+
+const snapshotSummarySchema = objectSchema({
+  id: stringSchema,
+  label: stringSchema,
+  trigger: stringSchema,
+  createdAt: numberSchema,
+});
 
 export interface SnapshotToolDeps {
   captureSnapshot: (
@@ -15,13 +30,23 @@ export interface SnapshotToolDeps {
   getSessionId: () => string;
 }
 
-export function createSnapshotTools(deps: SnapshotToolDeps): AgentTool[] {
-  const create: AgentTool = {
+export function createSnapshotTools(deps: SnapshotToolDeps): ToolDefinition[] {
+  const create: ToolDefinition = {
     name: 'snapshot.create',
+    process: 'snapshot-and-rollback',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description:
-      'Create a rollback snapshot of the current project state. Use before destructive or batch operations (deletes, bulk rewrites, bulk canvas edits, workflow cancellation, preset resets, series removal, major imports).',
+      'Create a rollback snapshot of the current project state. Use before destructive or batch operations (deletes, bulk rewrites, bulk canvas edits, task-list cancellation, preset resets, major imports).',
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      objectSchema({ id: stringSchema, label: stringSchema, createdAt: numberSchema }),
+    ),
+    projectPublicResult: contextProjector((result) => [
+      authorityFact('snapshot', 'created', resultRecord(result)?.id),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         label: {
@@ -43,11 +68,23 @@ export function createSnapshotTools(deps: SnapshotToolDeps): AgentTool[] {
     },
   };
 
-  const list: AgentTool = {
+  const list: ToolDefinition = {
     name: 'snapshot.list',
+    process: 'snapshot-and-rollback',
+    category: 'query',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description: 'List available snapshots for the current session. Returns newest first.',
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(
+      objectSchema({ total: numberSchema, snapshots: arraySchema(snapshotSummarySchema) }),
+    ),
+    projectPublicResult: contextProjector((result) =>
+      records(resultRecord(result)?.snapshots).map((snapshot) =>
+        authorityFact('snapshot', 'read', snapshot.id),
+      ),
+    ),
+    inputSchema: {
       type: 'object',
       properties: {
         limit: { type: 'number', description: 'Max items to return. Default 20.' },
@@ -72,12 +109,23 @@ export function createSnapshotTools(deps: SnapshotToolDeps): AgentTool[] {
     },
   };
 
-  const restore: AgentTool = {
+  const restore: ToolDefinition = {
     name: 'snapshot.restore',
+    process: 'snapshot-and-rollback',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
+    uiEffects: [{ kind: 'canvas.refresh' }] as const,
     description:
       'Restore project state from a snapshot. This replaces all entity data with the snapshot contents. Only use after explicit user confirmation.',
     tier: 3,
-    parameters: {
+    outputSchema: toolResultSchema(
+      objectSchema({ snapshotId: stringSchema, restored: booleanSchema }),
+    ),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('snapshot', 'updated', args.snapshotId),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         snapshotId: { type: 'string', description: 'The snapshot ID to restore.' },

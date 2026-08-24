@@ -61,10 +61,6 @@ _从剧本到镜头，从镜头到场景，从场景到影片 — 全程 AI 驱�
   </tr>
   <tr>
     <td width="33%" valign="top">
-      <h4>视频克隆模式</h4>
-      <p>导入视频 &rarr; 自动检测场景切换 &rarr; 提取关键帧 &rarr; 视觉 AI 描述 &rarr; 生成可编辑 AI 分镜画布。</p>
-    </td>
-    <td width="33%" valign="top">
       <h4>视觉分析</h4>
       <p>从任意图像反向推理提示词。提取画风、灯光、色彩、情绪、构图 — 支持 15+ 家视觉 AI 提供方。</p>
     </td>
@@ -84,7 +80,7 @@ _从剧本到镜头，从镜头到场景，从场景到影片 — 全程 AI 驱�
     </td>
     <td width="33%" valign="top">
       <h4>专业导出</h4>
-      <p>导出为 CapCut、FCPXML、EDL 格式。兼容 Final Cut Pro、DaVinci Resolve、Premiere Pro。</p>
+      <p>先审核并批准不可变的最终导出清单，再通过本地 FFmpeg 渲染并校验 MP4 或 MOV 成片。</p>
     </td>
   </tr>
 </table>
@@ -92,7 +88,7 @@ _从剧本到镜头，从镜头到场景，从场景到影片 — 全程 AI 驱�
 <details>
 <summary><strong>更多功能...</strong></summary>
 
-- **双提示词系统** — 每个节点支持独立的图像提示词和视频提示词
+- **持久化提示词组装** — Commander 将用户意图、预设、参考素材和任务列表权威统一为一份可审计的提供商提示词
 - **角色与装备管理** — 参考图、结构化外观字段，确保角色一致性
 - **场景管理** — 结构化场景位置，含氛围、天气、灯光、参考图和节点使用追踪
 - **口型同步** — 视频生成后自动口型同步，支持云端 API 和本地 Wav2Lip
@@ -260,9 +256,11 @@ packages/
   shared-utils/         跨层共享的纯工具函数
   storage/              SQLite 数据库、内容寻址资产存储、系统钥匙串
   adapters-ai/          AI 提供方适配器（图像、视频、音频、LLM、视觉）
-  application/          梦鱼 AI 编排器、170+ 个代理工具、提示编译器
+  task-execution/       持久化任务列表计划、审批、执行与恢复
+  application/          梦鱼 AI 编排器、170+ 个代理工具、提示词来源编译器
+  agent/                Commander 计划、工具、评分与受限修复
   domain/               剧本解析器、提示组装器、级联逻辑
-  media-engine/         FFmpeg 工具、Ken Burns 效果、拼接器、NLE 导出
+  media-engine/         FFmpeg 媒体探测、评估支持与 Review Cut 渲染
 
 evals/                  Commander 评估测试套件
 .github/workflows/     CI 管线 — 每次 push/PR 自动类型检查、测试、代码规范
@@ -316,11 +314,10 @@ pnpm run build
 4. 将提供方设为当前使用
 5. 添加自定义提供方：点击 **+ 添加自定义提供方**，输入名称、基础 URL 和模型
 
-ChatGPT OAuth 可分别用于 Commander LLM、图像生成和备用视觉理解；Gemini OAuth 可分别用于
-LLM、图像、视频和备用视觉理解，因此每项能力可以登录不同账号。提供方能返回额度时，OAuth
-卡片会显示剩余用量；Gemini 无法可靠返回剩余额度时会链接到 Cloud 配额面板。当前 LLM 支持
-图像理解时，Lucid Fin 会直接复用该 LLM，不再调用备用视觉提供方。详见
-[OAuth 安全与路由契约](docs/PROVIDER_OAUTH.md)。
+ChatGPT OAuth 可分别用于 Commander LLM、图像生成和备用视觉理解；提供方能返回额度时，OAuth
+卡片会显示剩余用量。Gemini 的 LLM、图像、视频和视觉提供方使用 API 密钥。当前 LLM 支持图像
+理解时，Lucid Fin 会直接复用该 LLM，不再调用备用视觉提供方。详见 [OAuth
+安全与路由契约](docs/PROVIDER_OAUTH.md)。
 
 </details>
 

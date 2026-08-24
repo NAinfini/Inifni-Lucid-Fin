@@ -7,7 +7,7 @@
  */
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { configureStore } from '@reduxjs/toolkit';
 import { Provider } from 'react-redux';
 import { axe } from 'vitest-axe';
@@ -18,7 +18,9 @@ import { CommanderPanel } from '../components/canvas/CommanderPanel.js';
 import { canvasSlice, setActiveCanvas } from '../store/slices/canvas/canvas.js';
 import { charactersSlice } from '../store/slices/characters.js';
 import { commanderSlice, type CommanderMessage } from '../store/slices/commander.js';
+import { taskListsSlice } from '../store/slices/task-lists.js';
 import { commanderTimelineSlice } from '../commander/state/commander-timeline-slice.js';
+import { createCommanderSession } from '../commander/state/helpers.js';
 import { setBootstrapped, settingsSlice } from '../store/slices/settings.js';
 import { setLocale } from '../i18n.js';
 
@@ -43,10 +45,10 @@ const AXE_OPTIONS = {
   },
 };
 
-function createCanvas(): Canvas {
+function createCanvas(id = 'canvas-1', name = 'A11y Test Canvas'): Canvas {
   return {
-    id: 'canvas-1',
-    name: 'A11y Test Canvas',
+    id,
+    name,
     nodes: [],
     edges: [],
     viewport: { x: 0, y: 0, zoom: 1 },
@@ -57,25 +59,29 @@ function createCanvas(): Canvas {
 }
 
 function renderCommanderPanel(messages: CommanderMessage[] = []) {
-  const canvas = createCanvas();
+  const canvases = [createCanvas(), createCanvas('canvas-2', 'Reference Canvas')];
+  const session = createCommanderSession('a11y-session', canvases[0]!.id);
+  session.messages = messages;
   const store = configureStore({
     reducer: {
       canvas: canvasSlice.reducer,
       characters: charactersSlice.reducer,
       commander: commanderSlice.reducer,
       commanderTimeline: commanderTimelineSlice.reducer,
+      taskLists: taskListsSlice.reducer,
       settings: settingsSlice.reducer,
     },
     preloadedState: {
       commander: {
         ...commanderSlice.getInitialState(),
         open: true,
-        messages,
+        activeSessionId: session.id,
+        sessions: [session],
       },
     },
   });
-  store.dispatch(canvasSlice.actions.setCanvases([canvas]));
-  store.dispatch(setActiveCanvas(canvas.id));
+  store.dispatch(canvasSlice.actions.setCanvases(canvases));
+  store.dispatch(setActiveCanvas(canvases[0]!.id));
   store.dispatch(setBootstrapped());
 
   const result = render(
@@ -115,6 +121,14 @@ describe('a11y audit: CommanderPanel', () => {
         timestamp: Date.now(),
       },
     ]);
+
+    const results = await axe(container, AXE_OPTIONS);
+    expect(results).toHaveNoViolations();
+  });
+
+  it('has no axe violations with the Canvas context chooser open', async () => {
+    const { container } = renderCommanderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Add context' }));
 
     const results = await axe(container, AXE_OPTIONS);
     expect(results).toHaveNoViolations();

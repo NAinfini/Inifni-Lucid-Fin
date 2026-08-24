@@ -17,7 +17,7 @@
     "@lucid-fin/shared-utils": "workspace:*",
     "@lucid-fin/storage": "workspace:*",
     "@lucid-fin/adapters-ai": "workspace:*",
-    "@lucid-fin/workflows": "workspace:*",
+    "@lucid-fin/task-execution": "workspace:*",
     "@lucid-fin/agent": "workspace:*"
   },
   "optionalDependencies": {

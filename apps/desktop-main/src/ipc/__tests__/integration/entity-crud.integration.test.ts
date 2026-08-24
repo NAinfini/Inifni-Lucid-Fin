@@ -107,7 +107,7 @@ describe('Entity (Character) CRUD integration', () => {
     expect(list).toHaveLength(1);
 
     // 6. Soft-delete the character
-    await invoke(ipcMain, 'character:delete', { id: created.id });
+    await invoke(ipcMain, 'character:delete', { ids: [created.id] });
 
     // 7. Character should not be visible anymore
     await expect(invoke(ipcMain, 'character:get', { id: created.id })).rejects.toThrow(

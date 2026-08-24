@@ -1,159 +1,203 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Zap } from 'lucide-react';
 import { useDispatch, useSelector, shallowEqual } from 'react-redux';
-import { X, Zap } from 'lucide-react';
+
 import type { RootState } from '../../../store/index.js';
 import {
-  setCommanderOpen,
-  setPosition,
-  selectPhase,
   dequeueMessage,
-  resolveQuestion,
+  addSystemNotice,
+  clearAgentActivityFocus,
+  focusAgentActivity,
+  selectActiveCommanderSession,
+  selectBackendContextUsage,
+  selectConsecutiveConfirmCount,
+  selectMessageQueue,
+  selectMessageQueueCursor,
+  selectPendingInjectedMessages,
+  setPosition,
+  setSize,
+  setCommanderOpen,
 } from '../../../store/slices/commander.js';
 import {
+  selectAgentActivityTreeForSession,
+  selectAgentActivityTreeContainingRunForSession,
   selectCommanderView,
-  selectActiveTodoSnapshot,
+  selectCurrentRunId,
+  selectLatestRunCapabilityCatalog,
 } from '../../../commander/state/commander-timeline-selectors.js';
 import { useCommander } from '../../../hooks/useCommander.js';
 import { useI18n } from '../../../hooks/use-i18n.js';
 import { computeContextUsage } from '../../../commander/state/context-usage.js';
 import {
+  DEFAULT_COMMANDER_PANEL_HEIGHT,
+  DEFAULT_COMMANDER_PANEL_WIDTH,
+} from '../../../commander/state/constants.js';
+import {
+  selectActiveCanvas,
   selectActiveCanvasNodes,
-  selectNodesById,
 } from '../../../store/slices/canvas/canvas-selectors.js';
-import { usePanelDrag } from './usePanelDrag.js';
-import { useSlashCommands } from './useSlashCommands.js';
 import { MessageList } from './MessageList.js';
-import { LiveActivityBar } from './LiveActivityBar.js';
-import { PipelineRail } from './PipelineRail.js';
 import { QuestionCard } from './QuestionCard.js';
 import { CommanderHeader } from './CommanderHeader.js';
 import { CommanderInputBar } from './CommanderInputBar.js';
 import { CommanderStreamView } from './CommanderStreamView.js';
 import type { Attachment } from './CommanderInputBar.js';
 import { CommanderContext } from './CommanderContext.js';
-import { markQuestionResolvedLocally } from '../../../commander/state/commander-timeline-slice.js';
+import { useSlashCommands } from './useSlashCommands.js';
+import {
+  clampPanelGeometry,
+  clampPanelPosition,
+  getCommanderResizeWidthBounds,
+  usePanelDrag,
+} from './usePanelDrag.js';
+import { CommanderPlanApproval } from './CommanderPlanApproval.js';
+import {
+  appendEvent as appendTimelineEvent,
+  markQuestionResolvedLocally,
+} from '../../../commander/state/commander-timeline-slice.js';
+import { loadTaskListTasks, loadTaskLists } from '../../../store/slices/task-lists.js';
 import { getAPI } from '../../../utils/api.js';
+import { AgentActivityControl } from './AgentActivityControl.js';
+import { fetchPublicRunTreeEvents } from '../../../commander/transport/fetch-public-run-tree-events.js';
+import {
+  isTaskProgressActive,
+  selectCurrentTaskListForSession,
+} from './task-list-session.js';
 
-const SAFE_Y = 56;
+function ConversationActions({
+  currentRunId,
+  pendingQuestion,
+  pendingConfirmation,
+  consecutiveConfirmCount,
+  onAnswer,
+  t,
+}: {
+  currentRunId: string | null;
+  pendingQuestion: ReturnType<typeof selectCommanderView>['pendingQuestion'];
+  pendingConfirmation: ReturnType<typeof selectCommanderView>['pendingConfirmation'];
+  consecutiveConfirmCount: number;
+  onAnswer: (toolCallId: string, answer: string) => Promise<void>;
+  t: (key: string) => string;
+}) {
+  const [answeringQuestionId, setAnsweringQuestionId] = useState<string | null>(null);
+  const [questionError, setQuestionError] = useState<string | null>(null);
 
-function useTextCursorGate(
-  phase: import('../../../commander/state/run-phase.js').RunPhase,
-): boolean {
-  const [isFresh, setIsFresh] = useState(false);
   useEffect(() => {
-    if (phase.kind !== 'model_streaming' || phase.lastTextDeltaAt === null) {
-      setIsFresh(false);
-      return;
-    }
-    const FRESH_WINDOW_MS = 500;
-    const age = Date.now() - phase.lastTextDeltaAt;
-    if (age >= FRESH_WINDOW_MS) {
-      setIsFresh(false);
-      return;
-    }
-    setIsFresh(true);
-    const timer = window.setTimeout(() => setIsFresh(false), FRESH_WINDOW_MS - age);
-    return () => window.clearTimeout(timer);
-  }, [phase]);
-  return isFresh;
-}
+    setAnsweringQuestionId(null);
+    setQuestionError(null);
+  }, [pendingQuestion?.toolCallId]);
 
-const LS_KEY_FIRST_SESSION = 'lucid-commander-first-session-seen';
+  const count = (pendingQuestion ? 1 : 0) + (pendingConfirmation ? 1 : 0);
 
-function FirstSessionHint({ show, t }: { show: boolean; t: (key: string) => string }) {
-  const [dismissed, setDismissed] = useState(() => {
+  if (count === 0) return null;
+
+  const answerQuestion = async (toolCallId: string, answer: string) => {
+    setAnsweringQuestionId(toolCallId);
+    setQuestionError(null);
     try {
-      return localStorage.getItem(LS_KEY_FIRST_SESSION) === '1';
-    } catch {
-      return false;
+      await onAnswer(toolCallId, answer);
+    } catch (error) {
+      setQuestionError(
+        error instanceof Error ? error.message : t('commander.question.answerFailed'),
+      );
+    } finally {
+      setAnsweringQuestionId(null);
     }
-  });
-  if (!show || dismissed) return null;
+  };
+
   return (
-    <div className="mb-2 flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-      <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-      <span className="flex-1">{t('commander.firstSessionHint')}</span>
-      <button
-        type="button"
-        className="shrink-0 text-muted-foreground hover:text-foreground"
-        onClick={() => {
-          setDismissed(true);
-          try {
-            localStorage.setItem(LS_KEY_FIRST_SESSION, '1');
-          } catch {
-            /* noop */
-          }
-        }}
-      >
-        <X className="h-3 w-3" />
-      </button>
-    </div>
+    <section aria-label={t('commander.attentionTray')} className="mt-5 space-y-3 pb-2">
+      {pendingQuestion ? (
+        <article aria-labelledby={`commander-question-${pendingQuestion.toolCallId}`}>
+          <QuestionCard
+            key={pendingQuestion.toolCallId}
+            id={`commander-question-${pendingQuestion.toolCallId}`}
+            question={pendingQuestion.question}
+            options={pendingQuestion.options}
+            allowFreeText={pendingQuestion.allowFreeText}
+            disabled={answeringQuestionId !== null}
+            status={
+              answeringQuestionId === pendingQuestion.toolCallId
+                ? t('commander.question.saving')
+                : null
+            }
+            error={questionError}
+            onAnswer={(answer) => answerQuestion(pendingQuestion.toolCallId, answer)}
+            t={t}
+          />
+        </article>
+      ) : null}
+
+      {pendingConfirmation ? (
+        <CommanderStreamView
+          pendingConfirmation={pendingConfirmation}
+          consecutiveConfirmCount={consecutiveConfirmCount}
+          currentRunId={currentRunId}
+          t={t}
+        />
+      ) : null}
+    </section>
   );
 }
-
-// X is used in FirstSessionHint above
 
 export function CommanderPanelShell() {
   const dispatch = useDispatch();
   const { t } = useI18n();
-  const { sendMessage, cancelCurrentStep, isStreaming } = useCommander();
+  const { sendMessage, sendIntent, isStreaming } = useCommander();
   const isBackendReady = useSelector((state: RootState) => state.settings.bootstrapped);
-  const phase = useSelector((state: RootState) => selectPhase(state));
-  const showTextCursor = useTextCursorGate(phase);
   const open = useSelector((state: RootState) => state.commander.open);
   const minimized = useSelector((state: RootState) => state.commander.minimized);
   const position = useSelector((state: RootState) => state.commander.position, shallowEqual);
   const size = useSelector((state: RootState) => state.commander.size, shallowEqual);
-  const maxTokens = useSelector((state: RootState) => state.commander.maxTokens);
-  const maxSteps = useSelector((state: RootState) => state.commander.maxSteps);
-  const backendContextUsage = useSelector(
-    (state: RootState) => state.commander.backendContextUsage,
-    shallowEqual,
+  const activeCanvas = useSelector(selectActiveCanvas);
+  const activeCanvasId = activeCanvas?.id ?? null;
+  const activeSession = useSelector(selectActiveCommanderSession);
+  const activeSessionId = activeSession?.id ?? null;
+  const activityFocusRunId = useSelector((state: RootState) =>
+    state.commander.activityFocus?.sessionId === activeSessionId
+      ? (state.commander.activityFocus.runId ?? null)
+      : null,
   );
-  const pendingInjectedMessages = useSelector(
-    (state: RootState) => state.commander.pendingInjectedMessages,
-    shallowEqual,
+  const defaultCanvasId = activeSession?.defaultCanvasId ?? null;
+  const defaultCanvasLabel = useSelector((state: RootState) =>
+    defaultCanvasId ? (state.canvas.canvases.entities[defaultCanvasId]?.name ?? null) : null,
   );
-  const consecutiveConfirmCount = useSelector(
-    (state: RootState) => state.commander.consecutiveConfirmCount,
+  const currentRunId = useSelector(selectCurrentRunId);
+  const contextWindowTokens = useSelector(
+    (state: RootState) => state.commander.contextWindowTokens,
   );
-  // Track activeCanvasId in a ref so IPC handlers can read the current value
-  // without being stale in callbacks — avoids the direct store.getState() pattern.
-  const activeCanvasId = useSelector((state: RootState) => state.canvas.activeCanvasId);
-  const activeCanvasIdRef = useRef(activeCanvasId);
-  useEffect(() => {
-    activeCanvasIdRef.current = activeCanvasId;
-  }, [activeCanvasId]);
+  const backendContextUsage = useSelector(selectBackendContextUsage, shallowEqual);
+  const pendingInjectedMessages = useSelector(selectPendingInjectedMessages, shallowEqual);
+  const consecutiveConfirmCount = useSelector(selectConsecutiveConfirmCount);
+  const messageQueue = useSelector(selectMessageQueue, shallowEqual);
+  const messageQueueCursor = useSelector(selectMessageQueueCursor);
   const derived = useSelector((state: RootState) => selectCommanderView(state));
-  const todoSnapshot = useSelector(selectActiveTodoSnapshot);
-  const messages = derived.messages;
-  const currentStreamContent = derived.currentStreamContent;
-  const currentToolCalls = derived.currentToolCalls;
-  const currentSegments = derived.currentSegments;
-  const pendingConfirmation = derived.pendingConfirmation;
-  const pendingQuestion = derived.pendingQuestion;
-  const error = derived.error;
-
+  const capabilityCatalog = useSelector(selectLatestRunCapabilityCatalog);
+  const activeActivityTree = useSelector((state: RootState) =>
+    selectAgentActivityTreeForSession(state, activeSessionId),
+  );
+  const focusedActivityTree = useSelector((state: RootState) =>
+    activityFocusRunId
+      ? selectAgentActivityTreeContainingRunForSession(state, activeSessionId, activityFocusRunId)
+      : null,
+  );
+  const sessionTaskLists = useSelector(
+    (state: RootState) =>
+      state.taskLists.allIds.flatMap((id) => {
+        const taskList = state.taskLists.summariesById[id];
+        return taskList ? [taskList] : [];
+      }),
+    shallowEqual,
+  );
+  const currentTaskList = useMemo(
+    () => selectCurrentTaskListForSession(sessionTaskLists, activeSessionId),
+    [activeSessionId, sessionTaskLists],
+  );
+  const currentTaskListTasks = useSelector((state: RootState) =>
+    currentTaskList ? state.taskLists.tasksByTaskListId[currentTaskList.id] : undefined,
+  );
   const canvasNodes = useSelector(selectActiveCanvasNodes);
-  const nodesById = useSelector(selectNodesById);
-  const nodeTitlesById = useMemo(
-    () =>
-      Object.fromEntries(
-        (canvasNodes ?? []).map((node) => [node.id, node.title?.trim() || node.type]),
-      ) as Record<string, string>,
-    [canvasNodes],
-  );
-  const resolveNodeAssetHash = useCallback(
-    (nodeId: string): string | undefined => {
-      const node = nodesById.get(nodeId);
-      if (!node) return undefined;
-      const data = node.data as Record<string, unknown>;
-      return typeof data.assetHash === 'string' ? data.assetHash : undefined;
-    },
-    [nodesById],
-  );
 
-  // ---- Local UI state --------------------------------------------------------
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null);
@@ -161,113 +205,136 @@ export function CommanderPanelShell() {
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [permPickerOpen, setPermPickerOpen] = useState(false);
   const [nodePickerOpen, setNodePickerOpen] = useState(false);
+  const hasActiveRun = activeActivityTree?.hasActiveDescendant ?? false;
+  const taskProgressActive = isTaskProgressActive(hasActiveRun, currentTaskList);
 
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const userScrolledUpRef = useRef(false);
-  const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const wasDraggingRef = useRef(false);
-  const sectionRef = useRef<HTMLElement>(null);
-  // AbortController stored in ref so it can be aborted in cleanup effect
-  const resizeAcRef = useRef<AbortController | null>(null);
-
-  // Slash command system
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLElement | null>(null);
+
+  usePanelDrag({ panelRef, open, position, size });
+
+  useEffect(() => {
+    if (activeSessionId) dispatch(loadTaskLists({}));
+  }, [activeSessionId, dispatch]);
+
+  useEffect(() => {
+    if (taskProgressActive && currentTaskList) {
+      dispatch(loadTaskListTasks(currentTaskList.id));
+    }
+  }, [currentTaskList?.id, currentTaskList?.updatedAt, dispatch, taskProgressActive]);
+
+  const movePanel = useCallback(
+    (next: { x: number; y: number }, compact = false) => {
+      const renderedSize = compact
+        ? {
+            width: panelRef.current?.offsetWidth || 152,
+            height: panelRef.current?.offsetHeight || 44,
+          }
+        : size;
+      dispatch(
+        setPosition(
+          clampPanelPosition(next, renderedSize, {
+            width: window.innerWidth,
+            height: window.innerHeight,
+          }),
+        ),
+      );
+    },
+    [dispatch, size],
+  );
+
+  const resizePanel = useCallback(
+    (next: { width: number; height: number }) => {
+      const clamped = clampPanelGeometry(position, next, {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      });
+      dispatch(setPosition(clamped.position));
+      dispatch(setSize(clamped.size));
+    },
+    [dispatch, position],
+  );
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    let disposed = false;
+
+    const hydratePublicRunTree = async () => {
+      try {
+        const events = await fetchPublicRunTreeEvents(activeSessionId);
+        if (disposed) return;
+        for (const event of events) {
+          dispatch(appendTimelineEvent({ sessionId: activeSessionId, event }));
+        }
+      } catch {
+        // Live stream delivery remains the source of truth when historical hydration is unavailable.
+      }
+    };
+
+    void hydratePublicRunTree();
+    return () => {
+      disposed = true;
+    };
+  }, [activeSessionId, dispatch]);
+
   const {
-    slashQuery: _slashQuery,
     slashMenuIndex,
     setSlashMenuIndex,
     showSlashMenu: slashMenuOpen,
     filteredCommands: filteredSlashItems,
-    slashCommands: SLASH_COMMANDS,
+    slashCommands: slashCommands,
     executeSlashCommand,
     triggerCompact,
   } = useSlashCommands({ t, input, setInput });
 
-  // Scroll slash menu item into view
-  useEffect(() => {
-    if (!slashMenuOpen || !slashMenuRef.current) return;
-    const container = slashMenuRef.current;
-    const selected = container.children[slashMenuIndex] as HTMLElement | undefined;
-    if (selected) selected.scrollIntoView({ block: 'nearest' });
-  }, [slashMenuIndex, slashMenuOpen]);
+  const contextUsage = useMemo(
+    () =>
+      computeContextUsage({
+        messages: derived.messages,
+        currentStreamContent: derived.currentStreamContent,
+        currentToolCalls: derived.currentToolCalls,
+        contextWindowTokens,
+        backendContextUsage,
+      }),
+    [
+      backendContextUsage,
+      derived.currentStreamContent,
+      derived.currentToolCalls,
+      derived.messages,
+      contextWindowTokens,
+    ],
+  );
 
-  // Auto-expanding textarea
-  const rafId = useRef(0);
-  useEffect(() => {
-    cancelAnimationFrame(rafId.current);
-    rafId.current = requestAnimationFrame(() => {
-      const el = inputRef.current;
-      if (!el) return;
-      el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, 400)}px`;
-    });
-    return () => cancelAnimationFrame(rafId.current);
-  }, [input]);
-
-  const liveMessage = useMemo(() => {
-    if (!isStreaming && currentToolCalls.length === 0 && currentStreamContent.length === 0) {
-      return null;
-    }
-    return {
-      id: 'streaming',
-      role: 'assistant' as const,
-      content: currentStreamContent,
-      toolCalls: currentToolCalls,
-    };
-  }, [currentStreamContent, currentToolCalls, isStreaming]);
-
-  // Close dropdowns on outside click
   useEffect(() => {
     if (!modelPickerOpen && !nodePickerOpen && !permPickerOpen) return;
-    const handle = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
+    const closeDropdowns = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
       if (!target.closest('[data-dropdown-menu]')) {
         setModelPickerOpen(false);
         setNodePickerOpen(false);
         setPermPickerOpen(false);
       }
     };
-    window.addEventListener('mousedown', handle);
-    return () => window.removeEventListener('mousedown', handle);
+    window.addEventListener('mousedown', closeDropdowns);
+    return () => window.removeEventListener('mousedown', closeDropdowns);
   }, [modelPickerOpen, nodePickerOpen, permPickerOpen]);
 
-  // Ctrl+J keyboard shortcut to toggle panel
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'j') {
-        e.preventDefault();
-        dispatch(setCommanderOpen(!open));
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [dispatch, open]);
+    const inputElement = inputRef.current;
+    if (!inputElement) return;
+    inputElement.style.height = 'auto';
+    inputElement.style.height = `${Math.min(inputElement.scrollHeight, 120)}px`;
+  }, [input]);
 
-  // Auto-send next queued message when streaming finishes
-  const prevStreamingRef = useRef(false);
-  const hasMountedRef = useRef(false);
-  const messageQueueRef = useRef<{ content: string }[]>([]);
-  const messageQueue = useSelector(
-    (state: RootState) => state.commander.messageQueue,
-    shallowEqual,
-  );
-  messageQueueRef.current = messageQueue;
   useEffect(() => {
-    if (!hasMountedRef.current) {
-      hasMountedRef.current = true;
-      prevStreamingRef.current = isStreaming;
-      return;
-    }
-    const wasStreaming = prevStreamingRef.current;
-    prevStreamingRef.current = isStreaming;
-    if (wasStreaming && !isStreaming && messageQueueRef.current.length > 0) {
-      const next = messageQueueRef.current[0];
-      dispatch(dequeueMessage());
-      void sendMessage(next.content);
-    }
-  }, [isStreaming, dispatch, sendMessage]);
+    if (!slashMenuOpen || !slashMenuRef.current) return;
+    const selected = slashMenuRef.current.children[slashMenuIndex] as HTMLElement | undefined;
+    selected?.scrollIntoView?.({ block: 'nearest' });
+  }, [slashMenuIndex, slashMenuOpen]);
 
-  // Track scroll position
   useEffect(() => {
     const target = scrollRef.current;
     if (!target) return;
@@ -279,32 +346,85 @@ export function CommanderPanelShell() {
     return () => target.removeEventListener('scroll', handleScroll);
   }, []);
 
-  // Auto-scroll
   useEffect(() => {
-    if (!open) return;
+    if (userScrolledUpRef.current) return;
     const target = scrollRef.current;
-    if (!target) return;
-    if (!userScrolledUpRef.current) {
-      target.scrollTop = target.scrollHeight;
-    }
-  }, [currentStreamContent, currentToolCalls, messages, open]);
+    if (target) target.scrollTop = target.scrollHeight;
+  }, [
+    derived.currentStreamContent,
+    derived.currentToolCalls,
+    derived.messages,
+    derived.pendingConfirmation?.toolCallId,
+    derived.pendingQuestion?.toolCallId,
+  ]);
 
-  usePanelDrag({ panelRef: sectionRef, open, size });
+  const revealNewConversationContent = useCallback(() => {
+    if (userScrolledUpRef.current) return;
+    const target = scrollRef.current;
+    if (target) target.scrollTop = target.scrollHeight;
+  }, []);
 
-  // Context usage
-  const contextUsage = useMemo(
-    () =>
-      computeContextUsage({
-        messages,
-        currentStreamContent,
-        currentToolCalls,
-        maxTokens,
-        backendContextUsage,
-      }),
-    [maxTokens, messages, currentStreamContent, currentToolCalls, backendContextUsage],
+  const submitMessage = useCallback(
+    async (
+      message: string,
+      resources: {
+        attachments?: Array<{ assetEntryId: string; role: 'reference' }>;
+        selectedNodes?: Array<{ canvasId: string; nodeId: string }>;
+        extraCanvasIds?: string[];
+      } = {},
+    ): Promise<boolean> => {
+      const hasResources =
+        (resources.attachments?.length ?? 0) > 0 ||
+        (resources.selectedNodes?.length ?? 0) > 0 ||
+        (resources.extraCanvasIds?.length ?? 0) > 0;
+      return hasResources ? sendMessage(message, resources) : sendMessage(message);
+    },
+    [sendMessage],
   );
 
-  // Auto-compact at 95%
+  const sendingQueuedMessageRef = useRef(false);
+  useEffect(() => {
+    if (
+      isStreaming ||
+      messageQueueCursor >= messageQueue.length ||
+      sendingQueuedMessageRef.current
+    ) {
+      return;
+    }
+    const next = messageQueue[messageQueueCursor];
+    sendingQueuedMessageRef.current = true;
+    const submission = next.intent
+      ? sendIntent(next.intent, { extraCanvasIds: next.extraCanvasIds })
+      : submitMessage(next.content, { extraCanvasIds: next.extraCanvasIds });
+    void submission
+      .then((accepted) => {
+        if (accepted && activeSessionId) {
+          dispatch(dequeueMessage(activeSessionId));
+        }
+      })
+      .catch((error: unknown) => {
+        if (activeSessionId) {
+          dispatch(
+            addSystemNotice({
+              sessionId: activeSessionId,
+              content: error instanceof Error ? error.message : String(error),
+            }),
+          );
+        }
+      })
+      .finally(() => {
+        sendingQueuedMessageRef.current = false;
+      });
+  }, [
+    activeSessionId,
+    dispatch,
+    isStreaming,
+    messageQueue,
+    messageQueueCursor,
+    sendIntent,
+    submitMessage,
+  ]);
+
   const autoCompactedRef = useRef(false);
   const lastCompactTimeRef = useRef(0);
   useEffect(() => {
@@ -319,7 +439,7 @@ export function CommanderPanelShell() {
     ) {
       autoCompactedRef.current = true;
       lastCompactTimeRef.current = now;
-      void triggerCompact();
+      void triggerCompact({ silent: true });
     }
     if (contextUsage?.pct != null && contextUsage.pct < 70) {
       autoCompactedRef.current = false;
@@ -330,69 +450,39 @@ export function CommanderPanelShell() {
     window.dispatchEvent(new CustomEvent('commander:navigate-to-node', { detail: { nodeId } }));
   }, []);
 
-  // ---- Resize handle — AbortController stored in ref, aborted in cleanup ----
-  const handleResizeMouseDown = useCallback(
-    (event: React.MouseEvent) => {
-      // Abort any previous resize listener pair before starting a new one
-      resizeAcRef.current?.abort();
-      const ac = new AbortController();
-      resizeAcRef.current = ac;
-
-      const startX = event.clientX;
-      const startY = event.clientY;
-      const startWidth = size.width;
-      const startHeight = size.height;
-
-      document.addEventListener(
-        'mousemove',
-        (e: MouseEvent) => {
-          const newWidth = Math.max(320, startWidth + (e.clientX - startX));
-          const newHeight = Math.max(200, startHeight + (e.clientY - startY));
-          const el = sectionRef.current;
-          if (el) {
-            el.style.width = `${newWidth}px`;
-            el.style.height = `${newHeight}px`;
-          }
-        },
-        { signal: ac.signal },
-      );
-
-      document.addEventListener(
-        'mouseup',
-        (e: MouseEvent) => {
-          ac.abort();
-          const el = sectionRef.current;
-          if (el) {
-            const newWidth = Math.max(320, startWidth + (e.clientX - startX));
-            const newHeight = Math.max(200, startHeight + (e.clientY - startY));
-            // Commit to DOM directly for now; size is not persisted to Redux
-            // (to avoid a separate action — the panel drag already handles position)
-            el.style.width = `${newWidth}px`;
-            el.style.height = `${newHeight}px`;
-          }
-        },
-        { signal: ac.signal },
-      );
+  const openActivityFromHistory = useCallback(
+    (runId: string) => {
+      if (!activeSessionId) return;
+      if (activityFocusRunId === runId) dispatch(clearAgentActivityFocus());
+      else dispatch(focusAgentActivity({ sessionId: activeSessionId, runId }));
     },
-    [size],
+    [activeSessionId, activityFocusRunId, dispatch],
   );
 
-  // Cleanup resize listeners on unmount
-  useEffect(() => {
-    return () => {
-      resizeAcRef.current?.abort();
-    };
-  }, []);
-
-  // ---- Header drag handler ---------------------------------------------------
-  const handleHeaderMouseDown = useCallback(
-    (event: React.MouseEvent<HTMLElement>) => {
-      const target = event.currentTarget;
-      target.dataset.dragOrigin = 'true';
-      target.dataset.dragOffsetX = String(event.clientX - position.x);
-      target.dataset.dragOffsetY = String(event.clientY - position.y);
+  const answerQuestion = useCallback(
+    async (toolCallId: string, answer: string) => {
+      const api = getAPI();
+      if (!api?.commander || !activeSessionId || !currentRunId) {
+        throw new Error(t('commander.question.answerUnavailable'));
+      }
+      const result = await api.commander.toolAnswer({
+        sessionId: activeSessionId,
+        runId: currentRunId,
+        toolCallId,
+        answer,
+      });
+      if (!result.accepted) {
+        throw new Error(t('commander.question.answerRejected').replace('{code}', result.code));
+      }
+      dispatch(
+        markQuestionResolvedLocally({
+          sessionId: activeSessionId,
+          runId: currentRunId,
+          toolCallId,
+        }),
+      );
     },
-    [position],
+    [activeSessionId, currentRunId, dispatch, t],
   );
 
   const commanderContextValue = useMemo(
@@ -418,43 +508,37 @@ export function CommanderPanelShell() {
       setSlashMenuIndex,
       filteredSlashItems,
       executeSlashCommand,
-      SLASH_COMMANDS,
+      SLASH_COMMANDS: slashCommands,
       canvasNodes: canvasNodes ?? undefined,
+      viewedCanvasId: activeCanvasId,
       contextUsage,
       triggerCompact,
       userScrolledUpRef,
       isBackendReady,
+      submitMessage,
       t,
     }),
     [
-      input,
-      setInput,
-      inputRef,
       attachments,
-      setAttachments,
-      modelPickerOpen,
-      setModelPickerOpen,
-      permPickerOpen,
-      setPermPickerOpen,
-      nodePickerOpen,
-      setNodePickerOpen,
-      editingQueueIndex,
-      setEditingQueueIndex,
-      editingQueueText,
-      setEditingQueueText,
-      slashMenuRef,
-      slashMenuOpen,
-      slashMenuIndex,
-      setSlashMenuIndex,
-      filteredSlashItems,
-      executeSlashCommand,
-      SLASH_COMMANDS,
+      activeCanvasId,
       canvasNodes,
       contextUsage,
-      triggerCompact,
-      userScrolledUpRef,
+      editingQueueIndex,
+      editingQueueText,
+      executeSlashCommand,
+      filteredSlashItems,
+      input,
       isBackendReady,
+      modelPickerOpen,
+      nodePickerOpen,
+      permPickerOpen,
+      slashCommands,
+      setSlashMenuIndex,
+      slashMenuIndex,
+      slashMenuOpen,
+      submitMessage,
       t,
+      triggerCompact,
     ],
   );
 
@@ -463,154 +547,220 @@ export function CommanderPanelShell() {
   if (minimized) {
     return (
       <button
-        type="button"
-        className="fixed z-40 flex items-center gap-1.5 rounded-md border border-border/60 bg-card px-2.5 py-1.5 shadow-lg backdrop-blur-sm hover:bg-muted/80 transition-colors cursor-move"
-        style={{ left: position.x, top: position.y }}
-        onClick={() => {
-          if (wasDraggingRef.current) {
-            wasDraggingRef.current = false;
-            return;
-          }
-          dispatch(setCommanderOpen(true));
+        ref={(node) => {
+          panelRef.current = node;
         }}
+        type="button"
+        aria-label={t('commander.commanderAI')}
+        className="fixed z-40 flex items-center gap-2 rounded-lg border border-border/70 bg-card px-3 py-2 text-xs font-medium shadow-xl hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        style={{ left: position.x, top: position.y }}
+        data-drag-origin="false"
         onMouseDown={(event) => {
           if (event.button !== 0) return;
-          const target = event.currentTarget;
-          const startX = event.clientX;
-          const startY = event.clientY;
-          target.dataset.dragOrigin = 'true';
-          target.dataset.dragOffsetX = String(event.clientX - position.x);
-          target.dataset.dragOffsetY = String(event.clientY - position.y);
-          wasDraggingRef.current = false;
-
-          const ac = new AbortController();
-          const handleMouseMove = (e: MouseEvent) => {
-            if (!target.dataset.dragOrigin) return;
-            const dx = Math.abs(e.clientX - startX);
-            const dy = Math.abs(e.clientY - startY);
-            if (dx > 5 || dy > 5) wasDraggingRef.current = true;
-            const offsetX = Number(target.dataset.dragOffsetX);
-            const offsetY = Number(target.dataset.dragOffsetY);
-            target.style.left = `${e.clientX - offsetX}px`;
-            target.style.top = `${Math.max(SAFE_Y, e.clientY - offsetY)}px`;
-          };
-          const handleMouseUp = () => {
-            delete target.dataset.dragOrigin;
-            delete target.dataset.dragOffsetX;
-            delete target.dataset.dragOffsetY;
-            dispatch(
-              setPosition({ x: parseInt(target.style.left), y: parseInt(target.style.top) }),
+          const origin = event.currentTarget;
+          origin.dataset.dragOrigin = 'true';
+          origin.dataset.dragMoved = 'false';
+          origin.dataset.dragStartX = String(event.clientX);
+          origin.dataset.dragStartY = String(event.clientY);
+          origin.dataset.dragOffsetX = String(event.clientX - position.x);
+          origin.dataset.dragOffsetY = String(event.clientY - position.y);
+        }}
+        onClick={(event) => {
+          const moved = event.currentTarget.dataset.dragMoved === 'true';
+          delete event.currentTarget.dataset.dragMoved;
+          if (!moved) dispatch(setCommanderOpen(true));
+        }}
+        onKeyDown={(event) => {
+          const step = event.shiftKey ? 24 : 8;
+          if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'].includes(event.key))
+            return;
+          event.preventDefault();
+          if (event.key === 'Home') movePanel({ x: 24, y: 96 }, true);
+          else
+            movePanel(
+              {
+                x:
+                  position.x +
+                  (event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0),
+                y:
+                  position.y +
+                  (event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0),
+              },
+              true,
             );
-            ac.abort();
-          };
-          document.addEventListener('mousemove', handleMouseMove, { signal: ac.signal });
-          document.addEventListener('mouseup', handleMouseUp, { signal: ac.signal });
         }}
       >
         <Zap className="h-4 w-4 text-amber-400" />
-        <span className="text-xs font-medium">{t('commander.commanderAI')}</span>
-        {isStreaming && (
-          <span role="status">
-            <span className="sr-only">{t('commander.streaming')}</span>
-            <span className="flex gap-0.5" aria-hidden="true">
-              <span
-                className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
-                style={{ animationDelay: '0ms' }}
-              />
-              <span
-                className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
-                style={{ animationDelay: '150ms' }}
-              />
-              <span
-                className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary"
-                style={{ animationDelay: '300ms' }}
-              />
-            </span>
-          </span>
-        )}
+        {t('commander.commanderAI')}
+        {isStreaming ? (
+          <span className="h-2 w-2 animate-pulse rounded-full bg-primary" aria-hidden="true" />
+        ) : null}
       </button>
     );
   }
 
+  const resizeWidthBounds = getCommanderResizeWidthBounds(window.innerWidth);
+
   return (
     <CommanderContext.Provider value={commanderContextValue}>
       <section
-        ref={sectionRef}
+        ref={panelRef}
         aria-label={t('commander.commanderAI')}
-        className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-border/70 bg-card shadow-2xl backdrop-blur-sm"
+        className="fixed z-40 flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-2xl transition-[width] duration-200 ease-out max-[720px]:!bottom-2 max-[720px]:!left-2 max-[720px]:!right-2 max-[720px]:!top-14 max-[720px]:!h-auto max-[720px]:!w-auto max-[720px]:rounded-lg"
         style={{
           left: position.x,
           top: position.y,
           width: size.width,
           height: size.height,
+          maxWidth: `calc(100vw - ${Math.max(position.x + 16, 32)}px)`,
+          maxHeight: `calc(100vh - ${Math.max(position.y + 16, 72)}px)`,
         }}
       >
-        <CommanderHeader onMouseDown={handleHeaderMouseDown} t={t} />
-
         <div
-          ref={scrollRef}
-          data-testid="commander-message-scroll"
-          aria-live="polite"
-          aria-relevant="additions"
-          className="flex min-w-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto px-3 py-2 pb-3"
+          data-drag-origin="false"
+          className="shrink-0 cursor-move"
+          role="toolbar"
+          aria-label={t('commander.moveDock')}
+          tabIndex={0}
+          onMouseDown={(event) => {
+            if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return;
+            const origin = event.currentTarget;
+            origin.dataset.dragOrigin = 'true';
+            origin.dataset.dragMoved = 'false';
+            origin.dataset.dragStartX = String(event.clientX);
+            origin.dataset.dragStartY = String(event.clientY);
+            origin.dataset.dragOffsetX = String(event.clientX - position.x);
+            origin.dataset.dragOffsetY = String(event.clientY - position.y);
+          }}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) return;
+            const step = event.shiftKey ? 24 : 8;
+            if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'].includes(event.key))
+              return;
+            event.preventDefault();
+            if (event.key === 'Home') movePanel({ x: 24, y: 96 });
+            else
+              movePanel({
+                x:
+                  position.x +
+                  (event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0),
+                y:
+                  position.y +
+                  (event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0),
+              });
+          }}
         >
-          <FirstSessionHint show={messages.length === 0 && !liveMessage} t={t} />
-          <MessageList
-            messages={messages}
-            liveMessage={liveMessage}
-            currentSegments={currentSegments}
-            pendingInjectedMessages={pendingInjectedMessages}
-            showTextCursor={showTextCursor}
-            error={error}
-            nodeTitlesById={nodeTitlesById}
-            resolveNodeAssetHash={resolveNodeAssetHash}
+          <CommanderHeader
+            canvasLabel={defaultCanvasLabel}
+            capabilityCatalog={capabilityCatalog}
             t={t}
-            emptyLabel={t('commander.thinking')}
-            onNodeClick={handleNodeClick}
-            onSendMessage={(msg) => void sendMessage(msg)}
           />
         </div>
 
-        <CommanderStreamView
-          pendingConfirmation={pendingConfirmation}
-          consecutiveConfirmCount={consecutiveConfirmCount}
-          t={t}
-        />
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div
+            ref={scrollRef}
+            data-testid="commander-message-scroll"
+            aria-live="polite"
+            aria-relevant="additions"
+            className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-6 py-6"
+          >
+            <MessageList
+              messages={derived.messages}
+              hasActiveRun={hasActiveRun}
+              pendingInjectedMessages={pendingInjectedMessages}
+              error={derived.error}
+              t={t}
+              emptyLabel={t('commander.emptyState')}
+              onNodeClick={handleNodeClick}
+              onViewActivity={openActivityFromHistory}
+              expandedActivityRunId={activityFocusRunId}
+              activityContent={
+                activityFocusRunId && focusedActivityTree ? (
+                  <AgentActivityControl
+                    key={`${activeSessionId ?? 'new-session'}:${activityFocusRunId}`}
+                    sessionId={activeSessionId}
+                    tree={focusedActivityTree}
+                    taskList={taskProgressActive ? currentTaskList : null}
+                    taskListTasks={taskProgressActive ? currentTaskListTasks : undefined}
+                    focusRunId={activityFocusRunId}
+                    inline
+                    t={t}
+                  />
+                ) : null
+              }
+            />
 
-        <div className="relative shrink-0">
-          <LiveActivityBar
-            maxSteps={maxSteps}
-            t={t}
-            onCancelCurrentStep={() => void cancelCurrentStep()}
-          />
-          {/* Question card overlay — absolute so it covers the input area */}
-          {pendingQuestion && (
-            <div className="absolute inset-x-0 bottom-0 z-10 bg-card/95 backdrop-blur-[2px] rounded-b-lg border-t border-blue-500/30">
-              <QuestionCard
-                question={pendingQuestion.question}
-                options={pendingQuestion.options}
-                allowFreeText={pendingQuestion.allowFreeText}
-                onAnswer={(answer) => {
-                  const api = getAPI();
-                  const canvasId = activeCanvasIdRef.current;
-                  if (api?.commander && canvasId) {
-                    void api.commander.answerQuestion(canvasId, pendingQuestion.toolCallId, answer);
-                  }
-                  dispatch(markQuestionResolvedLocally(pendingQuestion.toolCallId));
-                  dispatch(resolveQuestion({ answer }));
-                }}
-                t={t}
-              />
-            </div>
-          )}
-          <PipelineRail snapshot={todoSnapshot} isStreaming={isStreaming} t={t} />
-          <CommanderInputBar />
+            <CommanderPlanApproval
+              key={activeSessionId ?? 'new-session'}
+              canvasId={defaultCanvasId}
+              sessionId={activeSessionId}
+              t={t}
+              onContentChange={revealNewConversationContent}
+            />
+
+            <ConversationActions
+              currentRunId={currentRunId}
+              pendingQuestion={derived.pendingQuestion}
+              pendingConfirmation={derived.pendingConfirmation}
+              consecutiveConfirmCount={consecutiveConfirmCount}
+              onAnswer={answerQuestion}
+              t={t}
+            />
+          </div>
+
+          <div className="relative shrink-0">
+            <AgentActivityControl
+              key={activeSessionId ?? 'new-session'}
+              sessionId={activeSessionId}
+              tree={activityFocusRunId ? null : activeActivityTree}
+              taskList={taskProgressActive ? currentTaskList : null}
+              taskListTasks={taskProgressActive ? currentTaskListTasks : undefined}
+              t={t}
+            />
+            <CommanderInputBar />
+          </div>
         </div>
 
-        {/* Resize handle — memory-safe: AbortController aborted in cleanup effect */}
         <div
-          className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize"
-          onMouseDown={handleResizeMouseDown}
+          role="separator"
+          aria-label={t('commander.resizeDock')}
+          aria-orientation="horizontal"
+          aria-valuenow={size.width}
+          aria-valuemin={resizeWidthBounds.min}
+          aria-valuemax={resizeWidthBounds.max}
+          tabIndex={0}
+          data-resize-origin="false"
+          className="absolute bottom-0 right-0 h-5 w-5 cursor-se-resize outline-none focus-visible:ring-2 focus-visible:ring-primary max-[720px]:hidden"
+          onMouseDown={(event) => {
+            if (event.button !== 0) return;
+            const origin = event.currentTarget;
+            origin.dataset.resizeOrigin = 'true';
+            origin.dataset.resizeStartX = String(event.clientX);
+            origin.dataset.resizeStartY = String(event.clientY);
+            origin.dataset.resizeStartWidth = String(size.width);
+            origin.dataset.resizeStartHeight = String(size.height);
+          }}
+          onKeyDown={(event) => {
+            const step = event.shiftKey ? 48 : 16;
+            if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'].includes(event.key))
+              return;
+            event.preventDefault();
+            if (event.key === 'Home')
+              resizePanel({
+                width: DEFAULT_COMMANDER_PANEL_WIDTH,
+                height: DEFAULT_COMMANDER_PANEL_HEIGHT,
+              });
+            else
+              resizePanel({
+                width:
+                  size.width +
+                  (event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0),
+                height:
+                  size.height +
+                  (event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0),
+              });
+          }}
         />
       </section>
     </CommanderContext.Provider>

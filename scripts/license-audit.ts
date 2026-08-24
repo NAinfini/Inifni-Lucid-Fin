@@ -347,7 +347,7 @@ const INTERNAL_PACKAGES = new Set([
   '@lucid-fin/media-engine',
   '@lucid-fin/shared-utils',
   '@lucid-fin/storage',
-  '@lucid-fin/workflows',
+  '@lucid-fin/task-execution',
 ]);
 
 // ---------------------------------------------------------------------------

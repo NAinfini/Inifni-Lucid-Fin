@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useDispatch } from 'react-redux';
 import { store } from '../../../store/index.js';
 import type { AppDispatch } from '../../../store/index.js';
-import { newSession, addSystemNotice } from '../../../store/slices/commander.js';
+import { addSystemNotice } from '../../../store/slices/commander.js';
 import {
   readCommanderTelemetry,
   resetCommanderTelemetry,
@@ -11,6 +11,7 @@ import { getAPI } from '../../../utils/api.js';
 
 export interface SlashCommand {
   name: string;
+  label: string;
   desc: string;
 }
 
@@ -28,7 +29,7 @@ export interface UseSlashCommandsReturn {
   filteredCommands: SlashCommand[];
   slashCommands: SlashCommand[];
   executeSlashCommand: (name: string) => Promise<void>;
-  triggerCompact: () => Promise<void>;
+  triggerCompact: (options?: { silent?: boolean }) => Promise<void>;
 }
 
 export function useSlashCommands({
@@ -38,15 +39,41 @@ export function useSlashCommands({
 }: UseSlashCommandsOptions): UseSlashCommandsReturn {
   const dispatch = useDispatch<AppDispatch>();
   const [slashMenuIndex, setSlashMenuIndex] = useState(0);
+  const addNotice = useCallback(
+    (content: string) => {
+      const sessionId = store.getState().commander.activeSessionId;
+      if (sessionId) dispatch(addSystemNotice({ sessionId, content }));
+    },
+    [dispatch],
+  );
 
   const slashCommands = useMemo<SlashCommand[]>(
     () => [
-      { name: 'compact', desc: t('commander.slashCommand.compactDesc') },
-      { name: 'clear', desc: t('commander.slashCommand.clearDesc') },
-      { name: 'context', desc: t('commander.slashCommand.contextDesc') },
-      { name: 'status', desc: t('commander.slashCommand.statusDesc') },
-      { name: 'telemetry', desc: t('commander.slashCommand.telemetryDesc') },
-      { name: 'help', desc: t('commander.slashCommand.helpDesc') },
+      {
+        name: 'compact',
+        label: t('commander.slashCommand.compact'),
+        desc: t('commander.slashCommand.compactDesc'),
+      },
+      {
+        name: 'context',
+        label: t('commander.slashCommand.context'),
+        desc: t('commander.slashCommand.contextDesc'),
+      },
+      {
+        name: 'status',
+        label: t('commander.slashCommand.status'),
+        desc: t('commander.slashCommand.statusDesc'),
+      },
+      {
+        name: 'telemetry',
+        label: t('commander.slashCommand.telemetry'),
+        desc: t('commander.slashCommand.telemetryDesc'),
+      },
+      {
+        name: 'help',
+        label: t('commander.slashCommand.help'),
+        desc: t('commander.slashCommand.helpDesc'),
+      },
     ],
     [t],
   );
@@ -60,7 +87,10 @@ export function useSlashCommands({
     if (slashQuery === null) return [];
     if (slashQuery === '') return slashCommands;
     return slashCommands.filter(
-      (cmd) => cmd.name.includes(slashQuery) || cmd.desc.toLowerCase().includes(slashQuery),
+      (cmd) =>
+        cmd.name.includes(slashQuery) ||
+        cmd.label.toLowerCase().includes(slashQuery) ||
+        cmd.desc.toLowerCase().includes(slashQuery),
     );
   }, [slashQuery, slashCommands]);
 
@@ -71,44 +101,56 @@ export function useSlashCommands({
     setSlashMenuIndex(0);
   }, [slashQuery]);
 
-  const triggerCompact = useCallback(async () => {
-    dispatch(addSystemNotice(t('commander.slashCommand.compacting')));
-
-    // Compact only the backend's model projection. Redux and SQLite retain the
-    // complete, immutable transcript for restart, audit, and later re-projection.
-    let backendFreed = 0;
-    let backendMsgCount = 0;
-    let backendToolCount = 0;
-    const api = getAPI();
-    const canvasId = store.getState().canvas.activeCanvasId;
-    if (api?.commander && canvasId) {
-      try {
-        const result = (await api.commander.compact(canvasId)) as {
-          freedChars: number;
-          messageCount: number;
-          toolCount: number;
-        };
-        backendFreed = result.freedChars;
-        backendMsgCount = result.messageCount;
-        backendToolCount = result.toolCount;
-      } catch {
-        /* The backend has no active projection or the IPC request failed. */
+  const triggerCompact = useCallback(
+    async (options: { silent?: boolean } = {}) => {
+      // Compact only the backend's model projection. Redux and SQLite retain the
+      // complete, immutable transcript for restart, audit, and later re-projection.
+      let backendFreed = 0;
+      let backendMsgCount = 0;
+      let backendToolCount = 0;
+      const api = getAPI();
+      const state = store.getState();
+      const sessionId = state.commander.activeSessionId;
+      const runId = sessionId
+        ? state.commanderTimeline.currentRunIdBySessionId[sessionId]
+        : undefined;
+      let compactError: unknown = null;
+      if (api?.commander && runId) {
+        try {
+          const result = (await api.commander.compact({ runId })) as {
+            freedChars: number;
+            messageCount: number;
+            toolCount: number;
+          };
+          backendFreed = result.freedChars;
+          backendMsgCount = result.messageCount;
+          backendToolCount = result.toolCount;
+        } catch (error) {
+          compactError = error;
+        }
       }
-    }
 
-    if (backendFreed > 0) {
-      dispatch(
-        addSystemNotice(
+      if (options.silent) return;
+
+      if (compactError) {
+        addNotice(
+          compactError instanceof Error
+            ? compactError.message
+            : t('commander.slashCommand.compactFailed'),
+        );
+      } else if (backendFreed > 0) {
+        addNotice(
           t('commander.slashCommand.compactResult')
             .replace('{chars}', backendFreed.toLocaleString())
             .replace('{messages}', String(backendMsgCount))
             .replace('{tools}', String(backendToolCount)),
-        ),
-      );
-    } else {
-      dispatch(addSystemNotice(t('commander.slashCommand.compactNoopSuggestClear')));
-    }
-  }, [dispatch, t]);
+        );
+      } else {
+        addNotice(t('commander.slashCommand.compactNoop'));
+      }
+    },
+    [addNotice, t],
+  );
 
   const executeSlashCommand = useCallback(
     async (cmdName: string) => {
@@ -118,23 +160,26 @@ export function useSlashCommands({
           await triggerCompact();
           break;
         }
-        case 'clear':
-          dispatch(newSession());
-          break;
         case 'status': {
-          const msgs = store.getState().commander.messages;
+          const state = store.getState();
+          const msgs =
+            state.commander.sessions.find(
+              (session) => session.id === state.commander.activeSessionId,
+            )?.messages ?? [];
           const totalChars = msgs.reduce((sum, m) => sum + m.content.length, 0);
-          dispatch(
-            addSystemNotice(
-              t('commander.slashCommand.statusResult')
-                .replace('{messages}', String(msgs.length))
-                .replace('{chars}', totalChars.toLocaleString()),
-            ),
+          addNotice(
+            t('commander.slashCommand.statusResult')
+              .replace('{messages}', String(msgs.length))
+              .replace('{chars}', totalChars.toLocaleString()),
           );
           break;
         }
         case 'context': {
-          const msgs = store.getState().commander.messages;
+          const state = store.getState();
+          const msgs =
+            state.commander.sessions.find(
+              (session) => session.id === state.commander.activeSessionId,
+            )?.messages ?? [];
           let uChars = 0,
             aChars = 0,
             tcChars = 0,
@@ -156,8 +201,14 @@ export function useSlashCommands({
             }
             if (m.toolCalls) {
               for (const tc of m.toolCalls) {
-                const argLen = JSON.stringify(tc.arguments).length;
-                const resLen = tc.result !== undefined ? JSON.stringify(tc.result).length : 0;
+                const argLen = JSON.stringify({
+                  summary: tc.summary,
+                  details: tc.details,
+                }).length;
+                const resLen = JSON.stringify({
+                  artifacts: tc.artifacts,
+                  errorCode: tc.errorCode,
+                }).length;
                 tcChars += argLen;
                 trChars += resLen;
                 tcCount++;
@@ -170,7 +221,7 @@ export function useSlashCommands({
           const tok = (c: number) => Math.round(c / 4);
           const totalCharsAll = uChars + aChars + tcChars + trChars;
           const totalTok = tok(totalCharsAll);
-          const budget = store.getState().commander.maxTokens;
+          const budget = store.getState().commander.contextWindowTokens;
           const pctVal = Math.min(100, Math.round((totalTok / budget) * 100));
           const fK = (n: number) => {
             if (n >= 1000) {
@@ -254,12 +305,12 @@ export function useSlashCommands({
             '```',
           ].join('\n');
 
-          dispatch(addSystemNotice(detail));
+          addNotice(detail);
           break;
         }
         case 'help': {
           const helpLines = slashCommands.map((cmd) => `/${cmd.name} — ${cmd.desc}`).join('\n');
-          dispatch(addSystemNotice(`${t('commander.slashCommand.helpTitle')}:\n${helpLines}`));
+          addNotice(`${t('commander.slashCommand.helpTitle')}:\n${helpLines}`);
           break;
         }
         case 'telemetry': {
@@ -279,7 +330,7 @@ export function useSlashCommands({
           ];
           const maxKey = Math.max(...rows.map(([k]) => k.length));
           const body = rows.map(([k, v]) => `${k.padEnd(maxKey)}  ${v}`).join('\n');
-          dispatch(addSystemNotice(['**Commander telemetry**', '```', body, '```'].join('\n')));
+          addNotice(['**Commander telemetry**', '```', body, '```'].join('\n'));
           resetCommanderTelemetry();
           break;
         }
@@ -287,7 +338,7 @@ export function useSlashCommands({
           break;
       }
     },
-    [dispatch, t, slashCommands, triggerCompact, setInput],
+    [addNotice, t, slashCommands, triggerCompact, setInput],
   );
 
   return {

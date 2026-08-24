@@ -1,0 +1,12 @@
+{
+  "artifacts": {
+    "built-in-skills.v1.json": "70641df53c54d50a836ec51ab48864523a55d95ddf49e17c76ca134ed28776bb",
+    "legacy-skill-dispositions.v1.json": "6f293684e43bcddec7215f8ca347b4ca360eae9e99a93145b392431ec6498f83",
+    "project-v1.sql": "14c87d1bc015bb2e2e26ec5756e8caaec4919f0b03194f80f0705f3014b1be5d",
+    "public-wire.v1.json": "0625b13a22c4132a4b436e794d40cf15578a1724bd2e4b707d48e96b57635961",
+    "schema-bindings.v1.json": "b32326eb560ac1b0c3cac05431aa528fa5f4151290f130cc9ac8b6b003115839",
+    "tool-catalog.v1.json": "b3e04a680e17e2350b1cc307472669607091f95d93cdc1073219294fd95da126"
+  },
+  "parserPolicyVersion": "strict-json-v1",
+  "version": 1
+}

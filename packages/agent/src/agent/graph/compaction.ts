@@ -162,7 +162,7 @@ export function evaluate(graph: ContextGraph, policy: CompactionPolicy): Compact
     if (item.kind === 'guide') return true;
     if (item.kind === 'system-message') return true;
     // Scratchpad items always survive compaction — they carry persistent
-    // state (todo progress, decisions, failure traces) across turns.
+    // state (checklist progress, decisions, failure traces) across turns.
     if (item.kind === 'scratchpad') return true;
     return false;
   }

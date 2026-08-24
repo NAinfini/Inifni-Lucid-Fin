@@ -15,13 +15,13 @@ const asstMsg = (content: string, toolCalls?: CommanderToolCall[]): CommanderMes
   toolCalls,
   timestamp: 0,
 });
-const tool = (args: Record<string, unknown>, result?: unknown): CommanderToolCall => ({
+const tool = (summary: string, artifacts: CommanderToolCall['artifacts'] = []): CommanderToolCall => ({
   name: 't',
   id: 't',
-  arguments: args,
+  summary,
+  artifacts,
   startedAt: 0,
   status: 'done',
-  result,
 });
 
 describe('computeContextUsage', () => {
@@ -30,7 +30,7 @@ describe('computeContextUsage', () => {
       messages: [userMsg('hello'), asstMsg('world, a longer response')],
       currentStreamContent: '',
       currentToolCalls: [],
-      maxTokens: 1000,
+      contextWindowTokens: 1000,
       backendContextUsage: null,
     });
     expect(usage.breakdown.user).toBeGreaterThan(0);
@@ -40,10 +40,10 @@ describe('computeContextUsage', () => {
 
   it('counts tool calls and results in separate buckets', () => {
     const usage = computeContextUsage({
-      messages: [asstMsg('', [tool({ id: 'n1' }, { ok: true, data: [1, 2, 3] })])],
+      messages: [asstMsg('', [tool('Read node', [{ kind: 'canvas_node', id: 'n1' }])])],
       currentStreamContent: '',
       currentToolCalls: [],
-      maxTokens: 1000,
+      contextWindowTokens: 1000,
       backendContextUsage: null,
     });
     expect(usage.breakdown.toolCalls).toBeGreaterThan(0);
@@ -55,8 +55,8 @@ describe('computeContextUsage', () => {
     const usage = computeContextUsage({
       messages: [],
       currentStreamContent: 'streaming chunk',
-      currentToolCalls: [tool({ query: 'x' })],
-      maxTokens: 1000,
+      currentToolCalls: [tool('Search assets')],
+      contextWindowTokens: 1000,
       backendContextUsage: null,
     });
     expect(usage.breakdown.assistant).toBeGreaterThan(0);
@@ -80,7 +80,7 @@ describe('computeContextUsage', () => {
       messages: [],
       currentStreamContent: '',
       currentToolCalls: [],
-      maxTokens: 1000,
+      contextWindowTokens: 1000,
       backendContextUsage: backend,
     });
     expect(usage.estimatedTokens).toBe(5000);
@@ -95,7 +95,7 @@ describe('computeContextUsage', () => {
       messages: [],
       currentStreamContent: '',
       currentToolCalls: [],
-      maxTokens: 10,
+      contextWindowTokens: 10,
       backendContextUsage: {
         estimatedTokensUsed: 1000,
         contextWindowTokens: 10,
@@ -112,12 +112,12 @@ describe('computeContextUsage', () => {
     expect(usage.pct).toBe(100);
   });
 
-  it('guards divide-by-zero when maxTokens is 0 and no backend payload is present', () => {
+  it('guards divide-by-zero when the context window is 0 and no backend payload is present', () => {
     const usage = computeContextUsage({
       messages: [userMsg('hi')],
       currentStreamContent: '',
       currentToolCalls: [],
-      maxTokens: 0,
+      contextWindowTokens: 0,
       backendContextUsage: null,
     });
     expect(usage.pct).toBe(0);

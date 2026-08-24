@@ -20,9 +20,9 @@ export interface VisualStyleGrammar {
 /**
  * Canonical manual/pre-approval style policy for one Canvas.
  *
- * Persistent video workflows do not promote this draft into an approval. Once
+ * Persistent video task lists do not promote this draft into an approval. Once
  * the Visual Constitution gate is approved, its immutable document is the only
- * style authority for that workflow run.
+ * style authority for that task list.
  */
 export interface CanvasVisualStylePolicy {
   version: 1;
@@ -42,7 +42,7 @@ export type VisualStyleSource = 'canvas-draft' | 'legacy-style-plate' | 'visual-
 export interface VisualStyleProvenance {
   source: VisualStyleSource;
   policyHash: string;
-  workflowRunId?: string;
+  taskListId?: string;
   revision?: number;
   contentHash?: string;
 }

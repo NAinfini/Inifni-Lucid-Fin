@@ -1,5 +1,5 @@
 import { useDispatch, useSelector } from 'react-redux';
-import { Layers, PenSquare, Music, Grid3x3 } from 'lucide-react';
+import { Layers, ListVideo } from 'lucide-react';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import type { AppDispatch, RootState } from '../../store/index.js';
@@ -8,9 +8,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/Tooltip.js';
 
 const VIEW_BUTTONS: Array<{ mode: CanvasViewMode; icon: typeof Layers; labelKey: string }> = [
   { mode: 'main', icon: Layers, labelKey: 'view.main' },
-  { mode: 'edit', icon: PenSquare, labelKey: 'view.editLabel' },
-  { mode: 'audio', icon: Music, labelKey: 'view.audioLabel' },
-  { mode: 'materials', icon: Grid3x3, labelKey: 'view.materialsLabel' },
+  { mode: 'delivery', icon: ListVideo, labelKey: 'view.deliveryLabel' },
 ];
 
 export function CanvasViewSwitcher() {

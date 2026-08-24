@@ -37,12 +37,21 @@ interface CommanderContextType {
 
   // Canvas/context data
   canvasNodes: CanvasNode[] | undefined;
+  viewedCanvasId: string | null;
   contextUsage: ContextUsage | null;
 
   // Utilities
-  triggerCompact: () => Promise<void>;
+  triggerCompact: (options?: { silent?: boolean }) => Promise<void>;
   userScrolledUpRef: React.RefObject<boolean>;
   isBackendReady: boolean;
+  submitMessage: (
+    message: string,
+    resources?: {
+      attachments?: Array<{ assetEntryId: string; role: 'reference' }>;
+      selectedNodes?: Array<{ canvasId: string; nodeId: string }>;
+      extraCanvasIds?: string[];
+    },
+  ) => Promise<boolean>;
   t: (key: string) => string;
 }
 

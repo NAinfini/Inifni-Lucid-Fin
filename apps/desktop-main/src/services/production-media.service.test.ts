@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AdapterRegistry } from '@lucid-fin/adapters-ai';
 import type {
   ProductionMediaFeedbackReservationRequest,
-  WorkflowEngine,
+  TaskExecutionEngine,
 } from '@lucid-fin/application';
 import type {
   AIProviderAdapter,
@@ -14,12 +14,13 @@ import type {
   GenerationRequest,
   GenerationResult,
   LLMAdapter,
-  WorkflowApproval,
-  WorkflowDocument,
-  WorkflowRun,
-  WorkflowRunId,
-  WorkflowStageRun,
-  WorkflowTaskRun,
+  PromptAssemblyOutputV1,
+  PromptAssemblyRecord,
+  PlanApproval,
+  PlanDocument,
+  TaskList,
+  TaskListId,
+  Task,
 } from '@lucid-fin/contracts';
 import { SqliteIndex } from '@lucid-fin/storage';
 import type { CAS, Keychain } from '@lucid-fin/storage';
@@ -29,14 +30,15 @@ import {
   createProductionMediaService,
   type ProductionMediaGradeRequest,
 } from './production-media.service.js';
+import { createPromptAssemblyService } from './prompt-assembly.service.js';
 
 const PLAN_HASH = 'a'.repeat(64);
 const VISUAL_HASH = 'b'.repeat(64);
 
-function plan(): WorkflowDocument {
+function plan(): PlanDocument {
   return {
     id: 'plan-doc',
-    workflowRunId: 'run-media',
+    taskListId: 'task-list-media',
     logicalKey: 'production-plan',
     documentType: 'production_plan',
     revision: 1,
@@ -59,10 +61,10 @@ function plan(): WorkflowDocument {
   };
 }
 
-function visual(): WorkflowDocument {
+function visual(): PlanDocument {
   return {
     id: 'visual-doc',
-    workflowRunId: 'run-media',
+    taskListId: 'task-list-media',
     logicalKey: 'visual-constitution',
     documentType: 'visual_constitution',
     revision: 1,
@@ -93,54 +95,41 @@ function visual(): WorkflowDocument {
   };
 }
 
-function run(mediaType: 'image' | 'video'): WorkflowRun {
+function taskList(mediaType: 'image' | 'video'): TaskList {
   return {
-    id: 'run-media',
-    workflowType: 'movie.production.v2',
+    id: 'task-list-media',
+    taskListType: 'movie.production.v2',
     entityType: 'canvas',
     entityId: 'canvas-1',
     triggerSource: 'commander',
     status: 'ready',
     summary: 'Ready for media generation',
     progress: 50,
-    completedStages: 0,
-    totalStages: 0,
+    completedPhases: 0,
+    totalPhases: 0,
     completedTasks: 0,
     totalTasks: 0,
-    currentStageId: 'stage-production-plan',
+    currentPhaseKey: 'media-generation',
+    currentTaskId: 'task-media-1',
     input: { mediaType },
     output: {},
     metadata: {},
     createdAt: 90,
     updatedAt: 90,
     rowVersion: 0,
-    engineVersion: 'persistent-hybrid-v1',
+    engineVersion: 'persistent-hybrid-v2',
     definitionVersion: 1,
   };
 }
 
-function stage(id: string, stageId: string, order: number): WorkflowStageRun {
-  return {
-    id,
-    workflowRunId: 'run-media',
-    stageId,
-    name: stageId,
-    status: order === 0 ? 'ready' : 'blocked',
-    order,
-    progress: 0,
-    completedTasks: 0,
-    totalTasks: 0,
-    metadata: { dependsOnStageIds: [] },
-    updatedAt: 100,
-  };
-}
-
-function mediaTask(): WorkflowTaskRun {
+function mediaTask(): Task {
   return {
     id: 'task-media-1',
-    workflowRunId: 'run-media',
-    stageRunId: 'stage-media-generation',
-    taskId: 'media-shot-001',
+    taskListId: 'task-list-media',
+    phaseKey: 'media-generation',
+    phaseName: 'Media generation',
+    phaseOrder: 0,
+    taskKey: 'media-shot-001',
     name: 'Generate shot 001',
     kind: 'adapter_generation',
     status: 'ready',
@@ -149,7 +138,7 @@ function mediaTask(): WorkflowTaskRun {
     maxRetries: 0,
     input: {
       executionMode: 'external',
-      workflowTaskRole: 'production_media',
+      taskRole: 'production_media',
       shot: { id: '001', title: 'Operator hears the warning' },
     },
     output: {},
@@ -160,12 +149,12 @@ function mediaTask(): WorkflowTaskRun {
 
 function approval(
   id: string,
-  gateKey: WorkflowApproval['gateKey'],
-  document: WorkflowDocument,
-): WorkflowApproval {
+  gateKey: PlanApproval['gateKey'],
+  document: PlanDocument,
+): PlanApproval {
   return {
     id,
-    workflowRunId: 'run-media',
+    taskListId: 'task-list-media',
     gateKey,
     subjectLogicalKey: document.logicalKey,
     subjectRevision: document.revision,
@@ -353,57 +342,47 @@ describe('ProductionMediaService', () => {
     roots.push(root);
     const db = new SqliteIndex(path.join(root, 'project.db'));
     indexes.push(db);
-    const repo = db.repos.workflows;
+    const repo = db.repos.taskLists;
     const productionPlan = plan();
     const visualConstitution = visual();
-    repo.insertRun(run(mediaType));
-    repo.insertStageRun(stage('stage-production-plan', 'production-plan', 0));
-    repo.insertStageRun(stage('stage-style-exploration', 'style-exploration', 1));
-    repo.insertStageRun(stage('stage-media-generation', 'media-generation', 2));
+    repo.insertTaskList(taskList(mediaType));
     const productionTask = mediaTask();
-    repo.insertTaskRun(productionTask);
+    repo.insertTask(productionTask);
     repo.createDocument(productionPlan);
     repo.createPendingApproval(approval('plan-approval', 'production_plan', productionPlan));
-    let current = repo.getRun('run-media' as WorkflowRunId)!;
-    const planApproval = repo.approveGate({
-      workflowRunId: 'run-media' as WorkflowRunId,
-      gateKey: 'production_plan',
-      expectedRowVersion: current.rowVersion ?? -1,
-      expectedSubjectRevision: 1,
-      expectedSubjectHash: PLAN_HASH,
-      resumeTokenHash: 'plan-approval-token',
-      eventId: 'plan-event',
-      actor: 'user',
-      approvedAt: 130,
-      nextStageId: 'stage-style-exploration',
-    });
-    if (!planApproval.ok) throw new Error(planApproval.code);
+    db.rawDb
+      .prepare(
+        "UPDATE plan_approvals SET status = 'approved', decided_at = 130, updated_at = 130 WHERE id = 'plan-approval'",
+      )
+      .run();
+    db.rawDb
+      .prepare(
+        "UPDATE task_lists SET current_gate = NULL, status = 'ready' WHERE id = 'task-list-media'",
+      )
+      .run();
     repo.createDocument(visualConstitution);
     repo.createPendingApproval(
       approval('visual-approval', 'visual_constitution', visualConstitution),
     );
-    current = repo.getRun('run-media' as WorkflowRunId)!;
-    const visualApproval = repo.approveGate({
-      workflowRunId: 'run-media' as WorkflowRunId,
-      gateKey: 'visual_constitution',
-      expectedRowVersion: current.rowVersion ?? -1,
-      expectedSubjectRevision: 1,
-      expectedSubjectHash: VISUAL_HASH,
-      resumeTokenHash: 'visual-approval-token',
-      eventId: 'visual-event',
-      actor: 'user',
-      approvedAt: 140,
-      nextStageId: 'stage-media-generation',
-      nextTaskId: productionTask.id,
-    });
-    if (!visualApproval.ok) throw new Error(visualApproval.code);
-    current = repo.getRun('run-media' as WorkflowRunId)!;
+    db.rawDb
+      .prepare(
+        "UPDATE plan_approvals SET status = 'approved', decided_at = 140, updated_at = 140 WHERE id = 'visual-approval'",
+      )
+      .run();
+    db.rawDb
+      .prepare(
+        "UPDATE task_lists SET current_gate = NULL, status = 'ready' WHERE id = 'task-list-media'",
+      )
+      .run();
+    const current = repo.getTaskList('task-list-media' as TaskListId)!;
 
     const canvas = makeCanvas(mediaType);
     const canvasStore: CanvasStore = {
       get: (id) => (id === canvas.id ? canvas : undefined),
       save: vi.fn(),
-      delete: vi.fn(),
+      archive: vi.fn(),
+      restore: vi.fn(),
+      deletePermanent: vi.fn(),
       list: () => [],
       listFull: () => [canvas],
     };
@@ -415,47 +394,54 @@ describe('ProductionMediaService', () => {
     const cas = new FakeCas();
     let id = 0;
     let now = 1_000;
-    const workflowEngine = {
+    const taskExecutionEngine = {
+      get: vi.fn(() => repo.getTaskList('task-list-media' as TaskListId)),
       requireProductionMediaContext: vi.fn(() => ({
-        run: repo.getRun('run-media' as WorkflowRunId)!,
+        taskList: repo.getTaskList('task-list-media' as TaskListId)!,
         task: productionTask,
         productionPlan,
         visualConstitution,
       })),
       requireProductionMediaFeedbackContext: vi.fn(() => ({
-        run: repo.getRun('run-media' as WorkflowRunId)!,
-        task: repo.getTaskRun(productionTask.id as never) ?? productionTask,
+        taskList: repo.getTaskList('task-list-media' as TaskListId)!,
+        task: repo.getTask(productionTask.id as never) ?? productionTask,
         productionPlan,
         visualConstitution,
       })),
-      getTasks: vi.fn(() => [repo.getTaskRun(productionTask.id as never) ?? productionTask]),
-      reserveProductionMediaFeedbackAttemptForRevision: vi.fn(
+      getTasks: vi.fn(() => [repo.getTask(productionTask.id as never) ?? productionTask]),
+      reserveMediaFeedbackAttemptForRevision: vi.fn(
         (input: ProductionMediaFeedbackReservationRequest) => {
           const reopenedAt = ++now;
           const result = repo.reserveMediaFeedbackAttempt({
-            workflowRunId: input.workflowRunId,
+            taskListId: input.taskListId,
             canvasId: input.canvasId,
-            taskRunId: input.taskRunId,
+            taskId: input.taskId,
             attemptId: input.attemptId,
             basePromptHash: input.basePromptHash,
-            expectedRunRowVersion: input.expectedRowVersion,
+            expectedTaskListRowVersion: input.expectedRowVersion,
             feedback: input.feedback,
             attempt: input.attempt,
             reopenedAt,
             event: {
-              workflowRunId: input.workflowRunId,
+              taskListId: input.taskListId,
               eventId: `feedback-event-${reopenedAt}`,
               actor: 'user',
               payload: {},
               timestamp: reopenedAt,
             },
           });
-          return { run: result.run, task: result.task, attempt: result.attempt };
+          return { taskList: result.taskList, task: result.task, attempt: result.attempt };
         },
       ),
       getLatestVisualAudition: vi.fn(() => undefined),
-    } as unknown as WorkflowEngine;
-    const service = createProductionMediaService({
+    } as unknown as TaskExecutionEngine;
+    const promptAssemblyService = createPromptAssemblyService({ db });
+    const promptAssembler = {
+      id: 'test-commander',
+      name: 'Test Commander',
+      capabilities: ['text-generation'],
+    } as unknown as LLMAdapter;
+    const rawService = createProductionMediaService({
       db,
       cas: cas as unknown as CAS,
       keychain: { getKey: vi.fn(async () => 'test-key') } as unknown as Keychain,
@@ -467,7 +453,11 @@ describe('ProductionMediaService', () => {
         } as unknown as VisualAnalyzer),
       adapterRegistry,
       canvasStore,
-      workflowEngine,
+      presetCatalog: {
+        list: () => [],
+      },
+      taskExecutionEngine,
+      promptAssemblyService,
       ...(gradeAssets ? { gradeAssets } : {}),
       probeMedia:
         options.probeMedia ??
@@ -484,7 +474,93 @@ describe('ProductionMediaService', () => {
       now: () => ++now,
       idFactory: () => `media-service-id-${++id}`,
     });
-    return { db, repo, current, task: productionTask, canvas, canvasStore, adapter, cas, service };
+    const assemblyOutputs: PromptAssemblyOutputV1[] = [];
+    const assemble = (record: PromptAssemblyRecord): PromptAssemblyOutputV1 => {
+      const parentPrompt = record.input.sources.find(
+        (source) => source.kind === 'parent-prompt',
+      )?.content;
+      const feedback = record.input.sources.find(
+        (source) => source.kind === 'user-feedback' || source.kind === 'repair-delta',
+      )?.content;
+      const output: PromptAssemblyOutputV1 = {
+        version: 1,
+        assemblyId: record.id,
+        inputHash: record.inputHash,
+        finalPrompt: [
+          parentPrompt ?? 'Commander final provider prompt',
+          feedback ? `Commander revision: ${feedback}` : 'Approved Task List sources reconciled',
+        ].join('\n'),
+        negativePrompt: 'Commander final negative prompt',
+        sourceDecisions: record.input.sources.map((source) => ({
+          sourceId: source.sourceId,
+          sourceHash: source.sourceHash,
+          disposition: 'applied',
+        })),
+        summary: 'Test Commander reconciled every persisted source.',
+        warnings: [],
+      };
+      assemblyOutputs.push(output);
+      return output;
+    };
+    const withAssembler = (options?: { preferredLLMAdapter?: LLMAdapter }) => ({
+      ...options,
+      preferredLLMAdapter: options?.preferredLLMAdapter ?? promptAssembler,
+    });
+    const service = {
+      async produce(
+        input: Parameters<typeof rawService.produce>[0],
+        options?: Parameters<typeof rawService.produce>[1],
+      ) {
+        let result = await rawService.produce(input, withAssembler(options));
+        while (result.status === 'awaiting_prompt_assembly') {
+          const record = result.promptAssembly!;
+          result = await rawService.produce(
+            {
+              ...input,
+              promptAssemblyId: record.id,
+              promptAssemblyOutput: assemble(record),
+            },
+            withAssembler(options),
+          );
+        }
+        return result;
+      },
+      async refine(
+        input: Parameters<typeof rawService.refine>[0],
+        options?: Parameters<typeof rawService.refine>[1],
+      ) {
+        let result = await rawService.refine(input, withAssembler(options));
+        while (result.status === 'awaiting_prompt_assembly') {
+          const record = result.promptAssembly!;
+          result = await rawService.refine(
+            {
+              ...input,
+              promptAssemblyId: record.id,
+              promptAssemblyOutput: assemble(record),
+            },
+            withAssembler(options),
+          );
+        }
+        return result;
+      },
+      recoverInterruptedAttempts: () => rawService.recoverInterruptedAttempts(),
+    };
+    return {
+      db,
+      repo,
+      current,
+      task: productionTask,
+      canvas,
+      canvasStore,
+      adapter,
+      cas,
+      service,
+      rawService,
+      promptAssembler,
+      promptAssemblyService,
+      assemblyOutputs,
+      assemble,
+    };
   }
 
   afterEach(() => {
@@ -493,10 +569,65 @@ describe('ProductionMediaService', () => {
     for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
   });
 
+  it('persists approved Task List sources before accepting the Commander final prompt', async () => {
+    const grade = vi.fn(async () => ({ text: highGrade(), providerId: 'vision-provider' }));
+    const { rawService, current, adapter, promptAssembler, assemble } = setup('image', grade);
+    const input = {
+      taskListId: 'task-list-media',
+      canvasId: 'canvas-1',
+      taskId: 'task-media-1',
+      nodeId: 'shot-1',
+      expectedRowVersion: current.rowVersion ?? -1,
+    };
+
+    const prepared = await rawService.produce(input, {
+      preferredLLMAdapter: promptAssembler,
+    });
+    expect(prepared).toMatchObject({
+      status: 'awaiting_prompt_assembly',
+      nextAction: 'assemble_prompt',
+      promptAssembly: {
+        status: 'prepared',
+        taskListId: 'task-list-media',
+        taskId: 'task-media-1',
+      },
+    });
+    expect(adapter.generate).not.toHaveBeenCalled();
+    expect(prepared.promptAssembly!.input.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'production-plan', required: true }),
+        expect.objectContaining({ kind: 'visual-constitution', required: true }),
+      ]),
+    );
+
+    const output = assemble(prepared.promptAssembly!);
+    const completed = await rawService.produce(
+      {
+        ...input,
+        promptAssemblyId: prepared.promptAssembly!.id,
+        promptAssemblyOutput: output,
+      },
+      { preferredLLMAdapter: promptAssembler },
+    );
+    expect(completed).toMatchObject({
+      status: 'accepted',
+      attempt: {
+        promptAssemblyId: prepared.promptAssembly!.id,
+        generationSpec: { promptAssemblyId: prepared.promptAssembly!.id },
+      },
+    });
+    expect(adapter.generate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: output.finalPrompt,
+        negativePrompt: output.negativePrompt,
+      }),
+    );
+  });
+
   it('grades production media with the Commander-selected visual LLM', async () => {
     const activeLLM = {
-      id: 'gemini-oauth',
-      name: 'Gemini',
+      id: 'chatgpt-oauth',
+      name: 'ChatGPT',
       capabilities: ['text-generation', 'image-understanding'],
     } as unknown as LLMAdapter;
     const visualAnalyzer = {
@@ -504,7 +635,7 @@ describe('ProductionMediaService', () => {
       analyzeImageAssets: vi.fn(async () => ({
         text: highGrade(),
         providerId: activeLLM.id,
-        model: 'gemini-3.6-flash',
+        model: 'gpt-5.6-sol',
       })),
     } as unknown as VisualAnalyzer;
     const setupResult = setup('image', undefined, { visualAnalyzer });
@@ -512,9 +643,9 @@ describe('ProductionMediaService', () => {
     await expect(
       setupResult.service.produce(
         {
-          workflowRunId: 'run-media',
+          taskListId: 'task-list-media',
           canvasId: 'canvas-1',
-          taskRunId: 'task-media-1',
+          taskId: 'task-media-1',
           nodeId: 'shot-1',
           expectedRowVersion: setupResult.current.rowVersion ?? -1,
         },
@@ -532,15 +663,14 @@ describe('ProductionMediaService', () => {
     const generate = vi.fn(async (request: GenerationRequest) => {
       const activeDb = dbRef.current;
       if (!activeDb) throw new Error('Test database was not initialized before generation');
-      const row = activeDb.rawDb
-        .prepare('SELECT status FROM workflow_media_attempts LIMIT 1')
-        .get() as { status: string };
-      expect(row.status).toBe('submitted');
-      expect(request.prompt).toMatch(/^VISUAL STYLE AUTHORITY/);
-      expect(request.prompt).toContain('Character anchors: same narrow face and red scarf');
-      expect(request.prompt).toContain('The operator turns toward a glowing radio dial.');
-      expect(request.prompt).toMatch(/APPROVED VISUAL CONSTITUTION REMAINS AUTHORITATIVE[^]*$/);
-      expect(request.negativePrompt).toContain('no neon cyberpunk');
+      const row = activeDb.rawDb.prepare('SELECT status FROM task_attempts LIMIT 1').get() as {
+        status: string;
+      };
+      expect(row.status).toBe('submitting');
+      expect(request.prompt).toBe(
+        'Commander final provider prompt\nApproved Task List sources reconciled',
+      );
+      expect(request.negativePrompt).toBe('Commander final negative prompt');
       return {
         assetHash: '',
         assetPath: path.join(roots[0], 'generated.png'),
@@ -558,9 +688,9 @@ describe('ProductionMediaService', () => {
     dbRef.current = setupResult.db;
 
     const result = await setupResult.service.produce({
-      workflowRunId: 'run-media',
+      taskListId: 'task-list-media',
       canvasId: 'canvas-1',
-      taskRunId: 'task-media-1',
+      taskId: 'task-media-1',
       nodeId: 'shot-1',
       expectedRowVersion: setupResult.current.rowVersion ?? -1,
     });
@@ -575,16 +705,48 @@ describe('ProductionMediaService', () => {
     });
     expect(setupResult.db.repos.assets.findByHash('image-asset-1' as never)).toMatchObject({
       generationMetadata: {
+        promptAssemblyId: expect.any(String),
         visualStyle: {
           source: 'visual-constitution',
           policyHash: VISUAL_HASH,
-          workflowRunId: 'run-media',
-          revision: 1,
+          taskListId: 'task-list-media',
           contentHash: VISUAL_HASH,
         },
       },
     });
-    expect(setupResult.repo.listMediaAttempts('run-media' as WorkflowRunId)).toHaveLength(1);
+    expect(
+      setupResult.repo.listProductionMediaAttempts('task-list-media' as TaskListId),
+    ).toHaveLength(1);
+  });
+
+  it('defers visual grading outside the active Commander tool loop without repeating generation', async () => {
+    const grade = vi.fn(async () => ({
+      text: highGrade(),
+      providerId: 'vision-provider',
+      model: 'vision-model',
+    }));
+    const { service, rawService, current, adapter, repo } = setup('image', grade);
+    const input = {
+      taskListId: 'task-list-media',
+      canvasId: 'canvas-1',
+      taskId: 'task-media-1',
+      nodeId: 'shot-1',
+      expectedRowVersion: current.rowVersion ?? -1,
+    };
+
+    await expect(service.produce(input, { deferEvaluation: true })).resolves.toMatchObject({
+      status: 'evaluation_pending',
+      attempt: { status: 'asset_ready' },
+    });
+    expect(adapter.generate).toHaveBeenCalledTimes(1);
+    expect(grade).not.toHaveBeenCalled();
+
+    await expect(
+      rawService.evaluatePending('task-list-media', 'canvas-1'),
+    ).resolves.toMatchObject({ status: 'accepted' });
+    expect(adapter.generate).toHaveBeenCalledTimes(1);
+    expect(grade).toHaveBeenCalledTimes(1);
+    expect(repo.listProductionMediaAttempts('task-list-media' as TaskListId)).toHaveLength(1);
   });
 
   it('persists a Repair Delta and accepts a second immutable attempt', async () => {
@@ -592,32 +754,45 @@ describe('ProductionMediaService', () => {
       .fn()
       .mockResolvedValueOnce({ text: repairGrade(), providerId: 'vision-provider' })
       .mockResolvedValueOnce({ text: highGrade(), providerId: 'vision-provider' });
-    const { service, current, adapter, repo } = setup('image', grade);
+    const { service, current, adapter, repo, promptAssemblyService } = setup('image', grade);
 
     const result = await service.produce({
-      workflowRunId: 'run-media',
+      taskListId: 'task-list-media',
       canvasId: 'canvas-1',
-      taskRunId: 'task-media-1',
+      taskId: 'task-media-1',
       nodeId: 'shot-1',
       expectedRowVersion: current.rowVersion ?? -1,
     });
 
     expect(result.status).toBe('accepted');
     expect(adapter.generate).toHaveBeenCalledTimes(2);
-    const attempts = repo.listMediaAttempts('run-media' as WorkflowRunId);
+    const attempts = repo.listProductionMediaAttempts('task-list-media' as TaskListId);
     expect(attempts).toHaveLength(2);
     expect(attempts[0]).toMatchObject({ status: 'repair_required', assetHash: 'image-asset-1' });
     expect(attempts[1]).toMatchObject({
       status: 'accepted',
       repairDelta: { reason: 'Restore character identity', seedStrategy: 'increment' },
     });
-    expect(attempts[1].prompt).toContain('REPAIR DELTA');
+    expect(attempts[1].prompt).toContain('Restore character identity');
     expect(attempts[1].prompt.startsWith(attempts[0].prompt)).toBe(true);
+    const assemblies = promptAssemblyService.listByNode('canvas-1', 'shot-1');
+    expect(assemblies).toHaveLength(2);
+    expect(assemblies[0].input.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'parent-prompt', required: true }),
+        expect.objectContaining({ kind: 'repair-delta', required: true }),
+      ]),
+    );
+    expect(attempts[1]).toMatchObject({
+      promptAssemblyId: assemblies[0].id,
+      prompt: assemblies[0].output!.finalPrompt,
+      negativePrompt: assemblies[0].output!.negativePrompt,
+    });
   });
 
   it('applies Commander quality feedback to the exact latest provider prompt and re-grades it', async () => {
     const grade = vi.fn(async () => ({ text: highGrade(), providerId: 'vision-provider' }));
-    const { service, current, adapter, repo, db } = setup('video', grade, {
+    const { service, current, adapter, repo, promptAssemblyService } = setup('video', grade, {
       probeMedia: async () => ({
         durationSeconds: 6,
         width: 1920,
@@ -631,42 +806,37 @@ describe('ProductionMediaService', () => {
       },
     });
     const input = {
-      workflowRunId: 'run-media',
+      taskListId: 'task-list-media',
       canvasId: 'canvas-1',
-      taskRunId: 'task-media-1',
+      taskId: 'task-media-1',
       nodeId: 'shot-1',
       expectedRowVersion: current.rowVersion ?? -1,
     };
     const first = await service.produce(input);
     expect(first).toMatchObject({ status: 'accepted', attempt: { attempt: 1 } });
     const firstAttempt = first.attempt!;
-    db.rawDb
-      .prepare(
-        "UPDATE workflow_stage_runs SET status = 'completed', progress = 100, completed_at = 140 WHERE id IN ('stage-production-plan', 'stage-style-exploration')",
-      )
-      .run();
-    const beforeCompletion = repo.getRun('run-media' as WorkflowRunId)!;
+    const beforeCompletion = repo.getTaskList('task-list-media' as TaskListId)!;
     repo.completeExternalTask({
-      workflowRunId: 'run-media',
-      taskRunId: 'task-media-1',
-      expectedRunRowVersion: beforeCompletion.rowVersion ?? -1,
+      taskListId: 'task-list-media',
+      taskId: 'task-media-1',
+      expectedTaskListRowVersion: beforeCompletion.rowVersion ?? -1,
       output: { attemptId: firstAttempt.id },
       completedAt: 2_000,
       event: {
-        workflowRunId: 'run-media',
+        taskListId: 'task-list-media',
         eventId: 'completed-before-successful-feedback',
         actor: 'assistant',
         payload: {},
         timestamp: 2_000,
       },
     });
-    const completedRun = repo.getRun('run-media' as WorkflowRunId)!;
+    const completedTaskList = repo.getTaskList('task-list-media' as TaskListId)!;
 
     const refined = await service.refine({
-      workflowRunId: input.workflowRunId,
+      taskListId: input.taskListId,
       canvasId: input.canvasId,
       nodeId: input.nodeId,
-      expectedRowVersion: completedRun.rowVersion ?? -1,
+      expectedRowVersion: completedTaskList.rowVersion ?? -1,
       targetAttemptId: firstAttempt.id,
       basePromptHash: firstAttempt.promptHash,
       feedback: 'Keep the framing and character; make the camera motion less shaky.',
@@ -692,21 +862,36 @@ describe('ProductionMediaService', () => {
         { id: 'grade', status: 'completed' },
       ],
     });
-    const attempts = repo.listMediaAttempts('run-media' as WorkflowRunId);
+    const attempts = repo.listProductionMediaAttempts('task-list-media' as TaskListId);
     expect(attempts).toHaveLength(2);
     expect(attempts[1].prompt.startsWith(firstAttempt.prompt)).toBe(true);
     expect(attempts[1].prompt).toContain(
-      'USER QUALITY FEEDBACK (additive): Keep the framing and character; make the camera motion less shaky.',
+      'Commander revision: Keep the framing and character; make the camera motion less shaky.',
     );
     expect(attempts[1].generationSpec.providerId).toBe(firstAttempt.generationSpec.providerId);
     expect(attempts[1].generationSpec.referenceAssetHashes).toEqual(
       firstAttempt.generationSpec.referenceAssetHashes,
     );
-    expect(repo.listEvents('run-media' as WorkflowRunId)).toEqual(
+    const assemblies = promptAssemblyService.listByNode('canvas-1', 'shot-1');
+    expect(assemblies[0].input.sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'parent-prompt',
+          required: true,
+          content: firstAttempt.prompt,
+        }),
+        expect.objectContaining({
+          kind: 'user-feedback',
+          required: true,
+          content: 'Keep the framing and character; make the camera motion less shaky.',
+        }),
+      ]),
+    );
+    expect(repo.listEvents('task-list-media' as TaskListId)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           payload: expect.objectContaining({
-            type: 'workflow.media.feedback_requested',
+            type: 'task_list.media.feedback_requested',
             attemptId: firstAttempt.id,
             basePromptHash: firstAttempt.promptHash,
           }),
@@ -719,36 +904,31 @@ describe('ProductionMediaService', () => {
 
   it('does not reopen or record orphan feedback when a completed-task refinement is budget blocked', async () => {
     const grade = vi.fn(async () => ({ text: highGrade(), providerId: 'vision-provider' }));
-    const { service, current, adapter, repo, db } = setup('image', grade);
+    const { service, current, adapter, repo } = setup('image', grade);
     const first = await service.produce({
-      workflowRunId: 'run-media',
+      taskListId: 'task-list-media',
       canvasId: 'canvas-1',
-      taskRunId: 'task-media-1',
+      taskId: 'task-media-1',
       nodeId: 'shot-1',
       expectedRowVersion: current.rowVersion ?? -1,
     });
-    db.rawDb
-      .prepare(
-        "UPDATE workflow_stage_runs SET status = 'completed', progress = 100, completed_at = 140 WHERE id IN ('stage-production-plan', 'stage-style-exploration')",
-      )
-      .run();
-    const beforeCompletion = repo.getRun('run-media' as WorkflowRunId)!;
+    const beforeCompletion = repo.getTaskList('task-list-media' as TaskListId)!;
     repo.completeExternalTask({
-      workflowRunId: 'run-media',
-      taskRunId: 'task-media-1',
-      expectedRunRowVersion: beforeCompletion.rowVersion ?? -1,
+      taskListId: 'task-list-media',
+      taskId: 'task-media-1',
+      expectedTaskListRowVersion: beforeCompletion.rowVersion ?? -1,
       output: { attemptId: first.attempt!.id },
       completedAt: 2_000,
       event: {
-        workflowRunId: 'run-media',
+        taskListId: 'task-list-media',
         eventId: 'completed-before-feedback',
         actor: 'assistant',
         payload: {},
         timestamp: 2_000,
       },
     });
-    const completedRun = repo.getRun('run-media' as WorkflowRunId)!;
-    const eventCount = repo.listEvents('run-media' as WorkflowRunId).length;
+    const completedTaskList = repo.getTaskList('task-list-media' as TaskListId)!;
+    const eventCount = repo.listEvents('task-list-media' as TaskListId).length;
     vi.mocked(adapter.estimateCost).mockReturnValue({
       provider: 'image-provider',
       estimatedCost: 11,
@@ -757,10 +937,10 @@ describe('ProductionMediaService', () => {
     });
 
     const result = await service.refine({
-      workflowRunId: 'run-media',
+      taskListId: 'task-list-media',
       canvasId: 'canvas-1',
       nodeId: 'shot-1',
-      expectedRowVersion: completedRun.rowVersion ?? -1,
+      expectedRowVersion: completedTaskList.rowVersion ?? -1,
       targetAttemptId: first.attempt!.id,
       basePromptHash: first.attempt!.promptHash,
       feedback: 'Keep everything else; make the eyes brighter.',
@@ -777,9 +957,9 @@ describe('ProductionMediaService', () => {
         { id: 'grade', status: 'pending' },
       ],
     });
-    expect(repo.getTaskRun('task-media-1' as never)).toMatchObject({ status: 'completed' });
-    expect(repo.listMediaAttempts('run-media' as WorkflowRunId)).toHaveLength(1);
-    expect(repo.listEvents('run-media' as WorkflowRunId)).toHaveLength(eventCount);
+    expect(repo.getTask('task-media-1' as never)).toMatchObject({ status: 'completed' });
+    expect(repo.listProductionMediaAttempts('task-list-media' as TaskListId)).toHaveLength(1);
+    expect(repo.listEvents('task-list-media' as TaskListId)).toHaveLength(eventCount);
     expect(adapter.generate).toHaveBeenCalledTimes(1);
   });
 
@@ -787,16 +967,16 @@ describe('ProductionMediaService', () => {
     const grade = vi.fn(async () => ({ text: highGrade(), providerId: 'vision-provider' }));
     const { service, current, adapter, repo } = setup('image', grade);
     const first = await service.produce({
-      workflowRunId: 'run-media',
+      taskListId: 'task-list-media',
       canvasId: 'canvas-1',
-      taskRunId: 'task-media-1',
+      taskId: 'task-media-1',
       nodeId: 'shot-1',
       expectedRowVersion: current.rowVersion ?? -1,
     });
 
     await expect(
       service.refine({
-        workflowRunId: 'run-media',
+        taskListId: 'task-list-media',
         canvasId: 'canvas-1',
         nodeId: 'shot-1',
         expectedRowVersion: current.rowVersion ?? -1,
@@ -806,7 +986,45 @@ describe('ProductionMediaService', () => {
       }),
     ).rejects.toThrow(/prompt hash changed/i);
     expect(adapter.generate).toHaveBeenCalledTimes(1);
-    expect(repo.listMediaAttempts('run-media' as WorkflowRunId)).toHaveLength(1);
+    expect(repo.listProductionMediaAttempts('task-list-media' as TaskListId)).toHaveLength(1);
+  });
+
+  it('rejects a refinement assembly when the user feedback changed after preparation', async () => {
+    const grade = vi.fn(async () => ({ text: highGrade(), providerId: 'vision-provider' }));
+    const { service, rawService, current, promptAssembler, assemble, repo } = setup('image', grade);
+    const first = await service.produce({
+      taskListId: 'task-list-media',
+      canvasId: 'canvas-1',
+      taskId: 'task-media-1',
+      nodeId: 'shot-1',
+      expectedRowVersion: current.rowVersion ?? -1,
+    });
+    const base = {
+      taskListId: 'task-list-media',
+      canvasId: 'canvas-1',
+      nodeId: 'shot-1',
+      expectedRowVersion: current.rowVersion ?? -1,
+      targetAttemptId: first.attempt!.id,
+      basePromptHash: first.attempt!.promptHash,
+    };
+    const prepared = await rawService.refine(
+      { ...base, feedback: 'Make the eyes brighter.' },
+      { preferredLLMAdapter: promptAssembler },
+    );
+    expect(prepared.status).toBe('awaiting_prompt_assembly');
+
+    await expect(
+      rawService.refine(
+        {
+          ...base,
+          feedback: 'Replace the whole character.',
+          promptAssemblyId: prepared.promptAssembly!.id,
+          promptAssemblyOutput: assemble(prepared.promptAssembly!),
+        },
+        { preferredLLMAdapter: promptAssembler },
+      ),
+    ).rejects.toThrow(/different user feedback/i);
+    expect(repo.listProductionMediaAttempts('task-list-media' as TaskListId)).toHaveLength(1);
   });
 
   it('retries only evaluation after a vision failure', async () => {
@@ -816,9 +1034,9 @@ describe('ProductionMediaService', () => {
       .mockResolvedValueOnce({ text: highGrade(), providerId: 'vision-provider' });
     const { service, current, adapter, repo } = setup('image', grade);
     const input = {
-      workflowRunId: 'run-media',
+      taskListId: 'task-list-media',
       canvasId: 'canvas-1',
-      taskRunId: 'task-media-1',
+      taskId: 'task-media-1',
       nodeId: 'shot-1',
       expectedRowVersion: current.rowVersion ?? -1,
     };
@@ -831,7 +1049,57 @@ describe('ProductionMediaService', () => {
     await expect(service.produce(input)).resolves.toMatchObject({ status: 'accepted' });
     expect(adapter.generate).toHaveBeenCalledTimes(1);
     expect(grade).toHaveBeenCalledTimes(2);
-    expect(repo.listMediaAttempts('run-media' as WorkflowRunId)).toHaveLength(1);
+    expect(repo.listProductionMediaAttempts('task-list-media' as TaskListId)).toHaveLength(1);
+  });
+
+  it('replays a reserved attempt from its exact stored spec without creating a new assembly', async () => {
+    const grade = vi.fn(async () => ({ text: highGrade(), providerId: 'vision-provider' }));
+    const { service, rawService, current, promptAssembler, promptAssemblyService, adapter, db } =
+      setup('image', grade);
+    const input = {
+      taskListId: 'task-list-media',
+      canvasId: 'canvas-1',
+      taskId: 'task-media-1',
+      nodeId: 'shot-1',
+      expectedRowVersion: current.rowVersion ?? -1,
+    };
+    const first = await service.produce(input);
+    const storedPrompt = first.attempt!.prompt;
+    const storedAssemblyId = first.attempt!.promptAssemblyId!;
+    const assemblyCount = promptAssemblyService.listByNode('canvas-1', 'shot-1').length;
+    db.rawDb.prepare('DELETE FROM task_evaluations WHERE attempt_id = ?').run(first.attempt!.id);
+    db.rawDb.prepare('DELETE FROM task_artifacts WHERE attempt_id = ?').run(first.attempt!.id);
+    db.rawDb
+      .prepare(
+        `UPDATE prompt_assemblies
+         SET status = 'assembled', submitted_at = NULL, row_version = row_version + 1
+         WHERE id = ?`,
+      )
+      .run(storedAssemblyId);
+    db.rawDb
+      .prepare(
+        `UPDATE task_attempts
+         SET status = 'reserved', row_version = row_version + 1,
+             asset_hash = NULL, provider_job_id = NULL, provider_receipt = NULL,
+             reported_actual_cost_usd = NULL, error_text = NULL,
+             submitted_at = NULL, asset_ready_at = NULL, evaluated_at = NULL,
+             completed_at = NULL
+         WHERE id = ?`,
+      )
+      .run(first.attempt!.id);
+
+    const recovered = await rawService.produce(input, {
+      preferredLLMAdapter: promptAssembler,
+    });
+    expect(recovered).toMatchObject({
+      status: 'accepted',
+      attempt: { promptAssemblyId: storedAssemblyId, prompt: storedPrompt },
+    });
+    expect(promptAssemblyService.listByNode('canvas-1', 'shot-1')).toHaveLength(assemblyCount);
+    expect(adapter.generate).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(adapter.generate).mock.calls[1]![0]).toMatchObject({
+      prompt: storedPrompt,
+    });
   });
 
   it('marks an uncertain provider outcome ambiguous and never retries it blindly', async () => {
@@ -841,9 +1109,9 @@ describe('ProductionMediaService', () => {
     const grade = vi.fn();
     const { service, current, repo } = setup('image', grade, { generate });
     const input = {
-      workflowRunId: 'run-media',
+      taskListId: 'task-list-media',
       canvasId: 'canvas-1',
-      taskRunId: 'task-media-1',
+      taskId: 'task-media-1',
       nodeId: 'shot-1',
       expectedRowVersion: current.rowVersion ?? -1,
     };
@@ -856,7 +1124,7 @@ describe('ProductionMediaService', () => {
     await expect(service.produce(input)).resolves.toMatchObject({ status: 'ambiguous' });
     expect(generate).toHaveBeenCalledTimes(1);
     expect(grade).not.toHaveBeenCalled();
-    expect(repo.listMediaAttempts('run-media' as WorkflowRunId)).toHaveLength(1);
+    expect(repo.listProductionMediaAttempts('task-list-media' as TaskListId)).toHaveLength(1);
   });
 
   it('grades video from references, ffprobe metadata, and five ordered temporal anchors', async () => {
@@ -882,9 +1150,9 @@ describe('ProductionMediaService', () => {
 
     await expect(
       service.produce({
-        workflowRunId: 'run-media',
+        taskListId: 'task-list-media',
         canvasId: 'canvas-1',
-        taskRunId: 'task-media-1',
+        taskId: 'task-media-1',
         nodeId: 'shot-1',
         expectedRowVersion: current.rowVersion ?? -1,
       }),
@@ -911,7 +1179,9 @@ describe('ProductionMediaService', () => {
           { timestampSeconds: 5.9, assetHash: 'image-asset-6' },
         ],
       }),
-      {},
+      expect.objectContaining({
+        preferredLLMAdapter: expect.objectContaining({ id: 'test-commander' }),
+      }),
     );
   });
 
@@ -947,15 +1217,15 @@ describe('ProductionMediaService', () => {
 
     await expect(
       service.produce({
-        workflowRunId: 'run-media',
+        taskListId: 'task-list-media',
         canvasId: 'canvas-1',
-        taskRunId: 'task-media-1',
+        taskId: 'task-media-1',
         nodeId: 'shot-1',
         expectedRowVersion: current.rowVersion ?? -1,
       }),
     ).resolves.toMatchObject({ status: 'accepted' });
 
-    const attempt = repo.listMediaAttempts('run-media' as WorkflowRunId)[0];
+    const attempt = repo.listProductionMediaAttempts('task-list-media' as TaskListId)[0];
     expect(attempt.generationSpec.referenceEvidence).toEqual([
       {
         order: 0,
@@ -978,7 +1248,9 @@ describe('ProductionMediaService', () => {
           ],
         }),
       }),
-      {},
+      expect.objectContaining({
+        preferredLLMAdapter: expect.objectContaining({ id: 'test-commander' }),
+      }),
     );
   });
 
@@ -1006,9 +1278,9 @@ describe('ProductionMediaService', () => {
     });
 
     await service.produce({
-      workflowRunId: 'run-media',
+      taskListId: 'task-list-media',
       canvasId: 'canvas-1',
-      taskRunId: 'task-media-1',
+      taskId: 'task-media-1',
       nodeId: 'shot-1',
       expectedRowVersion: current.rowVersion ?? -1,
     });
@@ -1020,7 +1292,9 @@ describe('ProductionMediaService', () => {
           sampledTimestampsSeconds: [0.1, 1.1, 2, 3.2, 4, 6, 6.6, 7.9],
         }),
       }),
-      {},
+      expect.objectContaining({
+        preferredLLMAdapter: expect.objectContaining({ id: 'test-commander' }),
+      }),
     );
   });
 
@@ -1030,17 +1304,17 @@ describe('ProductionMediaService', () => {
 
     await expect(
       service.produce({
-        workflowRunId: 'run-media',
+        taskListId: 'task-list-media',
         canvasId: 'canvas-1',
-        taskRunId: 'task-media-1',
+        taskId: 'task-media-1',
         nodeId: 'shot-1',
         expectedRowVersion: current.rowVersion ?? -1,
       }),
     ).resolves.toMatchObject({ status: 'budget_blocked', nextAction: 'ask_user' });
     expect(adapter.generate).not.toHaveBeenCalled();
-    expect(db.rawDb.prepare('SELECT COUNT(*) AS count FROM workflow_media_attempts').get()).toEqual(
-      { count: 0 },
-    );
+    expect(db.rawDb.prepare('SELECT COUNT(*) AS count FROM task_attempts').get()).toEqual({
+      count: 0,
+    });
   });
 
   it('preserves and routes an artifact to human review when reported cost exceeds the bound', async () => {
@@ -1056,9 +1330,9 @@ describe('ProductionMediaService', () => {
 
     await expect(
       service.produce({
-        workflowRunId: 'run-media',
+        taskListId: 'task-list-media',
         canvasId: 'canvas-1',
-        taskRunId: 'task-media-1',
+        taskId: 'task-media-1',
         nodeId: 'shot-1',
         expectedRowVersion: current.rowVersion ?? -1,
       }),
@@ -1071,6 +1345,6 @@ describe('ProductionMediaService', () => {
       },
     });
     expect((canvas.nodes[0].data as { assetHash?: string }).assetHash).toBeUndefined();
-    expect(repo.getMediaCostSummary('run-media' as WorkflowRunId).committedCostUsd).toBe(11);
+    expect(repo.getTaskCostSummary('task-list-media' as TaskListId).committedCostUsd).toBe(11);
   });
 });

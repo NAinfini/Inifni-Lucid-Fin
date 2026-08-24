@@ -62,8 +62,8 @@ describe('a11y audit: CanvasToolbar', () => {
         onToggleSearch={vi.fn()}
         onToggleMinimap={vi.fn()}
         onToggleSnapToGrid={vi.fn()}
-        onExportWorkflow={vi.fn()}
-        onImportWorkflow={vi.fn()}
+        onExportCanvas={vi.fn()}
+        onImportCanvas={vi.fn()}
       />,
     );
 
@@ -80,8 +80,8 @@ describe('a11y audit: CanvasToolbar', () => {
         onToggleSearch={vi.fn()}
         onToggleMinimap={vi.fn()}
         onToggleSnapToGrid={vi.fn()}
-        onExportWorkflow={vi.fn()}
-        onImportWorkflow={vi.fn()}
+        onExportCanvas={vi.fn()}
+        onImportCanvas={vi.fn()}
       />,
     );
 

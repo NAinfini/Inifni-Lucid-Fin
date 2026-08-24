@@ -1,19 +1,13 @@
 /**
  * Pure type shapes for Batch 10 — tail of Phase B-1.
  *
- * Covers 47 invoke handlers and 9 push channels spread across many handler
- * files (see `apps/desktop-main/src/ipc/handlers/**` and `electron.ts`).
- *
- * Shapes follow the actual handler signatures. Media-engine DTOs
- * (NLEProject, SubtitleCue, RenderSegment, etc.) stay `unknown` — contracts
- * cannot depend on media-engine, and zodifying those lives in a later phase.
+ * Covers the tail invoke handlers and push channels spread across main-process
+ * handlers and `electron.ts`. Shapes follow the actual handler signatures.
  *
  * Push channels:
- *  - ai:stream / ai:event
  *  - app:ready / app:init-error
  *  - clipboard:ai-detected
  *  - logger:entry
- *  - refimage:start / refimage:complete / refimage:failed
  *  - settings:providerKeyUpdated
  *  - updater:toast
  *  Note: `updater:status` is only registered as INVOKE (see Approach section
@@ -31,187 +25,11 @@ export type { LLMProviderRuntimeInput } from '../../llm-provider.js';
 export type AppVersionRequest = Record<string, never>;
 export type AppVersionResponse = string;
 
-// ─── ai:chat ─────────────────────────────────────────────────
-export interface AiChatRequest {
-  message: string;
-  context?: Record<string, unknown>;
-}
-// Handler returns the assistant reply string (or the error message on failure).
-export type AiChatResponse = string;
-
-// ─── ai:prompt:* ─────────────────────────────────────────────
-export type AiPromptListRequest = Record<string, never>;
-export interface AiPromptListEntry {
-  code: string;
-  name: string;
-  type: string;
-  hasCustom: boolean;
-}
-export type AiPromptListResponse = AiPromptListEntry[];
-
-export interface AiPromptGetRequest {
-  code: string;
-}
-export interface AiPromptGetResponse {
-  code: string;
-  name: string;
-  defaultValue: string;
-  customValue: string | null;
-}
-
-export interface AiPromptSetCustomRequest {
-  code: string;
-  value: string;
-}
-export type AiPromptSetCustomResponse = void;
-
-export interface AiPromptClearCustomRequest {
-  code: string;
-}
-export type AiPromptClearCustomResponse = void;
-
-// ─── asset:* (embeddings + semantic search) ──────────────────
-export interface AssetGenerateEmbeddingRequest {
-  assetHash: string;
-}
-export interface AssetGenerateEmbeddingResponse {
-  ok: boolean;
-}
-
-export type AssetReindexEmbeddingsRequest = Record<string, never>;
-export interface AssetReindexEmbeddingsResponse {
-  indexed: number;
-  failed: number;
-}
-
-// asset:reindex:progress (push) — emitted after each batch during reindex.
-export interface AssetReindexProgressPayload {
-  indexed: number;
-  failed: number;
-  total: number;
-}
-
-export interface AssetSearchSemanticRequest {
-  query: string;
-  limit?: number;
-}
-// Handler returns `db.searchByTokens(...)`; shape is storage-owned and
-// opaque at the contract layer.
-export type AssetSearchSemanticResponse = unknown[];
-
 // ─── clipboard:setEnabled ────────────────────────────────────
 export interface ClipboardSetEnabledRequest {
   enabled: boolean;
 }
 export type ClipboardSetEnabledResponse = void;
-
-// ─── export:* (6) ────────────────────────────────────────────
-// NLE export — format discriminates fcpxml/edl.
-export interface ExportNleRequest {
-  format: 'fcpxml' | 'edl';
-  // NLEProject lives in media-engine; not contract-owned yet.
-  project: unknown;
-  outputPath?: string;
-  canvasId?: string;
-}
-export type ExportNleResponse = null | {
-  outputPath: string;
-  format: 'fcpxml' | 'edl';
-  fileSize: number;
-};
-
-export interface ExportAssetBundleRequest {
-  assetHashes: string[];
-  outputPath?: string;
-  canvasId?: string;
-}
-export type ExportAssetBundleResponse = null | {
-  outputPath: string;
-  fileCount: number;
-  fileSize: number;
-};
-
-export interface ExportSubtitlesRequest {
-  format: 'srt' | 'ass';
-  // SubtitleCue shape is media-engine-owned.
-  cues: unknown[];
-  outputPath: string;
-  videoWidth?: number;
-  videoHeight?: number;
-  canvasId?: string;
-}
-export type ExportSubtitlesResponse = void;
-
-export interface ExportStoryboardNode {
-  title: string;
-  prompt?: string;
-  assetHash?: string;
-  type: string;
-  sceneNumber?: string;
-  shotOrder?: number;
-  annotation?: string;
-  colorTag?: string;
-  tags?: string[];
-  providerId?: string;
-  seed?: number;
-}
-export interface ExportStoryboardRequest {
-  nodes: ExportStoryboardNode[];
-  projectTitle?: string;
-  outputPath?: string;
-  canvasId?: string;
-}
-export type ExportStoryboardResponse = null | {
-  outputPath: string;
-  nodeCount: number;
-  fileSize: number;
-};
-
-export interface ExportMetadataNode {
-  id: string;
-  type: string;
-  title: string;
-  prompt?: string;
-  negativePrompt?: string;
-  providerId?: string;
-  seed?: number;
-  width?: number;
-  height?: number;
-  assetHash?: string;
-  cost?: number;
-  generationTimeMs?: number;
-  sceneNumber?: string;
-  shotOrder?: number;
-  colorTag?: string;
-  tags?: string[];
-}
-export interface ExportMetadataRequest {
-  format: 'csv' | 'json';
-  nodes: ExportMetadataNode[];
-  projectTitle?: string;
-  outputPath?: string;
-  canvasId?: string;
-}
-export type ExportMetadataResponse = null | {
-  outputPath: string;
-  format: 'csv' | 'json';
-  nodeCount: number;
-  fileSize: number;
-};
-
-export interface ExportCapcutNode {
-  title: string;
-  assetHash: string;
-  type: string;
-  durationMs?: number;
-}
-export interface ExportCapcutRequest {
-  nodes: ExportCapcutNode[];
-  projectTitle?: string;
-  outputDir?: string;
-  canvasId?: string;
-}
-export type ExportCapcutResponse = null | { draftDir: string };
 
 // ─── ffmpeg:* ────────────────────────────────────────────────
 export interface FfmpegProbeRequest {
@@ -237,18 +55,6 @@ export interface FfmpegTranscodeRequest {
   options?: Record<string, unknown>;
 }
 export type FfmpegTranscodeResponse = void;
-
-// ─── import:srt ──────────────────────────────────────────────
-export interface ImportSrtRequest {
-  canvasId: string;
-  filePath: string;
-  alignToNodes?: boolean;
-}
-export interface ImportSrtResponse {
-  importedCount: number;
-  alignedCount: number;
-  noVideoNodes?: boolean;
-}
 
 // ─── ipc:ping — INTENTIONALLY UNREGISTERED ───────────────────
 // Skipped to avoid a namespace collision with `LucidAPIInfrastructure.ipc`.
@@ -285,19 +91,6 @@ export interface KeychainIsConfiguredRequest {
 }
 export type KeychainIsConfiguredResponse = boolean;
 
-// ─── lipsync:* ───────────────────────────────────────────────
-export type LipsyncCheckAvailabilityRequest = Record<string, never>;
-export interface LipsyncCheckAvailabilityResponse {
-  available: boolean;
-  backend: string;
-}
-
-export interface LipsyncProcessRequest {
-  canvasId: string;
-  nodeId: string;
-}
-export type LipsyncProcessResponse = void;
-
 // ─── logger:getRecent ────────────────────────────────────────
 // LoggerEntry is owned by the desktop-main logger module. Contracts can't
 // import from the app, so the shape is mirrored here.
@@ -312,54 +105,120 @@ export interface LoggerEntry {
 export type LoggerGetRecentRequest = Record<string, never>;
 export type LoggerGetRecentResponse = LoggerEntry[];
 
-// ─── render:* (3) ────────────────────────────────────────────
-export interface RenderStartRequest {
-  sceneId: string;
-  // RenderSegment[] is media-engine-owned.
-  segments?: Array<{ inputPath: string; startTime: number; duration: number; speed: number }>;
-  outputFormat?: 'mp4' | 'mov' | 'webm';
-  resolution?: { width: number; height: number };
-  fps?: number;
-  // RenderCodec / RenderPreset unions live in media-engine.
-  codec?: string;
-  quality?: string;
-  outputPath?: string;
-  workflowRunId?: string;
-  expectedManifestRevision?: number;
-  expectedManifestHash?: string;
-  retry?: boolean;
-}
-export interface RenderStartResponse {
-  jobId: string;
-  outputPath: string;
-  duration: number;
-  format: 'mp4' | 'mov' | 'webm';
-}
+// ─── deliveryPackage:* (5) ──────────────────────────────────
+export type DeliveryPackageAttemptStatus =
+  | 'queued'
+  | 'running'
+  | 'ready_to_publish'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'recovery_required';
 
-export interface RenderCancelRequest {
-  jobId: string;
-}
-export type RenderCancelResponse = void;
-
-export interface RenderStatusRequest {
-  jobId: string;
-}
-export interface RenderStatusResponse {
+export interface DeliveryPackageAttemptView {
+  attemptId: string;
+  status: DeliveryPackageAttemptStatus;
   progress: number;
-  stage: 'queued' | 'rendering' | 'completed' | 'failed' | 'cancelled' | 'unknown';
-  outputPath?: string;
+  destinationPath: string;
+  manifestRevision: number;
+  manifestHash: string;
+  attempt: number;
   error?: string;
 }
 
-// ─── session:* (4) ───────────────────────────────────────────
+export interface DeliveryPackageStartRequest {
+  taskListId: string;
+  canvasId: string;
+  expectedManifestRevision: number;
+  expectedManifestHash: string;
+}
+export type DeliveryPackageStartResponse =
+  | { cancelled: true }
+  | { cancelled: false; attempt: DeliveryPackageAttemptView };
+
+export interface DeliveryPackageStatusRequest {
+  attemptId: string;
+}
+export type DeliveryPackageStatusResponse = DeliveryPackageAttemptView | null;
+
+export interface DeliveryPackageCancelRequest {
+  attemptId: string;
+}
+export interface DeliveryPackageCancelResponse {
+  attempt: DeliveryPackageAttemptView | null;
+}
+
+export interface DeliveryPackageRetryRequest {
+  attemptId: string;
+}
+export interface DeliveryPackageRetryResponse {
+  attempt: DeliveryPackageAttemptView;
+}
+
+export interface DeliveryPackageOpenRequest {
+  attemptId: string;
+}
+export interface DeliveryPackageOpenResponse {
+  opened: true;
+}
+
+// ─── reviewCut:* (4) ────────────────────────────────────────
+export type ReviewCutJobStatus =
+  | 'queued'
+  | 'running'
+  | 'completed'
+  | 'failed'
+  | 'cancelled';
+
+export interface ReviewCutJobView {
+  jobId: string;
+  status: ReviewCutJobStatus;
+  progress: number;
+  outputPath: string;
+  manifestRevision: number;
+  manifestHash: string;
+  error?: string;
+}
+
+export interface ReviewCutStartRequest {
+  taskListId: string;
+  canvasId: string;
+  expectedManifestRevision: number;
+  expectedManifestHash: string;
+}
+export type ReviewCutStartResponse =
+  | { cancelled: true }
+  | { cancelled: false; job: ReviewCutJobView };
+
+export interface ReviewCutStatusRequest {
+  jobId: string;
+}
+export type ReviewCutStatusResponse = ReviewCutJobView | null;
+
+export interface ReviewCutCancelRequest {
+  jobId: string;
+}
+export interface ReviewCutCancelResponse {
+  job: ReviewCutJobView | null;
+}
+
+export interface ReviewCutOpenRequest {
+  jobId: string;
+}
+export interface ReviewCutOpenResponse {
+  opened: true;
+}
+
+// ─── session:* (5) ───────────────────────────────────────────
 export interface SessionListRequest {
   limit?: number;
 }
 // list() strips `messages` — the remaining fields mirror SqliteIndex session rows.
 export interface SessionListEntry {
   id: string;
-  canvasId: string | null;
+  defaultCanvasId: string | null;
   title: string;
+  messageCount: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -370,7 +229,7 @@ export interface SessionGetRequest {
 }
 export interface SessionGetResponse {
   id: string;
-  canvasId: string | null;
+  defaultCanvasId: string | null;
   title: string;
   messages: string;
   createdAt: number;
@@ -379,13 +238,21 @@ export interface SessionGetResponse {
 
 export interface SessionUpsertRequest {
   id: string;
-  canvasId: string | null;
+  defaultCanvasId: string | null;
   title: string;
   messages: string;
   createdAt: number;
   updatedAt: number;
 }
 export type SessionUpsertResponse = void;
+
+export interface SessionMoveRequest {
+  id: string;
+  defaultCanvasId: string | null;
+}
+export interface SessionMoveResponse {
+  success: true;
+}
 
 export interface SessionDeleteRequest {
   id: string;
@@ -455,25 +322,6 @@ export type UpdaterInstallResponse = void;
 export type UpdaterStatusRequest = Record<string, never>;
 export type UpdaterStatusResponse = UpdaterStatus;
 
-// ─── video:* (3) ─────────────────────────────────────────────
-export type VideoPickFileRequest = Record<string, never>;
-export type VideoPickFileResponse = string | null;
-
-export interface VideoExtractLastFrameRequest {
-  canvasId: string;
-  nodeId: string;
-}
-export type VideoExtractLastFrameResponse = void;
-
-export interface VideoCloneRequest {
-  filePath: string;
-  threshold?: number;
-}
-export interface VideoCloneResponse {
-  canvasId: string;
-  nodeCount: number;
-}
-
 // ─── vision:describeImage ────────────────────────────────────
 export interface VisionDescribeImageRequest {
   assetHash: string;
@@ -485,15 +333,6 @@ export interface VisionDescribeImageResponse {
 }
 
 // ─── Push payloads ───────────────────────────────────────────
-
-// ai:stream — main process emits either a delta chunk (event.content) or the
-// whole error message string; kept as raw string at the contract.
-export type AiStreamPayload = string;
-
-// ai:event — aliased to the Commander stream event. Single source of truth
-// is the `commander:stream` discriminated union in batch-09.
-import type { CommanderStreamPayload } from './batch-09.js';
-export type AiEventPayload = CommanderStreamPayload;
 
 // app:ready — fire-and-forget with no payload (Electron sends `undefined`).
 export type AppReadyPayload = undefined;
@@ -508,22 +347,6 @@ export interface ClipboardAiDetectedPayload {
 
 // logger:entry — mirrors LoggerEntry above.
 export type LoggerEntryPayload = LoggerEntry;
-
-// refimage:start / :complete / :failed — emitted from commander-tool-deps.
-export interface RefimageStartPayload {
-  jobId: string;
-  provider: string;
-  width: number;
-  height: number;
-}
-export interface RefimageCompletePayload {
-  jobId: string;
-  assetHash: string;
-}
-export interface RefimageFailedPayload {
-  jobId: string;
-  error: string;
-}
 
 // settings:providerKeyUpdated — emitted from commander-tool-deps when a
 // provider's API key is stored or deleted.

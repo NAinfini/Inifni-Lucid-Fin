@@ -161,7 +161,7 @@ describe('Canvas nodes integration', () => {
     ]);
   });
 
-  it('deleting a canvas cascades to canvas_nodes', async () => {
+  it('archive preserves canvas_nodes and permanent deletion removes them', async () => {
     const created = await invoke<Canvas>(ipcMain, 'canvas:create', { name: 'CascadeTest' });
     const withNodes: Canvas = {
       ...created,
@@ -175,10 +175,14 @@ describe('Canvas nodes integration', () => {
       .get(created.id) as { cnt: number };
     expect(nodeCount.cnt).toBe(2);
 
-    // Delete the canvas
+    // Archive preserves project-local graph data.
     await invoke(ipcMain, 'canvas:delete', { id: created.id });
+    const nodeCountAfterArchive = testDb.db.rawDb
+      .prepare('SELECT COUNT(*) as cnt FROM canvas_nodes WHERE canvas_id = ?')
+      .get(created.id) as { cnt: number };
+    expect(nodeCountAfterArchive.cnt).toBe(2);
 
-    // Nodes should be cascade-deleted
+    await invoke(ipcMain, 'canvas:deletePermanent', { id: created.id });
     const nodeCountAfter = testDb.db.rawDb
       .prepare('SELECT COUNT(*) as cnt FROM canvas_nodes WHERE canvas_id = ?')
       .get(created.id) as { cnt: number };

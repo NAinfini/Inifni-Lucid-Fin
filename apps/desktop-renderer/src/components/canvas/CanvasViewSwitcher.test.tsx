@@ -8,9 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { t } from '../../i18n.js';
 import { canvasSlice } from '../../store/slices/canvas/canvas.js';
 import { commanderSlice } from '../../store/slices/commander.js';
-import { jobsSlice } from '../../store/slices/jobs.js';
 import { uiSlice } from '../../store/slices/ui.js';
-import { workflowsSlice } from '../../store/slices/workflows.js';
+import { taskListsSlice } from '../../store/slices/task-lists.js';
 import { TooltipProvider } from '../ui/Tooltip.js';
 import { CanvasViewSwitcher } from './CanvasViewSwitcher.js';
 
@@ -20,8 +19,7 @@ function renderSwitcher() {
       ui: uiSlice.reducer,
       canvas: canvasSlice.reducer,
       commander: commanderSlice.reducer,
-      jobs: jobsSlice.reducer,
-      workflows: workflowsSlice.reducer,
+      taskLists: taskListsSlice.reducer,
     },
   });
 
@@ -59,10 +57,10 @@ describe('CanvasViewSwitcher', () => {
   it('switches canvas modes without logging update-depth errors', () => {
     renderSwitcher();
 
-    const audioButton = screen.getByRole('button', { name: t('view.audioLabel') });
-    fireEvent.click(audioButton);
+    const deliveryButton = screen.getByRole('button', { name: t('view.deliveryLabel') });
+    fireEvent.click(deliveryButton);
 
-    expect(audioButton.getAttribute('aria-pressed')).toBe('true');
+    expect(deliveryButton.getAttribute('aria-pressed')).toBe('true');
     expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 });

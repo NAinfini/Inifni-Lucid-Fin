@@ -1,40 +1,56 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AgentToolRegistry } from '../tool-registry.js';
+import type { LLMToolInputSchema } from '@lucid-fin/contracts';
+import { NO_TOOL_RESOURCE, toolResultSchema, ToolRegistry } from '../tool-registry.js';
 import { createMetaTools } from './meta-tools.js';
 
-function makeRegistry() {
-  const registry = new AgentToolRegistry();
+function registerFixtureTool(
+  registry: ToolRegistry,
+  definition: {
+    name: string;
+    description: string;
+    tags?: string[];
+    inputSchema: LLMToolInputSchema;
+  },
+) {
   registry.register({
+    ...definition,
+    process: 'test',
+    category: 'query',
+    contextReplay: 'status_only',
+    resource: NO_TOOL_RESOURCE,
+    tier: 1,
+    outputSchema: toolResultSchema(),
+    execute: vi.fn(async () => ({ success: true })),
+  });
+}
+
+function makeRegistry() {
+  const registry = new ToolRegistry();
+  registerFixtureTool(registry, {
     name: 'canvas.getInfo',
     description: 'Get the full state of the current canvas',
     tags: ['canvas', 'read'],
-    tier: 1,
-    parameters: {
+    inputSchema: {
       type: 'object',
       properties: { canvasId: { type: 'string', description: 'Canvas id' } },
       required: ['canvasId'],
     },
-    execute: vi.fn(),
   });
-  registry.register({
+  registerFixtureTool(registry, {
     name: 'canvas.deleteNode',
     description: 'Delete a node from the current canvas',
     tags: ['canvas', 'mutate'],
-    tier: 1,
-    parameters: {
+    inputSchema: {
       type: 'object',
       properties: { nodeId: { type: 'string', description: 'Node id' } },
       required: ['nodeId'],
     },
-    execute: vi.fn(),
   });
-  registry.register({
+  registerFixtureTool(registry, {
     name: 'character.list',
     description: 'List all characters in the project',
     tags: ['entity', 'read'],
-    tier: 1,
-    parameters: { type: 'object', properties: {}, required: [] },
-    execute: vi.fn(),
+    inputSchema: { type: 'object', properties: {}, required: [] },
   });
   return registry;
 }
@@ -90,13 +106,11 @@ describe('createMetaTools', () => {
       });
 
       it('truncates long descriptions to 80 chars', async () => {
-        const registry = new AgentToolRegistry();
-        registry.register({
+        const registry = new ToolRegistry();
+        registerFixtureTool(registry, {
           name: 'test.long',
           description: 'A'.repeat(100),
-          tier: 1,
-          parameters: { type: 'object', properties: {}, required: [] },
-          execute: vi.fn(),
+          inputSchema: { type: 'object', properties: {}, required: [] },
         });
         const tools = createMetaTools(registry, {});
         const toolGet = tools.find((t) => t.name === 'tool.get')!;
@@ -122,11 +136,11 @@ describe('createMetaTools', () => {
             {
               name: 'canvas.getInfo',
               description: 'Get the full state of the current canvas',
-              parameters: {
+              inputSchemaJson: JSON.stringify({
                 type: 'object',
                 properties: { canvasId: { type: 'string', description: 'Canvas id' } },
                 required: ['canvasId'],
-              },
+              }),
             },
           ],
         });
@@ -184,7 +198,7 @@ describe('createMetaTools', () => {
   describe('guide.get', () => {
     describe('list mode (no ids)', () => {
       it('lists guides without content when ids is omitted', async () => {
-        const registry = new AgentToolRegistry();
+        const registry = new ToolRegistry();
         const tools = createMetaTools(registry, {
           promptGuides: [
             { id: 'guide-1', name: 'Guide One', content: 'alpha' },
@@ -207,7 +221,7 @@ describe('createMetaTools', () => {
       });
 
       it('respects offset and limit when ids is omitted', async () => {
-        const registry = new AgentToolRegistry();
+        const registry = new ToolRegistry();
         const tools = createMetaTools(registry, {
           promptGuides: [
             { id: 'guide-1', name: 'Guide One', content: 'alpha' },
@@ -225,7 +239,7 @@ describe('createMetaTools', () => {
       });
 
       it('caps the listing limit at 100 items', async () => {
-        const registry = new AgentToolRegistry();
+        const registry = new ToolRegistry();
         const tools = createMetaTools(registry, {
           promptGuides: Array.from({ length: 105 }, (_, index) => ({
             id: `guide-${index}`,
@@ -244,7 +258,7 @@ describe('createMetaTools', () => {
 
     describe('get mode (ids provided)', () => {
       it('fetches a single guide through the same array response shape as batches', async () => {
-        const registry = new AgentToolRegistry();
+        const registry = new ToolRegistry();
         const tools = createMetaTools(registry, {
           promptGuides: [
             { id: 'guide-1', name: 'Guide One', content: 'alpha' },
@@ -271,7 +285,7 @@ describe('createMetaTools', () => {
       });
 
       it('fetches multiple guides by ids (array)', async () => {
-        const registry = new AgentToolRegistry();
+        const registry = new ToolRegistry();
         const tools = createMetaTools(registry, {
           promptGuides: [
             { id: 'guide-1', name: 'Guide One', content: 'alpha' },
@@ -306,7 +320,7 @@ describe('createMetaTools', () => {
       });
 
       it('rejects legacy string ids and batches larger than two guides', async () => {
-        const registry = new AgentToolRegistry();
+        const registry = new ToolRegistry();
         const guideGet = createMetaTools(registry, {
           promptGuides: [{ id: 'guide-1', name: 'Guide One', content: 'alpha' }],
         }).find((tool) => tool.name === 'guide.get')!;
@@ -324,7 +338,7 @@ describe('createMetaTools', () => {
       });
 
       it('returns error for missing guide ids', async () => {
-        const registry = new AgentToolRegistry();
+        const registry = new ToolRegistry();
         const tools = createMetaTools(registry, { promptGuides: [] });
         const guideGet = tools.find((t) => t.name === 'guide.get')!;
 
@@ -334,7 +348,7 @@ describe('createMetaTools', () => {
       });
 
       it('returns bounded chunks that can reconstruct the full guide without loss', async () => {
-        const registry = new AgentToolRegistry();
+        const registry = new ToolRegistry();
         const content = 'x'.repeat(8_005);
         const guideGet = createMetaTools(registry, {
           promptGuides: [{ id: 'guide-1', name: 'Guide One', content }],
@@ -393,7 +407,7 @@ describe('createMetaTools', () => {
       });
 
       it('returns found guides and lists missing ones in batch', async () => {
-        const registry = new AgentToolRegistry();
+        const registry = new ToolRegistry();
         const tools = createMetaTools(registry, {
           promptGuides: [{ id: 'guide-1', name: 'Guide One', content: 'alpha' }],
         });

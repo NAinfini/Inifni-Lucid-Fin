@@ -125,7 +125,7 @@ async function requireRegisteredReadyVisualAdapter(
   if (!adapter.capabilities.includes('image-understanding')) {
     throw new Error(`Registered provider does not support image understanding: ${providerId}`);
   }
-  let ready = false;
+  let ready: boolean;
   try {
     ready = await adapter.validate();
   } catch (error) {

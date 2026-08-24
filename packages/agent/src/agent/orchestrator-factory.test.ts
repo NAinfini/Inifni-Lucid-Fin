@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createAgentOrchestratorForRun } from './orchestrator-factory.js';
-import { AgentToolRegistry } from './tool-registry.js';
-import type { CanvasVisualStylePolicy, LLMAdapter } from '@lucid-fin/contracts';
+import { ToolRegistry } from './tool-registry.js';
+import type { LLMAdapter } from '@lucid-fin/contracts';
+import { createRunChecklistTools } from './tools/run-checklist-tools.js';
 
 function mockAdapter(): LLMAdapter {
   return {
@@ -20,38 +21,13 @@ function mockAdapter(): LLMAdapter {
   } as unknown as LLMAdapter;
 }
 
-function mockCanvasStore(
-  canvas: {
-    nodes?: Array<{ id: string; type: string }>;
-    settings?: {
-      visualStylePolicy?: CanvasVisualStylePolicy;
-      stylePlate?: string | null;
-    } | null;
-  } | null = null,
-) {
-  return {
-    get: () =>
-      canvas
-        ? {
-            nodes: canvas.nodes ?? [],
-            settings: canvas.settings ?? null,
-          }
-        : null,
-  };
-}
-
 describe('createAgentOrchestratorForRun', () => {
-  it('production variant constructs with canvas-aware resolvers wired', () => {
-    const canvas = mockCanvasStore({
-      nodes: [{ id: 'n1', type: 'image' }],
-      settings: { stylePlate: 'warm cinematic' },
-    });
+  it('production variant constructs', () => {
     const orchestrator = createAgentOrchestratorForRun({
       variant: 'production',
       llmAdapter: mockAdapter(),
-      toolRegistry: new AgentToolRegistry(),
+      toolRegistry: new ToolRegistry(),
       resolvePrompt: (code) => code,
-      canvasStore: canvas,
     });
     expect(orchestrator).toBeDefined();
   });
@@ -61,9 +37,8 @@ describe('createAgentOrchestratorForRun', () => {
     createAgentOrchestratorForRun({
       variant: 'study-harness',
       llmAdapter: mockAdapter(),
-      toolRegistry: new AgentToolRegistry(),
+      toolRegistry: new ToolRegistry(),
       resolvePrompt: (code) => code,
-      canvasStore: mockCanvasStore(),
       postConstructHarnessHook: hook,
     });
     expect(hook).toHaveBeenCalledTimes(1);
@@ -74,42 +49,40 @@ describe('createAgentOrchestratorForRun', () => {
     createAgentOrchestratorForRun({
       variant: 'production',
       llmAdapter: mockAdapter(),
-      toolRegistry: new AgentToolRegistry(),
+      toolRegistry: new ToolRegistry(),
       resolvePrompt: (code) => code,
-      canvasStore: mockCanvasStore(),
       postConstructHarnessHook: hook,
     });
     expect(hook).not.toHaveBeenCalled();
   });
 
-  it('wired resolveCanvasSettings returns the canvas.stylePlate', () => {
-    const canvas = mockCanvasStore({
-      nodes: [],
-      settings: { stylePlate: 'noir' },
-    });
-    // Indirect assert: cast the resolver out of the factory via the
-    // orchestrator's public options. We don't have a public getter so the
-    // invariant is exercised through the full-suite regression tests
-    // (agent-orchestrator.test.ts's style-plate-lock cases).
-    const orchestrator = createAgentOrchestratorForRun({
+  it('binds the registered runChecklist.manage definition to the run-local store', async () => {
+    const registry = new ToolRegistry();
+    registry.register(createRunChecklistTools()[0]);
+    createAgentOrchestratorForRun({
       variant: 'production',
       llmAdapter: mockAdapter(),
-      toolRegistry: new AgentToolRegistry(),
+      toolRegistry: registry,
       resolvePrompt: (code) => code,
-      canvasStore: canvas,
     });
-    expect(orchestrator).toBeDefined();
+
+    const result = await registry.execute('runChecklist.manage', {
+      action: 'set',
+      items: [{ label: 'One' }, { label: 'Two' }],
+    });
+
+    expect(result).toMatchObject({
+      success: true,
+      data: {
+        runChecklist: {
+          checklistId: expect.any(String),
+          items: [
+            expect.objectContaining({ label: 'One', status: 'in_progress' }),
+            expect.objectContaining({ label: 'Two', status: 'pending' }),
+          ],
+        },
+      },
+    });
   });
 
-  it('constructs without resolveProcessPrompt (process-prompt specs dormant)', () => {
-    expect(() =>
-      createAgentOrchestratorForRun({
-        variant: 'production',
-        llmAdapter: mockAdapter(),
-        toolRegistry: new AgentToolRegistry(),
-        resolvePrompt: (code) => code,
-        canvasStore: mockCanvasStore(),
-      }),
-    ).not.toThrow();
-  });
 });

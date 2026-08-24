@@ -76,7 +76,7 @@ describe('serializeForOpenAI', () => {
       kind: 'guide',
       itemId: mkId(),
       producedAtStep: 0,
-      guideKey: 'workflow-basics',
+      guideKey: 'task-list-basics',
       content: 'Always check canvas state before modifying nodes.',
     };
 
@@ -252,7 +252,7 @@ describe('serializeForOpenAI', () => {
     expect(messages[0]!.content).toContain('Earlier: checked canvas');
   });
 
-  it('process-prompt system-messages sit between primary system and history', () => {
+  it('keeps legacy-marked system messages at their insertion position', () => {
     const graph = new ContextGraph();
     graph.add({
       kind: 'guide',
@@ -267,11 +267,12 @@ describe('serializeForOpenAI', () => {
       producedAtStep: 1,
       content: 'first user',
     });
+    const legacyMarker = ['[[', 'process', '-prompt:', 'image-gen]]'].join('');
     graph.add({
       kind: 'system-message',
       itemId: mkId(),
       producedAtStep: 2,
-      content: '[[process-prompt:image-gen]]\nProcess details',
+      content: `${legacyMarker}\nProcess details`,
     });
     graph.add({
       kind: 'user-message',
@@ -286,13 +287,9 @@ describe('serializeForOpenAI', () => {
       tools: EMPTY_TOOLS,
     });
 
-    // Order: primary-system, process-prompt(s), history…
-    expect(messages[0]!.role).toBe('system');
+    expect(messages.map((message) => message.role)).toEqual(['system', 'user', 'system', 'user']);
     expect(messages[0]!.content).toContain('ROOT SYSTEM');
-    expect(messages[1]!.role).toBe('system');
-    expect(messages[1]!.content).toContain('[[process-prompt:image-gen]]');
-    const userMsgs = messages.filter((m) => m.role === 'user');
-    expect(userMsgs.map((m) => m.content)).toEqual(['first user', 'second user']);
+    expect(messages[2]!.content).toContain(legacyMarker);
   });
 
   it('tool name sanitization when profile.sanitizeToolNames is true', () => {
@@ -339,5 +336,44 @@ describe('serializeForOpenAI', () => {
     expect(assistantMsg!.toolCalls![0]!.name).toBe('canvas_getNode');
     expect(result.wireTools[0]!.name).toBe('canvas_getNode');
     expect(result.toolNameReverseMap.get('canvas_getNode')).toBe('canvas.getNode');
+  });
+
+  it('keeps the trailing cached assistant group when earlier groups share fallback call ids', () => {
+    const graph = new ContextGraph();
+    graph.add({
+      kind: 'guide',
+      itemId: mkId(),
+      producedAtStep: 0,
+      guideKey: 'root',
+      content: 'ROOT',
+    });
+    for (const nodeId of ['n1', 'n2']) {
+      graph.add({
+        kind: 'assistant-turn',
+        itemId: mkId(),
+        producedAtStep: 1,
+        content: '',
+        toolCalls: [{ id: 'tool-call-0', name: 'canvas.getNode', arguments: { nodeId } }],
+      });
+      graph.add({
+        kind: 'tool-result',
+        itemId: mkId(),
+        producedAtStep: 1,
+        toolKey: 'canvas.getNode' as ToolKey,
+        paramsHash: JSON.stringify({ nodeId }),
+        content: { success: true, data: { id: nodeId } },
+        schemaVersion: 1,
+        toolCallId: 'tool-call-0',
+      });
+    }
+
+    const { wireMessages } = serializeForOpenAI({
+      graph,
+      contextWindowTokens: 100_000,
+      tools: EMPTY_TOOLS,
+    });
+
+    expect(wireMessages.filter((message) => message.role === 'assistant')).toHaveLength(1);
+    expect(wireMessages.filter((message) => message.role === 'tool')).toHaveLength(1);
   });
 });

@@ -1,99 +1,129 @@
+import { useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { useEffect, useRef } from 'react';
+
 import type { RootState } from '../../../store/index.js';
-import type { PendingConfirmation } from '../../../commander/state/types.js';
-import { clearPendingConfirmation, setConfirmAutoMode } from '../../../store/slices/commander.js';
+import {
+  recordConfirmationResolved,
+  setConfirmAutoMode,
+} from '../../../store/slices/commander.js';
 import { markConfirmationResolvedLocally } from '../../../commander/state/commander-timeline-slice.js';
 import { getAPI } from '../../../utils/api.js';
+import type { PendingConfirmation } from '../../../commander/state/types.js';
 import { ToolConfirmCard } from './ToolConfirmCard.js';
 
 interface CommanderStreamViewProps {
   pendingConfirmation: PendingConfirmation | null | undefined;
   consecutiveConfirmCount: number;
+  currentRunId?: string | null;
   t: (key: string) => string;
 }
+
 /**
- * Renders the tool confirmation card (and the "approve all / skip all" batch
- * controls). The pending-question card is handled separately in the shell
- * because it must be positioned as an absolute overlay inside the footer.
+ * The confirmation stays rendered until the IPC decision succeeds. This is
+ * deliberately stricter than the old optimistic path: a rejected or failed
+ * decision is recoverable in the same card rather than silently disappearing.
  */
 export function CommanderStreamView({
   pendingConfirmation,
   consecutiveConfirmCount,
+  currentRunId,
   t,
 }: CommanderStreamViewProps) {
   const dispatch = useDispatch();
+  const activeSessionId = useSelector((state: RootState) => state.commander.activeSessionId);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Track activeCanvasId in a ref so handlers read the current value
-  // without needing direct store.getState() access.
-  const activeCanvasId = useSelector((state: RootState) => state.canvas.activeCanvasId);
-  const activeCanvasIdRef = useRef(activeCanvasId);
   useEffect(() => {
-    activeCanvasIdRef.current = activeCanvasId;
-  }, [activeCanvasId]);
+    setSubmitting(false);
+    setError(null);
+  }, [pendingConfirmation?.toolCallId]);
 
-  const resolveConfirmation = (accept: boolean) => {
+  const resolveConfirmation = async (
+    accept: boolean,
+    autoMode: 'approve' | 'skip' | null = null,
+  ) => {
     if (!pendingConfirmation) return;
     const api = getAPI();
-    const canvasId = activeCanvasIdRef.current;
-    if (api?.commander && canvasId) {
-      void api.commander.confirmTool(canvasId, pendingConfirmation.toolCallId, accept);
+    if (!api?.commander || !activeSessionId || !currentRunId) {
+      setError(t('commander.toolConfirm.decisionUnavailable'));
+      return;
     }
-    dispatch(markConfirmationResolvedLocally(pendingConfirmation.toolCallId));
-    dispatch(clearPendingConfirmation());
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await api.commander.toolDecision({
+        sessionId: activeSessionId,
+        runId: currentRunId,
+        toolCallId: pendingConfirmation.toolCallId,
+        approved: accept,
+      });
+      if (!result.accepted) {
+        setError(t('commander.toolConfirm.decisionRejected').replace('{code}', result.code));
+        return;
+      }
+      if (autoMode) {
+        dispatch(setConfirmAutoMode({ sessionId: activeSessionId, mode: autoMode }));
+      }
+      dispatch(
+        markConfirmationResolvedLocally({
+          sessionId: activeSessionId,
+          runId: currentRunId,
+          toolCallId: pendingConfirmation.toolCallId,
+        }),
+      );
+      dispatch(recordConfirmationResolved(activeSessionId));
+    } catch (decisionError) {
+      setError(
+        decisionError instanceof Error
+          ? decisionError.message
+          : t('commander.toolConfirm.decisionFailed'),
+      );
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!pendingConfirmation) return null;
 
   return (
-    <div className="space-y-1">
+    <article aria-label={t('commander.toolConfirm.title')} className="space-y-1">
       <ToolConfirmCard
         toolName={pendingConfirmation.toolName}
-        args={pendingConfirmation.args}
+        summary={pendingConfirmation.summary}
+        details={pendingConfirmation.details}
         tier={pendingConfirmation.tier}
         onExecute={() => resolveConfirmation(true)}
         onSkip={() => resolveConfirmation(false)}
+        disabled={submitting}
+        status={submitting ? t('commander.toolConfirm.saving') : null}
+        error={error}
         t={t}
       />
-      {consecutiveConfirmCount >= 4 && (
-        <div className="flex items-center justify-end gap-1.5 px-3 pb-1">
-          <span className="text-[10px] text-muted-foreground mr-auto">
+      {consecutiveConfirmCount >= 4 ? (
+        <div className="flex flex-wrap items-center justify-end gap-1.5 px-1 pb-1">
+          <span className="mr-auto text-[10px] text-muted-foreground">
             {t('commander.confirmBatchHint')}
           </span>
           <button
             type="button"
-            className="text-[10px] px-2 py-0.5 rounded border border-border/60 text-muted-foreground hover:bg-muted/80 hover:text-foreground transition-colors"
-            onClick={() => {
-              const api = getAPI();
-              const canvasId = activeCanvasIdRef.current;
-              if (api?.commander && canvasId) {
-                void api.commander.confirmTool(canvasId, pendingConfirmation.toolCallId, false);
-              }
-              dispatch(setConfirmAutoMode('skip'));
-              dispatch(markConfirmationResolvedLocally(pendingConfirmation.toolCallId));
-              dispatch(clearPendingConfirmation());
-            }}
+            className="rounded border border-border/60 px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted/80 hover:text-foreground disabled:cursor-wait disabled:opacity-60"
+            disabled={submitting}
+            onClick={() => void resolveConfirmation(false, 'skip')}
           >
             {t('commander.skipAll')}
           </button>
           <button
             type="button"
-            className="text-[10px] px-2 py-0.5 rounded border border-primary/40 text-primary hover:bg-primary/10 transition-colors"
-            onClick={() => {
-              const api = getAPI();
-              const canvasId = activeCanvasIdRef.current;
-              if (api?.commander && canvasId) {
-                void api.commander.confirmTool(canvasId, pendingConfirmation.toolCallId, true);
-              }
-              dispatch(setConfirmAutoMode('approve'));
-              dispatch(markConfirmationResolvedLocally(pendingConfirmation.toolCallId));
-              dispatch(clearPendingConfirmation());
-            }}
+            className="rounded border border-primary/40 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:cursor-wait disabled:opacity-60"
+            disabled={submitting}
+            onClick={() => void resolveConfirmation(true, 'approve')}
           >
             {t('commander.executeAll')}
           </button>
         </div>
-      )}
-    </div>
+      ) : null}
+    </article>
   );
 }

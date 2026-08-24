@@ -4,6 +4,7 @@ import React from 'react';
 import { configureStore } from '@reduxjs/toolkit';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Provider } from 'react-redux';
+import { VirtuosoGridMockContext } from 'react-virtuoso';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Character, Equipment, Location, ReferenceImage } from '@lucid-fin/contracts';
 import { setLocale, t } from '../../i18n.js';
@@ -29,6 +30,13 @@ vi.mock('../ui/Dialog.js', () => ({
   DialogTitle: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogDescription: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
+
+const virtualGridMetrics = {
+  viewportHeight: 600,
+  viewportWidth: 900,
+  itemHeight: 160,
+  itemWidth: 160,
+};
 
 function createCharacter(): Character {
   return {
@@ -132,6 +140,7 @@ function renderWithStore(
     selectedEquipmentId?: string;
     locations?: Location[];
     selectedLocationId?: string;
+    spyOnDispatch?: boolean;
   },
 ) {
   const store = configureStore({
@@ -186,7 +195,13 @@ function renderWithStore(
     }),
   );
 
-  render(<Provider store={store}>{panel}</Provider>);
+  if (options?.spyOnDispatch) vi.spyOn(store, 'dispatch');
+
+  render(
+    <VirtuosoGridMockContext.Provider value={virtualGridMetrics}>
+      <Provider store={store}>{panel}</Provider>
+    </VirtuosoGridMockContext.Provider>,
+  );
 
   return store;
 }
@@ -230,6 +245,14 @@ describe('Entity manager panels', () => {
   let confirmSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
     setLocale('en-US');
     vi.mocked(getAPI).mockReset();
     vi.mocked(getAPI).mockReturnValue({
@@ -249,6 +272,7 @@ describe('Entity manager panels', () => {
   afterEach(() => {
     cleanup();
     confirmSpy.mockRestore();
+    vi.unstubAllGlobals();
   });
 
   it.each([
@@ -283,6 +307,87 @@ describe('Entity manager panels', () => {
         referenceHeading.compareDocumentPosition(fromAssetsButton) &
           Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
+    },
+  );
+
+  it.each([
+    {
+      name: 'CharacterManagerPanel',
+      kind: 'character' as const,
+      panel: <CharacterManagerPanel />,
+      sources: [
+        createCharacterVariant('character-1', 'Astra'),
+        createCharacterVariant('character-2', 'Nova'),
+      ],
+      created: createCharacterVariant('character-copy', 'Astra'),
+      actionType: 'characters/addCharacters',
+    },
+    {
+      name: 'EquipmentManagerPanel',
+      kind: 'equipment' as const,
+      panel: <EquipmentManagerPanel />,
+      sources: [
+        createEquipmentVariant('equipment-1', 'Pulse Rifle'),
+        createEquipmentVariant('equipment-2', 'Field Pack'),
+      ],
+      created: createEquipmentVariant('equipment-copy', 'Pulse Rifle'),
+      actionType: 'equipment/addEquipmentBatch',
+    },
+    {
+      name: 'LocationManagerPanel',
+      kind: 'location' as const,
+      panel: <LocationManagerPanel />,
+      sources: [
+        createLocationVariant('location-1', 'Hangar Bay'),
+        createLocationVariant('location-2', 'Observation Deck'),
+      ],
+      created: createLocationVariant('location-copy', 'Hangar Bay'),
+      actionType: 'locations/addLocations',
+    },
+  ])(
+    'duplicates the selected $name items with one IPC and one batch reducer action',
+    async ({ panel, kind, sources, created, actionType }) => {
+      const copy = vi.fn().mockResolvedValue({ created: [created] });
+      const api = {
+        character: {
+          list: vi.fn().mockResolvedValue(kind === 'character' ? sources : [createCharacter()]),
+        },
+        equipment: {
+          list: vi.fn().mockResolvedValue(kind === 'equipment' ? sources : [createEquipment()]),
+        },
+        location: {
+          list: vi.fn().mockResolvedValue(kind === 'location' ? sources : [createLocation()]),
+        },
+      };
+      Object.assign(api[kind], { copy });
+      vi.mocked(getAPI).mockReturnValue(api as unknown as ReturnType<typeof getAPI>);
+
+      const renderOptions =
+        kind === 'character'
+          ? { characters: sources as Character[] }
+          : kind === 'equipment'
+            ? { equipment: sources as Equipment[] }
+            : { locations: sources as Location[] };
+      const store = renderWithStore(panel, { ...renderOptions, spyOnDispatch: true });
+      const firstTile = await waitFor(() => {
+        const tile = document.querySelector(`[data-tile-id="${sources[0]!.id}"]`);
+        if (!tile) throw new Error('entity tile not rendered');
+        return tile as HTMLElement;
+      });
+      firstTile.focus();
+      fireEvent.click(firstTile);
+      vi.mocked(store.dispatch).mockClear();
+
+      fireEvent.keyDown(window, { key: 'a', ctrlKey: true });
+      fireEvent.keyDown(window, { key: 'd', ctrlKey: true });
+
+      await waitFor(() => expect(copy).toHaveBeenCalledOnce());
+      expect(copy).toHaveBeenCalledWith(expect.arrayContaining(sources.map(({ id }) => id)), null);
+      expect(copy.mock.calls[0]?.[0]).toHaveLength(2);
+      const batchActions = vi
+        .mocked(store.dispatch)
+        .mock.calls.filter(([action]) => action.type === actionType);
+      expect(batchActions).toHaveLength(1);
     },
   );
 
@@ -493,14 +598,18 @@ describe('Entity manager panels', () => {
     expect(confirmSpy).not.toHaveBeenCalled();
   });
 
-  it('hides equipment list header filter and search controls', async () => {
+  it('searches and sorts the equipment list with the shared explorer controls', async () => {
     setLocale('zh-CN');
+    const equipment = [
+      createEquipmentVariant('equipment-1', 'Pulse Rifle'),
+      createEquipmentVariant('equipment-2', 'Field Pack', { type: 'tool' }),
+    ];
+    vi.mocked(getAPI).mockReturnValue({
+      equipment: { list: vi.fn().mockResolvedValue(equipment) },
+    } as unknown as ReturnType<typeof getAPI>);
 
     renderWithStore(<EquipmentManagerPanel />, {
-      equipment: [
-        createEquipmentVariant('equipment-1', 'Pulse Rifle'),
-        createEquipmentVariant('equipment-2', 'Field Pack', { type: 'tool' }),
-      ],
+      equipment,
       selectedEquipmentId: 'equipment-1',
     });
 
@@ -508,8 +617,19 @@ describe('Entity manager panels', () => {
       expect(screen.getByText(t('equipmentManager.title'))).toBeTruthy();
     });
 
-    expect(screen.queryByText(t('equipmentManager.allTypes'))).toBeNull();
-    expect(screen.queryByPlaceholderText(t('fileExplorer.searchPlaceholder'))).toBeNull();
+    const search = screen.getByPlaceholderText(t('fileExplorer.searchPlaceholder'));
+    expect(screen.getByText(t('fileExplorer.sortName'))).toBeTruthy();
+    const sortOrder = screen.getByTitle(t('fileExplorer.sortOrder'));
+    expect(sortOrder.textContent).toBe('↑');
+    fireEvent.click(sortOrder);
+    expect(sortOrder.textContent).toBe('↓');
+
+    fireEvent.change(search, { target: { value: 'Field' } });
+
+    await waitFor(() => {
+      expect(screen.getByText('Field Pack')).toBeTruthy();
+      expect(screen.queryByText('Pulse Rifle')).toBeNull();
+    });
   });
 
   it('uses dialog confirmation instead of window.confirm for equipment deletion', async () => {

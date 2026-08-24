@@ -75,5 +75,26 @@ export class MusicGenAdapter implements AIProviderAdapter {
     return map[data.status] ?? JobStatus.Running;
   }
 
+  async getResult(jobId: string): Promise<GenerationResult> {
+    const res = await fetchWithTimeout(`${this.baseUrl}/api/status/${jobId}`);
+    if (!res.ok) {
+      throw new LucidError(
+        ErrorCode.ServiceUnavailable,
+        `MusicGen result fetch failed: ${res.status}`,
+      );
+    }
+    const data = (await res.json()) as Record<string, unknown>;
+    const assetPath = [data.audio_url, data.url, data.output].find(
+      (value): value is string => typeof value === 'string' && value.length > 0,
+    );
+    if (!assetPath) throw new Error(`MusicGen job ${jobId} completed without an audio URL`);
+    return {
+      assetHash: '',
+      assetPath,
+      provider: this.id,
+      metadata: { id: jobId, status: data.status },
+    };
+  }
+
   async cancel(_jobId: string): Promise<void> {}
 }

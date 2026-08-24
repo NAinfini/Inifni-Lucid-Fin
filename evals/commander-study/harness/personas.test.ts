@@ -169,7 +169,7 @@ describe('personas', () => {
       expect(shortOpeners.length).toBeGreaterThan(0);
     });
 
-    it('power personas reference specific workflows or tools', () => {
+    it('power personas reference specific task-list operations or tools', () => {
       const power = personas.filter((p) => p.archetype === 'power');
       const toolTerms = [
         'shot-list',
@@ -177,7 +177,7 @@ describe('personas', () => {
         'batch',
         'clone',
         'export',
-        'workflow',
+        'task list',
         'canvas',
         'preset',
         'style',

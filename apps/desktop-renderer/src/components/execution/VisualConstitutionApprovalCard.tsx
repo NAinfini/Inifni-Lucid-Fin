@@ -1,26 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, ImageIcon, LoaderCircle, LockKeyhole, Sparkles } from 'lucide-react';
 import type {
-  ApproveWorkflowGateResult,
+  ApprovePlanGateResult,
   VisualAuditionCandidate,
   VisualAuditionDocumentContent,
   VisualConstitutionDocumentContent,
   VisualConstitutionSelectionResult,
   VisualPreviewAttempt,
-  WorkflowApprovalContext,
-  WorkflowVisualAuditionContext,
+  PlanApprovalContext,
+  VisualAuditionContext,
 } from '@lucid-fin/contracts';
 import { t } from '../../i18n.js';
-import { WorkflowRequestChangesForm } from './WorkflowRequestChangesForm.js';
 
 type VisualConstitutionApprovalCardProps = {
-  auditionContext: WorkflowVisualAuditionContext;
-  approvalContext?: WorkflowApprovalContext | null;
+  auditionContext: VisualAuditionContext;
+  approvalContext?: PlanApprovalContext | null;
   onSelect: (candidateId: string) => Promise<VisualConstitutionSelectionResult>;
-  onApprove: () => Promise<ApproveWorkflowGateResult>;
+  onApprove: () => Promise<ApprovePlanGateResult>;
   onApproved?: () => void;
-  onRequestChanges?: (reason: string) => Promise<unknown>;
-  onRequested?: () => void;
 };
 
 function selectedAttempt(candidate: VisualAuditionCandidate): VisualPreviewAttempt | undefined {
@@ -43,8 +40,6 @@ export function VisualConstitutionApprovalCard({
   onSelect,
   onApprove,
   onApproved,
-  onRequestChanges,
-  onRequested,
 }: VisualConstitutionApprovalCardProps) {
   const audition = auditionContext.document.content as VisualAuditionDocumentContent;
   const visualApproval =
@@ -109,7 +104,10 @@ export function VisualConstitutionApprovalCard({
   };
 
   return (
-    <section className="overflow-hidden rounded-xl border border-violet-400/30 bg-violet-500/5">
+    <section
+      aria-labelledby="visual-constitution-approval-title"
+      className="overflow-hidden rounded-xl border border-violet-400/30 bg-violet-500/5"
+    >
       <div className="border-b border-violet-400/20 bg-violet-500/10 px-4 py-3">
         <div className="flex items-start gap-3">
           <div className="rounded-full bg-violet-400/15 p-2 text-violet-200">
@@ -119,7 +117,7 @@ export function VisualConstitutionApprovalCard({
             <div className="text-[10px] font-medium uppercase tracking-[0.2em] text-violet-200/80">
               {t('visualConstitutionApproval.eyebrow')}
             </div>
-            <h2 className="mt-1 text-base font-semibold">
+            <h2 id="visual-constitution-approval-title" className="mt-1 text-base font-semibold">
               {t('visualConstitutionApproval.title')}
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
@@ -154,10 +152,11 @@ export function VisualConstitutionApprovalCard({
               >
                 <input
                   type="radio"
-                  name={`visual-candidate-${auditionContext.run.id}`}
+                  name={`visual-candidate-${auditionContext.taskList.id}`}
                   value={candidate.id}
                   checked={selected}
                   onChange={() => setSelectedId(candidate.id)}
+                  aria-label={`${candidate.name} ${t('visualConstitutionApproval.preview')}`}
                   className="sr-only"
                 />
                 <div className="relative aspect-video overflow-hidden bg-black/30">
@@ -258,6 +257,33 @@ export function VisualConstitutionApprovalCard({
                       {t('visualConstitutionApproval.rubric')}: {grade.rubricVersion}
                     </div>
                   </details>
+
+                  <details className="rounded-lg border bg-black/10 px-2.5 py-2 text-[11px]">
+                    <summary className="cursor-pointer font-medium">
+                      {t('visualConstitutionApproval.providerPrompt')}
+                    </summary>
+                    <div className="mt-2 space-y-2">
+                      <div>
+                        <div className="text-muted-foreground">
+                          {t('visualConstitutionApproval.promptAssembly')}
+                        </div>
+                        <code className="mt-0.5 block break-all">{attempt.promptAssemblyId}</code>
+                      </div>
+                      <pre className="whitespace-pre-wrap break-words font-sans text-foreground/80">
+                        {attempt.prompt}
+                      </pre>
+                      {attempt.negativePrompt && (
+                        <div>
+                          <div className="text-muted-foreground">
+                            {t('visualConstitutionApproval.negativePrompt')}
+                          </div>
+                          <pre className="mt-0.5 whitespace-pre-wrap break-words font-sans text-foreground/80">
+                            {attempt.negativePrompt}
+                          </pre>
+                        </div>
+                      )}
+                    </div>
+                  </details>
                 </div>
               </label>
             );
@@ -342,27 +368,21 @@ export function VisualConstitutionApprovalCard({
         )}
 
         {selectionIsLocked && visualApproval && (
-          <>
-            <WorkflowRequestChangesForm
-              onRequestChanges={onRequestChanges}
-              onRequested={onRequested}
-            />
-            <button
-              type="button"
-              onClick={approve}
-              disabled={approving}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:cursor-wait disabled:opacity-60"
-            >
-              {approving ? (
-                <LoaderCircle className="h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-4 w-4" />
-              )}
-              {approving
-                ? t('visualConstitutionApproval.approving')
-                : t('visualConstitutionApproval.approve')}
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={approve}
+            disabled={approving}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground disabled:cursor-wait disabled:opacity-60"
+          >
+            {approving ? (
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4" />
+            )}
+            {approving
+              ? t('visualConstitutionApproval.approving')
+              : t('visualConstitutionApproval.approve')}
+          </button>
         )}
       </div>
     </section>

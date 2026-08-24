@@ -1,5 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, Layers, ListChecks, Plus, ShieldCheck } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useRef } from 'react';
+import { AlertTriangle, Layers, Plus, RotateCcw } from 'lucide-react';
 import { useDispatch, useSelector } from 'react-redux';
 import type { AppDispatch, RootState } from '../store/index.js';
 import {
@@ -9,7 +9,7 @@ import {
   setLoading,
 } from '../store/slices/canvas/canvas.js';
 import { selectAllCanvases, selectActiveCanvas } from '../store/slices/canvas/canvas-selectors.js';
-import { toggleCommander } from '../store/slices/commander.js';
+import { setCommanderOpen, toggleCommander } from '../store/slices/commander.js';
 import { setPresets, setPresetsLoading } from '../store/slices/presets.js';
 import { getAPI } from '../utils/api.js';
 import { t } from '../i18n.js';
@@ -21,8 +21,13 @@ import { RightToolbar } from '../components/layout/RightToolbar.js';
 import { addLog } from '../store/slices/logger.js';
 import { enqueueToast } from '../store/slices/toast.js';
 import { useClipboardWatcher } from '../hooks/useClipboardWatcher.js';
-import { setWorkflowSummaries } from '../store/slices/workflows.js';
-import { ExecutionPanel } from '../components/execution/ExecutionPanel.js';
+import { setTaskListSummaries } from '../store/slices/task-lists.js';
+import {
+  MAX_CANVAS_PANEL_WIDTH,
+  MIN_CANVAS_PANEL_WIDTH,
+  setPanelWidth,
+  setRightPanelWidth,
+} from '../store/slices/ui.js';
 
 const AddNodePanel = lazy(() =>
   import('../components/canvas/AddNodePanel.js').then((m) => ({ default: m.AddNodePanel })),
@@ -63,16 +68,6 @@ const LocationManagerPanel = lazy(() =>
     default: m.LocationManagerPanel,
   })),
 );
-const ExportRenderPanel = lazy(() =>
-  import('../components/canvas/ExportRenderPanel.js').then((m) => ({
-    default: m.ExportRenderPanel,
-  })),
-);
-const GenerationQueuePanel = lazy(() =>
-  import('../components/canvas/GenerationQueuePanel.js').then((m) => ({
-    default: m.GenerationQueuePanel,
-  })),
-);
 const HistoryPanel = lazy(() =>
   import('../components/canvas/HistoryPanel.js').then((m) => ({ default: m.HistoryPanel })),
 );
@@ -93,17 +88,16 @@ const ShotTemplateManagerPanel = lazy(() =>
   })),
 );
 
-const MIN_PANEL_WIDTH = 200;
-const MAX_PANEL_WIDTH = 500;
-
 function DragHandle({
   side,
   panelRef,
   widthRef,
+  onWidthChange,
 }: {
   side: 'left' | 'right';
   panelRef: React.RefObject<HTMLDivElement | null>;
   widthRef: React.MutableRefObject<number>;
+  onWidthChange: (width: number) => void;
 }) {
   const lastX = useRef(0);
 
@@ -128,7 +122,10 @@ function DragHandle({
         lastX.current = ev.clientX;
         const signed = side === 'left' ? delta : -delta;
         const base = pendingWidth ?? widthRef.current;
-        pendingWidth = Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, base + signed));
+        pendingWidth = Math.max(
+          MIN_CANVAS_PANEL_WIDTH,
+          Math.min(MAX_CANVAS_PANEL_WIDTH, base + signed),
+        );
         if (!rafId) rafId = requestAnimationFrame(flush);
       };
 
@@ -137,6 +134,7 @@ function DragHandle({
         document.removeEventListener('mouseup', onMouseUp);
         if (rafId) cancelAnimationFrame(rafId);
         flush();
+        onWidthChange(widthRef.current);
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
       };
@@ -146,7 +144,7 @@ function DragHandle({
       document.body.style.cursor = 'col-resize';
       document.body.style.userSelect = 'none';
     },
-    [panelRef, side, widthRef],
+    [onWidthChange, panelRef, side, widthRef],
   );
 
   return (
@@ -160,36 +158,48 @@ function DragHandle({
 export function CanvasPage() {
   const dispatch = useDispatch<AppDispatch>();
   useClipboardWatcher();
-  const leftWidthRef = useRef(380);
-  const rightWidthRef = useRef(380);
-  const leftPanelRef = useRef<HTMLDivElement>(null);
-  const rightPanelRef = useRef<HTMLDivElement>(null);
   const canvases = useSelector(selectAllCanvases);
   const activeCanvasId = useSelector((state: RootState) => state.canvas.activeCanvasId);
   const loading = useSelector((state: RootState) => state.canvas.loading);
   const activePanel = useSelector((state: RootState) => state.ui.activePanel);
   const rightPanel = useSelector((state: RootState) => state.ui.rightPanel);
+  const panelWidth = useSelector((state: RootState) => state.ui.panelWidth);
+  const rightPanelWidth = useSelector((state: RootState) => state.ui.rightPanelWidth);
   const commanderOpen = useSelector((state: RootState) => state.commander.open);
   const bootstrapped = useSelector((state: RootState) => state.settings.bootstrapped);
+  const initializationError = useSelector(
+    (state: RootState) => state.settings.initializationError,
+  );
+  const leftWidthRef = useRef(panelWidth);
+  const rightWidthRef = useRef(rightPanelWidth);
+  const leftPanelRef = useRef<HTMLDivElement>(null);
+  const rightPanelRef = useRef<HTMLDivElement>(null);
 
   const activeCanvas = useSelector(selectActiveCanvas) ?? null;
-  const [executionOpen, setExecutionOpen] = useState(false);
-  const activeCanvasWorkflowStats = useSelector((state: RootState) => {
-    if (!activeCanvasId) return { total: 0, awaitingApproval: 0 };
-    const workflows = state.workflows.allIds
-      .map((id) => state.workflows.summariesById[id])
+  const activeCanvasApprovalKey = useSelector((state: RootState) => {
+    if (!activeCanvasId) return '';
+    return state.taskLists.allIds
+      .map((id) => state.taskLists.summariesById[id])
       .filter(
-        (workflow): workflow is NonNullable<typeof workflow> =>
-          Boolean(workflow) &&
-          workflow.entityType === 'canvas' &&
-          workflow.entityId === activeCanvasId,
-      );
-    return {
-      total: workflows.length,
-      awaitingApproval: workflows.filter((workflow) => workflow.status === 'awaiting_approval')
-        .length,
-    };
+        (taskList): taskList is NonNullable<typeof taskList> =>
+          taskList?.entityType === 'canvas' &&
+          taskList.entityId === activeCanvasId &&
+          taskList.status === 'awaiting_approval',
+      )
+      .map((taskList) => `${activeCanvasId}:${taskList.id}:${taskList.updatedAt}`)
+      .join('|');
   });
+  const autoOpenedApprovalKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    leftWidthRef.current = panelWidth;
+    if (leftPanelRef.current) leftPanelRef.current.style.width = `${panelWidth}px`;
+  }, [panelWidth]);
+
+  useEffect(() => {
+    rightWidthRef.current = rightPanelWidth;
+    if (rightPanelRef.current) rightPanelRef.current.style.width = `${rightPanelWidth}px`;
+  }, [rightPanelWidth]);
 
   useEffect(() => {
     if (!bootstrapped) return;
@@ -264,21 +274,21 @@ export function CanvasPage() {
   useEffect(() => {
     if (!bootstrapped || !activeCanvasId) return;
     const api = getAPI();
-    if (!api?.workflow?.list) return;
+    if (!api?.taskLists?.list) return;
 
     let cancelled = false;
-    void api.workflow
+    void api.taskLists
       .list({ entityType: 'canvas' })
-      .then((workflows) => {
-        if (!cancelled) dispatch(setWorkflowSummaries(workflows));
+      .then((taskLists) => {
+        if (!cancelled) dispatch(setTaskListSummaries(taskLists));
       })
       .catch((error: unknown) => {
         if (!cancelled) {
           dispatch(
             addLog({
               level: 'error',
-              category: 'workflow',
-              message: t('toast.error.workflowLoadFailed'),
+              category: 'task-list',
+              message: t('toast.error.taskListLoadFailed'),
               detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
             }),
           );
@@ -291,12 +301,6 @@ export function CanvasPage() {
   }, [activeCanvasId, bootstrapped, dispatch]);
 
   useEffect(() => {
-    if (activeCanvasWorkflowStats.awaitingApproval > 0) {
-      setExecutionOpen(true);
-    }
-  }, [activeCanvasWorkflowStats.awaitingApproval]);
-
-  useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'j') {
         event.preventDefault();
@@ -307,6 +311,14 @@ export function CanvasPage() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [dispatch]);
+
+  useEffect(() => {
+    if (!activeCanvasApprovalKey || autoOpenedApprovalKeyRef.current === activeCanvasApprovalKey) {
+      return;
+    }
+    autoOpenedApprovalKeyRef.current = activeCanvasApprovalKey;
+    dispatch(setCommanderOpen(true));
+  }, [activeCanvasApprovalKey, dispatch]);
 
   useEffect(() => {
     const api = getAPI();
@@ -362,56 +374,26 @@ export function CanvasPage() {
     };
   }, [dispatch]);
 
-  useEffect(() => {
-    const api = getAPI();
-    if (!api?.canvasGeneration || !activeCanvasId) return;
-
-    const resolveNodeTitle = (nodeId: string) =>
-      activeCanvas?.nodes.find((node) => node.id === nodeId)?.title || nodeId;
-
-    const unsubComplete = api.canvasGeneration.onComplete((data) => {
-      if (data.canvasId !== activeCanvasId) return;
-      const nodeTitle = resolveNodeTitle(data.nodeId);
-      dispatch(
-        addLog({
-          level: 'info',
-          category: 'generation',
-          message: `Done: ${nodeTitle}`,
-        }),
-      );
-    });
-
-    const unsubFailed = api.canvasGeneration.onFailed((data) => {
-      if (data.canvasId !== activeCanvasId) return;
-      const nodeTitle = resolveNodeTitle(data.nodeId);
-      dispatch(
-        addLog({
-          level: 'error',
-          category: 'generation',
-          message: `Failed: ${nodeTitle}`,
-          detail: data.error,
-        }),
-      );
-    });
-
-    return () => {
-      unsubComplete();
-      unsubFailed();
-    };
-  }, [activeCanvas, activeCanvasId, dispatch]);
-
   const handleCreateCanvas = useCallback(async () => {
+    if (!bootstrapped) return;
     const nextName = `Canvas ${canvases.length + 1}`;
     const created = await getAPI()?.canvas.create(nextName);
     if (!created) return;
 
     dispatch(addCanvas(created));
     dispatch(setActiveCanvas(created.id));
-  }, [canvases.length, dispatch]);
+  }, [bootstrapped, canvases.length, dispatch]);
+
+  const handleRestart = useCallback(() => {
+    void getAPI()?.app.restart();
+  }, []);
 
   const renderActivePanel = () => {
     let Panel: React.ComponentType | null = null;
     switch (activePanel) {
+      case 'history':
+        Panel = HistoryPanel;
+        break;
       case 'add':
         Panel = AddNodePanel;
         break;
@@ -427,19 +409,22 @@ export function CanvasPage() {
       case 'locations':
         Panel = LocationManagerPanel;
         break;
-      case 'shotTemplates':
-        Panel = ShotTemplateManagerPanel;
-        break;
-      case 'presets':
-        Panel = PresetManagerPanel;
-        break;
       case 'canvases':
         Panel = CanvasNavigatorPanel;
         break;
     }
     return Panel ? (
       <ErrorBoundary name={activePanel ?? undefined}>
-        <Suspense fallback={null}>
+        <Suspense
+          fallback={
+            <div
+              role="status"
+              className="flex h-full items-center justify-center px-4 text-xs text-muted-foreground"
+            >
+              {t('panels.loadingPanel')}
+            </div>
+          }
+        >
           <Panel />
         </Suspense>
       </ErrorBoundary>
@@ -458,22 +443,28 @@ export function CanvasPage() {
       case 'dependencies':
         Panel = DependenciesPanel;
         break;
-      case 'queue':
-        Panel = GenerationQueuePanel;
-        break;
-      case 'history':
-        Panel = HistoryPanel;
-        break;
       case 'notes':
         Panel = CanvasNotesPanel;
         break;
-      case 'export':
-        Panel = ExportRenderPanel;
+      case 'shotTemplates':
+        Panel = ShotTemplateManagerPanel;
+        break;
+      case 'presets':
+        Panel = PresetManagerPanel;
         break;
     }
     return Panel ? (
       <ErrorBoundary name={rightPanel ?? undefined}>
-        <Suspense fallback={null}>
+        <Suspense
+          fallback={
+            <div
+              role="status"
+              className="flex h-full items-center justify-center px-4 text-xs text-muted-foreground"
+            >
+              {t('panels.loadingPanel')}
+            </div>
+          }
+        >
           <Panel />
         </Suspense>
       </ErrorBoundary>
@@ -484,8 +475,54 @@ export function CanvasPage() {
     <div className="flex h-full min-h-0 bg-background">
       <LeftToolbar />
 
+      {activePanel ? (
+        <>
+          <div
+            ref={leftPanelRef}
+            className="h-full shrink-0 overflow-hidden"
+            style={{ width: panelWidth }}
+          >
+            {renderActivePanel()}
+          </div>
+          <DragHandle
+            side="left"
+            panelRef={leftPanelRef}
+            widthRef={leftWidthRef}
+            onWidthChange={(width) => dispatch(setPanelWidth(width))}
+          />
+        </>
+      ) : null}
+
       <div className="min-w-0 flex-1">
-        {loading ? (
+        {!bootstrapped && initializationError ? (
+          <div
+            role="alert"
+            className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center"
+          >
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+              <AlertTriangle className="h-7 w-7" />
+            </div>
+            <div className="max-w-xl">
+              <div className="text-base font-medium text-foreground">
+                {t('startup.initializationFailed')}
+              </div>
+              <div className="mt-1 text-sm text-muted-foreground">
+                {t('startup.initializationFailedHint')}
+              </div>
+              <div className="mt-3 max-h-24 overflow-auto rounded-lg bg-muted/50 px-3 py-2 text-left text-xs text-muted-foreground [overflow-wrap:anywhere]">
+                {initializationError}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleRestart}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            >
+              <RotateCcw className="h-4 w-4" />
+              {t('startup.restart')}
+            </button>
+          </div>
+        ) : loading ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             {t('panels.loadingCanvases')}
           </div>
@@ -503,65 +540,30 @@ export function CanvasPage() {
             <button
               type="button"
               onClick={() => void handleCreateCanvas()}
-              className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm text-primary-foreground transition-opacity hover:opacity-90"
+              disabled={!bootstrapped}
+              className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-45"
             >
               <Plus className="h-4 w-4" />
-              {t('panels.createCanvas')}
+              {bootstrapped ? t('panels.createCanvas') : t('startup.initializing')}
             </button>
           </div>
         ) : (
           <ReactFlowProvider>
             <div className="flex h-full w-full">
-              {activePanel ? (
-                <>
-                  <div
-                    ref={leftPanelRef}
-                    className="h-full shrink-0 overflow-hidden"
-                    style={{ width: leftWidthRef.current }}
-                  >
-                    {renderActivePanel()}
-                  </div>
-                  <DragHandle side="left" panelRef={leftPanelRef} widthRef={leftWidthRef} />
-                </>
-              ) : null}
-
               <div className="relative h-full min-w-0 flex-1">
                 <ErrorBoundary name="Canvas">
                   <CanvasWorkspace />
                 </ErrorBoundary>
-                <div className="pointer-events-none absolute bottom-4 right-4 z-20 flex max-w-[calc(100%-2rem)] flex-col items-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setExecutionOpen((open) => !open)}
-                    aria-label={t('layout.executionPanel')}
-                    aria-expanded={executionOpen}
-                    className="pointer-events-auto inline-flex items-center gap-2 rounded-lg border border-border bg-card/95 px-3 py-2 text-xs font-medium shadow-lg backdrop-blur hover:bg-muted"
-                  >
-                    <ListChecks className="h-4 w-4 text-primary" />
-                    {t('layout.executionPanel')}
-                    {activeCanvasWorkflowStats.awaitingApproval > 0 && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-100">
-                        <ShieldCheck className="h-3 w-3" />
-                        {activeCanvasWorkflowStats.awaitingApproval}
-                      </span>
-                    )}
-                    {executionOpen ? (
-                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                    ) : (
-                      <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
-                    )}
-                  </button>
-                  {executionOpen && (
-                    <div className="pointer-events-auto h-[min(28rem,calc(100vh-11rem))] w-[min(24rem,calc(100vw-3rem))] overflow-hidden rounded-xl border border-border bg-card/95 shadow-2xl backdrop-blur">
-                      <ExecutionPanel entityId={activeCanvas.id} />
-                    </div>
-                  )}
-                </div>
               </div>
 
               {rightPanel !== null ? (
                 <>
-                  <DragHandle side="right" panelRef={rightPanelRef} widthRef={rightWidthRef} />
+                  <DragHandle
+                    side="right"
+                    panelRef={rightPanelRef}
+                    widthRef={rightWidthRef}
+                    onWidthChange={(width) => dispatch(setRightPanelWidth(width))}
+                  />
                   <div
                     ref={rightPanelRef}
                     className="h-full shrink-0 overflow-hidden"

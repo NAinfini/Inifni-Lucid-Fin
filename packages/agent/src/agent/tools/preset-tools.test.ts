@@ -44,7 +44,7 @@ describe('createPresetTools', () => {
     await expect(
       getTool('preset.manage', deps).execute({
         action: 'list',
-        category: 'camera',
+        categories: ['camera'],
         offset: 0,
         limit: 1,
       }),
@@ -96,10 +96,10 @@ describe('createPresetTools', () => {
       data: { presetId: 'preset-3' },
     });
     await expect(
-      getTool('preset.manage', deps).execute({ action: 'get', ids: 'preset-1' }),
+      getTool('preset.manage', deps).execute({ action: 'get', ids: ['preset-1'] }),
     ).resolves.toEqual({
       success: true,
-      data: preset,
+      data: [preset],
     });
   });
 
@@ -107,11 +107,11 @@ describe('createPresetTools', () => {
     const deps = createDeps();
 
     await expect(
-      getTool('preset.manage', deps).execute({ action: 'list', category: 'invalid' }),
+      getTool('preset.manage', deps).execute({ action: 'list', categories: ['invalid'] }),
     ).resolves.toEqual({
       success: false,
       error:
-        'category must be one of camera, lens, look, scene, composition, emotion, flow, technical, voice-style, music-genre, sfx-environment',
+        'categories must contain only camera, lens, look, scene, composition, emotion, flow, technical, voice-style, music-genre, sfx-environment',
     });
     await expect(
       getTool('preset.manage', deps).execute({ action: 'update', preset: [] }),
@@ -130,7 +130,7 @@ describe('createPresetTools', () => {
       error: 'scope must be one of all, prompt, or params',
     });
     await expect(
-      getTool('preset.manage', deps).execute({ action: 'get', ids: 'missing' }),
+      getTool('preset.manage', deps).execute({ action: 'get', ids: ['missing'] }),
     ).resolves.toEqual({
       success: false,
       error: 'Preset not found: missing',
@@ -193,15 +193,15 @@ describe('createPresetTools', () => {
       expect(result).toMatchObject({ success: true, data: { total: 3 } });
     });
 
-    it('backward compat: category string filters correctly', async () => {
+    it('rejects the create-only category field for list', async () => {
       const deps = createMultiDeps();
       const result = await getTool('preset.manage', deps).execute({
         action: 'list',
         category: 'lens',
       });
-      expect(result).toMatchObject({
-        success: true,
-        data: { total: 1, presets: [expect.objectContaining({ id: 'p-lens' })] },
+      expect(result).toEqual({
+        success: false,
+        error: 'list uses categories; category is only valid for create',
       });
     });
 
@@ -267,13 +267,13 @@ describe('createPresetTools', () => {
       };
     }
 
-    it('single string ID returns single preset (backward compat)', async () => {
+    it('rejects a non-array preset ID payload', async () => {
       const deps = createBatchDeps();
       const result = await getTool('preset.manage', deps).execute({
         action: 'get',
         ids: 'preset-1',
       });
-      expect(result).toEqual({ success: true, data: preset });
+      expect(result).toEqual({ success: false, error: 'ids must be an array of strings' });
     });
 
     it('array of IDs returns array of presets', async () => {

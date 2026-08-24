@@ -9,7 +9,12 @@ import type {
   Capability,
   ProviderProfile,
 } from '@lucid-fin/contracts';
-import { ErrorCategory, ErrorCode, LucidError } from '@lucid-fin/contracts';
+import {
+  ErrorCategory,
+  ErrorCode,
+  LucidError,
+  normalizeReasoningEffort,
+} from '@lucid-fin/contracts';
 import { adapterErrorToLucidError, parseAdapterError } from '../error-utils.js';
 import { fetchWithRetry as fetchWithTimeout } from '../fetch-utils.js';
 import { parseSseStream } from './sse-parser.js';
@@ -30,6 +35,8 @@ export interface OpenAICompatibleConfig {
   defaultModel: string;
   authStyle?: LLMProviderAuthStyle;
   capabilities?: Capability[];
+  supportsReasoningEffort?: boolean;
+  reasoningEffortsByModel?: Record<string, string[]>;
 }
 
 interface OpenAIRequestResult {
@@ -222,6 +229,9 @@ export class OpenAICompatibleLLM implements LLMAdapter {
   protected baseUrl: string;
   protected model: string;
   protected authStyle: LLMProviderAuthStyle;
+  private supportsReasoningEffort: boolean;
+  private reasoningEffortsByModel?: Record<string, string[]>;
+  private reasoningEffort?: string;
 
   constructor(private readonly cfg: OpenAICompatibleConfig) {
     this.id = cfg.id;
@@ -229,6 +239,8 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     this.baseUrl = normalizeOpenAICompatibleBaseUrl(cfg.defaultBaseUrl);
     this.model = cfg.defaultModel;
     this.authStyle = cfg.authStyle ?? 'bearer';
+    this.supportsReasoningEffort = cfg.supportsReasoningEffort ?? false;
+    this.reasoningEffortsByModel = cfg.reasoningEffortsByModel;
     const isReasoning = isReasoningModel(cfg.defaultModel);
     this.profile = {
       providerId: cfg.id,
@@ -254,6 +266,25 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       this.baseUrl = normalizeOpenAICompatibleBaseUrl(options.baseUrl as string);
     }
     if (options?.model) this.model = options.model as string;
+    if (typeof options?.supportsReasoningEffort === 'boolean') {
+      this.supportsReasoningEffort = options.supportsReasoningEffort;
+    }
+    if (options?.reasoningEffortsByModel) {
+      this.reasoningEffortsByModel = options.reasoningEffortsByModel as Record<string, string[]>;
+    }
+    const reasoningEffort = normalizeReasoningEffort(
+      typeof options?.reasoningEffort === 'string' ? options.reasoningEffort : undefined,
+    );
+    if (reasoningEffort && !this.supportsReasoningEffort) {
+      throw new Error(`${this.name} does not support reasoning effort.`);
+    }
+    const knownEfforts = this.reasoningEffortsByModel?.[this.model];
+    if (reasoningEffort && knownEfforts && !knownEfforts.includes(reasoningEffort)) {
+      throw new Error(
+        `${this.name} model "${this.model}" does not support reasoning effort "${reasoningEffort}".`,
+      );
+    }
+    this.reasoningEffort = reasoningEffort;
     if (typeof options?.contextWindow === 'number' && options.contextWindow > 0) {
       this.userContextWindow = options.contextWindow as number;
     }
@@ -726,6 +757,7 @@ export class OpenAICompatibleLLM implements LLMAdapter {
       }),
       stream: streaming,
     };
+    if (this.reasoningEffort) body.reasoning_effort = this.reasoningEffort;
     if (usesMaxCompletionTokens(this.model)) {
       body.max_completion_tokens = opts?.maxTokens ?? 4096;
     } else {

@@ -1,188 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  selectContextualToolSet,
-  ALWAYS_LOADED_TOOLS,
-  TIER_A_TOOLS,
-  type ToolSelectionInput,
+  ContextManager,
+  pruneHistory,
+  truncateOldToolResults,
 } from './context-manager.js';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeInput(overrides: Partial<ToolSelectionInput> = {}): ToolSelectionInput {
-  return {
-    nodeCount: 0,
-    entityCount: 0,
-    hasStylePlate: false,
-    hasSelectedNodes: false,
-    userMessage: '',
-    intentKind: 'execution',
-    ...overrides,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-describe('selectContextualToolSet', () => {
-  it('loads the full manual creative set when no persistent workflow is bound', () => {
-    const result = selectContextualToolSet(makeInput());
-    expect(result.has('canvas.generation')).toBe(true);
-    expect(result.has('entity.generateRefImage')).toBe(true);
-    expect(result.has('preset.manage')).toBe(true);
-    expect(result.has('provider.manage')).toBe(true);
-    expect(result.has('workflow.manage')).toBe(true);
-    expect(result.has('workflow.visual')).toBe(false);
-    expect(result.has('workflow.media')).toBe(false);
-  });
-
-  it('keeps the deprecated alias identical to the protected phase-core catalog', () => {
-    expect(ALWAYS_LOADED_TOOLS).toBe(TIER_A_TOOLS);
-  });
-
-  it('includes canvas read tools', () => {
-    const result = selectContextualToolSet(makeInput());
-    expect(result.has('canvas.getInfo')).toBe(true);
-    expect(result.has('canvas.listNodes')).toBe(true);
-    expect(result.has('canvas.getNode')).toBe(true);
-    expect(result.has('canvas.listEdges')).toBe(true);
-  });
-
-  it('includes canvas write tools', () => {
-    const result = selectContextualToolSet(makeInput());
-    expect(result.has('canvas.createNodes')).toBe(true);
-    expect(result.has('canvas.updateNodes')).toBe(true);
-    expect(result.has('canvas.deleteNode')).toBe(true);
-    expect(result.has('canvas.connectNodes')).toBe(true);
-    expect(result.has('canvas.manage')).toBe(true);
-    expect(result.has('canvas.setNodeRefs')).toBe(true);
-    expect(result.has('canvas.configureNode')).toBe(true);
-  });
-
-  it('includes canvas generation tools', () => {
-    const result = selectContextualToolSet(makeInput());
-    expect(result.has('canvas.generation')).toBe(true);
-    expect(result.has('canvas.setMediaParams')).toBe(true);
-    expect(result.has('provider.resolveResolution')).toBe(true);
-    expect(result.has('canvas.previewPrompt')).toBe(true);
-    expect(result.has('canvas.presetTracks')).toBe(true);
-  });
-
-  it('includes entity tools', () => {
-    const result = selectContextualToolSet(makeInput());
-    expect(result.has('entity.list')).toBe(true);
-    expect(result.has('entity.create')).toBe(true);
-    expect(result.has('entity.update')).toBe(true);
-    expect(result.has('entity.delete')).toBe(true);
-    expect(result.has('entity.generateRefImage')).toBe(true);
-  });
-
-  it('includes meta tools', () => {
-    const result = selectContextualToolSet(makeInput());
-    expect(result.has('tool.get')).toBe(true);
-    expect(result.has('commander.askUser')).toBe(true);
-    expect(result.has('guide.get')).toBe(true);
-  });
-
-  it('includes domain manage tools', () => {
-    const result = selectContextualToolSet(makeInput());
-    expect(result.has('preset.manage')).toBe(true);
-    expect(result.has('provider.manage')).toBe(true);
-    expect(result.has('workflow.manage')).toBe(true);
-    expect(result.has('workflow.visual')).toBe(false);
-  });
-
-  it('loads only inspection and workflow control while a production plan is pending', () => {
-    const result = selectContextualToolSet(makeInput({ workflowPhase: 'production_plan_pending' }));
-
-    expect(result.has('canvas.getInfo')).toBe(true);
-    expect(result.has('workflow.manage')).toBe(true);
-    expect(result.has('canvas.createNodes')).toBe(false);
-    expect(result.has('canvas.generation')).toBe(false);
-    expect(result.has('workflow.visual')).toBe(false);
-  });
-
-  it('loads the bounded audition tool only during style exploration', () => {
-    const result = selectContextualToolSet(makeInput({ workflowPhase: 'style_exploration' }));
-
-    expect(result.has('workflow.visual')).toBe(true);
-    expect(result.has('workflow.media')).toBe(false);
-    expect(result.has('canvas.generation')).toBe(false);
-  });
-
-  it.each(['preproduction', 'media_generation'] as const)(
-    'loads durable media and feedback tools during %s',
-    (workflowPhase) => {
-      const result = selectContextualToolSet(makeInput({ workflowPhase }));
-
-      expect(result.has('workflow.media')).toBe(true);
-      expect(result.has('workflow.mediaFeedback')).toBe(true);
-      expect(result.has('entity.setRefImageFromNode')).toBe(true);
-      expect(result.has('canvas.setMediaParams')).toBe(true);
-      expect(result.has('canvas.generation')).toBe(false);
-      expect(result.has('entity.generateRefImage')).toBe(false);
-    },
-  );
-
-  it('keeps incremental feedback available during assembly without reopening generation', () => {
-    const result = selectContextualToolSet(makeInput({ workflowPhase: 'assembly' }));
-
-    expect(result.has('workflow.mediaFeedback')).toBe(true);
-    expect(result.has('workflow.media')).toBe(false);
-    expect(result.has('canvas.generation')).toBe(false);
-  });
-
-  it('exposes final manifest preparation and rendering in their exact phases', () => {
-    const preparing = selectContextualToolSet(
-      makeInput({ workflowPhase: 'final_export_preparation' }),
-    );
-    const approved = selectContextualToolSet(makeInput({ workflowPhase: 'final_export_approved' }));
-
-    expect(preparing.has('workflow.finalExport')).toBe(true);
-    expect(preparing.has('render.start')).toBe(false);
-    expect(approved.has('workflow.finalExport')).toBe(false);
-    expect(approved.has('render.start')).toBe(true);
-    expect(approved.has('render.cancel')).toBe(true);
-  });
-
-  it('does NOT include discoverable-only tools', () => {
-    const result = selectContextualToolSet(makeInput());
-    expect(result.has('render.start')).toBe(false);
-    expect(result.has('render.cancel')).toBe(false);
-    expect(result.has('series.get')).toBe(false);
-    expect(result.has('job.list')).toBe(false);
-    expect(result.has('asset.import')).toBe(false);
-    expect(result.has('canvas.importWorkflow')).toBe(false);
-    expect(result.has('canvas.undo')).toBe(false);
-    expect(result.has('canvas.redo')).toBe(false);
-    expect(result.has('logger.list')).toBe(false);
-    expect(result.has('provider.setKey')).toBe(false);
-    // Downgraded from Tier A to discoverable:
-    expect(result.has('canvas.duplicateNodes')).toBe(false);
-    expect(result.has('canvas.setVideoFrames')).toBe(false);
-    expect(result.has('entity.deleteRefImage')).toBe(false);
-    expect(result.has('tool.compact')).toBe(false);
-    expect(result.has('todo.manage')).toBe(false);
-    expect(result.has('canvas.manageEdge')).toBe(false);
-    expect(result.has('canvas.layout')).toBe(false);
-    expect(result.has('canvas.setSettings')).toBe(false);
-    expect(result.has('canvas.selectVariant')).toBe(false);
-    expect(result.has('entity.setRefImage')).toBe(false);
-    expect(result.has('entity.setRefImageFromNode')).toBe(false);
-    expect(result.has('shotTemplate.manage')).toBe(false);
-    expect(result.has('script.manage')).toBe(false);
-    expect(result.has('text.analyze')).toBe(false);
-    expect(result.has('snapshot.create')).toBe(false);
-    expect(result.has('snapshot.list')).toBe(false);
-    expect(result.has('snapshot.restore')).toBe(false);
-    expect(result.has('prompt.get')).toBe(false);
-    expect(result.has('prompt.setCustom')).toBe(false);
-  });
-});
-
-import { ContextManager } from './context-manager.js';
 import type { LLMAdapter, LLMMessage } from '@lucid-fin/contracts';
 
 function makeMockLlm(response = '[done] summary'): LLMAdapter {
@@ -207,8 +28,95 @@ function makeMessagesForCompaction(count = 16, charsEach = 10000): LLMMessage[] 
   ];
 }
 
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const nested of Object.values(value as unknown as Record<string, unknown>)) {
+      deepFreeze(nested);
+    }
+    Object.freeze(value);
+  }
+  return value;
+}
+
+function makeToolMessagesForCompaction(): LLMMessage[] {
+  const messages: LLMMessage[] = [{ role: 'system', content: 'system prompt' }];
+  for (let group = 0; group < 10; group++) {
+    messages.push({
+      role: 'assistant',
+      content: `query ${group}`,
+      toolCalls: [
+        {
+          id: `query-${group}`,
+          name: 'canvas.listNodes',
+          arguments: { payload: 'x'.repeat(500) },
+        },
+      ],
+    });
+    messages.push({
+      role: 'tool',
+      content: 'x'.repeat(8_000),
+      toolCallId: `query-${group}`,
+    });
+  }
+  messages.push({ role: 'user', content: 'latest message' });
+  return messages;
+}
+
+describe('immutable compaction views', () => {
+  it('derives truncation without changing content or tool arguments in the source', () => {
+    const messages = makeToolMessagesForCompaction();
+    const before = structuredClone(messages);
+    const source: readonly LLMMessage[] = deepFreeze(messages);
+
+    const result = truncateOldToolResults(source);
+
+    expect(source).toEqual(before);
+    expect(result.truncated).toBeGreaterThan(0);
+    expect(result.view).not.toBe(source);
+    expect(result.view).not.toEqual(before);
+  });
+
+  it('returns a derived LLM summary view while leaving a frozen source unchanged', async () => {
+    const cm = new ContextManager(makeMockLlm(), () => 'system prompt');
+    const messages = makeMessagesForCompaction();
+    const before = structuredClone(messages);
+    const source: readonly LLMMessage[] = deepFreeze(messages);
+
+    const result = await cm.compactWithLLMResult(source, 20_000, 1);
+
+    expect(source).toEqual(before);
+    expect(result.changed).toBe(true);
+    expect(result.view.some((message) => message.content.includes('Context compacted'))).toBe(true);
+  });
+
+  it('returns the original-equivalent view after a low-yield Phase 1 attempt', () => {
+    const cm = new ContextManager(makeMockLlm(), () => 'system prompt');
+    const messages = makeMessagesForCompaction(2, 100);
+    const before = structuredClone(messages);
+    const source: readonly LLMMessage[] = deepFreeze(messages);
+
+    const result = cm.compactPhase1(source, 1);
+
+    expect(source).toEqual(before);
+    expect(result).toMatchObject({ changed: false, truncated: 0, attempted: true });
+    expect(result.view).toEqual(before);
+    expect(result.view).not.toBe(source);
+  });
+
+  it('returns an empty derived view when compactNow has no input', async () => {
+    const cm = new ContextManager(makeMockLlm(), () => 'system prompt');
+
+    await expect(cm.compactNow(null)).resolves.toEqual({
+      freedChars: 0,
+      messageCount: 0,
+      toolCount: 0,
+      view: [],
+    });
+  });
+});
+
 describe('ContextManager guide retention', () => {
-  it('retains only workflow-critical guides after the opening steps', () => {
+  it('retains only task-list-critical guides after the opening steps', () => {
     const manager = new ContextManager(makeMockLlm(), () => 'system prompt');
     const prompt = manager.buildSystemPrompt(
       {
@@ -217,9 +125,9 @@ describe('ContextManager guide retention', () => {
           autoInjectGuides: [
             { name: 'Turn Guide', content: 'turn-only-content', retention: 'turn' },
             {
-              name: 'Workflow Guide',
-              content: 'workflow-critical-content',
-              retention: 'workflow',
+              name: 'Task-list Guide',
+              content: 'task-list-critical-content',
+              retention: 'task_list',
             },
           ],
         },
@@ -227,8 +135,22 @@ describe('ContextManager guide retention', () => {
       6,
     );
 
-    expect(prompt).toContain('workflow-critical-content');
+    expect(prompt).toContain('task-list-critical-content');
     expect(prompt).not.toContain('turn-only-content');
+  });
+});
+
+describe('pruneHistory', () => {
+  it('keeps a large retained suffix in its original order', () => {
+    const history = Array.from({ length: 2_000 }, (_, index) => ({
+      role: index % 2 === 0 ? ('user' as const) : ('assistant' as const),
+      content: `message-${index}`,
+    }));
+
+    const result = pruneHistory(deepFreeze(history), 1_000_000);
+
+    expect(result).toEqual(history);
+    expect(result[0]).not.toBe(history[0]);
   });
 });
 
@@ -271,11 +193,11 @@ describe('compactWithLLM post-compact reload', () => {
     }
     messages.push({ role: 'user', content: 'latest message' });
 
-    const didCompact = await cm.compactWithLLM(messages, 40_000, 1);
+    const result = await cm.compactWithLLM(messages, 40_000, 1);
 
-    expect(didCompact).toBe(true);
+    expect(result.changed).toBe(true);
     expect(llm.complete).not.toHaveBeenCalled();
-    expect(messages.some((message) => message.content.includes('[Compacted block]'))).toBe(true);
+    expect(result.view.some((message) => message.content.includes('[Compacted block]'))).toBe(true);
   });
 
   it('reports no compaction when the LLM fails and rule-based pruning changed nothing', async () => {
@@ -283,12 +205,14 @@ describe('compactWithLLM post-compact reload', () => {
     vi.mocked(llm.complete).mockRejectedValueOnce(new Error('summary provider unavailable'));
     const cm = new ContextManager(llm, () => 'system prompt');
     const messages = makeMessagesForCompaction();
-    const before = messages.map((message) => message.content);
+    const before = structuredClone(messages);
+    const source: readonly LLMMessage[] = deepFreeze(messages);
 
-    const didCompact = await cm.compactWithLLM(messages, 20_000, 1);
+    const result = await cm.compactWithLLM(source, 20_000, 1);
 
-    expect(didCompact).toBe(false);
-    expect(messages.map((message) => message.content)).toEqual(before);
+    expect(result.changed).toBe(false);
+    expect(result.view).toEqual(before);
+    expect(source).toEqual(before);
   });
 
   it('does not auto-compact twice within two turns or thirty seconds', async () => {
@@ -300,9 +224,9 @@ describe('compactWithLLM post-compact reload', () => {
       const first = makeMessagesForCompaction();
       const second = makeMessagesForCompaction();
 
-      expect(await cm.compactWithLLM(first, 20_000, 3)).toBe(true);
+      expect((await cm.compactWithLLM(first, 20_000, 3)).changed).toBe(true);
       vi.setSystemTime(new Date('2026-08-01T00:00:31Z'));
-      expect(await cm.compactWithLLM(second, 20_000, 4)).toBe(false);
+      expect((await cm.compactWithLLM(second, 20_000, 4)).changed).toBe(false);
       expect(llm.complete).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
@@ -315,11 +239,11 @@ describe('compactWithLLM post-compact reload', () => {
     const messages = makeMessagesForCompaction();
     const charBudget = 20000;
 
-    const didCompact = await cm.compactWithLLM(messages, charBudget);
+    const result = await cm.compactWithLLM(messages, charBudget);
 
-    expect(didCompact).toBe(true);
+    expect(result.changed).toBe(true);
     expect(onPostCompact).toHaveBeenCalledOnce();
-    const compactedMsg = messages.find((m) => m.content.includes('Context compacted'));
+    const compactedMsg = result.view.find((m) => m.content.includes('Context compacted'));
     expect(compactedMsg).toBeDefined();
     expect(compactedMsg!.content).toContain('WORKSPACE CONTEXT RELOAD');
     expect(compactedMsg!.content).toContain('Canvas: "test" (5 nodes)');
@@ -329,9 +253,9 @@ describe('compactWithLLM post-compact reload', () => {
     const cm = new ContextManager(makeMockLlm(), () => 'system prompt');
     const messages = makeMessagesForCompaction();
 
-    await cm.compactWithLLM(messages, 20000);
+    const result = await cm.compactWithLLM(messages, 20000);
 
-    const compactedMsg = messages.find((m) => m.content.includes('Context compacted'));
+    const compactedMsg = result.view.find((m) => m.content.includes('Context compacted'));
     expect(compactedMsg).toBeDefined();
     expect(compactedMsg!.content).not.toContain('WORKSPACE CONTEXT RELOAD');
   });
@@ -341,10 +265,10 @@ describe('compactWithLLM post-compact reload', () => {
     const cm = new ContextManager(makeMockLlm(), () => 'system prompt', { onPostCompact });
     const messages = makeMessagesForCompaction();
 
-    await cm.compactWithLLM(messages, 20000);
+    const result = await cm.compactWithLLM(messages, 20000);
 
     expect(onPostCompact).toHaveBeenCalledOnce();
-    const compactedMsg = messages.find((m) => m.content.includes('Context compacted'));
+    const compactedMsg = result.view.find((m) => m.content.includes('Context compacted'));
     expect(compactedMsg).toBeDefined();
     expect(compactedMsg!.content).not.toContain('WORKSPACE CONTEXT RELOAD');
   });
@@ -354,25 +278,25 @@ describe('compactWithLLM post-compact reload', () => {
     const cm = new ContextManager(makeMockLlm(), () => 'system prompt', { onPostCompact });
     const messages = makeMessagesForCompaction();
 
-    await cm.compactWithLLM(messages, 20000);
+    const result = await cm.compactWithLLM(messages, 20000);
 
     expect(onPostCompact).toHaveBeenCalledOnce();
-    const compactedMsg = messages.find((m) => m.content.includes('Context compacted'));
+    const compactedMsg = result.view.find((m) => m.content.includes('Context compacted'));
     expect(compactedMsg).toBeDefined();
     expect(compactedMsg!.content).not.toContain('WORKSPACE CONTEXT RELOAD');
   });
 
-  it('still commits the summary when the reload callback throws', async () => {
+  it('fails compaction when the authoritative workspace reload throws', async () => {
     const onPostCompact = vi.fn(() => {
       throw new Error('workspace unavailable');
     });
     const cm = new ContextManager(makeMockLlm(), () => 'system prompt', { onPostCompact });
     const messages = makeMessagesForCompaction();
+    const before = structuredClone(messages);
+    const source: readonly LLMMessage[] = deepFreeze(messages);
 
-    const didCompact = await cm.compactWithLLM(messages, 20_000, 1);
-
-    expect(didCompact).toBe(true);
-    expect(messages.some((message) => message.content.includes('Context compacted'))).toBe(true);
+    await expect(cm.compactWithLLM(source, 20_000, 1)).rejects.toThrow('workspace unavailable');
+    expect(source).toEqual(before);
   });
 });
 
@@ -399,10 +323,13 @@ describe('compactNow post-compact reload (Phase 1 only)', () => {
     }
     messages.push({ role: 'user', content: 'latest' });
 
-    await cm.compactNow(messages);
+    const before = structuredClone(messages);
+    const source: readonly LLMMessage[] = deepFreeze(messages);
+    const result = await cm.compactNow(source);
 
     expect(onPostCompact).toHaveBeenCalled();
-    const reloadMsg = messages.find((m) => m.content.includes('Fresh state'));
+    expect(source).toEqual(before);
+    const reloadMsg = result.view.find((m) => m.content.includes('Fresh state'));
     expect(reloadMsg).toBeDefined();
     expect(reloadMsg!.content).toContain('WORKSPACE CONTEXT RELOAD');
   });
@@ -421,9 +348,9 @@ describe('compactNow post-compact reload (Phase 1 only)', () => {
       { role: 'user', content: 'latest' },
     ];
 
-    await cm.compactNow(messages);
+    const result = await cm.compactNow(messages);
 
-    const reloadMsg = messages.find((m) => m.content.includes('WORKSPACE CONTEXT RELOAD'));
+    const reloadMsg = result.view.find((m) => m.content.includes('WORKSPACE CONTEXT RELOAD'));
     expect(reloadMsg).toBeUndefined();
   });
 });

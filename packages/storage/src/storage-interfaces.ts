@@ -1,46 +1,43 @@
 import type { SessionRepository } from './repositories/session-repository.js';
-import type { CommanderEventRepository } from './repositories/commander-event-repository.js';
-import type { JobRepository } from './repositories/job-repository.js';
+import type { CommanderRunRepository } from './repositories/commander-run-repository.js';
 import type { AssetRepository } from './repositories/asset-repository.js';
 import type { CanvasRepository } from './repositories/canvas-repository.js';
 import type { CanvasNodeRepository } from './repositories/canvas-node-repository.js';
 import type { CanvasEdgeRepository } from './repositories/canvas-edge-repository.js';
 import type { EntityRepository } from './repositories/entity-repository.js';
 import type { FolderRepository } from './repositories/folder-repository.js';
-import type { SeriesRepository } from './repositories/series-repository.js';
 import type { PresetRepository } from './repositories/preset-repository.js';
 import type { ShotTemplateRepository } from './repositories/shot-template-repository.js';
 import type { SnapshotRepository } from './repositories/snapshot-repository.js';
-import type { WorkflowRepository } from './repositories/workflow-repository.js';
+import type { TaskListRepository } from './repositories/task-list-repository.js';
 import type { ScriptRepository } from './repositories/script-repository.js';
 import type { ColorStyleRepository } from './repositories/color-style-repository.js';
 import type { DependencyRepository } from './repositories/dependency-repository.js';
 import type { ProjectSettingsRepository } from './repositories/project-settings-repository.js';
+import type { PromptAssemblyRepository } from './repositories/prompt-assembly-repository.js';
 
 /**
- * Repository bundle exposed by `SqliteIndex.repos`. The strangler
- * migration (G1-4.x) finished with G1-4.10: every domain now lives
- * on its own repository; the flat `db.xxx()` facade is gone.
+ * Repository bundle exposed by `SqliteIndex.repos`. Every durable domain
+ * lives behind its own repository.
  */
 export interface RepoBundle {
   sessions: SessionRepository;
-  commanderEvents: CommanderEventRepository;
-  jobs: JobRepository;
+  commanderRuns: CommanderRunRepository;
   assets: AssetRepository;
   canvases: CanvasRepository;
   canvasNodes: CanvasNodeRepository;
   canvasEdges: CanvasEdgeRepository;
   entities: EntityRepository;
   folders: FolderRepository;
-  series: SeriesRepository;
   presets: PresetRepository;
   shotTemplates: ShotTemplateRepository;
   snapshots: SnapshotRepository;
-  workflows: WorkflowRepository;
+  taskLists: TaskListRepository;
   scripts: ScriptRepository;
   colorStyles: ColorStyleRepository;
   dependencies: DependencyRepository;
   projectSettings: ProjectSettingsRepository;
+  promptAssemblies: PromptAssemblyRepository;
 }
 
 /**

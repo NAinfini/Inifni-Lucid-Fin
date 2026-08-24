@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { Canvas } from '@lucid-fin/contracts';
 import type { AppDispatch } from '../store/index.js';
 import {
@@ -125,6 +125,11 @@ export function useCanvasKeyboard({
   focusedNodeId,
   setFocusedNodeId,
 }: CanvasKeyboardDeps): void {
+  const nodesById = useMemo(
+    () => new Map((canvas?.nodes ?? []).map((node) => [node.id, node])),
+    [canvas?.nodes],
+  );
+
   useEffect(() => {
     const isEditableTarget = (target: EventTarget | null) => {
       const element = target as HTMLElement | null;
@@ -182,7 +187,7 @@ export function useCanvasKeyboard({
               if (!canvas) return;
               const moves = selectedNodeIds
                 .map((id) => {
-                  const node = canvas.nodes.find((n) => n.id === id);
+                  const node = nodesById.get(id);
                   if (!node || node.locked) return null;
                   return { id, position: { x: node.position.x + dx, y: node.position.y + dy } };
                 })
@@ -301,6 +306,7 @@ export function useCanvasKeyboard({
     handlePaste,
     handleUndo,
     handleRedo,
+    nodesById,
     selectedEdgeIds,
     selectedNodeIds,
     setConnectingFromNodeId,

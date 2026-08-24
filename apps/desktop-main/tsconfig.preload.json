@@ -6,5 +6,5 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src/preload.cts"]
+  "include": ["src/preload.cts", "src/target/preload.generated.cts"]
 }

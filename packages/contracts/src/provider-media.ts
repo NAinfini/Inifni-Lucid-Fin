@@ -1,4 +1,4 @@
-import type { GenerationRequest } from './dto/job.js';
+import type { GenerationRequest } from './dto/generation.js';
 import { getBuiltinMediaProvider, listBuiltinMediaProviders } from './media-provider-catalog.js';
 
 export type BuiltinMediaProviderType = 'image' | 'video';

@@ -25,6 +25,10 @@ export interface Asset {
   provider?: string;
   /** Original generation prompt */
   prompt?: string;
+  /** Exact negative prompt submitted with the provider request. */
+  negativePrompt?: string;
+  /** Durable Prompt Assembly revision that authored the provider request. */
+  promptAssemblyId?: string;
   /** Folder membership (null = ungrouped / root). */
   folderId?: string | null;
   metadata?: Record<string, unknown>;
@@ -59,19 +63,12 @@ export const assetsSlice = createSlice({
   initialState,
   reducers: {
     setAssets(state, action: PayloadAction<Asset[]>) {
-      // Deduplicate by hash — keep first occurrence
-      const seen = new Set<string>();
-      state.items = action.payload.filter((a) => {
-        if (seen.has(a.hash)) return false;
-        seen.add(a.hash);
-        return true;
-      });
+      state.items = action.payload;
     },
 
     addAsset(state, action: PayloadAction<Asset>) {
-      const existing = state.items.find((a) => a.hash === action.payload.hash);
+      const existing = state.items.find((a) => a.id === action.payload.id);
       if (existing) {
-        // Merge: update name/tags if re-imported
         existing.name = action.payload.name;
         existing.tags = [...new Set([...existing.tags, ...action.payload.tags])];
         if (action.payload.metadata)
@@ -81,8 +78,17 @@ export const assetsSlice = createSlice({
       }
     },
 
+    addAssets(state, action: PayloadAction<Asset[]>) {
+      state.items.push(...action.payload);
+    },
+
     removeAsset(state, action: PayloadAction<string>) {
       state.items = state.items.filter((a) => a.id !== action.payload);
+    },
+
+    removeAssets(state, action: PayloadAction<string[]>) {
+      const ids = new Set(action.payload);
+      state.items = state.items.filter((asset) => !ids.has(asset.id));
     },
 
     updateAsset(
@@ -158,10 +164,15 @@ export const assetsSlice = createSlice({
     setFoldersLoading(state, action: PayloadAction<boolean>) {
       state.foldersLoading = action.payload;
     },
-    // Asset moves key on hash (assets have hash-based identity).
-    moveItemToFolder(state, action: PayloadAction<{ hash: string; folderId: string | null }>) {
-      const asset = state.items.find((a) => a.hash === action.payload.hash);
+    moveItemToFolder(state, action: PayloadAction<{ id: string; folderId: string | null }>) {
+      const asset = state.items.find((a) => a.id === action.payload.id);
       if (asset) asset.folderId = action.payload.folderId;
+    },
+    moveItemsToFolder(state, action: PayloadAction<{ ids: string[]; folderId: string | null }>) {
+      const ids = new Set(action.payload.ids);
+      for (const asset of state.items) {
+        if (ids.has(asset.id)) asset.folderId = action.payload.folderId;
+      }
     },
   },
 });
@@ -169,7 +180,9 @@ export const assetsSlice = createSlice({
 export const {
   setAssets,
   addAsset,
+  addAssets,
   removeAsset,
+  removeAssets,
   updateAsset,
   addTag,
   removeTag,
@@ -185,6 +198,7 @@ export const {
   setCurrentFolder,
   setFoldersLoading,
   moveItemToFolder,
+  moveItemsToFolder,
 } = assetsSlice.actions;
 
 /** Selector: filtered + sorted assets */

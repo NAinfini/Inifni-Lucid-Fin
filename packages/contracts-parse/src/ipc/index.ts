@@ -9,53 +9,33 @@
 import { healthChannels } from './channels/health.js';
 import { settingsChannels, scriptChannels } from './channels/batch-01.js';
 import { characterChannels, equipmentChannels } from './channels/batch-02.js';
-import {
-  locationChannels,
-  styleChannels,
-  entityChannels,
-  colorStyleChannels,
-} from './channels/batch-03.js';
-import { assetChannels, storageChannels } from './channels/batch-04.js';
-import { jobChannels } from './channels/batch-05.js';
-import { workflowChannels } from './channels/batch-06.js';
+import { locationChannels, styleChannels, colorStyleChannels } from './channels/batch-03.js';
+import { assetContentChannels, assetEntryChannels, storageChannels } from './channels/batch-04.js';
+import { taskListChannels } from './channels/batch-06.js';
 import { canvasChannels } from './channels/batch-07.js';
-import {
-  canvasGenerationChannels,
-  canvasGenerationPushChannels,
-  presetChannels,
-} from './channels/batch-08.js';
+import { presetChannels } from './channels/batch-08.js';
 import { commanderChannels, commanderPushChannels } from './channels/batch-09.js';
-import { seriesChannels } from './channels/batch-11.js';
 import { folderChannels, setFolderChannels, processPromptChannels } from './channels/batch-12.js';
 import { providerHealthChannels } from './channels/batch-13.js';
 import { providerOAuthChannels } from './channels/batch-14.js';
 import {
   appChannels,
-  aiChannels,
-  assetBatch10Channels,
-  assetPushChannels,
   clipboardChannels,
-  exportChannels,
   ffmpegChannels,
-  importChannels,
   keychainChannels,
-  lipsyncChannels,
   loggerChannels,
-  renderChannels,
+  deliveryPackageChannels,
+  reviewCutChannels,
   sessionChannels,
   shellChannels,
   snapshotChannels,
   updaterChannels,
-  videoChannels,
   visionChannels,
-  aiPushChannels,
   appPushChannels,
   clipboardPushChannels,
   loggerPushChannels,
-  refimagePushChannels,
   settingsPushChannels,
   updaterPushChannels,
-  videoPushChannels,
 } from './channels/batch-10.js';
 
 export { healthPingChannel, healthChannels } from './channels/health.js';
@@ -73,10 +53,7 @@ export * from './channels/batch-03.js';
 // Batch 4 — asset + storage
 export * from './channels/batch-04.js';
 
-// Batch 5 — job (first batch with push channels)
-export * from './channels/batch-05.js';
-
-// Batch 6 — workflow
+// Batch 6 — persistent task lists and human approval gates
 export * from './channels/batch-06.js';
 
 // Batch 7 — canvas core (non-generation)
@@ -89,12 +66,9 @@ export * from './channels/batch-08.js';
 export * from './channels/batch-09.js';
 
 // Batch 10 — tail (app/ai/asset/clipboard/export/ffmpeg/import/ipc/
-// keychain/lipsync/logger/render/session/shell/snapshot/updater/video/
-// vision + refimage + settings push)
+// keychain/logger/render/session/shell/snapshot/updater/video/
+// vision + settings push)
 export * from './channels/batch-10.js';
-
-// Batch 11 — series
-export * from './channels/batch-11.js';
 
 // Batch 12 — folder + setFolder + processPrompt
 export * from './channels/batch-12.js';
@@ -114,48 +88,34 @@ export const allChannels = [
   ...equipmentChannels,
   ...locationChannels,
   ...styleChannels,
-  ...entityChannels,
   ...colorStyleChannels,
-  ...assetChannels,
+  ...assetEntryChannels,
+  ...assetContentChannels,
   ...storageChannels,
-  ...jobChannels,
-  ...workflowChannels,
+  ...taskListChannels,
   ...canvasChannels,
-  ...canvasGenerationChannels,
-  ...canvasGenerationPushChannels,
   ...presetChannels,
   ...commanderChannels,
   ...commanderPushChannels,
   // Batch 10 — invoke
   ...appChannels,
-  ...aiChannels,
-  ...assetBatch10Channels,
   ...clipboardChannels,
-  ...exportChannels,
   ...ffmpegChannels,
-  ...importChannels,
   ...keychainChannels,
-  ...lipsyncChannels,
   ...loggerChannels,
-  ...renderChannels,
+  ...deliveryPackageChannels,
+  ...reviewCutChannels,
   ...sessionChannels,
   ...shellChannels,
   ...snapshotChannels,
   ...updaterChannels,
-  ...videoChannels,
   ...visionChannels,
   // Batch 10 — push
-  ...assetPushChannels,
-  ...aiPushChannels,
   ...appPushChannels,
   ...clipboardPushChannels,
   ...loggerPushChannels,
-  ...refimagePushChannels,
   ...settingsPushChannels,
   ...updaterPushChannels,
-  ...videoPushChannels,
-  // Batch 11 — series
-  ...seriesChannels,
   // Batch 12 — folder + setFolder + processPrompt
   ...folderChannels,
   ...setFolderChannels,

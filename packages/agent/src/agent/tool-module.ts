@@ -1,4 +1,4 @@
-import type { AgentTool, AgentToolRegistry } from './tool-registry.js';
+import type { ToolDefinition, ToolRegistry } from './tool-registry.js';
 
 /**
  * A self-contained tool module that declares its own dependencies
@@ -11,7 +11,7 @@ export interface ToolModule<TDeps = unknown> {
   /** Unique module name for identification and debugging */
   readonly name: string;
   /** Factory: given deps, returns the tool definitions */
-  createTools(deps: TDeps): AgentTool[];
+  createTools(deps: TDeps): ToolDefinition[];
 }
 
 /**
@@ -19,7 +19,7 @@ export interface ToolModule<TDeps = unknown> {
  * Usage:
  *   export const jobToolModule = defineToolModule({
  *     name: 'job',
- *     createTools(deps: JobToolDeps): AgentTool[] { ... }
+ *     createTools(deps: JobToolDeps): ToolDefinition[] { ... }
  *   });
  */
 export function defineToolModule<TDeps>(module: ToolModule<TDeps>): ToolModule<TDeps> {
@@ -30,7 +30,7 @@ export function defineToolModule<TDeps>(module: ToolModule<TDeps>): ToolModule<T
  * Register a single tool module: create its tools and add them to the registry.
  */
 export function registerToolModule<TDeps>(
-  registry: AgentToolRegistry,
+  registry: ToolRegistry,
   module: ToolModule<TDeps>,
   deps: TDeps,
 ): void {

@@ -19,7 +19,7 @@ gateways are recorded below rather than represented by adapters that cannot sati
 | -------------------- | -------------------------------- | ------------------- | ---------------------------------------------------------------- |
 | ChatGPT              | Managed `$imagegen`              | `codex-imagegen`    | Capability-scoped OAuth and ChatGPT plan quota; no API key       |
 | OpenAI               | `gpt-image-2`                    | `openai-dalle`      | Generation plus ordered image edits                              |
-| Google               | `gemini-3.1-flash-image`         | `google-imagen3`    | API-key and separate OAuth entries; Imagen is being retired      |
+| Google               | `gemini-3.1-flash-image`         | `google-imagen3`    | API key; Imagen is being retired                                 |
 | Recraft              | `recraftv4_1`                    | `recraft-v4`        | Official REST API                                                |
 | Ideogram             | `ideogram-v3`                    | `ideogram`          | Official REST API                                                |
 | Leonardo AI          | Lucid Origin                     | `leonardo-v2`       | Bounded polling returns the final image URL                      |
@@ -37,7 +37,7 @@ gateways are recorded below rather than represented by adapters that cannot sati
 
 | Provider             | Default model / API         | Runtime adapter     | Notes                                                                                                       |
 | -------------------- | --------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Google               | `gemini-omni-flash-preview` | `google-veo-2`      | API-key and separate OAuth entries; 3–10 s, 720p, native audio                                              |
+| Google               | `gemini-omni-flash-preview` | `google-veo-2`      | API key; 3–10 s, 720p, native audio                                                                         |
 | Runway               | `gen4.5`                    | `runway-gen4`       | Submit/status/result with bounded polling                                                                   |
 | LTX                  | `ltx-2-3-pro`               | `ltx`               | Official V2 async text/image video, first/last frames, generated audio                                      |
 | Luma                 | `ray-2`                     | `luma-ray2`         | Submit/status/`assets.video` with bounded polling                                                           |
@@ -56,10 +56,9 @@ The direct adapter uses H3 by default and preserves the legacy Hailuo 2.3/2.3 Fa
 existing projects. The fal transport also defaults to `minimax/h3/text-to-video` and routes H3 text,
 first/last-frame, and reference requests to their distinct queue endpoints.
 
-ChatGPT image, Gemini image, and Gemini video OAuth credentials are independent capability slots.
-The Settings cards expose browser login/logout and provider usage when available; Gemini links to its
-Cloud quota dashboard because the OAuth scope does not expose a reliable remaining-quota value. No
-OAuth route silently falls back to an API-key or different paid provider.
+ChatGPT image OAuth has its own capability slot. Its Settings card exposes browser login/logout and
+provider usage when available. Gemini image and video generation use API keys. No OAuth route
+silently falls back to an API-key or different paid provider.
 
 ## Model hubs
 
@@ -105,7 +104,6 @@ remote host.
 - [LTX text-to-video](https://docs.ltx.io/api-documentation/api-reference/async-video-generation/submit-text-to-video) and [image-to-video](https://docs.ltx.io/api-documentation/api-reference/async-video-generation/submit-image-to-video)
 - [Google Gemini image generation](https://ai.google.dev/gemini-api/docs/image-generation)
 - [Google Gemini Omni Flash video](https://ai.google.dev/gemini-api/docs/omni)
-- [Google Gemini OAuth](https://ai.google.dev/gemini-api/docs/oauth)
 - [OpenAI GPT Image 2](https://developers.openai.com/api/docs/models/gpt-image-2)
 - [xAI Images API](https://docs.x.ai/developers/rest-api-reference/inference/images) and [Videos API](https://docs.x.ai/developers/rest-api-reference/inference/videos)
 - [fal queue API](https://fal.ai/docs/documentation/model-apis/inference/queue)

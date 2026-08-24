@@ -14,11 +14,15 @@ export interface UndoCommand {
 const TRACKED_PREFIXES = [
   'characters/',
   'equipment/',
-  'storyboard/',
   'audio/',
   'canvas/',
   'presets/',
 ];
+const UNTRACKED_CANVAS_ACTIONS = new Set([
+  // This is an acknowledgement from the CAS persistence controller, not a
+  // user edit. Recording it would make undo replay a stale persisted revision.
+  'canvas/synchronizeDeliverySequenceRevision',
+]);
 const DEFAULT_MAX_STACK = 100;
 /** Maximum total undo stack memory before oldest entries are evicted (10 MB) */
 const MAX_UNDO_MEMORY = 10 * 1024 * 1024;
@@ -47,16 +51,12 @@ let undoStackBytes = 0;
 let isReplaying = false;
 
 function shouldTrack(type: string): boolean {
-  return TRACKED_PREFIXES.some((p) => type.startsWith(p));
+  return !UNTRACKED_CANVAS_ACTIONS.has(type) && TRACKED_PREFIXES.some((p) => type.startsWith(p));
 }
 
 function actionLabel(type: string): string {
   const parts = type.split('/');
   const labels: Record<string, string> = {
-    addKeyframe: 'undo.action.addKeyframe',
-    updateKeyframe: 'undo.action.updateKeyframe',
-    removeKeyframe: 'undo.action.removeKeyframe',
-    reorderKeyframes: 'undo.action.reorderKeyframes',
     addSegment: 'undo.action.addSegment',
     updateSegment: 'undo.action.updateSegment',
     removeSegment: 'undo.action.removeSegment',

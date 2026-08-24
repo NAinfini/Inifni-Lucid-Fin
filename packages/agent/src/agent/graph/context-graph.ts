@@ -57,11 +57,17 @@ function entityRefKey(ref: EntityRef): string {
   return `${ref.entityType}:${ref.entityId}`;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export class ContextGraph {
   /** Canonical storage: itemId → item. */
   private readonly _map = new Map<ContextItemId, ContextItem>();
   /** Insertion-ordered IDs (for serialize and history-order traversal). */
-  private readonly _order: ContextItemId[] = [];
+  private _order: Array<ContextItemId | undefined> = [];
+  private readonly _orderIndex = new Map<ContextItemId, number>();
+  private _deletedOrderSlots = 0;
   /**
    * Dedup index for tool-result items: `toolKey|paramsHash` → itemId.
    * Only the NEWEST item per identity is tracked; superseded items are removed.
@@ -98,8 +104,10 @@ export class ContextGraph {
     predicate: (i: Extract<ContextItem, { kind: K }>) => boolean,
   ): Extract<ContextItem, { kind: K }> | undefined {
     for (let i = this._order.length - 1; i >= 0; i--) {
-      const id = this._order[i]!;
-      const item = this._map.get(id)!;
+      const id = this._order[i];
+      if (!id) continue;
+      const item = this._map.get(id);
+      if (!item) continue;
       if (item.kind !== kind) continue;
       if (predicate(item as Extract<ContextItem, { kind: K }>)) {
         return item as Extract<ContextItem, { kind: K }>;
@@ -117,12 +125,12 @@ export class ContextGraph {
     const refKey = entityRefKey(ref);
     const dropped: ContextItemId[] = [];
 
-    for (const id of [...this._order]) {
+    for (const id of this._order) {
+      if (!id) continue;
       const item = this._map.get(id);
       if (!item) continue;
 
       if (item.kind === 'entity-snapshot' && entityRefKey(item.entityRef) === refKey) {
-        this._mapDelete(id);
         dropped.push(id);
         continue;
       }
@@ -132,7 +140,6 @@ export class ContextGraph {
         item.entityRef &&
         entityRefKey(item.entityRef) === refKey
       ) {
-        this._mapDelete(id);
         // Also clean up the dedup index
         const dedupKey = this._toolResultDedupKey(item);
         const indexedId = this._toolResultIndex.get(dedupKey);
@@ -142,6 +149,8 @@ export class ContextGraph {
         dropped.push(id);
       }
     }
+
+    this._mapDeleteMany(dropped);
 
     return dropped;
   }
@@ -162,6 +171,7 @@ export class ContextGraph {
    * a session-summary item after the LLM call.
    */
   applyCompactionResult(result: CompactionResult): void {
+    const dropped: ContextItemId[] = [];
     for (const id of result.dropped) {
       const item = this._map.get(id);
       if (!item) continue;
@@ -171,15 +181,18 @@ export class ContextGraph {
           this._toolResultIndex.delete(dedupKey);
         }
       }
-      this._mapDelete(id);
+      dropped.push(id);
     }
+    this._mapDeleteMany(dropped);
   }
 
   size(): { items: number; chars: number; tokens: number } {
     const CHARS_PER_TOKEN = 4;
     let chars = 0;
     for (const id of this._order) {
-      const item = this._map.get(id)!;
+      if (!id) continue;
+      const item = this._map.get(id);
+      if (!item) continue;
       chars += estimateItemChars(item);
     }
     return {
@@ -244,16 +257,16 @@ export class ContextGraph {
    * unreliable.
    */
   clearToolResults(): void {
-    for (const id of [...this._toolResultIndex.values()]) {
-      this._mapDelete(id);
-    }
     this._toolResultIndex.clear();
     // Also drop any tool-results that weren't dedup-tracked (mutations/logs
     // held in _map but not in the index).
-    for (const id of [...this._order]) {
+    const dropped: ContextItemId[] = [];
+    for (const id of this._order) {
+      if (!id) continue;
       const item = this._map.get(id);
-      if (item?.kind === 'tool-result') this._mapDelete(id);
+      if (item?.kind === 'tool-result') dropped.push(id);
     }
+    this._mapDeleteMany(dropped);
   }
 
   /**
@@ -267,32 +280,67 @@ export class ContextGraph {
    * without requiring the caller to know about graph internals.
    */
   invalidateForMutation(toolName: string, args: Record<string, unknown> = {}): ContextItemId[] {
-    const domain = this._domainFromToolName(toolName);
-    if (!domain) return [];
-    const entityId = this._extractEntityIdFromArgs(args);
+    return this.invalidateForMutations([{ toolName, args }]);
+  }
+
+  invalidateForMutations(
+    mutations: ReadonlyArray<{ toolName: string; args: Record<string, unknown> }>,
+  ): ContextItemId[] {
+    const invalidations = new Map<
+      string,
+      { invalidateAll: boolean; entityIds: Set<string>; entityMatcher?: RegExp }
+    >();
+    for (const mutation of mutations) {
+      const domain = this._domainFromToolName(mutation.toolName);
+      if (!domain) continue;
+      const existing = invalidations.get(domain) ?? {
+        invalidateAll: false,
+        entityIds: new Set<string>(),
+      };
+      const entityId = this._extractEntityIdFromArgs(mutation.args);
+      if (entityId) existing.entityIds.add(entityId);
+      else existing.invalidateAll = true;
+      invalidations.set(domain, existing);
+    }
+
+    if (invalidations.size === 0) return [];
+    for (const invalidation of invalidations.values()) {
+      if (invalidation.entityIds.size > 0) {
+        invalidation.entityMatcher = new RegExp(
+          [...invalidation.entityIds].map(escapeRegExp).join('|'),
+        );
+      }
+    }
     const dropped: ContextItemId[] = [];
 
-    for (const id of [...this._order]) {
+    for (const id of this._order) {
+      if (!id) continue;
       const item = this._map.get(id);
       if (!item || item.kind !== 'tool-result') continue;
 
       const toolKey = String(item.toolKey);
       const itemDomain = this._domainFromToolName(toolKey);
-      if (itemDomain !== domain) continue;
+      if (!itemDomain) continue;
+      const invalidation = invalidations.get(itemDomain);
+      if (!invalidation) continue;
 
       const category = getToolCompactionCategory(toolKey);
       if (category !== 'get' && category !== 'list') continue;
 
-      // Without an entity id we can't narrow — blast the domain.
-      if (!entityId || category === 'list' || item.paramsHash.includes(entityId)) {
-        const dedupKey = this._toolResultDedupKey(item);
-        if (this._toolResultIndex.get(dedupKey) === id) {
-          this._toolResultIndex.delete(dedupKey);
-        }
-        this._mapDelete(id);
-        dropped.push(id);
+      if (
+        !invalidation.invalidateAll &&
+        category !== 'list' &&
+        (!invalidation.entityMatcher || !invalidation.entityMatcher.test(item.paramsHash))
+      ) {
+        continue;
       }
+      const dedupKey = this._toolResultDedupKey(item);
+      if (this._toolResultIndex.get(dedupKey) === id) {
+        this._toolResultIndex.delete(dedupKey);
+      }
+      dropped.push(id);
     }
+    this._mapDeleteMany(dropped);
     return dropped;
   }
 
@@ -328,6 +376,7 @@ export class ContextGraph {
     }
     const rows: EntityRow[] = [];
     for (const id of this._order) {
+      if (!id) continue;
       const item = this._map.get(id);
       if (!item || item.kind !== 'tool-result') continue;
 
@@ -410,6 +459,7 @@ export class ContextGraph {
   serialize(): ContextItem[] {
     const result: ContextItem[] = [];
     for (const id of this._order) {
+      if (!id) continue;
       const item = this._map.get(id);
       if (item) result.push(item);
     }
@@ -488,15 +538,39 @@ export class ContextGraph {
 
   private _mapSet(item: ContextItem): void {
     if (!this._map.has(item.itemId)) {
+      this._orderIndex.set(item.itemId, this._order.length);
       this._order.push(item.itemId);
     }
     this._map.set(item.itemId, item);
   }
 
   private _mapDelete(id: ContextItemId): void {
-    this._map.delete(id);
-    const idx = this._order.indexOf(id);
-    if (idx !== -1) this._order.splice(idx, 1);
+    this._mapDeleteMany([id]);
+  }
+
+  private _mapDeleteMany(ids: readonly ContextItemId[]): void {
+    for (const id of ids) {
+      if (!this._map.delete(id)) continue;
+      const index = this._orderIndex.get(id);
+      if (index === undefined || this._order[index] === undefined) continue;
+      this._order[index] = undefined;
+      this._orderIndex.delete(id);
+      this._deletedOrderSlots += 1;
+    }
+    this._compactOrderIfNeeded();
+  }
+
+  private _compactOrderIfNeeded(): void {
+    if (this._deletedOrderSlots === 0 || this._deletedOrderSlots * 2 < this._order.length) return;
+    const compacted: ContextItemId[] = [];
+    this._orderIndex.clear();
+    for (const id of this._order) {
+      if (!id) continue;
+      this._orderIndex.set(id, compacted.length);
+      compacted.push(id);
+    }
+    this._order = compacted;
+    this._deletedOrderSlots = 0;
   }
 
   private _domainFromToolName(toolName: string): string | undefined {
@@ -535,7 +609,8 @@ export class ContextGraph {
       },
       next(): IteratorResult<ContextItem> {
         while (i < order.length) {
-          const id = order[i++]!;
+          const id = order[i++];
+          if (!id) continue;
           const item = map.get(id);
           if (item) return { value: item, done: false };
         }

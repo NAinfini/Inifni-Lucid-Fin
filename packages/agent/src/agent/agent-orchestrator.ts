@@ -8,47 +8,55 @@ import type {
   TimelineExitDecisionMeta,
   ContextRecoveryReport,
   ContextRecoveryReportResult,
+  RunBlocker,
+  RunResourceBudget,
+  RunResourceUsage,
+  LLMCostUpperBound,
+  CommanderWorkType,
 } from '@lucid-fin/contracts';
 import { LucidError, DEFAULT_PROVIDER_PROFILE, parseCanonicalToolName } from '@lucid-fin/contracts';
 import { providerHealth } from '@lucid-fin/adapters-ai';
-import type { AgentToolRegistry } from './tool-registry.js';
+import type { ToolRegistry, ToolResult } from './tool-registry.js';
 import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
 import {
   type AgentContext,
   type HistoryEntry,
-  type ToolSelectionInput,
   ContextManager,
   pruneHistory,
   measureMessageChars,
-  compactNamedToolDefinitions,
-  adaptiveToolCompaction,
   safeStringify,
-  selectContextualToolSet,
 } from './context-manager.js';
 import {
   ToolExecutor,
-  type WorkflowAskUserPersistenceRequest,
-  type WorkflowAskUserPersistenceResult,
+  type TaskDecisionPersistenceRequest,
+  type TaskDecisionPersistenceResult,
+  type ToolProgramChildLifecycleFactory,
 } from './tool-executor.js';
-import { ToolCallDeduplicator } from './tool-call-deduplicator.js';
-import { detectOptionListMarkdown } from './detect-option-list-markdown.js';
+import type { SubagentToolHostFactory } from './subagent-tools.js';
+import {
+  ToolCallDeduplicator,
+  type ToolCallDedupSeed,
+} from './tool-call-deduplicator.js';
 import { TranscriptIndex } from './transcript-index.js';
-import { detectProcess, type ProcessCategory } from './process-detection.js';
 import { ContextGraph } from './graph/context-graph.js';
 import { serializeForOpenAI } from './graph/serializers/openai.js';
 import { freshContextItemId } from '@lucid-fin/contracts-parse';
 import type { ContextItem, ToolKey } from '@lucid-fin/contracts';
-import { type StampedStreamEvent, type StreamEmit, makeStampedEmit } from './stream-emit.js';
+import {
+  type StampedStreamEmission,
+  type StampedStreamEvent,
+  type StampedStreamSink,
+  type StreamEmit,
+  type StreamEventBody,
+  type StreamRecoveryBody,
+  makeStampedEmit,
+} from './stream-emit.js';
 import { freshRunId } from './agent-run-id.js';
-import type { TodoRunStore } from './tools/todo-run-store.js';
 import {
   EvidenceLedger,
-  classifyIntent,
   decide,
   contractRegistry,
   type ExitDecision,
-  type QualityGateBehavior,
-  type ProcessPromptSpec,
   type RunIntent,
 } from './exit-contract/index.js';
 import { type Scratchpad, createEmptyScratchpad, serializeScratchpad } from './run-context.js';
@@ -58,79 +66,97 @@ import {
   destructResponse,
   extractEntityIdFromArgs,
 } from './orchestrator-utils.js';
-import { getWorkflowToolDenial, type WorkflowToolPolicy } from './workflow-tool-policy.js';
+import type { TaskListToolPolicy } from './task-list-tool-policy.js';
+import {
+  RunResourceBudgetController,
+  type ResourceMeasurement,
+  type ResourceQuote,
+  type ResourceStateSnapshot,
+} from './run-resource-budget.js';
+import type { CanonicalJsonValue } from './event-context-projector.js';
 
 // Re-export types so consumers don't break
 export type { AgentContext, HistoryEntry };
-export type { StampedStreamEvent, StreamEmit };
+export type { StampedStreamEmission, StampedStreamEvent, StampedStreamSink, StreamEmit };
 
 // v2 wire: stream events are TimelineEvents. Re-export for main-process
 // handlers that plug directly into the orchestrator's emit surface.
 export type AgentStreamEvent = StampedStreamEvent;
 
-function isTransientToolAvailabilityFailure(content: string): boolean {
-  return content.includes('exists but is not loaded') && content.includes('Call tool.get');
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export interface AgentOptions {
-  maxSteps?: number;
+  /** Frozen, per-run user limits. Missing dimensions are unlimited. */
+  resourceBudget?: RunResourceBudget;
+  /** Durable cumulative usage inherited by an explicit continuation Run. */
+  resourceCarryIn?: RunResourceUsage;
+  /** Injectable monotonic-compatible clock used by deterministic budget tests. */
+  resourceNow?: () => number;
   temperature?: number;
   /** Maximum output tokens sent to the provider. This is not the context window. */
   maxOutputTokens?: number;
   /** Optional user cap for the model input context window. */
   contextWindowTokens?: number;
   profile?: ProviderProfile;
-  /**
-   * Optional canvas node-type lookup used to dispatch `canvas.generation`
-   * process-prompt injection by the real node type on the canvas, rather
-   * than trusting the LLM's optional `nodeType` argument. When the LLM
-   * omits `nodeType` and this resolver returns 'video' or 'audio', the
-   * correct process category is primed instead of defaulting to
-   * image-node-generation. Return `null` if the node cannot be resolved;
-   * detection falls back to the LLM-provided arg.
-   */
-  resolveCanvasNodeType?: (canvasId: string, nodeId: string) => 'image' | 'video' | 'audio' | null;
-  /**
-   * Optional Canvas style lookup used by the legacy-named
-   * `style-plate-lock` pre-flight. The canonical structured policy counts as
-   * present even when it has no summary; `stylePlate` remains a compatibility
-   * mirror. Side-effect free and synchronous.
-   */
-  resolveCanvasSettings?: (
-    canvasId: string,
-  ) => { hasVisualStylePolicy?: boolean; stylePlate?: string | null } | null;
-  qualityGateBehavior?: QualityGateBehavior;
-  requireStylePlateBeforeRefImage?: boolean;
-  todoStore?: TodoRunStore;
   /** Called after LLM-based context compaction. Returns fresh workspace context
    *  to inject into the compacted message. Wired by commander.handlers.ts. */
   onPostCompact?: () => string | null;
-  /** Persist and verify durable workflow facts before LLM compaction. */
+  /** Persist and verify durable task-list facts before LLM compaction. */
   onBeforeCompact?: () => boolean;
-  /** Rebuild host-owned workflow facts and tool authorization from SQLite. */
+  /** Rebuild host-owned task-list facts and tool authorization from SQLite. */
   resolvePersistentContext?: () => AgentPersistentContextProjection;
-  /** Persist workflow-bound AskUser questions before exposing them to the UI. */
-  onWorkflowAskUser?: (
-    request: WorkflowAskUserPersistenceRequest,
-  ) => Promise<WorkflowAskUserPersistenceResult> | WorkflowAskUserPersistenceResult;
-  /** Persist context recovery health on the bound workflow aggregate. */
+  /** Persist task-list-bound AskUser questions before exposing them to the UI. */
+  onTaskDecision?: (
+    request: TaskDecisionPersistenceRequest,
+  ) => Promise<TaskDecisionPersistenceResult> | TaskDecisionPersistenceResult;
+  /** Persist context recovery health on the bound task-list aggregate. */
   onContextRecoveryReport?: (
     report: ContextRecoveryReport,
   ) => Promise<ContextRecoveryReportResult> | ContextRecoveryReportResult;
+  /** Host-owned durable child Run lifecycle for typed Tool Programs. */
+  toolProgramLifecycleFactory?: ToolProgramChildLifecycleFactory;
+  /** Host-owned model-directed child Run boundary. */
+  subagentToolHostFactory?: SubagentToolHostFactory;
 }
 
 export interface AgentPersistentContextProjection {
-  workflowManifest?: string;
-  workflowToolPolicy?: WorkflowToolPolicy;
+  taskListManifest?: string;
+  taskListToolPolicy?: TaskListToolPolicy;
 }
 
 export interface AgentExecutionOptions {
+  /** Host-reserved identity for this run. Required when the host ACKs before execution. */
+  runId?: string;
+  /** Next event sequence after any host-persisted prefix events. */
+  initialSeq?: number;
+  /** Disable when the host already persisted and emitted the run_start event. */
+  emitRunStart?: boolean;
+  /** Disable when the host atomically persisted the initialized resource snapshot. */
+  emitResourceInitialized?: boolean;
+  /** Explicit parent Run for budget-carrying continuations. */
+  continuationOfRunId?: string;
+  workType?: CommanderWorkType;
+  parentRunId?: string;
+  retryOfRunId?: string;
+  displayName?: string;
+  objective?: string;
   history?: HistoryEntry[];
   isAborted?: () => boolean;
   permissionMode?: 'danger' | 'auto' | 'normal' | 'strict';
   onLLMRequest?: (diagnostics: AgentLLMRequestDiagnostics) => void;
-  /** Pre-seed tools into the active set (e.g. from a resumed session). */
-  discoveredTools?: string[];
+  /** Host-created child lease. Root Runs create their own account. */
+  resourceController?: RunResourceBudgetController;
+  /** Verified private state projected from this Run's append-only event stream. */
+  recoveryState?: AgentRecoveryState;
+}
+
+export interface AgentRecoveryState {
+  history: HistoryEntry[];
+  completedSteps: readonly number[];
+  dedupSeeds: readonly ToolCallDedupSeed[];
+  startPaused: boolean;
 }
 
 export interface AgentLLMRequestDiagnostics {
@@ -156,20 +182,81 @@ const CONTEXT_CHECKPOINT_UTILIZATION = 0.85;
 const CONTEXT_HARD_STOP_UTILIZATION = 0.92;
 const MIN_OUTPUT_RESERVE_RATIO = 0.15;
 
+class RunBudgetBlockedError extends Error {
+  constructor(readonly blocker: RunBlocker) {
+    super(`Run blocked by ${blocker.kind}`);
+    this.name = 'RunBudgetBlockedError';
+  }
+}
+
+function conservativeRequestTokenUpperBound(
+  messages: readonly LLMMessage[],
+  tools: readonly unknown[],
+  maxOutputTokens: number,
+): number {
+  const encodedBytes = new TextEncoder().encode(JSON.stringify({ messages, tools })).byteLength;
+  return encodedBytes + maxOutputTokens;
+}
+
+function measurementFromUsage(
+  quote: ResourceQuote,
+  usage?: { promptTokens?: number; completionTokens?: number; reasoningTokens?: number },
+): ResourceMeasurement {
+  const prompt = usage?.promptTokens;
+  const completion = usage?.completionTokens;
+  const hasReportedTotal = Number.isFinite(prompt) || Number.isFinite(completion);
+  return {
+    tokens: hasReportedTotal
+      ? {
+          knowledge: 'known',
+          value: Math.max(0, Math.floor(prompt ?? 0)) + Math.max(0, Math.floor(completion ?? 0)),
+        }
+      : quote.tokens.knowledge === 'unknown'
+        ? { knowledge: 'unknown' }
+        : { knowledge: 'estimated', value: quote.tokens.value },
+    toolCalls: 0,
+    costUsd:
+      quote.costUsd.knowledge === 'unknown'
+        ? { knowledge: 'unknown' }
+        : { knowledge: quote.costUsd.knowledge, value: quote.costUsd.value },
+  };
+}
+
+function costQuoteFromAdapter(value: LLMCostUpperBound | undefined): ResourceQuote['costUsd'] {
+  if (!value || value.kind === 'unknown') return { knowledge: 'unknown' };
+  if (value.kind === 'free') {
+    return { knowledge: 'known', value: 0, upperBound: true };
+  }
+  if (!Number.isFinite(value.amountUsd) || value.amountUsd < 0) {
+    throw new Error('LLM cost upper bound must be finite and non-negative');
+  }
+  return {
+    knowledge: value.knowledge,
+    value: value.amountUsd,
+    upperBound: true,
+  };
+}
+
 export class AgentOrchestrator {
   private adapter: LLMAdapter;
-  private tools: AgentToolRegistry;
-  private maxSteps: number;
+  private tools: ToolRegistry;
+  private readonly resourceBudget: Readonly<RunResourceBudget>;
+  private readonly resourceCarryIn?: RunResourceUsage;
+  private readonly resourceNow?: () => number;
+  private activeResourceController: RunResourceBudgetController | null = null;
   private temperature: number;
   private maxOutputTokens: number;
   private contextWindowTokens?: number;
   private profile: ProviderProfile;
-  private readonly onWorkflowAskUser?: AgentOptions['onWorkflowAskUser'];
+  private readonly onTaskDecision?: AgentOptions['onTaskDecision'];
   private readonly onContextRecoveryReport?: AgentOptions['onContextRecoveryReport'];
-  private activeWorkflowRunId: string | undefined;
+  private readonly toolProgramLifecycleFactory?: ToolProgramChildLifecycleFactory;
+  private readonly subagentToolHostFactory?: SubagentToolHostFactory;
+  private activeTaskListId: string | undefined;
   private pendingResolvers = new Map<string, (approved: boolean) => void>();
   private pendingQuestionResolvers = new Map<string, (answer: string) => void>();
-  private activeMessages: LLMMessage[] | null = null;
+  private activeModelContext: { view: LLMMessage[] } | null = null;
+  private activeEmit: StreamEmit | null = null;
   private _cancelled = false;
   /**
    * Per-run controller. `cancel()` aborts it to propagate into in-flight
@@ -191,6 +278,8 @@ export class AgentOrchestrator {
    * ESCALATE_WINDOW_MS we escalate to a full run abort.
    */
   private _lastStepAbortAt = 0;
+  private _runState: 'inactive' | 'running' | 'pause_requested' | 'paused' = 'inactive';
+  private _resumePausedRun: (() => void) | undefined;
   private transcriptIndex: TranscriptIndex;
   /** Cached tool schema JSON to avoid re-serialization each step. */
   private _lastToolSchemaJson = '';
@@ -215,25 +304,8 @@ export class AgentOrchestrator {
   private snapshotPreRestoreToolCallKeys = new Set<string>();
   private toolCallKeyToOriginStep = new Map<string, number>();
 
-  private injectedMessageCount = 0;
-  private readonly resolveCanvasNodeType?: (
-    canvasId: string,
-    nodeId: string,
-  ) => 'image' | 'video' | 'audio' | null;
-  private readonly resolveCanvasSettings?: (
-    canvasId: string,
-  ) => { hasVisualStylePolicy?: boolean; stylePlate?: string | null } | null;
-  private readonly qualityGateBehavior: QualityGateBehavior;
-  private readonly requireStylePlateBeforeRefImage: boolean;
-  private readonly todoStore?: TodoRunStore;
   private readonly _hasPostCompactHook: boolean;
   private readonly resolvePersistentContext?: () => AgentPersistentContextProjection;
-  /**
-   * Declarative process-prompt specs evaluated each turn. Seeded in the
-   * constructor. Adding a new spec is "append to this list" — no other
-   * orchestrator code needs to change.
-   */
-  private readonly processPromptSpecs: ReadonlyArray<ProcessPromptSpec>;
 
   /**
    * Step at which the model most recently resolved a `commander.askUser`
@@ -270,31 +342,23 @@ export class AgentOrchestrator {
   // ── Scratchpad (v2 — structured with [context] section) ────────
   private scratchpad: Scratchpad = createEmptyScratchpad();
 
-  /**
-   * G2-5: graph-only items carried across sessions via SessionRepository.
-   * The active `contextGraph` is rebuilt from messages every step, so
-   * items that are NOT derivable from messages (`entity-snapshot`,
-   * `session-summary`, and superseded `tool-result` items already
-   * compacted out of history) are preserved here and re-merged into the
-   * freshly rebuilt graph each step. Empty until `seedContextGraph` runs.
-   */
-  private pendingGraphSeed: ContextItem[] = [];
-  /** Snapshot of the last execute() graph for `getSerializedContextGraph`. */
-  private lastSerializedGraph: ContextItem[] = [];
-
   constructor(
     adapter: LLMAdapter,
-    tools: AgentToolRegistry,
+    tools: ToolRegistry,
     resolvePrompt: (code: string) => string,
     opts?: AgentOptions,
   ) {
     this.adapter = adapter;
     this.tools = tools;
-    this.maxSteps = opts?.maxSteps ?? 50;
+    this.resourceBudget = Object.freeze({ ...(opts?.resourceBudget ?? {}) });
+    this.resourceCarryIn = opts?.resourceCarryIn;
+    this.resourceNow = opts?.resourceNow;
     this.temperature = opts?.temperature ?? 0.7;
     this.profile = opts?.profile ?? DEFAULT_PROVIDER_PROFILE;
-    this.onWorkflowAskUser = opts?.onWorkflowAskUser;
+    this.onTaskDecision = opts?.onTaskDecision;
     this.onContextRecoveryReport = opts?.onContextRecoveryReport;
+    this.toolProgramLifecycleFactory = opts?.toolProgramLifecycleFactory;
+    this.subagentToolHostFactory = opts?.subagentToolHostFactory;
     const profileOutputCap = Math.max(1, this.profile.outputReserveTokens ?? 4096);
     this.maxOutputTokens = Math.min(
       Math.max(1, Math.floor(opts?.maxOutputTokens ?? profileOutputCap)),
@@ -304,17 +368,8 @@ export class AgentOrchestrator {
       typeof opts?.contextWindowTokens === 'number' && opts.contextWindowTokens > 0
         ? Math.floor(opts.contextWindowTokens)
         : undefined;
-    this.resolveCanvasNodeType = opts?.resolveCanvasNodeType;
-    this.resolveCanvasSettings = opts?.resolveCanvasSettings;
-    this.qualityGateBehavior = opts?.qualityGateBehavior ?? 'auto-expand';
-    this.requireStylePlateBeforeRefImage = opts?.requireStylePlateBeforeRefImage ?? true;
-    this.todoStore = opts?.todoStore;
     this._hasPostCompactHook = typeof opts?.onPostCompact === 'function';
     this.resolvePersistentContext = opts?.resolvePersistentContext;
-
-    // Phase C spec infrastructure stays intact but dormant — no specs registered.
-    // Re-enable individual guardrails by adding specs back here if needed.
-    this.processPromptSpecs = [];
 
     this.contextManager = new ContextManager(adapter, resolvePrompt, {
       onBeforeCompact: opts?.onBeforeCompact,
@@ -325,51 +380,34 @@ export class AgentOrchestrator {
   }
 
   /** Resolve a pending tool confirmation. Called from outside (IPC handler). */
-  confirmTool(toolCallId: string, approved: boolean): void {
+  confirmTool(toolCallId: string, approved: boolean): boolean {
     const resolver = this.pendingResolvers.get(toolCallId);
-    if (resolver) {
-      this.pendingResolvers.delete(toolCallId);
-      resolver(approved);
-    }
+    if (!resolver) return false;
+    this.pendingResolvers.delete(toolCallId);
+    resolver(approved);
+    return true;
   }
 
   /** Resolve a pending user question. Called from outside (IPC handler). */
-  answerQuestion(toolCallId: string, answer: string): void {
+  answerQuestion(toolCallId: string, answer: string): boolean {
     const resolver = this.pendingQuestionResolvers.get(toolCallId);
-    if (resolver) {
-      this.pendingQuestionResolvers.delete(toolCallId);
-      resolver(answer);
-    }
+    if (!resolver) return false;
+    this.pendingQuestionResolvers.delete(toolCallId);
+    resolver(answer);
+    return true;
   }
 
-  /**
-   * G2-5: seed the orchestrator with a persisted ContextGraph before
-   * `execute()` runs. Call this on session resume with the items returned
-   * by `SessionRepository.getContextGraph(sessionId)`. Graph-only items are
-   * merged directly; assistant turns restore reasoning and opaque provider
-   * continuation metadata that plain renderer history cannot derive.
-   *
-   * Safe to call with an empty array (no-op) or before the first
-   * `execute()` (stored until the next run begins).
-   */
-  seedContextGraph(items: readonly ContextItem[]): void {
-    this.pendingGraphSeed = [...items];
-  }
-
-  /**
-   * G2-5: return the most-recently-serialized ContextGraph from the last
-   * `execute()` call. Callers persist this via
-   * `SessionRepository.saveContextGraph(sessionId, items)`.
-   *
-   * Returns an empty array if `execute()` has not been run yet.
-   */
-  getSerializedContextGraph(): ContextItem[] {
-    return this.lastSerializedGraph;
+  /** Check whether a user-question resolver can still receive an answer. */
+  hasPendingQuestion(toolCallId: string): boolean {
+    return this.pendingQuestionResolvers.has(toolCallId);
   }
 
   /** Cancel the running agent. Resolves all pending promises so the loop unblocks. */
   cancel(): void {
     this._cancelled = true;
+    const resumePausedRun = this._resumePausedRun;
+    this._resumePausedRun = undefined;
+    resumePausedRun?.();
     // Stage 1: abort the in-flight fetch / iterator so the LLM stream ends fast.
     this._abortController?.abort();
     this._currentStepController?.abort();
@@ -401,53 +439,79 @@ export class AgentOrchestrator {
     return { escalated: false };
   }
 
+  /** Request a cooperative pause after the current non-interruptible work finishes. */
+  pause(): boolean {
+    if (
+      this._runState !== 'running' ||
+      this._cancelled ||
+      this.pendingResolvers.size > 0 ||
+      this.pendingQuestionResolvers.size > 0
+    ) {
+      return false;
+    }
+    this._runState = 'pause_requested';
+    return true;
+  }
+
+  /** Resume a run that reached a persisted safe-boundary pause. */
+  resume(): boolean {
+    if (this._runState !== 'paused' || !this._resumePausedRun) return false;
+    const resumePausedRun = this._resumePausedRun;
+    this._resumePausedRun = undefined;
+    resumePausedRun();
+    return true;
+  }
+
   /**
    * Trigger context compaction from outside (e.g. tool.compact, UI button).
    */
   async compactNow(
     instructions?: string,
   ): Promise<{ freedChars: number; messageCount: number; toolCount: number }> {
-    const hadMessages = Boolean(this.activeMessages && this.activeMessages.length > 0);
-    const result = await this.contextManager.compactNow(this.activeMessages, instructions);
-    if (hadMessages && this.activeWorkflowRunId) {
+    const modelContext = this.activeModelContext;
+    const sourceView = modelContext?.view ?? null;
+    const hadMessages = Boolean(sourceView && sourceView.length > 0);
+    const result = await this.contextManager.compactNow(sourceView, instructions);
+    if (
+      modelContext &&
+      this.activeModelContext === modelContext &&
+      modelContext.view === sourceView
+    ) {
+      modelContext.view = result.view;
+    }
+    if (hadMessages && this.activeTaskListId) {
       await this.reportContextRecovery(
         result.freedChars > 0 ? 'recovered' : 'failed',
         result.freedChars > 0 ? 'persistent_context_reloaded' : 'compaction_failed',
       );
     }
-    return result;
+    return {
+      freedChars: result.freedChars,
+      messageCount: result.messageCount,
+      toolCount: result.toolCount,
+    };
   }
 
-  private refreshPersistentContext(context: AgentContext): WorkflowToolPolicy | undefined {
+  private refreshPersistentContext(context: AgentContext): TaskListToolPolicy | undefined {
     if (!this.resolvePersistentContext) {
-      const policy = context.extra?.workflowToolPolicy as WorkflowToolPolicy | undefined;
-      this.activeWorkflowRunId = policy?.workflowRunId;
+      const policy = context.extra?.taskListToolPolicy as TaskListToolPolicy | undefined;
+      this.activeTaskListId = policy?.taskListId;
       return policy;
     }
     if (!context.extra) context.extra = {};
-    try {
-      const projection = this.resolvePersistentContext();
-      if (typeof projection.workflowManifest === 'string') {
-        context.extra.workflowManifest = projection.workflowManifest;
-      } else {
-        delete context.extra.workflowManifest;
-      }
-      if (projection.workflowToolPolicy) {
-        context.extra.workflowToolPolicy = projection.workflowToolPolicy;
-      } else {
-        delete context.extra.workflowToolPolicy;
-      }
-    } catch {
-      context.extra.workflowManifest =
-        'Persistent workflow manifest unavailable; workflow mutations are fail-closed.';
-      context.extra.workflowToolPolicy = {
-        phase: 'blocked',
-        reason:
-          'Persistent workflow state could not be refreshed from SQLite. Mutating tools are fail-closed.',
-      } satisfies WorkflowToolPolicy;
+    const projection = this.resolvePersistentContext();
+    if (typeof projection.taskListManifest === 'string') {
+      context.extra.taskListManifest = projection.taskListManifest;
+    } else {
+      delete context.extra.taskListManifest;
     }
-    const policy = context.extra.workflowToolPolicy as WorkflowToolPolicy | undefined;
-    this.activeWorkflowRunId = policy?.workflowRunId;
+    if (projection.taskListToolPolicy) {
+      context.extra.taskListToolPolicy = projection.taskListToolPolicy;
+    } else {
+      delete context.extra.taskListToolPolicy;
+    }
+    const policy = context.extra.taskListToolPolicy as TaskListToolPolicy | undefined;
+    this.activeTaskListId = policy?.taskListId;
     return policy;
   }
 
@@ -456,9 +520,9 @@ export class AgentOrchestrator {
     reason: ContextRecoveryReport['reason'],
     forcePause?: boolean,
   ): Promise<ContextRecoveryReportResult | undefined> {
-    if (!this.onContextRecoveryReport || !this.activeWorkflowRunId) return undefined;
+    if (!this.onContextRecoveryReport || !this.activeTaskListId) return undefined;
     return this.onContextRecoveryReport({
-      workflowRunId: this.activeWorkflowRunId,
+      taskListId: this.activeTaskListId,
       outcome,
       reason,
       ...(forcePause ? { forcePause: true } : {}),
@@ -470,22 +534,72 @@ export class AgentOrchestrator {
 
   injectMessage(content: string): void {
     const trimmed = content.trim();
-    if (!trimmed || !this.activeMessages) return;
-    this.activeMessages.push({ role: 'user', content: trimmed });
-    this.injectedMessageCount++;
+    if (!trimmed || !this.activeModelContext || !this.activeEmit) return;
+    this.activeModelContext.view.push({ role: 'user', content: trimmed });
+    this.activeEmit({ kind: 'user_message', content: trimmed });
+  }
+
+  private async pauseAtSafeBoundary(
+    resourceController: RunResourceBudgetController,
+    emit: StreamEmit,
+    restoredPause = false,
+  ): Promise<void> {
+    if (this._runState !== 'pause_requested' || this._cancelled) return;
+
+    const resume = new Promise<void>((resolve) => {
+      this._resumePausedRun = resolve;
+    });
+    this._runState = 'paused';
+    if (restoredPause) {
+      if (resourceController.snapshot({ kind: 'pause_started' }).clock.state !== 'paused') {
+        throw new Error('Paused recovery requires a paused resource checkpoint');
+      }
+    } else {
+      emit({ kind: 'run_paused' });
+      emit(resourceController.startPause());
+    }
+    await resume;
+
+    if (this._cancelled) return;
+    const resourceState = resourceController.endPause();
+    this._runState = 'running';
+    emit({ kind: 'run_resumed' });
+    emit(resourceState);
+  }
+
+  private canonicalDedupResult(toolName: string, priorWasError: boolean): ToolResult {
+    return this.tools.canonicalizeResult(toolName, {
+      success: false,
+      error: priorWasError
+        ? 'Identical tool call was skipped after the prior call failed.'
+        : 'Identical tool call was skipped because it already completed in this run.',
+    });
   }
 
   async execute(
     userMessage: string,
     context: AgentContext,
-    emit: (event: StampedStreamEvent) => void,
+    emit: StampedStreamSink,
     options?: AgentExecutionOptions,
   ): Promise<OrchestratorCompletion> {
-    // The host-selected phase bundle is the only initial tool surface.
-    const loadedToolNames = new Set<string>();
-    const discoveredToolNames = new Set<string>(options?.discoveredTools ?? []);
-    this.contextManager.noteUserInput();
-    let workflowToolPolicy = this.refreshPersistentContext(context);
+    const recoveryState = options?.recoveryState;
+    if (recoveryState) {
+      if (!options?.runId || options.initialSeq === undefined || !options.resourceController) {
+        throw new Error('Recovered execution requires runId, initialSeq, and resourceController');
+      }
+      if (
+        !Number.isSafeInteger(options.initialSeq) ||
+        options.initialSeq < 0 ||
+        recoveryState.completedSteps.some(
+          (step) => !Number.isSafeInteger(step) || step < 0,
+        )
+      ) {
+        throw new Error('Recovered execution requires non-negative safe sequence and step values');
+      }
+    } else {
+      this.contextManager.noteUserInput();
+    }
+    let taskListToolPolicy = this.refreshPersistentContext(context);
     let systemPrompt = this.contextManager.buildSystemPrompt(context, 1);
 
     // Compute context budget from adapter's context window.
@@ -500,7 +614,7 @@ export class AgentOrchestrator {
     const historyCharBudget = Math.floor(
       effectiveCtx * CONTEXT_TARGET_UTILIZATION * this.profile.charsPerToken,
     );
-    const history = pruneHistory(options?.history, historyCharBudget);
+    const history = pruneHistory(recoveryState?.history ?? options?.history, historyCharBudget);
 
     const inLoopTokenBudget = Math.floor(effectiveCtx * CONTEXT_TARGET_UTILIZATION);
     const inLoopCharBudget = Math.floor(inLoopTokenBudget * this.profile.charsPerToken);
@@ -513,239 +627,224 @@ export class AgentOrchestrator {
       Math.max(1, effectiveCtx - outputReserveTokens),
     );
 
-    const messages: LLMMessage[] = [
-      { role: 'system', content: systemPrompt },
-      ...history.map((entry): LLMMessage => {
-        if (entry.role === 'tool') {
-          return { role: 'tool', content: entry.content, toolCallId: entry.toolCallId };
-        }
-        const msg: LLMMessage = { role: entry.role, content: entry.content };
-        if (entry.role === 'assistant' && entry.reasoning) {
-          msg.reasoning = entry.reasoning;
-        }
-        if (
-          entry.role === 'assistant' &&
-          Array.isArray(entry.toolCalls) &&
-          entry.toolCalls.length > 0
-        ) {
-          msg.toolCalls = entry.toolCalls.map((tc) => ({
-            id: tc.id,
-            name: tc.name,
-            arguments: tc.arguments,
-            thoughtSignature: tc.thoughtSignature,
-          }));
-        }
-        return msg;
-      }),
-      { role: 'user', content: userMessage },
-    ];
+    const modelContext: { view: LLMMessage[] } = {
+      view: [
+        { role: 'system', content: systemPrompt },
+        ...history.map((entry): LLMMessage => {
+          if (entry.role === 'tool') {
+            return { role: 'tool', content: entry.content, toolCallId: entry.toolCallId };
+          }
+          const msg: LLMMessage = { role: entry.role, content: entry.content };
+          if (!recoveryState && entry.role === 'assistant' && entry.reasoning) {
+            msg.reasoning = entry.reasoning;
+          }
+          if (
+            entry.role === 'assistant' &&
+            Array.isArray(entry.toolCalls) &&
+            entry.toolCalls.length > 0
+          ) {
+            msg.toolCalls = entry.toolCalls.map((tc) => ({
+              id: tc.id,
+              name: tc.name,
+              arguments: tc.arguments,
+              thoughtSignature: tc.thoughtSignature,
+            }));
+          }
+          return msg;
+        }),
+        ...(recoveryState ? [] : [{ role: 'user' as const, content: userMessage }]),
+      ],
+    };
 
-    let steps = 0;
+    let steps = recoveryState
+      ? Math.max(0, ...recoveryState.completedSteps)
+      : 0;
     let lastResult: OrchestratorCompletion = { content: '', toolCalls: [], finishReason: 'stop' };
-    const toolLastUsedStep = new Map<string, number>();
-
-    const runId = freshRunId();
+    const runId = options?.runId ?? freshRunId();
+    if (!runId.trim()) throw new Error('runId must not be empty');
+    const resourceController = options?.resourceController ?? new RunResourceBudgetController(
+      this.resourceBudget,
+      {
+        ...(this.resourceCarryIn ? { carryIn: this.resourceCarryIn } : {}),
+        ...(this.resourceNow ? { now: this.resourceNow } : {}),
+        leaseId: runId,
+      },
+    );
+    const resourceRecovery = (body: StreamEventBody): StreamRecoveryBody | undefined => {
+      if (body.kind !== 'resource_state') return undefined;
+      const checkpoint = resourceController.exportCheckpoint();
+      const restored = RunResourceBudgetController.restoreCheckpoint(checkpoint, {
+        now: () => 0,
+      }).controllers.get(resourceController.leaseId);
+      if (!restored) throw new Error('Resource checkpoint is missing the active Run lease');
+      const canonicalState = restored.snapshot(body.cause);
+      return {
+        body: {
+          ...canonicalState,
+          clock: { ...canonicalState.clock, changedAt: body.clock.changedAt },
+        },
+        recovery: { kind: 'resource_checkpoint', checkpoint },
+      };
+    };
     // `steps` is captured by closure so every emit reads the current step.
     // This stamped wrapper is the only emit surface used — raw `emit` is
     // intentionally never touched directly after this point.
-    const wrappedEmit: StreamEmit = makeStampedEmit(runId, () => steps, emit);
-    const finishForContextPause = (content: string): OrchestratorCompletion => {
-      this.lastAssistantText = content;
-      this.appendEvidence({ kind: 'budget_exhausted', metric: 'tokens', at: Date.now() });
-      const { decision, intent } = this.computeExitDecision();
-      wrappedEmit({ kind: 'assistant_text', content, isDelta: false });
-      wrappedEmit({
+    const wrappedEmit: StreamEmit = makeStampedEmit(
+      runId,
+      () => steps,
+      emit,
+      options?.initialSeq,
+      resourceRecovery,
+    );
+    this.activeResourceController = resourceController;
+    let terminalEmitted = false;
+    const emitRunEnd = (event: Extract<Parameters<StreamEmit>[0], { kind: 'run_end' }>): void => {
+      if (terminalEmitted) return;
+      terminalEmitted = true;
+      resourceController.stop();
+      wrappedEmit(event);
+    };
+    const finishBlocked = (blocker: RunBlocker): OrchestratorCompletion => {
+      resourceController.stop();
+      wrappedEmit(resourceController.snapshot({ kind: 'boundary', blocker }));
+      emitRunEnd({
         kind: 'run_end',
-        status: 'failed',
-        exitDecision: this.toTimelineExitDecisionMeta(decision),
+        status: 'blocked',
+        blocker,
       });
       return {
-        content,
+        content: '',
         toolCalls: [],
         finishReason: 'stop',
-        exitDecision: decision,
-        exitIntent: intent,
       };
     };
 
     // Phase G — per-run tool-call deduplicator. Fresh instance per
     // `execute()` so dedup state can't leak across runs.
     const toolCallDeduplicator = new ToolCallDeduplicator();
-
-    // Phase I — when the model emits an option-list markdown instead of
-    // calling `commander.askUser`, we set this flag so the *next* adapter
-    // call uses `tool_choice: commander.askUser` (forcing the structured
-    // path). Reset after the forced call completes.
-    let forceAskUserNextTurn = false;
-
-    // Phase B: emit `run_start` bracket so the renderer can group events
-    // into a per-run card (Phase D). The intent is the raw user message —
-    // renderer crops / formats for display.
-    wrappedEmit({ kind: 'run_start', intent: userMessage });
-
-    if (userCtx && detectedCtx && userCtx < detectedCtx) {
-      wrappedEmit({
-        kind: 'assistant_text',
-        content: `[Note: Your configured context window (${userCtx.toLocaleString()} tokens) is smaller than the model's actual context (${detectedCtx.toLocaleString()} tokens). Using your configured value.]\n`,
-        isDelta: true,
-      });
-    }
-
-    this._currentStep = 0;
-    this.lastAskUserAnsweredStep = null;
-    this.lastMutationStep = 0;
-    this.toolValidationErrors.clear();
-
-    // 2C: Reset scratchpad state for new run.
-    this.scratchpad = createEmptyScratchpad();
-    this.contextManager.setScratchpad(null);
-
-    // Phase B — reset exit-contract shadow state and classify intent
-    // once at the start of the run.
-    this.evidenceLedger = new EvidenceLedger();
-    this.currentIntent = classifyIntent({
-      userMessage,
-      canvasHasNodes: Array.isArray(
-        (context.extra as { canvasNodes?: unknown[] } | undefined)?.canvasNodes,
-      )
-        ? (context.extra as { canvasNodes?: unknown[] }).canvasNodes!.length > 0
-        : undefined,
-    });
-    this.lastAssistantText = '';
-
-    // 1H: Surface classified intent to the LLM via the system prompt's
-    // dynamic context section so the model can calibrate its behavior.
-    const intentWorkflow =
-      'workflow' in this.currentIntent ? this.currentIntent.workflow : undefined;
-    const intentStr = intentWorkflow
-      ? `${this.currentIntent.kind} (workflow: ${intentWorkflow})`
-      : this.currentIntent.kind;
-    if (!context.extra) context.extra = {};
-    (context.extra as Record<string, unknown>).classifiedIntent = intentStr;
-
-    // 1B: Context-aware tool set selection — load only tools relevant to
-    // the current workspace state and user intent instead of all registered
-    // tools. Non-selected tools are still discoverable via `tool.get` and
-    // show up as name-only stubs in the adaptive-compaction tier-0 path.
-    let toolSelectionInput: ToolSelectionInput;
-    {
-      const extra = context.extra as Record<string, unknown>;
-      const nodeCount = typeof extra.nodeCount === 'number' ? extra.nodeCount : 0;
-
-      // Parse entity count from the workspace snapshot when available, or
-      // fallback to zero. The snapshot follows a fixed "Characters (N/M):"
-      // / "Locations (...)" / "Equipment (...)" format — see
-      // `buildWorkspaceSnapshot` in commander.handlers.ts.
-      let entityCount = 0;
-      if (typeof extra.workspaceSnapshot === 'string') {
-        const snap = extra.workspaceSnapshot;
-        const charMatch = /Characters \((\d+)\/(\d+)\)/.exec(snap);
-        const locMatch = /Locations \((\d+)\/(\d+)\)/.exec(snap);
-        const equipMatch = /Equipment \((\d+)\/(\d+)\)/.exec(snap);
-        entityCount =
-          (charMatch ? Number(charMatch[2]) : 0) +
-          (locMatch ? Number(locMatch[2]) : 0) +
-          (equipMatch ? Number(equipMatch[2]) : 0);
-      }
-
-      const selectedNodeIds = Array.isArray(extra.selectedNodeIds) ? extra.selectedNodeIds : [];
-
-      // Style plate — check the snapshot text. A line "Style plate: NOT SET"
-      // means no plate; anything else means one exists.
-      let hasStylePlate = false;
-      if (typeof extra.workspaceSnapshot === 'string') {
-        const snap = extra.workspaceSnapshot;
-        const plateLineMatch = /Style plate: (.+)/.exec(snap);
-        if (plateLineMatch && plateLineMatch[1] !== 'NOT SET') {
-          hasStylePlate = true;
-        }
-      }
-
-      toolSelectionInput = {
-        nodeCount,
-        entityCount,
-        hasStylePlate,
-        hasSelectedNodes: selectedNodeIds.length > 0,
-        userMessage,
-        intentKind: this.currentIntent.kind,
-        intentWorkflow,
-        workflowPhase: workflowToolPolicy?.phase,
-      };
-      const contextualTools = selectContextualToolSet(toolSelectionInput);
-      for (const name of contextualTools) {
-        loadedToolNames.add(name);
-        // Seed in toolLastUsedStep so adaptive compaction treats these as
-        // "recently used" during the first few steps rather than stripping
-        // them immediately.
-        toolLastUsedStep.set(name, 0);
-      }
-    }
-
-    const syncLoadedPhaseBundle = (
-      policy: WorkflowToolPolicy | undefined,
-      currentStep: number,
-    ): boolean => {
-      const nextPhase = policy?.phase;
-      if (toolSelectionInput.workflowPhase === nextPhase) return false;
-
-      toolSelectionInput = { ...toolSelectionInput, workflowPhase: nextPhase };
-      loadedToolNames.clear();
-      for (const name of selectContextualToolSet(toolSelectionInput)) {
-        loadedToolNames.add(name);
-        toolLastUsedStep.set(name, currentStep);
-      }
-      return true;
-    };
-
-    this.activeMessages = messages;
-
-    // NOTE: no longer compacting history on load — the serializer enforces
-    // context budget, and eager truncation causes re-read loops for bulk ops.
-    this.injectedMessageCount = 0;
-    this._cancelled = false;
-    this._abortController = new AbortController();
-    this._currentStepController = null;
-    this._lastStepAbortAt = 0;
-
-    this.transcriptIndex = new TranscriptIndex();
-
-    const canvasId =
-      typeof context.extra?.canvasId === 'string' ? context.extra.canvasId : undefined;
-
-    // Pre-populate transcript index from history messages
-    for (let i = 0; i < messages.length; i++) {
-      const msg = messages[i];
-      if (msg.role === 'assistant' && msg.toolCalls?.length) {
-        this.transcriptIndex.registerAssistantToolCalls(i, msg.toolCalls);
-      }
-    }
-
-    // ── G2a-6: Initialize ContextGraph ───────────────────────────────────
-    // The graph is rebuilt each step from the canonical `messages` array
-    // immediately before serialization. This keeps the graph in sync with
-    // mid-loop mutations (system prompt refresh, injected process prompts,
-    // batch warnings, new user messages) without tracking them twice.
-    // `serializeForOpenAI` produces the unified `LLMMessage[]` wire format
-    // that every adapter consumes. Adapter-specific wire conversion
-    // (e.g. Claude's content blocks) happens inside each adapter.
-    this.contextGraph = new ContextGraph();
-    this.invalidatedToolCallKeys = new Set<string>();
-    this.snapshotPreRestoreToolCallKeys = new Set<string>();
-    this.toolCallKeyToOriginStep = new Map<string, number>();
-    let reportedHealthyContext = false;
-
-    // Create tool executor with graph reference (read-through cache comes
-    // from the graph's tool-result index; mutation invalidation is driven
-    // by the graph below).
-    this.toolExecutor = new ToolExecutor(this.tools, {
-      permissionMode: options?.permissionMode,
-      contextGraph: this.contextGraph,
-      canvasId,
-      onWorkflowAskUser: this.onWorkflowAskUser,
-    });
+    if (recoveryState) toolCallDeduplicator.seed(recoveryState.dedupSeeds);
 
     try {
-      while (steps < this.maxSteps) {
+      // Phase B: emit `run_start` bracket so the renderer can group events
+      // into a per-run card (Phase D). The intent is the raw user message —
+      // renderer crops / formats for display.
+      if (!recoveryState && options?.emitRunStart !== false) {
+        wrappedEmit({
+          kind: 'run_start',
+          intent: userMessage,
+          resourceBudget: this.resourceBudget,
+          workType: options?.workType ?? 'agent',
+          ...(options?.parentRunId ? { parentRunId: options.parentRunId } : {}),
+          ...(options?.retryOfRunId ? { retryOfRunId: options.retryOfRunId } : {}),
+          ...(options?.displayName ? { displayName: options.displayName } : {}),
+          ...(options?.objective ? { objective: options.objective } : {}),
+          ...(options?.continuationOfRunId
+            ? { continuationOfRunId: options.continuationOfRunId }
+            : {}),
+        });
+      }
+      if (
+        !recoveryState &&
+        (options?.emitResourceInitialized ?? options?.emitRunStart !== false)
+      ) {
+        wrappedEmit(resourceController.snapshot({ kind: 'initialized' }));
+      }
+
+      if (userCtx && detectedCtx && userCtx < detectedCtx) {
+        wrappedEmit({
+          kind: 'assistant_text',
+          content: `[Note: Your configured context window (${userCtx.toLocaleString()} tokens) is smaller than the model's actual context (${detectedCtx.toLocaleString()} tokens). Using your configured value.]\n`,
+          isDelta: true,
+        });
+      }
+
+      this._currentStep = steps;
+      this.lastAskUserAnsweredStep = null;
+      this.lastMutationStep = 0;
+      this.toolValidationErrors.clear();
+
+      // 2C: Reset scratchpad state for new run.
+      this.scratchpad = createEmptyScratchpad();
+      this.contextManager.setScratchpad(null);
+
+      // Exit decisions are post-hoc: evidence, not user-message wording,
+      // determines whether this run mutated state or answered informationally.
+      this.evidenceLedger = new EvidenceLedger();
+      this.currentIntent = { kind: 'execution' };
+      this.lastAssistantText = '';
+      if (!context.extra) context.extra = {};
+
+      this.activeModelContext = modelContext;
+      this.activeEmit = wrappedEmit;
+
+      // NOTE: no longer compacting history on load — the serializer enforces
+      // context budget, and eager truncation causes re-read loops for bulk ops.
+      this._cancelled = false;
+      this._abortController = new AbortController();
+      this._currentStepController = null;
+      this._lastStepAbortAt = 0;
+      this._runState = recoveryState?.startPaused ? 'pause_requested' : 'running';
+      this._resumePausedRun = undefined;
+
+      this.transcriptIndex = new TranscriptIndex();
+
+      const canvasId =
+        typeof context.extra?.canvasId === 'string' ? context.extra.canvasId : undefined;
+      const availableTools = this.tools.toLLMTools();
+      const injectedParams = canvasId ? ['canvasId'] : [];
+      const graphToolsInput =
+        injectedParams.length > 0
+          ? availableTools.map((tool) => stripInjectedParamsFromTool(tool, injectedParams))
+          : availableTools;
+
+      // Build the transcript association index once for restored history.
+      // Later appended messages are indexed incrementally.
+      this.transcriptIndex.rebuild(modelContext.view);
+
+      // ── G2a-6: Initialize ContextGraph ───────────────────────────────────
+      // The graph is rebuilt each step from the canonical `messages` array
+      // immediately before serialization. This keeps the graph in sync with
+      // system-prompt refreshes and authentic user messages without tracking
+      // them twice.
+      // `serializeForOpenAI` produces the unified `LLMMessage[]` wire format
+      // that every adapter consumes. Adapter-specific wire conversion
+      // (e.g. Claude's content blocks) happens inside each adapter.
+      this.contextGraph = new ContextGraph();
+      this.invalidatedToolCallKeys = new Set<string>();
+      this.snapshotPreRestoreToolCallKeys = new Set<string>();
+      this.toolCallKeyToOriginStep = new Map<string, number>();
+      let reportedHealthyContext = false;
+
+      // Create tool executor with graph reference (read-through cache comes
+      // from the graph's tool-result index; mutation invalidation is driven
+      // by the graph below).
+      this.toolExecutor = new ToolExecutor(this.tools, {
+        permissionMode: options?.permissionMode,
+        contextGraph: this.contextGraph,
+        canvasId,
+        onTaskDecision: this.onTaskDecision,
+        resourceController,
+        runId,
+        beforeProgramDispatch: () => this.pauseAtSafeBoundary(resourceController, wrappedEmit),
+        toolProgramLifecycleFactory: this.toolProgramLifecycleFactory,
+        subagents: this.subagentToolHostFactory?.({
+          parentRunId: runId,
+          resourceController,
+          permissionMode: options?.permissionMode ?? 'normal',
+        }),
+        onUserWaitState: (state) => {
+          wrappedEmit(
+            state === 'started'
+              ? resourceController.startUserWait()
+              : resourceController.endUserWait(),
+          );
+        },
+      });
+
+      let restoredPause = recoveryState?.startPaused === true;
+      while (true) {
+        await this.pauseAtSafeBoundary(resourceController, wrappedEmit, restoredPause);
+        restoredPause = false;
         if (this._cancelled || options?.isAborted?.()) {
           // Counts intentionally zero — renderer derives accurate
           // completed/pending counts from the timeline events for this
@@ -758,68 +857,38 @@ export class AgentOrchestrator {
             completedToolCalls: 0,
             pendingToolCalls: 0,
           });
-          wrappedEmit({ kind: 'run_end', status: 'cancelled' });
+          emitRunEnd({ kind: 'run_end', status: 'cancelled' });
           return { content: 'Cancelled.', toolCalls: [], finishReason: 'stop' };
         }
+
+        const resourceBoundary = resourceController.checkBoundary();
+        if (resourceBoundary) return finishBlocked(resourceBoundary);
 
         steps++;
         this._currentStep = steps;
 
-        // Workflow facts and tool authorization are rebuilt from SQLite on
+        // Task-list facts and tool authorization are rebuilt from SQLite on
         // every step. An approval clicked while this run is waiting therefore
         // takes effect on the next turn, while stale chat text never does.
-        workflowToolPolicy = this.refreshPersistentContext(context);
-        syncLoadedPhaseBundle(workflowToolPolicy, steps);
+        taskListToolPolicy = this.refreshPersistentContext(context);
         systemPrompt = this.contextManager.buildSystemPrompt(context, steps);
-        if (messages.length > 0 && messages[0].role === 'system') {
-          messages[0] = { ...messages[0], content: systemPrompt };
+        if (modelContext.view.length > 0 && modelContext.view[0].role === 'system') {
+          modelContext.view[0] = { ...modelContext.view[0], content: systemPrompt };
         }
 
         // No unconditional step-1 compaction: the verified pre-request
         // utilization state machine below compacts only when needed.
 
-        // Merge tool sets
-        const activeToolNames = new Set(loadedToolNames);
-        for (const name of discoveredToolNames) activeToolNames.add(name);
-
-        let availableTools = compactNamedToolDefinitions(
-          this.tools,
-          Array.from(activeToolNames),
-          context.page,
-        );
-        availableTools = availableTools.filter(
-          (tool) => getWorkflowToolDenial(workflowToolPolicy, tool.name) === null,
-        );
-        this.toolExecutor.opts.workflowPolicy = workflowToolPolicy;
-
-        // Adaptive tool compaction
-        const messageChars = measureMessageChars(messages);
-        const { tools: compactedTools, evictedNames } = adaptiveToolCompaction(
-          availableTools,
-          toolLastUsedStep,
-          steps,
-          messageChars,
-          inLoopCharBudget,
-        );
-        availableTools = compactedTools;
-        for (const evicted of evictedNames) discoveredToolNames.delete(evicted);
+        this.toolExecutor.opts.taskListPolicy = taskListToolPolicy;
 
         // Build wire payload via ContextGraph serializer.
         // The graph is rebuilt from the canonical `messages` array each step
-        // (covers system-prompt refresh, injected process prompts, batch
-        // warnings, new user messages). Serialization handles budget
+        // (covers system-prompt refreshes and new user messages).
+        // Serialization handles budget
         // enforcement, tool-name sanitization, stub/cache skipping, and
         // dangling-tool/pairing guards.
-        const injectedParams: string[] = [];
-        if (canvasId) injectedParams.push('canvasId');
-
-        const graphToolsInput =
-          injectedParams.length > 0
-            ? availableTools.map((t) => stripInjectedParamsFromTool(t, injectedParams))
-            : availableTools;
-
         const serializeCurrentView = () => {
-          this.rebuildGraphFromMessages(messages, steps);
+          this.rebuildGraphFromMessages(modelContext.view, steps);
           if (!this.contextGraph) {
             throw new Error('ContextGraph missing — execute() was not initialized correctly.');
           }
@@ -845,30 +914,36 @@ export class AgentOrchestrator {
           // At 92% no auxiliary LLM call is safe. Flush durable facts, then
           // allow only deterministic pruning before deciding whether to pause.
           if (this.contextManager.checkpointDurableFacts()) {
-            didCompact = this.contextManager.compactPhase1(messages, steps);
+            const compaction = this.contextManager.compactPhase1(modelContext.view, steps);
+            modelContext.view = compaction.view;
+            didCompact = compaction.changed;
+            compactionAttempted = compaction.attempted;
             compactPhase = didCompact ? 'phase1' : undefined;
           }
         } else if (utilizationRatio >= CONTEXT_CHECKPOINT_UTILIZATION) {
           const compaction = await this.contextManager.compactWithLLMResult(
-            messages,
+            modelContext.view,
             inLoopCharBudget,
             steps,
           );
+          modelContext.view = compaction.view;
           didCompact = compaction.changed;
           compactionAttempted = compaction.attempted;
           compactPhase = didCompact ? 'llm' : undefined;
         } else if (utilizationRatio >= CONTEXT_REFERENCE_PRUNE_UTILIZATION) {
-          didCompact = this.contextManager.compactPhase1(messages, steps);
+          const compaction = this.contextManager.compactPhase1(modelContext.view, steps);
+          modelContext.view = compaction.view;
+          didCompact = compaction.changed;
+          compactionAttempted = compaction.attempted;
           compactPhase = didCompact ? 'phase1' : undefined;
         }
 
         if (didCompact) {
-          workflowToolPolicy = this.refreshPersistentContext(context);
-          const phaseBundleChanged = syncLoadedPhaseBundle(workflowToolPolicy, steps);
-          this.toolExecutor.opts.workflowPolicy = workflowToolPolicy;
+          taskListToolPolicy = this.refreshPersistentContext(context);
+          this.toolExecutor.opts.taskListPolicy = taskListToolPolicy;
           systemPrompt = this.contextManager.buildSystemPrompt(context, steps);
-          if (messages[0]?.role === 'system') {
-            messages[0] = { ...messages[0], content: systemPrompt };
+          if (modelContext.view[0]?.role === 'system') {
+            modelContext.view[0] = { ...modelContext.view[0], content: systemPrompt };
           }
           serialized = serializeCurrentView();
           utilizationRatio = serialized.estimatedTokensUsed / effectiveCtx;
@@ -880,45 +955,34 @@ export class AgentOrchestrator {
               reloaded: compactPhase === 'llm' ? this._hasPostCompactHook : true,
             },
           });
-          if (phaseBundleChanged) {
-            // The serialized tool view was built before the durable phase
-            // transition. Re-enter the loop so the next provider request is
-            // rebuilt from the newly authorized phase bundle.
-            continue;
-          }
         }
 
         if (utilizationRatio >= CONTEXT_HARD_STOP_UTILIZATION) {
           await this.reportContextRecovery('failed', 'hard_stop', true);
-          const contextLimitMessage =
-            'Context safety pause: the protected workflow facts, tool schemas, and recent complete exchanges still exceed 92% of the verified model context window. No further model call was made. Start a fresh chat projection or reduce the configured tool/guide set; the persistent workflow and approval state remain intact.';
-          return finishForContextPause(contextLimitMessage);
+          return finishBlocked({ kind: 'safety_limit', limit: 'context_window' });
         }
 
         if (compactionAttempted && !didCompact) {
           reportedHealthyContext = false;
           const recovery = await this.reportContextRecovery('failed', 'compaction_failed');
           if (recovery?.state === 'recovery_required') {
-            return finishForContextPause(
-              'Context recovery failed three times for this workflow. The durable workflow is paused in recovery-required state; no provider call was made. Start a fresh chat projection or reduce the configured tool/guide set before continuing.',
-            );
+            return finishBlocked({ kind: 'safety_limit', limit: 'recovery_required' });
           }
         } else if (
           !reportedHealthyContext &&
           (didCompact || utilizationRatio < CONTEXT_CHECKPOINT_UTILIZATION)
         ) {
-          const wasBlocked = workflowToolPolicy?.phase === 'blocked';
+          const wasBlocked = taskListToolPolicy?.phase === 'blocked';
           const recovery = await this.reportContextRecovery(
             'recovered',
             'persistent_context_reloaded',
           );
           reportedHealthyContext = true;
           if (wasBlocked && recovery?.changed && recovery.state === 'active') {
-            // The host restored a workflow that was paused specifically for
-            // context recovery. Rebuild authorization before exposing tools.
-            workflowToolPolicy = this.refreshPersistentContext(context);
-            syncLoadedPhaseBundle(workflowToolPolicy, steps);
-            this.toolExecutor.opts.workflowPolicy = workflowToolPolicy;
+            // The host restored a task list that was paused specifically for
+            // context recovery. Refresh the execution-time authorization.
+            taskListToolPolicy = this.refreshPersistentContext(context);
+            this.toolExecutor.opts.taskListPolicy = taskListToolPolicy;
             continue;
           }
         }
@@ -934,7 +998,10 @@ export class AgentOrchestrator {
         // into the wire window. Loses the exact "old-trim vs orphan-drop"
         // distinction the legacy constructor tracked, but preserves the same
         // "are we losing history?" diagnostic signal.
-        const historyMessagesTrimmed = Math.max(0, messages.length - wireMessages.length);
+        const historyMessagesTrimmed = Math.max(
+          0,
+          modelContext.view.length - wireMessages.length,
+        );
 
         // Cache tool schema serialization — only re-serialize when tool count changes
         if (availableTools.length !== this._lastToolCount) {
@@ -953,7 +1020,7 @@ export class AgentOrchestrator {
           toolCount: availableTools.length,
           toolSchemaChars: this._lastToolSchemaChars,
           messageCount: wireMessages.length,
-          messageChars: measureMessageChars(messages),
+          messageChars: measureMessageChars(modelContext.view),
           systemPromptChars: systemPrompt.length,
           promptGuideChars: Array.isArray(context.extra?.autoInjectGuides)
             ? context.extra.autoInjectGuides.reduce(
@@ -975,10 +1042,11 @@ export class AgentOrchestrator {
           utilizationRatio,
         });
 
-        // Clear previous thinking before new LLM call — sends an empty
-        // `thinking` delta so the renderer can reset its thinking buffer
-        // at the start of a fresh step.
-        wrappedEmit({ kind: 'thinking', content: '', isDelta: true });
+        wrappedEmit({
+          kind: 'public_progress',
+          operationId: `model:${steps}`,
+          status: 'running',
+        });
 
         const activeContextGraph = this.contextGraph;
         if (!activeContextGraph) {
@@ -993,151 +1061,79 @@ export class AgentOrchestrator {
                     name: graphReverseMap.get(wireCall.name) ?? wireCall.name,
                   };
                   const toolRef = parseCanonicalToolName(tc.name);
-                  const args = (tc.arguments as Record<string, unknown>) ?? {};
+                  const args = this.toolExecutor.mergedArgsFor(tc);
                   const prior = toolCallDeduplicator.check(toolRef, args, steps);
                   if (prior) {
-                    const content = prior.wasError
-                      ? `[skipped] identical call failed at this host step; change the arguments or approach.`
-                      : `[skipped] identical call already ran at this host step.`;
-                    wrappedEmit({
-                      kind: 'tool_result',
-                      toolCallId: tc.id,
-                      result: { skipped: true, reason: 'duplicate_call_within_window' },
-                      durationMs: 0,
-                      skipped: true,
-                      synthetic: true,
-                    });
-                    return { toolCallId: tc.id, content, success: !prior.wasError };
-                  }
-
-                  messages.push({ role: 'assistant', content: '', toolCalls: [tc] });
-                  this.transcriptIndex.registerAssistantToolCalls(messages.length - 1, [tc]);
-                  toolLastUsedStep.set(tc.name, steps);
-                  let content = '';
-                  let success = false;
-
-                  if (tc.name === 'todo.manage' && this.todoStore) {
-                    const startedAt = Date.now();
+                    const result = this.canonicalDedupResult(tc.name, prior.wasError);
+                    const content = safeStringify(result);
                     wrappedEmit({
                       kind: 'tool_call',
                       toolCallId: tc.id,
                       toolRef,
                       args,
                     });
-                    try {
-                      let result: unknown;
-                      if (args.action === 'set') {
-                        const snapshot = this.todoStore.set({
-                          items: (Array.isArray(args.items) ? args.items : []) as Array<{
-                            label: string;
-                          }>,
-                        });
-                        result = {
-                          success: true,
-                          data: { ...this.todoStore.toStreamPayload(), items: snapshot.items },
-                        };
-                      } else {
-                        const { snapshot, applied } = this.todoStore.update({
-                          todoId: typeof args.todoId === 'string' ? args.todoId : '',
-                          updates: (Array.isArray(args.updates) ? args.updates : []) as Array<{
-                            id: string;
-                            status: 'pending' | 'in_progress' | 'done';
-                          }>,
-                        });
-                        result = {
-                          success: true,
-                          data: {
-                            ...this.todoStore.toStreamPayload(),
-                            applied,
-                            items: snapshot.items,
-                          },
-                        };
-                      }
-                      content = safeStringify(result);
-                      success = true;
-                      wrappedEmit({
+                    wrappedEmit.withRecovery(
+                      {
                         kind: 'tool_result',
                         toolCallId: tc.id,
-                        result: result as import('./tool-registry.js').ToolResult,
-                        durationMs: Math.max(0, Date.now() - startedAt),
-                      });
-                    } catch (error) {
-                      const message = error instanceof Error ? error.message : String(error);
-                      content = safeStringify({ success: false, error: message });
-                      wrappedEmit({
-                        kind: 'tool_result',
-                        toolCallId: tc.id,
-                        error: { code: 'TOOL_RUNTIME', params: { message } },
-                        durationMs: Math.max(0, Date.now() - startedAt),
-                      });
-                    }
-                    messages.push({ role: 'tool', content, toolCallId: tc.id });
-                  } else {
-                    this.toolExecutor.opts.currentStep = steps;
-                    const discoveredBeforeExecution = new Set(discoveredToolNames);
-                    const result = await this.toolExecutor.executeToolCalls(
-                      [tc],
-                      activeToolNames,
-                      discoveredToolNames,
-                      wrappedEmit,
-                      messages,
-                      () => this._cancelled || (options?.isAborted?.() ?? false),
-                      this.pendingResolvers,
-                      this.pendingQuestionResolvers,
+                        projection: this.tools.projectPublicCall(tc.name, args),
+                        status: 'skipped',
+                        durationMs: 0,
+                        skipped: true,
+                        synthetic: true,
+                      },
+                      { kind: 'tool_result', result: result as CanonicalJsonValue },
                     );
-                    if (result.cancelled) throw new Error('Commander tool execution was cancelled');
-                    for (const discoveredName of discoveredToolNames) {
-                      if (!discoveredBeforeExecution.has(discoveredName)) {
-                        toolLastUsedStep.set(discoveredName, steps);
-                      }
-                    }
-                    const toolMessage = [...messages]
-                      .reverse()
-                      .find((message) => message.role === 'tool' && message.toolCallId === tc.id);
-                    content =
-                      toolMessage?.content ??
-                      safeStringify({ success: false, error: 'Tool returned no result' });
-                    success = !content.includes('"success":false');
+                    return { toolCallId: tc.id, content, success: false };
                   }
 
-                  if (!isTransientToolAvailabilityFailure(content)) {
-                    toolCallDeduplicator.register(toolRef, args, {
-                      toolCallId: tc.id,
-                      step: steps,
-                      wasError: !success,
-                    });
-                  }
-                  this.recordEvidenceForStep(messages, [tc]);
-                  this.updateScratchpad(messages, [tc]);
+                  modelContext.view.push({ role: 'assistant', content: '', toolCalls: [tc] });
+                  let content: string;
+                  let success = false;
+
+                  this.toolExecutor.opts.currentStep = steps;
+                  const result = await this.toolExecutor.executeToolCalls(
+                    [tc],
+                    wrappedEmit,
+                    modelContext.view,
+                    () => this._cancelled || (options?.isAborted?.() ?? false),
+                    this.pendingResolvers,
+                    this.pendingQuestionResolvers,
+                  );
+                  if (result.blocked) throw new RunBudgetBlockedError(result.blocked);
+                  if (result.cancelled) throw new Error('Commander tool execution was cancelled');
+                  const toolMessage = this.latestToolResultMessage(modelContext.view, tc.id);
+                  content =
+                    toolMessage?.content ??
+                    safeStringify({ success: false, error: 'Tool returned no result' });
+                  success = !content.includes('"success":false');
+
+                  toolCallDeduplicator.register(toolRef, args, {
+                    toolCallId: tc.id,
+                    step: steps,
+                    wasError: !success,
+                  });
+                  this.transcriptIndex.sync(modelContext.view);
+                  this.recordEvidenceForStep(modelContext.view, [tc]);
+                  this.updateScratchpad(modelContext.view, [tc]);
                   if (tc.name === 'commander.askUser') {
                     this.lastAskUserAnsweredStep = steps;
-                    this.reevaluateIntentFromAskUser(messages, [tc], context, wrappedEmit);
                   }
                   if (getToolCompactionCategory(tc.name) === 'mutation') {
                     activeContextGraph.invalidateForMutation(tc.name, args);
-                    this.recordMutationWatermark(messages, tc.name, args);
+                    this.recordMutationWatermark(tc.name, args);
                   }
-                  this.shrinkCoveredToolMessages(messages);
+                  modelContext.view = this.shrinkCoveredToolMessages(modelContext.view);
                   return { toolCallId: tc.id, content, success };
                 },
               }
             : undefined;
 
-        const forcedAskUserWireName =
-          [...graphReverseMap.entries()].find(
-            ([, original]) => original === 'commander.askUser',
-          )?.[0] ?? 'commander.askUser';
-
         const rawResult = await this.completeWithRetry(
           wireMessages,
           {
             tools: wireTools.length > 0 ? wireTools : undefined,
-            toolChoice:
-              wireTools.length > 0
-                ? forceAskUserNextTurn
-                  ? { name: forcedAskUserWireName }
-                  : 'auto'
-                : undefined,
+            toolChoice: wireTools.length > 0 ? 'auto' : undefined,
             temperature: this.temperature,
             maxTokens: providerMaxOutputTokens,
             signal: this._abortController?.signal,
@@ -1152,6 +1148,31 @@ export class AgentOrchestrator {
         // serializer's reverse map.
         lastResult = destructResponse(rawResult, graphReverseMap);
 
+        wrappedEmit.withRecovery(
+          {
+            kind: 'public_progress',
+            operationId: `model:${steps}`,
+            status: 'completed',
+          },
+          {
+            kind: 'model_checkpoint',
+            content: lastResult.content,
+            finishReason: lastResult.finishReason,
+            toolCalls: lastResult.toolCalls.map((call) => ({
+              id: call.id,
+              name: call.name,
+              arguments: this.toolExecutor.mergedArgsFor(call) as Record<
+                string,
+                CanonicalJsonValue
+              >,
+              ...(call.thoughtSignature?.trim()
+                ? { thoughtSignature: call.thoughtSignature }
+                : {}),
+            })),
+            completedStep: steps,
+          },
+        );
+
         if (
           lastResult.toolCalls.length > 0 &&
           lastResult.toolCalls.every((call) => call.handledByProviderLoop === true)
@@ -1159,39 +1180,7 @@ export class AgentOrchestrator {
           // The provider stayed inside its own turn while the host bridge ran
           // each call through ToolExecutor. Rebuild context and authorization
           // before exposing the next dynamic-tool set; never execute twice.
-          forceAskUserNextTurn = false;
           continue;
-        }
-
-        // Phase I — force_ask_user was consumed this turn (whether or not
-        // the model complied). Clear the flag so we don't keep forcing
-        // forever.
-        forceAskUserNextTurn = false;
-
-        // Phase I — if the model emitted option-list markdown without
-        // calling `commander.askUser`, schedule a forced `tool_choice:
-        // commander.askUser` on the next turn and inject a system-reminder
-        // so the model knows why it's being redirected. This fixes S10
-        // (model lists A/B/C in prose rather than asking structurally).
-        const hasAskUserCall = lastResult.toolCalls.some(
-          (tc) =>
-            parseCanonicalToolName(tc.name).domain === 'commander' &&
-            parseCanonicalToolName(tc.name).action === 'askUser',
-        );
-        if (!hasAskUserCall && detectOptionListMarkdown(lastResult.content ?? '')) {
-          forceAskUserNextTurn = true;
-          wrappedEmit({
-            kind: 'phase_note',
-            note: 'force_ask_user',
-            params: { detectedPattern: 'option_list' },
-          });
-          messages.push({
-            role: 'system',
-            content:
-              'Your previous response listed options as markdown (A/B/C or 1/2/3). ' +
-              'You MUST call `commander.askUser` with `options` to present these choices. ' +
-              'Do not list options in prose.',
-          });
         }
 
         // Deltas already streamed to the renderer via `drainLLMStream` — no
@@ -1205,9 +1194,7 @@ export class AgentOrchestrator {
           // with no mutation naturally surfaces as `unsatisfied` with a
           // `missing_commit` blocker, and execution-intent runs cannot
           // return `done` silently.
-          const finalContent =
-            lastResult.content ||
-            (lastResult.toolCalls.length === 0 && steps > 1 ? 'Task completed.' : '');
+          const finalContent = lastResult.content;
           this.lastAssistantText = finalContent;
 
           // Phase E — compute the exit decision and carry it on both the
@@ -1222,7 +1209,7 @@ export class AgentOrchestrator {
               isDelta: false,
             });
           }
-          wrappedEmit({
+          emitRunEnd({
             kind: 'run_end',
             status: 'completed',
             exitDecision: this.toTimelineExitDecisionMeta(decision),
@@ -1233,7 +1220,7 @@ export class AgentOrchestrator {
           return { ...lastResult, exitDecision: decision, exitIntent: intent };
         }
 
-        messages.push({
+        modelContext.view.push({
           role: 'assistant',
           content: lastResult.content,
           reasoning: lastResult.reasoning,
@@ -1243,13 +1230,6 @@ export class AgentOrchestrator {
         // v2: Post-execution guide inject (fallback path).
         // If a mutation tool is about to execute but its guide is not yet
         // active in Layer 3, inject it now. The guide will be visible on
-        // Register tool calls in transcript index (O(1) lookups later)
-        this.transcriptIndex.registerAssistantToolCalls(messages.length - 1, lastResult.toolCalls);
-
-        for (const tc of lastResult.toolCalls) {
-          toolLastUsedStep.set(tc.name, steps);
-        }
-
         // Phase G — per-turn tool-call dedup.
         //
         // Any `(toolRef, argsHash)` we saw execute within the last
@@ -1264,7 +1244,7 @@ export class AgentOrchestrator {
         const callsToExecute: LLMToolCall[] = [];
         for (const tc of lastResult.toolCalls) {
           const toolRef = parseCanonicalToolName(tc.name);
-          const args = (tc.arguments as Record<string, unknown>) ?? {};
+          const args = this.toolExecutor.mergedArgsFor(tc);
           const prior = toolCallDeduplicator.check(toolRef, args, steps);
           if (!prior) {
             callsToExecute.push(tc);
@@ -1275,7 +1255,7 @@ export class AgentOrchestrator {
           // let the call through — the model can't "see that tool_result" if
           // it was trimmed, so skipping would cause an infinite re-read loop.
           if (!prior.wasError) {
-            const priorStillVisible = messages.some(
+            const priorStillVisible = modelContext.view.some(
               (m) =>
                 m.role === 'tool' && (m as { toolCallId?: string }).toolCallId === prior.toolCallId,
             );
@@ -1295,119 +1275,43 @@ export class AgentOrchestrator {
             },
           });
           wrappedEmit({
-            kind: 'tool_result',
+            kind: 'tool_call',
             toolCallId: tc.id,
-            result: {
-              skipped: true,
-              reason: 'duplicate_call_within_window',
-              priorToolCallId: prior.toolCallId,
-              priorStep: prior.step,
-              priorWasError: prior.wasError,
-            },
-            durationMs: 0,
-            skipped: true,
-            synthetic: true,
+            toolRef,
+            args,
           });
-          const feedback = prior.wasError
-            ? `[skipped] identical call to ${toolRef.domain}.${toolRef.action} at step ${prior.step} failed — change arguments or try a different approach instead of retrying.`
-            : `[skipped] identical call to ${toolRef.domain}.${toolRef.action} already ran at step ${prior.step} — see that tool_result instead of re-calling.`;
-          messages.push({
-            role: 'tool',
-            content: feedback,
-            toolCallId: tc.id,
-          });
-        }
-
-        // Intercept todo.manage — run them locally via TodoRunStore
-        // and emit structured snapshots. These never reach the ToolExecutor.
-        const todoStore = this.todoStore;
-        const todoCallIds = new Set<string>();
-        if (todoStore) {
-          for (const tc of callsToExecute) {
-            if (tc.name !== 'todo.manage') continue;
-            todoCallIds.add(tc.id);
-            const args = (tc.arguments ?? {}) as Record<string, unknown>;
-            const startedAt = Date.now();
-            wrappedEmit({
-              kind: 'tool_call',
+          const duplicateResult = this.canonicalDedupResult(tc.name, prior.wasError);
+          wrappedEmit.withRecovery(
+            {
+              kind: 'tool_result',
               toolCallId: tc.id,
-              toolRef: parseCanonicalToolName(tc.name),
-              args,
-            });
-            try {
-              let result: unknown;
-              if (args.action === 'set') {
-                const snapshot = todoStore.set({
-                  items: (Array.isArray(args.items) ? args.items : []) as Array<{ label: string }>,
-                });
-                result = {
-                  success: true,
-                  data: { ...todoStore.toStreamPayload(), items: snapshot.items },
-                };
-              } else {
-                const { snapshot, applied } = todoStore.update({
-                  todoId: typeof args.todoId === 'string' ? args.todoId : '',
-                  updates: (Array.isArray(args.updates) ? args.updates : []) as Array<{
-                    id: string;
-                    status: 'pending' | 'in_progress' | 'done';
-                  }>,
-                });
-                result = {
-                  success: true,
-                  data: { ...todoStore.toStreamPayload(), applied, items: snapshot.items },
-                };
-              }
-              const durationMs = Math.max(0, Date.now() - startedAt);
-              const serialized = JSON.stringify(result);
-              wrappedEmit({
-                kind: 'tool_result',
-                toolCallId: tc.id,
-                result: result as import('./tool-registry.js').ToolResult,
-                durationMs,
-              });
-              messages.push({ role: 'tool', content: serialized, toolCallId: tc.id });
-            } catch (err) {
-              const durationMs = Math.max(0, Date.now() - startedAt);
-              const errMsg = err instanceof Error ? err.message : String(err);
-              const errorResult = {
-                success: false,
-                error: errMsg,
-                _recovery: 'Check the error and retry with corrected arguments.',
-              };
-              wrappedEmit({
-                kind: 'tool_result',
-                toolCallId: tc.id,
-                error: { code: 'TOOL_RUNTIME', params: { message: errMsg } },
-                durationMs,
-              });
-              messages.push({
-                role: 'tool',
-                content: JSON.stringify(errorResult),
-                toolCallId: tc.id,
-              });
-            }
-          }
+              projection: this.tools.projectPublicCall(tc.name, args),
+              status: 'skipped',
+              durationMs: 0,
+              skipped: true,
+              synthetic: true,
+            },
+            { kind: 'tool_result', result: duplicateResult as CanonicalJsonValue },
+          );
+          modelContext.view.push({
+            role: 'tool',
+            content: safeStringify(duplicateResult),
+            toolCallId: tc.id,
+          });
         }
-        const nonTodoCalls = callsToExecute.filter((tc) => !todoCallIds.has(tc.id));
 
         // Delegate tool execution to ToolExecutor
         this.toolExecutor.opts.currentStep = steps;
-        const discoveredBeforeExecution = new Set(discoveredToolNames);
-        const { cancelled, dupMap } = await this.toolExecutor.executeToolCalls(
-          nonTodoCalls,
-          activeToolNames,
-          discoveredToolNames,
+        const { cancelled, dupMap, blocked } = await this.toolExecutor.executeToolCalls(
+          callsToExecute,
           wrappedEmit,
-          messages,
+          modelContext.view,
           () => this._cancelled || (options?.isAborted?.() ?? false),
           this.pendingResolvers,
           this.pendingQuestionResolvers,
         );
-        for (const discoveredName of discoveredToolNames) {
-          if (!discoveredBeforeExecution.has(discoveredName)) {
-            toolLastUsedStep.set(discoveredName, steps);
-          }
-        }
+
+        if (blocked) return finishBlocked(blocked);
 
         if (cancelled) {
           wrappedEmit({
@@ -1416,22 +1320,18 @@ export class AgentOrchestrator {
             completedToolCalls: 0,
             pendingToolCalls: 0,
           });
-          wrappedEmit({ kind: 'run_end', status: 'cancelled' });
+          emitRunEnd({ kind: 'run_end', status: 'cancelled' });
           return { content: 'Cancelled.', toolCalls: [], finishReason: 'stop' };
         }
 
         // Phase G — register just-executed calls in the deduplicator so
         // a subsequent identical `(toolRef, args)` within `windowSteps`
-        // is short-circuited. An unloaded-but-known tool is deliberately
-        // omitted: it is a transient discovery-state failure, not a failed
-        // action, and registering it would lock a just-discovered retry out
-        // for the next three steps.
+        // is short-circuited.
         for (const tc of callsToExecute) {
           const toolRef = parseCanonicalToolName(tc.name);
-          const args = (tc.arguments as Record<string, unknown>) ?? {};
-          const resultMsg = messages.find((m) => m.role === 'tool' && m.toolCallId === tc.id);
+          const args = this.toolExecutor.mergedArgsFor(tc);
+          const resultMsg = this.latestToolResultMessage(modelContext.view, tc.id);
           const content = resultMsg?.content ?? '';
-          if (isTransientToolAvailabilityFailure(content)) continue;
           const wasError = content.includes('"success":false');
           toolCallDeduplicator.register(toolRef, args, {
             toolCallId: tc.id,
@@ -1445,7 +1345,7 @@ export class AgentOrchestrator {
         // (role=tool) since `executeToolCalls` wrote them in order.
         // Phase G — skipped-by-dedup calls never ran, so they can't
         // produce evidence; restrict to `callsToExecute`.
-        this.recordEvidenceForStep(messages, callsToExecute);
+        this.recordEvidenceForStep(modelContext.view, callsToExecute);
 
         // Progress stall detection: if execution-intent and no successful
         // mutation for STALL_THRESHOLD consecutive steps, emit evidence.
@@ -1462,7 +1362,7 @@ export class AgentOrchestrator {
         }
 
         // 2C: Update scratchpad after each tool execution batch.
-        this.updateScratchpad(messages, callsToExecute);
+        this.updateScratchpad(modelContext.view, callsToExecute);
 
         // Track the most recent `commander.askUser` resolution. The
         // askUser-continuation safety net in the next iteration uses this
@@ -1470,20 +1370,20 @@ export class AgentOrchestrator {
         // mutation.
         if (lastResult.toolCalls.some((tc) => tc.name === 'commander.askUser')) {
           this.lastAskUserAnsweredStep = steps;
-
-          // 1G: Mid-run intent re-evaluation. When the user answers an
-          // askUser question, re-classify intent based on their answer text.
-          // If the intent changes, update the active exit contract.
-          this.reevaluateIntentFromAskUser(messages, callsToExecute, context, wrappedEmit);
         }
 
         // Push results for deduplicated tool calls
         for (const [dupId, firstId] of dupMap) {
-          const firstResult = messages.find((m) => m.role === 'tool' && m.toolCallId === firstId);
+          const firstResult = this.firstToolResultMessage(modelContext.view, firstId);
           if (firstResult) {
-            messages.push({ role: 'tool', content: firstResult.content, toolCallId: dupId });
+            modelContext.view.push({
+              role: 'tool',
+              content: firstResult.content,
+              toolCallId: dupId,
+            });
           }
         }
+        this.transcriptIndex.sync(modelContext.view);
 
         // Mutation invalidation: when this step's tool calls include
         // mutations, drop stale entity-cache entries in the graph. Mirrors
@@ -1510,22 +1410,22 @@ export class AgentOrchestrator {
           const hasSnapshotRestore = snapshotRestoreCallIds.size > 0;
           if (hasSnapshotRestore) {
             graph.clearToolResults();
-            for (let i = 0; i < messages.length; i++) {
-              const m = messages[i]!;
-              if (m.role !== 'tool' || !m.toolCallId) continue;
-              if (snapshotRestoreCallIds.has(m.toolCallId)) continue;
-              const key = this.composeToolCallKey(messages, i);
+            for (const toolMessage of this.transcriptIndex.toolMessages()) {
+              if (snapshotRestoreCallIds.has(toolMessage.toolCallId)) continue;
+              const key = this.composeToolCallKey(toolMessage.msgIndex);
               if (key) this.snapshotPreRestoreToolCallKeys.add(key);
             }
             this.invalidatedToolCallKeys.clear();
           } else {
+            const mutations: Array<{ toolName: string; args: Record<string, unknown> }> = [];
             for (const tc of callsToExecute) {
               const category = getToolCompactionCategory(tc.name);
               if (category !== 'mutation') continue;
               const args = (tc.arguments as Record<string, unknown>) ?? {};
-              graph.invalidateForMutation(tc.name, args);
-              this.recordMutationWatermark(messages, tc.name, args);
+              mutations.push({ toolName: tc.name, args });
             }
+            graph.invalidateForMutations(mutations);
+            this.recordMutationWatermarks(mutations);
           }
         }
 
@@ -1536,100 +1436,31 @@ export class AgentOrchestrator {
         // rewrite — prevents unbounded `messages` growth in long sessions
         // without changing what the wire payload looks like (the serializer
         // already drops fully-cached / stubbed groups).
-        this.shrinkCoveredToolMessages(messages);
+        modelContext.view = this.shrinkCoveredToolMessages(modelContext.view);
 
-        // Batching hints: detect repetitive tool patterns and inject efficiency hint
-        const toolCallCounts = new Map<string, number>();
-        for (const tc of callsToExecute) {
-          toolCallCounts.set(tc.name, (toolCallCounts.get(tc.name) ?? 0) + 1);
-        }
-        const batchHints: string[] = [];
-        for (const [name, count] of toolCallCounts) {
-          if (count >= 3) {
-            if (name === 'canvas.updateNodeData') {
-              batchHints.push(
-                `[Efficiency: You called ${name} ${count} times. Use canvas.updateNodes with an array for batch updates.]`,
-              );
-            } else if (name === 'canvas.createNodes') {
-              batchHints.push(
-                `[Efficiency: You called ${name} ${count} times. Pass multiple nodes in a single canvas.createNodes call.]`,
-              );
-            } else if (name === 'canvas.getNode') {
-              batchHints.push(
-                `[Efficiency: You called ${name} ${count} times. Results are cached — avoid re-fetching nodes you already have.]`,
-              );
-            }
-          }
-        }
-
-        // Step failure rate warning
-        const failedToolCount = messages
-          .slice(-lastResult.toolCalls.length)
-          .filter((m) => m.role === 'tool' && m.content.includes('"success":false')).length;
-        const failRate =
-          lastResult.toolCalls.length > 0 ? failedToolCount / lastResult.toolCalls.length : 0;
-        if (failRate > 0.3 && lastResult.toolCalls.length >= 3) {
-          batchHints.push(
-            `[Warning: ${failedToolCount}/${lastResult.toolCalls.length} tool calls failed this step. Consider re-planning your approach.]`,
-          );
-        }
-
-        if (batchHints.length > 0) {
-          messages.push({ role: 'system', content: batchHints.join('\n') });
-        }
-
-        // Handle injected messages
-        if (this.injectedMessageCount > 0) {
-          const count = this.injectedMessageCount;
-          this.injectedMessageCount = 0;
-          messages.push({
-            role: 'system',
-            content: `[${count} new user message${count > 1 ? 's were' : ' was'} received while you were working. Check the latest user messages above and address them before continuing your current task.]`,
-          });
-        }
       }
 
-      // Reached maxSteps
-      const pendingToolCalls = lastResult.toolCalls.length;
-      const limitMsg =
-        pendingToolCalls > 0
-          ? `⚠️ Reached the step limit (${this.maxSteps} steps). ${pendingToolCalls} pending tool call(s) were not executed. You can increase "Max Steps" in Settings → Commander, or send a follow-up message to continue.`
-          : `Reached the step limit (${this.maxSteps} steps). You can increase "Max Steps" in Settings → Commander if needed.`;
-      const finalContent = lastResult.content ? `${lastResult.content}\n\n${limitMsg}` : limitMsg;
-      this.lastAssistantText = finalContent;
-      // Phase F — hard enforcement: append a `budget_exhausted` evidence
-      // so `decide()` returns the `budget_exhausted` outcome with full
-      // precedence, regardless of intent or other ledger state. The
-      // engine's precedence rules take care of the rest.
-      this.appendEvidence({ kind: 'budget_exhausted', metric: 'steps', at: Date.now() });
-      const { decision, intent } = this.computeExitDecision();
-      if (finalContent.trim().length > 0) {
+    } catch (error) {
+      if (error instanceof RunBudgetBlockedError) {
+        return finishBlocked(error.blocker);
+      }
+      if (!terminalEmitted) {
         wrappedEmit({
-          kind: 'assistant_text',
-          content: finalContent,
-          isDelta: false,
+          kind: 'public_progress',
+          operationId: `model:${this._currentStep}`,
+          status: 'failed',
         });
+        emitRunEnd({ kind: 'run_end', status: 'failed' });
       }
-      wrappedEmit({
-        kind: 'run_end',
-        status: 'max_steps',
-        exitDecision: this.toTimelineExitDecisionMeta(decision),
-      });
-      return { ...lastResult, exitDecision: decision, exitIntent: intent };
+      throw error;
     } finally {
-      // G2-5: snapshot the final graph BEFORE clearing so
-      // `getSerializedContextGraph()` remains callable after execute() returns.
-      //
-      // If the graph was never built (e.g. early abort before the first
-      // iteration's `rebuildGraphFromMessages`), fall back to the seed so
-      // callers don't overwrite previously-persisted warm-up data with an
-      // empty snapshot.
-      const serialized = this.contextGraph?.serialize() ?? [];
-      this.lastSerializedGraph = serialized.length > 0 ? serialized : [...this.pendingGraphSeed];
-      // Seed is single-use — once consumed by this execute(), drop it so a
-      // second call without a fresh seed doesn't re-merge stale items.
-      this.pendingGraphSeed = [];
-      this.activeMessages = null;
+      const resumePausedRun = this._resumePausedRun;
+      this._resumePausedRun = undefined;
+      resumePausedRun?.();
+      this._runState = 'inactive';
+      this.activeModelContext = null;
+      this.activeEmit = null;
+      this.activeResourceController = null;
       this.transcriptIndex.clear();
       this.contextGraph = null;
     }
@@ -1637,7 +1468,7 @@ export class AgentOrchestrator {
 
   private async completeWithRetry(
     messages: LLMMessage[],
-    opts: Parameters<LLMAdapter['completeWithTools']>[1],
+    opts: NonNullable<Parameters<LLMAdapter['completeWithTools']>[1]>,
     wrappedEmit: StreamEmit,
     isAborted: () => boolean,
     maxRetries = 2,
@@ -1649,20 +1480,77 @@ export class AgentOrchestrator {
     const MAX_MS = 8000;
     let lastErr: unknown;
     for (let i = 0; i <= maxRetries; i++) {
+      const resourceController = this.activeResourceController;
+      if (!resourceController) throw new Error('Run resource controller is not active');
+      const operationId = `model:${this._currentStep}:attempt:${i}`;
+      const quote: ResourceQuote = {
+        tokens: {
+          knowledge: 'estimated',
+          value: conservativeRequestTokenUpperBound(
+            messages,
+            opts.tools ?? [],
+            Math.max(0, opts.maxTokens ?? 0),
+          ),
+          upperBound: true,
+        },
+        toolCalls: 0,
+        costUsd: costQuoteFromAdapter(this.adapter.quoteCostUpperBound?.(messages, opts)),
+      };
+      const reservation = resourceController.reserve(operationId, 'model', quote);
+      if (!reservation.accepted) throw new RunBudgetBlockedError(reservation.blocker);
+      wrappedEmit(reservation.state);
+      let operationSettled = false;
+
       // Install a fresh step-level controller each attempt so a cancel
       // from the prior attempt can't leak across the retry boundary.
       // Combined with the run-level signal so either aborts the fetch.
       this._currentStepController = new AbortController();
       const stepSignal = this._currentStepController.signal;
       const runSignal = opts?.signal;
-      const combined = runSignal ? AbortSignal.any([runSignal, stepSignal]) : stepSignal;
+      const remainingWallTimeMs = resourceController.remainingWallTimeMs();
+      const wallController =
+        remainingWallTimeMs === undefined ? undefined : new AbortController();
+      const wallTimeout = wallController
+        ? setTimeout(
+            () => wallController.abort(),
+            Math.max(1, Math.min(remainingWallTimeMs!, 2_147_483_647)),
+          )
+        : undefined;
+      const signals = [stepSignal, ...(runSignal ? [runSignal] : []), ...(wallController ? [wallController.signal] : [])];
+      const combined = signals.length === 1 ? signals[0]! : AbortSignal.any(signals);
       const stepOpts = { ...opts, signal: combined };
       try {
         const stream = await this.adapter.completeWithTools(messages, stepOpts);
         const result = await this.drainLLMStream(stream, wrappedEmit, isAborted);
+        const settledState = resourceController.settle(
+          operationId,
+          'model',
+          measurementFromUsage(quote, result.resourceUsage),
+        );
+        operationSettled = true;
+        wrappedEmit(settledState);
+        if (wallTimeout !== undefined) clearTimeout(wallTimeout);
         providerHealth.recordSuccess(this.adapter.id);
         return result;
       } catch (err) {
+        if (wallTimeout !== undefined) clearTimeout(wallTimeout);
+        if (err instanceof RunBudgetBlockedError) throw err;
+        if (!operationSettled) {
+          const settledState = resourceController.settle(
+            operationId,
+            'model',
+            measurementFromUsage(quote),
+          );
+          operationSettled = true;
+          wrappedEmit(settledState);
+        }
+        if (wallController?.signal.aborted && !this._cancelled && !isAborted()) {
+          throw new RunBudgetBlockedError({
+            kind: 'resource_budget',
+            metric: 'wall_time',
+            reason: 'exhausted',
+          });
+        }
         lastErr = err;
         // Step-cancel: a user-initiated step abort lands here as a
         // LucidError(CANCELLED). Treat it like a retryable transient so
@@ -1728,9 +1616,10 @@ export class AgentOrchestrator {
    * Mapping:
    *   reasoning_delta   → thinking_delta
    *   text_delta        → chunk (accumulated into content)
-   *   tool_call_started → tool_call_started
+   *   tool_call_started → internal call assembly only
    *   tool_call_args_delta → tool_call_args_delta
-   *   tool_call_complete → tool_call_args_complete + sinks to toolCalls[]
+   *   tool_call_complete → internal call assembly only; ToolExecutor owns
+   *                        the guarded public tool_call emission
    *   usage             → (no wire emit; usage isn't on the commander stream yet)
    *   finished          → finishReason capture (no wire emit; `done` is sent
    *                       by the caller once the whole run ends)
@@ -1748,6 +1637,7 @@ export class AgentOrchestrator {
     const toolCallsById = new Map<string, LLMToolCall>();
     const toolOrder: string[] = [];
     let finishReason: LLMFinishReason = 'stop';
+    let resourceUsage: OrchestratorCompletion['resourceUsage'];
 
     // Stall detection lives inside each adapter (see `withStallTimeout`)
     // at byte-level granularity; the orchestrator just drains whatever
@@ -1765,7 +1655,6 @@ export class AgentOrchestrator {
         switch (event.kind) {
           case 'reasoning_delta':
             reasoning += event.delta;
-            wrappedEmit({ kind: 'thinking', content: event.delta, isDelta: true });
             break;
           case 'text_delta':
             content += event.delta;
@@ -1776,12 +1665,6 @@ export class AgentOrchestrator {
               toolOrder.push(event.id);
               toolCallsById.set(event.id, { id: event.id, name: event.name, arguments: {} });
             }
-            wrappedEmit({
-              kind: 'tool_call',
-              toolCallId: event.id,
-              toolRef: parseCanonicalToolName(event.name),
-              args: {},
-            });
             break;
           case 'tool_call_args_delta':
             // v2 has no partial-args event; defer emission until
@@ -1805,19 +1688,18 @@ export class AgentOrchestrator {
                 handledByProviderLoop: event.handledByProviderLoop,
               });
             }
-            if (!event.handledByProviderLoop) {
-              wrappedEmit({
-                kind: 'tool_call',
-                toolCallId: event.id,
-                toolRef: parseCanonicalToolName(resolvedName),
-                args: event.arguments,
-              });
-            }
             break;
           }
           case 'usage':
-            // Usage diagnostics stay off the timeline stream; kept as a
-            // recognised case so the exhaustive switch holds.
+            resourceUsage = {
+              ...(event.promptTokens !== undefined ? { promptTokens: event.promptTokens } : {}),
+              ...(event.completionTokens !== undefined
+                ? { completionTokens: event.completionTokens }
+                : {}),
+              ...(event.reasoningTokens !== undefined
+                ? { reasoningTokens: event.reasoningTokens }
+                : {}),
+            };
             break;
           case 'finished':
             finishReason = event.finishReason;
@@ -1839,42 +1721,16 @@ export class AgentOrchestrator {
       reasoning: reasoning || undefined,
       toolCalls: toolOrder.map((id) => toolCallsById.get(id)!).filter(Boolean),
       finishReason,
+      ...(resourceUsage ? { resourceUsage } : {}),
     };
-  }
-
-  /**
-   * Resolve `canvas.generation` process category using the real node type on
-   * the canvas when the LLM's `nodeType` arg is missing. Other tools pass
-   * through unchanged. This eliminates the image-node-generation default
-   * bias when the model calls `canvas.generation` on a video or audio node
-   * without spelling out nodeType.
-   */
-  private detectProcessForToolCall(
-    name: string,
-    args?: Record<string, unknown>,
-  ): ProcessCategory | null {
-    if (
-      name === 'canvas.generation' &&
-      this.resolveCanvasNodeType &&
-      args &&
-      typeof args.nodeType !== 'string' &&
-      typeof args.canvasId === 'string' &&
-      typeof args.nodeId === 'string'
-    ) {
-      const resolved = this.resolveCanvasNodeType(args.canvasId, args.nodeId);
-      if (resolved) {
-        return detectProcess(name, { ...args, nodeType: resolved });
-      }
-    }
-    return detectProcess(name, args);
   }
 
   /**
    * G2a-6: Rebuild the ContextGraph from the canonical `messages` array.
    *
    * Runs before every LLM call in graph-mode. This keeps the graph in lock-step
-   * with any `messages` mutations (system-prompt refresh, process-prompt
-   * injection, batch-warning inserts, etc.) without requiring each mutation
+   * with any `messages` mutations (system-prompt refresh and authentic user
+   * messages) without requiring each mutation
    * site to know about the graph.
    *
    * Tool-result identity:
@@ -1886,56 +1742,14 @@ export class AgentOrchestrator {
    */
   private rebuildGraphFromMessages(messages: LLMMessage[], step: number): void {
     if (!this.contextGraph) return;
+    this.transcriptIndex.rebuild(messages);
     this.contextGraph = new ContextGraph();
-    // G2-5: re-merge graph-only persisted items (seeded on resume). Message
-    // items are rebuilt below, but persisted assistant turns also provide
-    // opaque continuation metadata that the renderer history cannot recreate.
-    for (const seed of this.pendingGraphSeed) {
-      if (
-        seed.kind === 'entity-snapshot' ||
-        seed.kind === 'session-summary' ||
-        seed.kind === 'scratchpad'
-      ) {
-        this.contextGraph.add(seed);
-      }
-    }
-    const seededAssistantTurns = this.pendingGraphSeed.filter(
-      (seed): seed is Extract<ContextItem, { kind: 'assistant-turn' }> =>
-        seed.kind === 'assistant-turn',
-    );
-    let seededAssistantCursor = 0;
-    const takeMatchingSeededAssistant = (
-      message: LLMMessage,
-    ): Extract<ContextItem, { kind: 'assistant-turn' }> | undefined => {
-      for (let index = seededAssistantCursor; index < seededAssistantTurns.length; index += 1) {
-        const candidate = seededAssistantTurns[index]!;
-        const messageCalls = message.toolCalls ?? [];
-        const candidateCalls = candidate.toolCalls ?? [];
-        const sameCalls =
-          messageCalls.length === candidateCalls.length &&
-          messageCalls.every(
-            (call, callIndex) =>
-              call.id === candidateCalls[callIndex]?.id &&
-              call.name === candidateCalls[callIndex]?.name,
-          );
-        if (candidate.content !== message.content || !sameCalls) continue;
-        seededAssistantCursor = index + 1;
-        return candidate;
-      }
-      return undefined;
-    };
-    // Counter of how many times each `(callId, toolKey, paramsHash)` has
-    // been seen so far in this pass — lets us disambiguate adapter
-    // fallback ids (`tool-call-0`) that repeat across turns with the
-    // same args. Each occurrence gets its own `#n` suffix in the
-    // watermark keys.
-    const compositeOccurrence = new Map<string, number>();
     for (let i = 0; i < messages.length; i++) {
       const m = messages[i]!;
       if (m.role === 'system') {
         // The FIRST system message is the top-level system prompt → guide.
-        // Subsequent system messages (injected process prompts, batch warnings,
-        // new-user-message notices) are position-sensitive runtime instructions
+        // Subsequent system messages restored from durable history are
+        // position-sensitive runtime instructions
         // that must remain where they were inserted, so they ride as
         // `system-message` items which the serializer emits inline at their
         // original position.
@@ -1963,53 +1777,29 @@ export class AgentOrchestrator {
           content: m.content,
         } satisfies ContextItem);
       } else if (m.role === 'assistant') {
-        const seededAssistant = takeMatchingSeededAssistant(m);
         this.contextGraph.add({
           kind: 'assistant-turn',
           itemId: freshContextItemId(),
           producedAtStep: step,
           content: m.content,
-          reasoning: m.reasoning ?? seededAssistant?.reasoning,
+          reasoning: m.reasoning,
           toolCalls: m.toolCalls?.map((tc) => ({
             id: tc.id,
             name: tc.name,
             arguments: tc.arguments,
-            thoughtSignature:
-              tc.thoughtSignature ??
-              seededAssistant?.toolCalls?.find((seededCall) => seededCall.id === tc.id)
-                ?.thoughtSignature,
+            thoughtSignature: tc.thoughtSignature,
           })),
         } satisfies ContextItem);
       } else if (m.role === 'tool') {
-        // Recover the originating tool call name + args by scanning prior
-        // assistant turns in the array. Falls back to a unique-per-message
-        // identity when args aren't known (e.g. seeded tool messages).
-        let toolKey: ToolKey = 'unknown' as ToolKey;
-        let paramsHash = m.toolCallId ?? `msg-${i}`;
-        if (m.toolCallId) {
-          for (let j = i - 1; j >= 0; j--) {
-            const prev = messages[j]!;
-            if (prev.role !== 'assistant' || !prev.toolCalls) continue;
-            const call = prev.toolCalls.find((tc) => tc.id === m.toolCallId);
-            if (call) {
-              toolKey = call.name as ToolKey;
-              paramsHash = safeStringify(call.arguments);
-              break;
-            }
-          }
-        }
+        const indexedToolMessage = this.transcriptIndex.toolMessageAt(i);
+        const toolKey = (indexedToolMessage?.toolName ?? 'unknown') as ToolKey;
+        const paramsHash = indexedToolMessage?.paramsHash ?? m.toolCallId ?? `msg-${i}`;
         // Honor persistent invalidation watermarks. The composite key is
         // `callId|toolKey|paramsHash#occurrence` — the occurrence counter
         // disambiguates adapters that reuse fallback ids (`tool-call-0`)
         // across turns with identical args, so a later fresh read is not
         // suppressed by an earlier same-shape invalidation.
-        let compositeKey: string | undefined;
-        if (m.toolCallId) {
-          const base = `${m.toolCallId}|${toolKey}|${paramsHash}`;
-          const n = (compositeOccurrence.get(base) ?? 0) + 1;
-          compositeOccurrence.set(base, n);
-          compositeKey = `${base}#${n}`;
-        }
+        const compositeKey = indexedToolMessage?.compositeKey;
         if (compositeKey && this.snapshotPreRestoreToolCallKeys.has(compositeKey)) continue;
         if (compositeKey && this.invalidatedToolCallKeys.has(compositeKey)) continue;
         let originStep = step;
@@ -2045,40 +1835,51 @@ export class AgentOrchestrator {
    *   - When the mutation carries an entityId, only entity-specific gets
    *     that include that id in their paramsHash are invalidated; list
    *     results for the same domain are always dropped (they may be stale).
-   * Keying by `toolCallId` (not `toolKey|paramsHash`) lets a subsequent
-   * fresh read for the same identity flow through — its call-id is new.
+   * The transcript index gives every result a stable occurrence key, so
+   * fallback ids reused by providers cannot invalidate a later fresh read.
    */
   private recordMutationWatermark(
-    messages: LLMMessage[],
     mutationToolName: string,
     mutationArgs: Record<string, unknown>,
   ): void {
-    const domain = mutationToolName.split('.')[0];
-    if (!domain) return;
-    const entityId = extractEntityIdFromArgs(mutationArgs);
-    for (let i = 0; i < messages.length; i++) {
-      const m = messages[i]!;
-      if (m.role !== 'tool' || !m.toolCallId) continue;
-      let callName: string | undefined;
-      let callArgs: unknown;
-      for (let j = i - 1; j >= 0; j--) {
-        const prev = messages[j]!;
-        if (prev.role !== 'assistant' || !prev.toolCalls) continue;
-        const call = prev.toolCalls.find((tc) => tc.id === m.toolCallId);
-        if (call) {
-          callName = call.name;
-          callArgs = call.arguments;
-          break;
+    this.recordMutationWatermarks([{ toolName: mutationToolName, args: mutationArgs }]);
+  }
+
+  private recordMutationWatermarks(
+    mutations: ReadonlyArray<{ toolName: string; args: Record<string, unknown> }>,
+  ): void {
+    const invalidations = new Map<string, { invalidateAll: boolean; entityIds: Set<string> }>();
+    for (const mutation of mutations) {
+      const domain = mutation.toolName.split('.')[0];
+      if (!domain) continue;
+      const existing = invalidations.get(domain) ?? {
+        invalidateAll: false,
+        entityIds: new Set<string>(),
+      };
+      const entityId = extractEntityIdFromArgs(mutation.args);
+      if (entityId) existing.entityIds.add(entityId);
+      else existing.invalidateAll = true;
+      invalidations.set(domain, existing);
+    }
+
+    for (const [domain, invalidation] of invalidations) {
+      const entityMatcher =
+        invalidation.entityIds.size > 0
+          ? new RegExp([...invalidation.entityIds].map(escapeRegExp).join('|'))
+          : undefined;
+      for (const toolMessage of this.transcriptIndex.toolMessagesForDomain(domain)) {
+        const callName = toolMessage.toolName;
+        if (!callName) continue;
+        const category = getToolCompactionCategory(callName);
+        if (category !== 'get' && category !== 'list') continue;
+        if (
+          !invalidation.invalidateAll &&
+          category !== 'list' &&
+          (!entityMatcher || !entityMatcher.test(toolMessage.paramsHash))
+        ) {
+          continue;
         }
-      }
-      if (!callName) continue;
-      const itemDomain = callName.split('.')[0];
-      if (itemDomain !== domain) continue;
-      const cat = getToolCompactionCategory(callName);
-      if (cat !== 'get' && cat !== 'list') continue;
-      const paramsHash = safeStringify(callArgs);
-      if (!entityId || cat === 'list' || paramsHash.includes(entityId)) {
-        const key = this.composeToolCallKey(messages, i);
+        const key = this.composeToolCallKey(toolMessage.msgIndex);
         if (key) this.invalidatedToolCallKeys.add(key);
       }
     }
@@ -2097,44 +1898,34 @@ export class AgentOrchestrator {
    * preserved (never stubbed) so the model still has at least one copy of
    * the current payload available if the cache block is later truncated.
    */
-  private shrinkCoveredToolMessages(messages: LLMMessage[]): void {
-    if (!this.contextGraph) return;
+  private shrinkCoveredToolMessages(messages: readonly LLMMessage[]): LLMMessage[] {
+    const view = [...messages];
+    if (!this.contextGraph) return view;
     const STUB = '{"_cached":true}';
     // Walk from newest → oldest so we can keep the FIRST encountered
     // (newest) instance per identity and stub older duplicates.
     const kept = new Set<string>();
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i]!;
-      if (m.role !== 'tool' || !m.toolCallId) continue;
+    const indexedToolMessages = this.transcriptIndex.toolMessages();
+    for (let index = indexedToolMessages.length - 1; index >= 0; index -= 1) {
+      const toolMessage = indexedToolMessages[index]!;
+      const m = messages[toolMessage.msgIndex]!;
       if (m.content === STUB) continue;
-      // Discover the originating tool call.
-      let callName: string | undefined;
-      let callArgs: unknown;
-      for (let j = i - 1; j >= 0; j--) {
-        const prev = messages[j]!;
-        if (prev.role !== 'assistant' || !prev.toolCalls) continue;
-        const call = prev.toolCalls.find((tc) => tc.id === m.toolCallId);
-        if (call) {
-          callName = call.name;
-          callArgs = call.arguments;
-          break;
-        }
-      }
+      const callName = toolMessage.toolName;
       if (!callName) continue;
-      const paramsHash = safeStringify(callArgs);
-      const compositeKey = this.composeToolCallKey(messages, i);
+      const paramsHash = toolMessage.paramsHash;
+      const compositeKey = this.composeToolCallKey(toolMessage.msgIndex);
       const isInvalidated =
         compositeKey !== undefined &&
         (this.snapshotPreRestoreToolCallKeys.has(compositeKey) ||
           this.invalidatedToolCallKeys.has(compositeKey));
       const cat = getToolCompactionCategory(callName);
       if (cat !== 'get' && cat !== 'list') {
-        if (isInvalidated) messages[i] = { ...m, content: STUB };
+        if (isInvalidated) view[toolMessage.msgIndex] = { ...m, content: STUB };
         continue;
       }
       const identity = `${callName}|${paramsHash}`;
       if (isInvalidated) {
-        messages[i] = { ...m, content: STUB };
+        view[toolMessage.msgIndex] = { ...m, content: STUB };
         continue;
       }
       const covered = this.contextGraph.hasToolResult(callName, paramsHash);
@@ -2143,52 +1934,18 @@ export class AgentOrchestrator {
         kept.add(identity);
         continue;
       }
-      messages[i] = { ...m, content: STUB };
+      view[toolMessage.msgIndex] = { ...m, content: STUB };
     }
+    return view;
   }
 
   /**
    * Compose the composite watermark key (`callId|toolKey|paramsHash#n`) for
-   * a tool message at the given index. The occurrence suffix disambiguates
-   * adapters that reuse fallback ids across turns with identical args.
-   * Walks `messages` once to compute occurrence counts up to `i`.
+   * a tool message at the given index. The occurrence suffix is assigned by
+   * TranscriptIndex during its single forward transcript scan.
    */
-  private composeToolCallKey(messages: LLMMessage[], i: number): string | undefined {
-    const m = messages[i]!;
-    if (m.role !== 'tool' || !m.toolCallId) return undefined;
-    let callName = 'unknown';
-    let paramsHashLocal = m.toolCallId;
-    for (let j = i - 1; j >= 0; j--) {
-      const prev = messages[j]!;
-      if (prev.role !== 'assistant' || !prev.toolCalls) continue;
-      const call = prev.toolCalls.find((tc) => tc.id === m.toolCallId);
-      if (call) {
-        callName = call.name;
-        paramsHashLocal = safeStringify(call.arguments);
-        break;
-      }
-    }
-    const base = `${m.toolCallId}|${callName}|${paramsHashLocal}`;
-    // Count occurrences up to and including i (matches the rebuild walk).
-    let n = 0;
-    for (let k = 0; k <= i; k++) {
-      const mk = messages[k]!;
-      if (mk.role !== 'tool' || mk.toolCallId !== m.toolCallId) continue;
-      let kCallName = 'unknown';
-      let kParamsHash = mk.toolCallId;
-      for (let j = k - 1; j >= 0; j--) {
-        const prev = messages[j]!;
-        if (prev.role !== 'assistant' || !prev.toolCalls) continue;
-        const call = prev.toolCalls.find((tc) => tc.id === mk.toolCallId);
-        if (call) {
-          kCallName = call.name;
-          kParamsHash = safeStringify(call.arguments);
-          break;
-        }
-      }
-      if (`${mk.toolCallId}|${kCallName}|${kParamsHash}` === base) n++;
-    }
-    return `${base}#${n}`;
+  private composeToolCallKey(messageIndex: number): string | undefined {
+    return this.transcriptIndex.toolMessageAt(messageIndex)?.compositeKey;
   }
 
   // ──────────────────────────────────────────────────────────────────
@@ -2204,7 +1961,7 @@ export class AgentOrchestrator {
 
   /**
    * Update the scratchpad after a tool execution batch. Extracts:
-   * - Todo state from `todo.manage` results
+   * - Run checklist state from `runChecklist.manage` results
    * - Creative decisions from `commander.askUser` responses where user picked an option
    * - Failure traces from tool results with errors
    */
@@ -2213,11 +1970,11 @@ export class AgentOrchestrator {
     toolCalls: readonly LLMToolCall[],
   ): void {
     for (const tc of toolCalls) {
-      const resultMsg = messages.find((m) => m.role === 'tool' && m.toolCallId === tc.id);
+      const resultMsg = this.latestToolResultMessage(messages, tc.id);
       const content = resultMsg?.content ?? '';
 
-      // Extract todo state from todo.manage.
-      if (tc.name === 'todo.manage') {
+      // Extract run checklist state from runChecklist.manage.
+      if (tc.name === 'runChecklist.manage') {
         try {
           const parsed = JSON.parse(content) as { success?: boolean; data?: unknown };
           if (parsed.success !== false) {
@@ -2225,7 +1982,7 @@ export class AgentOrchestrator {
               items?: Array<{ text?: string; status?: string }>;
             } | null;
             if (Array.isArray(args?.items)) {
-              this.scratchpad.todos = args!.items
+              this.scratchpad.checklist = args!.items
                 .filter((item) => item.text)
                 .map((item) => `${item.text}: ${item.status ?? 'pending'}`);
             }
@@ -2287,78 +2044,6 @@ export class AgentOrchestrator {
   }
 
   // ──────────────────────────────────────────────────────────────────
-  // 1G: Mid-Run Intent Re-evaluation
-  // ──────────────────────────────────────────────────────────────────
-
-  /**
-   * Re-evaluate intent after a `commander.askUser` response. If the user's
-   * answer shifts the intent (e.g. from informational to execution), update
-   * `currentIntent` and emit a `phase_note` so the UI and harness can see
-   * the reclassification.
-   */
-  private reevaluateIntentFromAskUser(
-    messages: readonly LLMMessage[],
-    toolCalls: readonly LLMToolCall[],
-    context: AgentContext,
-    wrappedEmit: StreamEmit,
-  ): void {
-    // Find the askUser tool call and its result.
-    const askCall = toolCalls.find((tc) => tc.name === 'commander.askUser');
-    if (!askCall) return;
-
-    const resultMsg = messages.find((m) => m.role === 'tool' && m.toolCallId === askCall.id);
-    if (!resultMsg) return;
-
-    // Extract the user's answer text from the tool result.
-    let userAnswer = '';
-    try {
-      const parsed = JSON.parse(resultMsg.content) as { data?: { answer?: string } };
-      if (typeof parsed.data?.answer === 'string') {
-        userAnswer = parsed.data.answer;
-      }
-    } catch {
-      /* ignore */
-    }
-    if (!userAnswer) {
-      // Fallback: use the raw content if it's short enough to be an answer.
-      userAnswer = resultMsg.content.length < 200 ? resultMsg.content : '';
-    }
-    if (!userAnswer.trim()) return;
-
-    // Determine canvas state for the classifier.
-    const canvasHasNodes = Array.isArray(
-      (context.extra as { canvasNodes?: unknown[] } | undefined)?.canvasNodes,
-    )
-      ? (context.extra as { canvasNodes?: unknown[] }).canvasNodes!.length > 0
-      : undefined;
-
-    const newIntent = classifyIntent({ userMessage: userAnswer, canvasHasNodes });
-
-    // Only act if the intent kind actually changed.
-    if (newIntent.kind === this.currentIntent.kind) return;
-
-    const oldKind = this.currentIntent.kind;
-    this.currentIntent = newIntent;
-
-    // Update the classified intent in the context extra for the system prompt.
-    if (context.extra) {
-      const intentWorkflow = 'workflow' in newIntent ? newIntent.workflow : undefined;
-      (context.extra as Record<string, unknown>).classifiedIntent = intentWorkflow
-        ? `${newIntent.kind} (workflow: ${intentWorkflow})`
-        : newIntent.kind;
-    }
-
-    wrappedEmit({
-      kind: 'phase_note',
-      note: 'intent_reclassified',
-      params: {
-        from: oldKind,
-        to: newIntent.kind,
-      },
-    });
-  }
-
-  // ──────────────────────────────────────────────────────────────────
   // Phase B — Exit Contract shadow helpers
   // ──────────────────────────────────────────────────────────────────
 
@@ -2374,7 +2059,7 @@ export class AgentOrchestrator {
    *    `lastAskUserAnsweredStep` flips)
    *  - `guide_loaded` on guide.get successful returns
    *  - `settings_write` on canvas.setSettings (canvas ref image / plate)
-   *  - `generation_started` on canvas.generation / *.generateRefImage
+   *  - `generation_started` on the canonical canvas.generation path
    *
    * Each recorded evidence also gets a mirror `evidence_appended` stream
    * event so the harness and renderer see it in real time.
@@ -2411,8 +2096,22 @@ export class AgentOrchestrator {
       const ok = this.isToolResultOk(parsed);
       const errorText = this.extractToolResultError(parsed);
 
-      if (!ok && errorText) {
-        this.appendEvidence({ kind: 'validation_error', toolName: tc.name, errorText, at: now });
+      if (!ok) {
+        this.appendEvidence({
+          kind: 'validation_error',
+          toolName: tc.name,
+          errorText: errorText ?? 'Tool call failed',
+          at: now,
+        });
+        if (!this.isReadOnlyTool(tc.name)) {
+          this.appendEvidence({
+            kind: 'mutation_commit',
+            toolName: tc.name,
+            args: tc.arguments,
+            resultOk: false,
+            at: now,
+          });
+        }
         const count = (this.toolValidationErrors.get(tc.name) ?? 0) + 1;
         this.toolValidationErrors.set(tc.name, count);
         if (count >= AgentOrchestrator.RETRY_LOOP_THRESHOLD) {
@@ -2421,17 +2120,6 @@ export class AgentOrchestrator {
             toolName: tc.name,
             attempts: count,
             at: now,
-          });
-          // Backpressure: inject a system message forcing the model to
-          // change strategy instead of retrying the same failing call.
-          (messages as LLMMessage[]).push({
-            role: 'user',
-            content:
-              `[SYSTEM] Tool "${tc.name}" has failed ${count} consecutive times. ` +
-              `STOP retrying this tool with the same approach. Either: ` +
-              `(1) call commander.askUser to get clarification, ` +
-              `(2) try a completely different tool or approach, or ` +
-              `(3) report the failure and stop.`,
           });
         }
         continue;
@@ -2468,7 +2156,7 @@ export class AgentOrchestrator {
             : [];
         this.appendEvidence({ kind: 'settings_write', canvasId, keys, at: now });
       }
-      if (ok && (tc.name === 'canvas.generation' || /\.generateRefImage$/.test(tc.name))) {
+      if (ok && tc.name === 'canvas.generation') {
         const rawArgs = tc.arguments as { nodeId?: unknown } | null;
         const nodeId = typeof rawArgs?.nodeId === 'string' ? rawArgs.nodeId : 'unknown';
         this.appendEvidence({ kind: 'generation_started', nodeId, at: now });
@@ -2482,11 +2170,13 @@ export class AgentOrchestrator {
       // The answer was just written to `messages` by ToolExecutor. We
       // pull it out of the most recent tool-role message whose call
       // name was `commander.askUser`.
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const m = messages[i];
-        if (m.role !== 'tool' || !m.toolCallId) continue;
-        const call = this.findToolCallById(messages, m.toolCallId);
-        if (!call || call.name !== 'commander.askUser') continue;
+      this.transcriptIndex.sync(messages);
+      const indexedToolMessages = this.transcriptIndex.toolMessages();
+      for (let i = indexedToolMessages.length - 1; i >= 0; i--) {
+        const indexed = indexedToolMessages[i];
+        if (indexed.toolName !== 'commander.askUser') continue;
+        const m = messages[indexed.msgIndex];
+        if (m?.role !== 'tool') continue;
         this.appendEvidence({ kind: 'ask_user_answered', answer: m.content, at: now });
         break;
       }
@@ -2578,14 +2268,25 @@ export class AgentOrchestrator {
     return false;
   }
 
-  private findToolCallById(messages: readonly LLMMessage[], id: string): { name: string } | null {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role === 'assistant' && Array.isArray(m.toolCalls)) {
-        const found = m.toolCalls.find((tc) => tc.id === id);
-        if (found) return { name: found.name };
-      }
-    }
-    return null;
+  private latestToolResultMessage(
+    messages: readonly LLMMessage[],
+    toolCallId: string,
+  ): LLMMessage | undefined {
+    this.transcriptIndex.sync(messages);
+    const index = this.transcriptIndex.latestToolMessageIndex(toolCallId);
+    if (index === undefined) return undefined;
+    const message = messages[index];
+    return message?.role === 'tool' ? message : undefined;
+  }
+
+  private firstToolResultMessage(
+    messages: readonly LLMMessage[],
+    toolCallId: string,
+  ): LLMMessage | undefined {
+    this.transcriptIndex.sync(messages);
+    const index = this.transcriptIndex.firstToolMessageIndex(toolCallId);
+    if (index === undefined) return undefined;
+    const message = messages[index];
+    return message?.role === 'tool' ? message : undefined;
   }
 }

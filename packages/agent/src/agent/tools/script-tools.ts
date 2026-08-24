@@ -1,6 +1,35 @@
 import type { ScriptDocument, ParsedScene } from '@lucid-fin/contracts';
-import type { AgentTool } from '../tool-registry.js';
+import { NO_TOOL_RESOURCE, toolResultSchema, type ToolDefinition } from '../tool-registry.js';
 import { ok, fail, requireString } from './tool-result-helpers.js';
+import { authorityFact, contextProjector, resultRecord } from './context-replay.js';
+import {
+  arraySchema,
+  numberSchema,
+  objectSchema,
+  stringArraySchema,
+  stringSchema,
+  unionSchema,
+} from './tool-runtime-schemas.js';
+
+const dialogueLineSchema = objectSchema(
+  { character: stringSchema, line: stringSchema, parenthetical: stringSchema },
+  ['character', 'line'],
+);
+const parsedSceneSchema = objectSchema(
+  {
+    index: numberSchema,
+    heading: stringSchema,
+    location: stringSchema,
+    timeOfDay: stringSchema,
+    content: stringSchema,
+    characters: stringArraySchema,
+    dialogue: arraySchema(dialogueLineSchema),
+    mood: stringSchema,
+    estDuration: numberSchema,
+  },
+  ['index', 'heading', 'location', 'timeOfDay', 'content', 'characters', 'dialogue'],
+);
+const parsedScenesSchema = arraySchema(parsedSceneSchema);
 
 export interface ScriptToolDeps {
   loadScript: (path?: string) => Promise<ScriptDocument | null>;
@@ -12,13 +41,29 @@ export interface ScriptToolDeps {
   ) => Promise<{ content: string; parsedScenes: ParsedScene[]; format?: string }>;
 }
 
-export function createScriptTools(deps: ScriptToolDeps): AgentTool[] {
-  const manage: AgentTool = {
+export function createScriptTools(deps: ScriptToolDeps): ToolDefinition[] {
+  const manage: ToolDefinition = {
     name: 'script.manage',
+    process: 'script-development',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description: 'Read or write the project script.',
-    context: ['script-editor', 'storyboard', 'orchestrator'],
+    contexts: ['script-editor', 'storyboard', 'orchestrator'],
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema(
+          { id: stringSchema, content: stringSchema, parsedScenes: parsedScenesSchema },
+          ['content', 'parsedScenes'],
+        ),
+        objectSchema({ id: stringSchema, parsedScenes: parsedScenesSchema }, ['parsedScenes']),
+      ),
+    ),
+    projectPublicResult: contextProjector((result, args) => [
+      authorityFact('script', args.action === 'read' ? 'read' : 'updated', resultRecord(result)?.id),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         action: {
@@ -38,7 +83,7 @@ export function createScriptTools(deps: ScriptToolDeps): AgentTool[] {
           if (!script) {
             return ok({ content: '', parsedScenes: [] });
           }
-          return ok({ content: script.content, parsedScenes: script.parsedScenes });
+          return ok({ id: script.id, content: script.content, parsedScenes: script.parsedScenes });
         } catch (err) {
           return fail(err);
         }
@@ -48,7 +93,8 @@ export function createScriptTools(deps: ScriptToolDeps): AgentTool[] {
           if (!content) throw new Error('content is required');
           await deps.saveScript(content);
           const parsedScenes = deps.parseScript(content);
-          return ok({ parsedScenes });
+          const script = await deps.loadScript();
+          return ok({ id: script?.id, parsedScenes });
         } catch (err) {
           return fail(err);
         }
@@ -58,13 +104,34 @@ export function createScriptTools(deps: ScriptToolDeps): AgentTool[] {
     },
   };
 
-  const scriptImport: AgentTool = {
+  const scriptImport: ToolDefinition = {
     name: 'script.import',
+    process: 'script-development',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description:
       'Import a script into the current project. Provide either `path` to load from disk, or `content` to import raw text.',
-    context: ['canvas', 'script-editor', 'storyboard', 'orchestrator'],
+    contexts: ['canvas', 'script-editor', 'storyboard', 'orchestrator'],
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema({ id: stringSchema, path: stringSchema }, ['path']),
+        objectSchema(
+          {
+            id: stringSchema,
+            content: stringSchema,
+            parsedScenes: parsedScenesSchema,
+            format: stringSchema,
+          },
+          ['content', 'parsedScenes'],
+        ),
+      ),
+    ),
+    projectPublicResult: contextProjector((result) => [
+      authorityFact('script', 'updated', resultRecord(result)?.id),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Absolute or project-safe path to the script file.' },
@@ -83,8 +150,8 @@ export function createScriptTools(deps: ScriptToolDeps): AgentTool[] {
 
         if (pathProvided) {
           const path = requireString(args, 'path');
-          await deps.loadScript(path);
-          return ok({ path });
+          const script = await deps.loadScript(path);
+          return ok({ id: script?.id, path });
         }
 
         const hasContent =
@@ -96,7 +163,8 @@ export function createScriptTools(deps: ScriptToolDeps): AgentTool[] {
         const content = requireString(args, 'content');
         const format = typeof args.format === 'string' ? args.format : undefined;
         const imported = await deps.importScript(content, format);
-        return ok(imported);
+        const script = await deps.loadScript();
+        return ok({ ...imported, id: script?.id });
       } catch (err) {
         return fail(err);
       }

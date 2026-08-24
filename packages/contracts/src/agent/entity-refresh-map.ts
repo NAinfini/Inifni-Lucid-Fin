@@ -2,8 +2,8 @@
  * Pure-data renderer-facing lookup: which tool names trigger an
  * `entity.refresh` uiEffect, and which entity bucket they target.
  *
- * This is a narrow, frozen copy of the subset of `ToolCatalog` that the
- * renderer needs — the full catalog lives in `@lucid-fin/agent`, which
+ * This is a narrow, frozen renderer projection of entity refresh behavior.
+ * The executable definitions live in `@lucid-fin/agent`, which
  * the renderer can't import (zod + main-only deps). Consumers:
  *
  *   - `apps/desktop-renderer/src/hooks/useCommander.ts` — folds entity-create
@@ -17,7 +17,6 @@ export const ENTITY_REFRESH_TOOL_ENTITY: Readonly<Record<string, string>> = Obje
   'entity.create': 'all',
   'entity.update': 'all',
   'entity.delete': 'all',
-  'entity.generateRefImage': 'all',
   'entity.setRefImage': 'all',
   'entity.deleteRefImage': 'all',
   'entity.setRefImageFromNode': 'all',

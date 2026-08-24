@@ -1,298 +1,266 @@
-/**
- * workflow:* channels — Batch 6.
- *
- * Covers the 11 invoke handlers in
- * `apps/desktop-main/src/ipc/handlers/workflow.handlers.ts`.
- *
- * Complex workflow DTOs (`WorkflowActivitySummary`, `WorkflowStageRun`,
- * `WorkflowTaskSummary`) remain `z.unknown()` per Phase B-1 precedent — Phase C
- * will zodify them once the DTOs move into contract ownership.
- *
- * Branded ids (`WorkflowRunId`, `StageRunId`, `TaskRunId`) use plain
- * `z.string()`; brand enforcement is compile-time only.
- */
+/** Renderer-visible Task List channels. Execution mutations remain Commander tools. */
+
 import { z } from 'zod';
 import { defineInvokeChannel } from '../../channels.js';
 
-// ── Shared primitives ────────────────────────────────────────
-// WorkflowActivitySummary / WorkflowStageRun / WorkflowTaskSummary stay opaque
-// (`unknown`) at this stage — Phase C will zodify the DTOs.
-const WorkflowSummaryShape = z.unknown();
-const WorkflowStageShape = z.unknown();
-const WorkflowTaskShape = z.unknown();
+const taskListSummary = z.unknown();
+const taskSummary = z.unknown();
+const gateKey = z.enum(['production_plan', 'visual_constitution', 'delivery']);
+const sha256 = z.string().regex(/^[a-f0-9]{64}$/i);
 
-// ── workflow:list (invoke) ───────────────────────────────────
-const WorkflowListRequest = z.object({ status: z.string().optional() }).strict();
-const WorkflowListResponse = z.array(WorkflowSummaryShape);
-export const workflowListChannel = defineInvokeChannel({
-  channel: 'workflow:list',
-  request: WorkflowListRequest,
-  response: WorkflowListResponse,
-});
-export type WorkflowListRequest = z.infer<typeof WorkflowListRequest>;
-export type WorkflowListResponse = z.infer<typeof WorkflowListResponse>;
-
-// ── workflow:get (invoke) ────────────────────────────────────
-const WorkflowGetRequest = z.object({ id: z.string().min(1) });
-const WorkflowGetResponse = WorkflowSummaryShape;
-export const workflowGetChannel = defineInvokeChannel({
-  channel: 'workflow:get',
-  request: WorkflowGetRequest,
-  response: WorkflowGetResponse,
-});
-export type WorkflowGetRequest = z.infer<typeof WorkflowGetRequest>;
-export type WorkflowGetResponse = z.infer<typeof WorkflowGetResponse>;
-
-// ── workflow:getStages (invoke) ──────────────────────────────
-const WorkflowGetStagesRequest = z.object({ workflowRunId: z.string().min(1) });
-const WorkflowGetStagesResponse = z.array(WorkflowStageShape);
-export const workflowGetStagesChannel = defineInvokeChannel({
-  channel: 'workflow:getStages',
-  request: WorkflowGetStagesRequest,
-  response: WorkflowGetStagesResponse,
-});
-export type WorkflowGetStagesRequest = z.infer<typeof WorkflowGetStagesRequest>;
-export type WorkflowGetStagesResponse = z.infer<typeof WorkflowGetStagesResponse>;
-
-// ── workflow:getTasks (invoke) ───────────────────────────────
-const WorkflowGetTasksRequest = z.object({ workflowRunId: z.string().min(1) });
-const WorkflowGetTasksResponse = z.array(WorkflowTaskShape);
-export const workflowGetTasksChannel = defineInvokeChannel({
-  channel: 'workflow:getTasks',
-  request: WorkflowGetTasksRequest,
-  response: WorkflowGetTasksResponse,
-});
-export type WorkflowGetTasksRequest = z.infer<typeof WorkflowGetTasksRequest>;
-export type WorkflowGetTasksResponse = z.infer<typeof WorkflowGetTasksResponse>;
-
-// ── workflow:start (invoke) ──────────────────────────────────
-const WorkflowStartRequest = z
+const TaskListListRequest = z
   .object({
-    workflowType: z.string().min(1),
-    entityType: z.string().min(1),
-    entityId: z.string().optional(),
-    triggerSource: z.string().optional(),
-    input: z.record(z.string(), z.unknown()).optional(),
-    metadata: z.record(z.string(), z.unknown()).optional(),
+    status: z.string().optional(),
+    taskListType: z.string().optional(),
+    entityType: z.string().optional(),
   })
   .strict();
-const WorkflowStartResponse = z.object({ workflowRunId: z.string() });
-export const workflowStartChannel = defineInvokeChannel({
-  channel: 'workflow:start',
-  request: WorkflowStartRequest,
-  response: WorkflowStartResponse,
+export const taskListListChannel = defineInvokeChannel({
+  channel: 'taskList:list',
+  request: TaskListListRequest,
+  response: z.array(taskListSummary),
 });
-export type WorkflowStartRequest = z.infer<typeof WorkflowStartRequest>;
-export type WorkflowStartResponse = z.infer<typeof WorkflowStartResponse>;
+export type TaskListListRequest = z.infer<typeof TaskListListRequest>;
+export type TaskListListResponse = unknown[];
 
-// ── workflow:pause (invoke) ──────────────────────────────────
-const WorkflowPauseRequest = z.object({ id: z.string().min(1) });
-const WorkflowPauseResponse = z.void();
-export const workflowPauseChannel = defineInvokeChannel({
-  channel: 'workflow:pause',
-  request: WorkflowPauseRequest,
-  response: WorkflowPauseResponse,
+const TaskListGetRequest = z.object({ id: z.string().min(1) }).strict();
+export const taskListGetChannel = defineInvokeChannel({
+  channel: 'taskList:get',
+  request: TaskListGetRequest,
+  response: taskListSummary,
 });
-export type WorkflowPauseRequest = z.infer<typeof WorkflowPauseRequest>;
-export type WorkflowPauseResponse = z.infer<typeof WorkflowPauseResponse>;
+export type TaskListGetRequest = z.infer<typeof TaskListGetRequest>;
+export type TaskListGetResponse = unknown;
 
-// ── workflow:resume (invoke) ─────────────────────────────────
-const WorkflowResumeRequest = z.object({ id: z.string().min(1) });
-const WorkflowResumeResponse = z.void();
-export const workflowResumeChannel = defineInvokeChannel({
-  channel: 'workflow:resume',
-  request: WorkflowResumeRequest,
-  response: WorkflowResumeResponse,
+const TaskListGetTasksRequest = z.object({ taskListId: z.string().min(1) }).strict();
+export const taskListGetTasksChannel = defineInvokeChannel({
+  channel: 'taskList:getTasks',
+  request: TaskListGetTasksRequest,
+  response: z.array(taskSummary),
 });
-export type WorkflowResumeRequest = z.infer<typeof WorkflowResumeRequest>;
-export type WorkflowResumeResponse = z.infer<typeof WorkflowResumeResponse>;
+export type TaskListGetTasksRequest = z.infer<typeof TaskListGetTasksRequest>;
+export type TaskListGetTasksResponse = unknown[];
 
-// ── workflow:cancel (invoke) ─────────────────────────────────
-const WorkflowCancelRequest = z.object({ id: z.string().min(1) });
-const WorkflowCancelResponse = z.void();
-export const workflowCancelChannel = defineInvokeChannel({
-  channel: 'workflow:cancel',
-  request: WorkflowCancelRequest,
-  response: WorkflowCancelResponse,
-});
-export type WorkflowCancelRequest = z.infer<typeof WorkflowCancelRequest>;
-export type WorkflowCancelResponse = z.infer<typeof WorkflowCancelResponse>;
-
-// ── workflow:retryTask (invoke) ──────────────────────────────
-const WorkflowRetryTaskRequest = z.object({ taskRunId: z.string().min(1) });
-const WorkflowRetryTaskResponse = z.void();
-export const workflowRetryTaskChannel = defineInvokeChannel({
-  channel: 'workflow:retryTask',
-  request: WorkflowRetryTaskRequest,
-  response: WorkflowRetryTaskResponse,
-});
-export type WorkflowRetryTaskRequest = z.infer<typeof WorkflowRetryTaskRequest>;
-export type WorkflowRetryTaskResponse = z.infer<typeof WorkflowRetryTaskResponse>;
-
-// ── workflow:retryStage (invoke) ─────────────────────────────
-const WorkflowRetryStageRequest = z.object({ stageRunId: z.string().min(1) });
-const WorkflowRetryStageResponse = z.void();
-export const workflowRetryStageChannel = defineInvokeChannel({
-  channel: 'workflow:retryStage',
-  request: WorkflowRetryStageRequest,
-  response: WorkflowRetryStageResponse,
-});
-export type WorkflowRetryStageRequest = z.infer<typeof WorkflowRetryStageRequest>;
-export type WorkflowRetryStageResponse = z.infer<typeof WorkflowRetryStageResponse>;
-
-// ── workflow:retryWorkflow (invoke) ──────────────────────────
-const WorkflowRetryWorkflowRequest = z.object({ id: z.string().min(1) });
-const WorkflowRetryWorkflowResponse = z.void();
-export const workflowRetryWorkflowChannel = defineInvokeChannel({
-  channel: 'workflow:retryWorkflow',
-  request: WorkflowRetryWorkflowRequest,
-  response: WorkflowRetryWorkflowResponse,
-});
-export type WorkflowRetryWorkflowRequest = z.infer<typeof WorkflowRetryWorkflowRequest>;
-export type WorkflowRetryWorkflowResponse = z.infer<typeof WorkflowRetryWorkflowResponse>;
-
-// ── workflow:getPendingApproval (invoke) ────────────────────
-const WorkflowGetPendingApprovalRequest = z.object({ workflowRunId: z.string().min(1) }).strict();
-const WorkflowGetPendingApprovalResponse = z.unknown();
-export const workflowGetPendingApprovalChannel = defineInvokeChannel({
-  channel: 'workflow:getPendingApproval',
-  request: WorkflowGetPendingApprovalRequest,
-  response: WorkflowGetPendingApprovalResponse,
-});
-export type WorkflowGetPendingApprovalRequest = z.infer<typeof WorkflowGetPendingApprovalRequest>;
-export type WorkflowGetPendingApprovalResponse = z.infer<typeof WorkflowGetPendingApprovalResponse>;
-
-// ── workflow:getVisualAuditions (invoke) ────────────────────
-const WorkflowGetVisualAuditionsRequest = z.object({ workflowRunId: z.string().min(1) }).strict();
-const WorkflowGetVisualAuditionsResponse = z.unknown();
-export const workflowGetVisualAuditionsChannel = defineInvokeChannel({
-  channel: 'workflow:getVisualAuditions',
-  request: WorkflowGetVisualAuditionsRequest,
-  response: WorkflowGetVisualAuditionsResponse,
-});
-export type WorkflowGetVisualAuditionsRequest = z.infer<typeof WorkflowGetVisualAuditionsRequest>;
-export type WorkflowGetVisualAuditionsResponse = z.infer<typeof WorkflowGetVisualAuditionsResponse>;
-
-// ── workflow:getFinalExport (invoke) ────────────────────────
-const WorkflowGetFinalExportRequest = z.object({ workflowRunId: z.string().min(1) }).strict();
-const WorkflowGetFinalExportResponse = z.unknown();
-export const workflowGetFinalExportChannel = defineInvokeChannel({
-  channel: 'workflow:getFinalExport',
-  request: WorkflowGetFinalExportRequest,
-  response: WorkflowGetFinalExportResponse,
-});
-export type WorkflowGetFinalExportRequest = z.infer<typeof WorkflowGetFinalExportRequest>;
-export type WorkflowGetFinalExportResponse = z.infer<typeof WorkflowGetFinalExportResponse>;
-
-// ── workflow:selectVisualCandidate (invoke, human UI only) ──
-const WorkflowSelectVisualCandidateRequest = z
+const TaskListStartMediaRequest = z
   .object({
-    workflowRunId: z.string().min(1),
+    canvasId: z.string().min(1),
+    nodeId: z.string().min(1),
+    commanderSessionId: z.string().trim().min(1),
+    providerId: z.string().min(1).optional(),
+    seed: z.number().int().optional(),
+    commanderIntent: z.string().trim().min(1).optional(),
+  })
+  .strict();
+export const taskListStartMediaChannel = defineInvokeChannel({
+  channel: 'taskList:startMedia',
+  request: TaskListStartMediaRequest,
+  response: z
+    .object({ taskListId: z.string().min(1), promptAssemblyId: z.string().min(1) })
+    .strict(),
+});
+export type TaskListStartMediaRequest = z.infer<typeof TaskListStartMediaRequest>;
+export type TaskListStartMediaResponse = z.infer<typeof taskListStartMediaChannel.schemas.response>;
+
+const TaskListCancelMediaRequest = z
+  .object({
+    canvasId: z.string().min(1),
+    nodeId: z.string().min(1),
+    commanderSessionId: z.string().trim().min(1),
+  })
+  .strict();
+export const taskListCancelMediaChannel = defineInvokeChannel({
+  channel: 'taskList:cancelMedia',
+  request: TaskListCancelMediaRequest,
+  response: z.union([
+    z
+      .object({ ok: z.literal(true), taskListId: z.string().min(1), status: z.string().min(1) })
+      .strict(),
+    z.object({ ok: z.literal(false), code: z.literal('no_active_task') }).strict(),
+  ]),
+});
+export type TaskListCancelMediaRequest = z.infer<typeof TaskListCancelMediaRequest>;
+export type TaskListCancelMediaResponse = z.infer<
+  typeof taskListCancelMediaChannel.schemas.response
+>;
+
+const TaskListRetryMediaEvaluationRequest = z
+  .object({ taskListId: z.string().min(1), commanderSessionId: z.string().trim().min(1) })
+  .strict();
+export const taskListRetryMediaEvaluationChannel = defineInvokeChannel({
+  channel: 'taskList:retryMediaEvaluation',
+  request: TaskListRetryMediaEvaluationRequest,
+  response: z.object({ taskListId: z.string().min(1), status: z.string().min(1) }).strict(),
+});
+export type TaskListRetryMediaEvaluationRequest = z.infer<
+  typeof TaskListRetryMediaEvaluationRequest
+>;
+export type TaskListRetryMediaEvaluationResponse = z.infer<
+  typeof taskListRetryMediaEvaluationChannel.schemas.response
+>;
+
+const TaskListRetryMediaRequest = z
+  .object({
+    canvasId: z.string().min(1),
+    nodeId: z.string().min(1),
+    commanderSessionId: z.string().trim().min(1),
+    providerId: z.string().min(1).optional(),
+  })
+  .strict();
+export const taskListRetryMediaChannel = defineInvokeChannel({
+  channel: 'taskList:retryMedia',
+  request: TaskListRetryMediaRequest,
+  response: z
+    .object({ taskListId: z.string().min(1), promptAssemblyId: z.string().min(1) })
+    .strict(),
+});
+export type TaskListRetryMediaRequest = z.infer<typeof TaskListRetryMediaRequest>;
+export type TaskListRetryMediaResponse = z.infer<typeof taskListRetryMediaChannel.schemas.response>;
+
+const PromptAssemblyGetRequest = z.object({ id: z.string().min(1) }).strict();
+export const promptAssemblyGetChannel = defineInvokeChannel({
+  channel: 'promptAssembly:get',
+  request: PromptAssemblyGetRequest,
+  response: z.unknown().nullable(),
+});
+export type PromptAssemblyGetRequest = z.infer<typeof PromptAssemblyGetRequest>;
+export type PromptAssemblyGetResponse = unknown;
+
+const taskListIdRequest = z.object({ taskListId: z.string().min(1) }).strict();
+
+export const taskListGetPendingApprovalChannel = defineInvokeChannel({
+  channel: 'taskList:getPendingApproval',
+  request: taskListIdRequest,
+  response: z.unknown(),
+});
+export type TaskListGetPendingApprovalRequest = z.infer<typeof taskListIdRequest>;
+export type TaskListGetPendingApprovalResponse = unknown;
+
+export const taskListGetVisualAuditionsChannel = defineInvokeChannel({
+  channel: 'taskList:getVisualAuditions',
+  request: taskListIdRequest,
+  response: z.unknown(),
+});
+export type TaskListGetVisualAuditionsRequest = z.infer<typeof taskListIdRequest>;
+export type TaskListGetVisualAuditionsResponse = unknown;
+
+export const taskListGetDeliveryChannel = defineInvokeChannel({
+  channel: 'taskList:getDelivery',
+  request: taskListIdRequest,
+  response: z.unknown(),
+});
+export type TaskListGetDeliveryRequest = z.infer<typeof taskListIdRequest>;
+export type TaskListGetDeliveryResponse = unknown;
+
+const TaskListSelectVisualCandidateRequest = z
+  .object({
+    taskListId: z.string().min(1),
     candidateId: z.string().min(1),
     expectedRowVersion: z.number().int().nonnegative(),
     expectedAuditionRevision: z.number().int().positive(),
-    expectedAuditionHash: z.string().regex(/^[a-f0-9]{64}$/i),
+    expectedAuditionHash: sha256,
   })
   .strict();
-const WorkflowSelectVisualCandidateResponse = z.unknown();
-export const workflowSelectVisualCandidateChannel = defineInvokeChannel({
-  channel: 'workflow:selectVisualCandidate',
-  request: WorkflowSelectVisualCandidateRequest,
-  response: WorkflowSelectVisualCandidateResponse,
+export const taskListSelectVisualCandidateChannel = defineInvokeChannel({
+  channel: 'taskList:selectVisualCandidate',
+  request: TaskListSelectVisualCandidateRequest,
+  response: z.unknown(),
 });
-export type WorkflowSelectVisualCandidateRequest = z.infer<
-  typeof WorkflowSelectVisualCandidateRequest
+export type TaskListSelectVisualCandidateRequest = z.infer<
+  typeof TaskListSelectVisualCandidateRequest
 >;
-export type WorkflowSelectVisualCandidateResponse = z.infer<
-  typeof WorkflowSelectVisualCandidateResponse
->;
+export type TaskListSelectVisualCandidateResponse = unknown;
 
-// ── workflow:approveGate (invoke, human UI only) ─────────────
-const WorkflowApproveGateRequest = z
+const TaskListRequestVisualAuditionChangesRequest = z
   .object({
-    workflowRunId: z.string().min(1),
-    gateKey: z.enum(['production_plan', 'visual_constitution', 'final_export']),
+    taskListId: z.string().min(1),
     expectedRowVersion: z.number().int().nonnegative(),
-    expectedSubjectRevision: z.number().int().positive(),
-    expectedSubjectHash: z.string().regex(/^[a-f0-9]{64}$/i),
-  })
-  .strict();
-const WorkflowApproveGateResponse = z.unknown();
-export const workflowApproveGateChannel = defineInvokeChannel({
-  channel: 'workflow:approveGate',
-  request: WorkflowApproveGateRequest,
-  response: WorkflowApproveGateResponse,
-});
-export type WorkflowApproveGateRequest = z.infer<typeof WorkflowApproveGateRequest>;
-export type WorkflowApproveGateResponse = z.infer<typeof WorkflowApproveGateResponse>;
-
-const WorkflowGateRevisionRequest = z
-  .object({
-    workflowRunId: z.string().min(1),
-    gateKey: z.enum(['production_plan', 'visual_constitution', 'final_export']),
-    expectedRowVersion: z.number().int().nonnegative(),
-    expectedSubjectRevision: z.number().int().positive(),
-    expectedSubjectHash: z.string().regex(/^[a-f0-9]{64}$/i),
+    expectedAuditionRevision: z.number().int().positive(),
+    expectedAuditionHash: sha256,
     reason: z.string().trim().min(1),
   })
   .strict();
-
-// ── workflow:requestChanges (invoke, human UI only) ─────────
-export const workflowRequestChangesChannel = defineInvokeChannel({
-  channel: 'workflow:requestChanges',
-  request: WorkflowGateRevisionRequest,
+export const taskListRequestVisualAuditionChangesChannel = defineInvokeChannel({
+  channel: 'taskList:requestVisualAuditionChanges',
+  request: TaskListRequestVisualAuditionChangesRequest,
   response: z.unknown(),
 });
-export type WorkflowRequestChangesRequest = z.infer<typeof WorkflowGateRevisionRequest>;
-export type WorkflowRequestChangesResponse = unknown;
+export type TaskListRequestVisualAuditionChangesRequest = z.infer<
+  typeof TaskListRequestVisualAuditionChangesRequest
+>;
+export type TaskListRequestVisualAuditionChangesResponse = unknown;
 
-// ── workflow:rejectGate (invoke, human UI only) ──────────────
-export const workflowRejectGateChannel = defineInvokeChannel({
-  channel: 'workflow:rejectGate',
-  request: WorkflowGateRevisionRequest,
-  response: z.unknown(),
-});
-export type WorkflowRejectGateRequest = z.infer<typeof WorkflowGateRevisionRequest>;
-export type WorkflowRejectGateResponse = unknown;
-
-// ── workflow:listPendingDecisions (invoke) ──────────────────
-const WorkflowListPendingDecisionsRequest = z
+const TaskListApproveGateRequest = z
   .object({
-    workflowRunId: z.string().min(1).optional(),
+    taskListId: z.string().min(1),
+    gateKey,
+    expectedRowVersion: z.number().int().nonnegative(),
+    expectedSubjectRevision: z.number().int().positive(),
+    expectedSubjectHash: sha256,
+  })
+  .strict();
+export const taskListApproveGateChannel = defineInvokeChannel({
+  channel: 'taskList:approveGate',
+  request: TaskListApproveGateRequest,
+  response: z.unknown(),
+});
+export type TaskListApproveGateRequest = z.infer<typeof TaskListApproveGateRequest>;
+export type TaskListApproveGateResponse = unknown;
+
+const TaskListGateRevisionRequest = TaskListApproveGateRequest.extend({
+  reason: z.string().trim().min(1),
+}).strict();
+
+export const taskListRequestChangesChannel = defineInvokeChannel({
+  channel: 'taskList:requestChanges',
+  request: TaskListGateRevisionRequest,
+  response: z.unknown(),
+});
+export type TaskListRequestChangesRequest = z.infer<typeof TaskListGateRevisionRequest>;
+export type TaskListRequestChangesResponse = unknown;
+
+export const taskListRejectGateChannel = defineInvokeChannel({
+  channel: 'taskList:rejectGate',
+  request: TaskListGateRevisionRequest,
+  response: z.unknown(),
+});
+export type TaskListRejectGateRequest = z.infer<typeof TaskListGateRevisionRequest>;
+export type TaskListRejectGateResponse = unknown;
+
+const TaskListListPendingDecisionsRequest = z
+  .object({
+    taskListId: z.string().min(1).optional(),
     canvasId: z.string().min(1).optional(),
   })
   .strict()
-  .refine((request) => request.workflowRunId !== undefined || request.canvasId !== undefined, {
-    message: 'workflowRunId or canvasId is required',
+  .refine((request) => request.taskListId !== undefined || request.canvasId !== undefined, {
+    message: 'taskListId or canvasId is required',
   });
-export const workflowListPendingDecisionsChannel = defineInvokeChannel({
-  channel: 'workflow:listPendingDecisions',
-  request: WorkflowListPendingDecisionsRequest,
+export const taskListListPendingDecisionsChannel = defineInvokeChannel({
+  channel: 'taskList:listPendingDecisions',
+  request: TaskListListPendingDecisionsRequest,
   response: z.array(z.unknown()),
 });
-export type WorkflowListPendingDecisionsRequest = z.infer<
-  typeof WorkflowListPendingDecisionsRequest
+export type TaskListListPendingDecisionsRequest = z.infer<
+  typeof TaskListListPendingDecisionsRequest
 >;
-export type WorkflowListPendingDecisionsResponse = unknown[];
+export type TaskListListPendingDecisionsResponse = unknown[];
 
-export const workflowChannels = [
-  workflowListChannel,
-  workflowGetChannel,
-  workflowGetStagesChannel,
-  workflowGetTasksChannel,
-  workflowStartChannel,
-  workflowPauseChannel,
-  workflowResumeChannel,
-  workflowCancelChannel,
-  workflowRetryTaskChannel,
-  workflowRetryStageChannel,
-  workflowRetryWorkflowChannel,
-  workflowGetPendingApprovalChannel,
-  workflowGetVisualAuditionsChannel,
-  workflowGetFinalExportChannel,
-  workflowSelectVisualCandidateChannel,
-  workflowApproveGateChannel,
-  workflowRequestChangesChannel,
-  workflowRejectGateChannel,
-  workflowListPendingDecisionsChannel,
+export const taskListChannels = [
+  taskListListChannel,
+  taskListGetChannel,
+  taskListGetTasksChannel,
+  taskListStartMediaChannel,
+  taskListCancelMediaChannel,
+  taskListRetryMediaEvaluationChannel,
+  taskListRetryMediaChannel,
+  promptAssemblyGetChannel,
+  taskListGetPendingApprovalChannel,
+  taskListGetVisualAuditionsChannel,
+  taskListGetDeliveryChannel,
+  taskListSelectVisualCandidateChannel,
+  taskListRequestVisualAuditionChangesChannel,
+  taskListApproveGateChannel,
+  taskListRequestChangesChannel,
+  taskListRejectGateChannel,
+  taskListListPendingDecisionsChannel,
 ] as const;

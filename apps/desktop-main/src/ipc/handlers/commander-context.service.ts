@@ -5,9 +5,11 @@
  * (workspace snapshot, selected-node summaries, process-prompt detection,
  * master index) that gets injected into the LLM system prompt.
  */
+import { createHash } from 'node:crypto';
 import {
   COMMANDER_GUIDE_LIMITS,
   deriveNodeStatus,
+  getCommanderSessionId,
   type Canvas,
   type CanvasNode,
   type ImageNodeData,
@@ -16,21 +18,21 @@ import {
   type Character,
   type Location,
   type Equipment,
-  type WorkflowApprovalGateKey,
-  type WorkflowApproval,
-  type WorkflowRun,
-  type WorkflowRunId,
+  type PlanApprovalGateKey,
+  type PlanApproval,
+  type TaskList,
+  type TaskListId,
   type CommanderPromptGuide,
-  type CommanderWorkflowGuidePhase,
+  type CommanderTaskListGuidePhase,
 } from '@lucid-fin/contracts';
 import { matchNode, resolveCanvasVisualStylePolicy } from '@lucid-fin/shared-utils';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import {
   getMovieProductionTaskContract,
   type AgentContext,
-  type WorkflowToolPolicy,
+  type TaskListToolPolicy,
 } from '@lucid-fin/application';
-import { isTerminalPersistentWorkflowStatus } from './persistent-workflow-guard.js';
+import { isTerminalPersistentTaskListStatus } from './persistent-task-list-guard.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -38,10 +40,10 @@ import { isTerminalPersistentWorkflowStatus } from './persistent-workflow-guard.
 
 const MAX_CONTEXT_SELECTED_NODES = 10;
 const MAX_CONTEXT_SELECTED_NODE_SUMMARIES = 4;
-const MAX_CONTEXT_WORKFLOWS = 3;
-const MAX_WORKFLOW_DOCUMENT_CHARS = 6000;
+const MAX_CONTEXT_TASK_LISTS = 3;
+const MAX_PLAN_DOCUMENT_CHARS = 6000;
 const MAX_CONTEXT_MEDIA_ATTEMPTS = 24;
-const MAX_CONTEXT_WORKFLOW_DECISIONS = 12;
+const MAX_CONTEXT_TASK_DECISIONS = 12;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -90,13 +92,33 @@ function summarizeEquipmentRefIds(refs: unknown): string[] | undefined {
   return result.length > 0 ? result : undefined;
 }
 
-function summarizeSelectedNode(node: CanvasNode, _db: SqliteIndex): Record<string, unknown> {
+function summarizeSelectedNode(
+  canvasId: string,
+  node: CanvasNode,
+  db: SqliteIndex,
+): Record<string, unknown> {
   const summary: Record<string, unknown> = {
     id: node.id,
     type: node.type,
     title: node.title,
     status: deriveNodeStatus(node),
   };
+  if (node.type === 'image' || node.type === 'video') {
+    const promptAssemblies = db.repos.promptAssemblies;
+    const assemblies = promptAssemblies ? promptAssemblies.listByNode(canvasId, node.id, 3) : [];
+    if (assemblies.length > 0) {
+      summary.promptAssemblyHistory = assemblies.map((assembly) => ({
+        id: assembly.id,
+        status: assembly.status,
+        purpose: assembly.purpose,
+        inputHash: assembly.inputHash,
+        ...(assembly.output ? { finalPromptHash: sha256Text(assembly.output.finalPrompt) } : {}),
+        ...(assembly.parentAssemblyId ? { parentAssemblyId: assembly.parentAssemblyId } : {}),
+        ...(assembly.sourceAssetHash ? { sourceAssetHash: assembly.sourceAssetHash } : {}),
+        updatedAt: assembly.updatedAt,
+      }));
+    }
+  }
 
   return matchNode(node.type, {
     text: () => {
@@ -189,7 +211,7 @@ export function buildWorkspaceSnapshot(
     `Canvas: "${canvas.name}" (${canvas.nodes.length} nodes${typeBreakdown ? ` [${typeBreakdown}]` : ''}, ${canvas.edges.length} edges)`,
   );
 
-  // Manual/pre-approval Canvas style draft (never an approved workflow authority).
+  // Manual/pre-approval Canvas style draft (never an approved Task List authority).
   const resolvedStyleDraft = resolveCanvasVisualStylePolicy(canvas.settings);
   if (resolvedStyleDraft) {
     const lockedFields = Object.entries(resolvedStyleDraft.policy.locked ?? {})
@@ -202,10 +224,10 @@ export function buildWorkspaceSnapshot(
         ? `structured locks: ${lockedFields.join(', ')}`
         : 'constraint-only draft');
     lines.push(
-      `Canvas manual style draft (not workflow authority): ${truncSnap(styleDraft, 80)} [${resolvedStyleDraft.provenance.source}, ${resolvedStyleDraft.provenance.policyHash}]`,
+      `Canvas manual style draft (not Task List authority): ${truncSnap(styleDraft, 80)} [${resolvedStyleDraft.provenance.source}, ${resolvedStyleDraft.provenance.policyHash}]`,
     );
   } else {
-    lines.push('Canvas manual style draft (not workflow authority): NOT SET');
+    lines.push('Canvas manual style draft (not Task List authority): NOT SET');
   }
 
   // Entity counts with ref-image status
@@ -245,8 +267,9 @@ export function buildWorkspaceSnapshot(
 
   // Selected nodes (compact)
   if (selectedNodeIds.length > 0) {
+    const nodesById = new Map(canvas.nodes.map((node) => [node.id, node]));
     const selected = selectedNodeIds
-      .map((id) => canvas.nodes.find((n) => n.id === id))
+      .map((id) => nodesById.get(id))
       .filter((n): n is CanvasNode => Boolean(n));
     if (selected.length > 0) {
       const summaries = selected
@@ -263,19 +286,30 @@ export function buildWorkspaceSnapshot(
 }
 
 /**
- * Rebuild the authoritative workflow facts needed by the model from SQLite.
+ * Rebuild the authoritative Task List facts needed by the model from SQLite.
  * Conversation history is intentionally excluded: this block survives clear,
- * restart, and compaction because the workflow aggregate is the source of truth.
+ * restart, and compaction because the Task List aggregate is the source of truth.
  */
-function listPersistentVideoRuns(db: SqliteIndex, canvasId?: string): WorkflowRun[] {
-  return db.repos.workflows
-    .listRuns({
-      workflowType: 'movie.production.v2',
+function listPersistentVideoTaskLists(
+  db: SqliteIndex,
+  canvasId?: string,
+  commanderSessionId?: string,
+): TaskList[] {
+  return db.repos.taskLists
+    .listTaskLists({
+      taskListType: 'movie.production.v2',
       ...(canvasId ? { entityType: 'canvas', entityId: canvasId } : {}),
     })
-    .rows.filter((run) => !isTerminalPersistentWorkflowStatus(run.status))
-    .filter((run) => !canvasId || (run.entityType === 'canvas' && run.entityId === canvasId))
-    .slice(0, MAX_CONTEXT_WORKFLOWS);
+    .rows.filter((taskList) => !isTerminalPersistentTaskListStatus(taskList.status))
+    .filter(
+      (taskList) =>
+        !canvasId || (taskList.entityType === 'canvas' && taskList.entityId === canvasId),
+    )
+    .filter(
+      (taskList) =>
+        !commanderSessionId || getCommanderSessionId(taskList.metadata) === commanderSessionId,
+    )
+    .slice(0, MAX_CONTEXT_TASK_LISTS);
 }
 
 function asContextRecord(value: unknown): Record<string, unknown> {
@@ -343,7 +377,7 @@ function projectVisualAuditionFacts(content: Record<string, unknown>): Record<st
   };
 }
 
-function projectWorkflowDocumentFacts(
+function projectPlanDocumentFacts(
   logicalKey: string,
   content: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -357,36 +391,31 @@ function projectWorkflowDocumentFacts(
       candidateCount: Array.isArray(candidates) ? candidates.length : 0,
     };
   }
-  if (logicalKey === 'final-export') {
-    const segments = Array.isArray(content.segments) ? content.segments : [];
+  if (logicalKey === 'delivery-manifest') {
+    const items = Array.isArray(content.items) ? content.items : [];
     return {
-      manifestVersion: content.manifestVersion,
       productionPlan: content.productionPlan,
       visualConstitution: content.visualConstitution,
+      deliverySequence: content.deliverySequence,
       canvasId: content.canvasId,
-      assemblySnapshotHash: content.assemblySnapshotHash,
-      segments: segments.map((value) => {
-        const segment = asContextRecord(value);
+      taskListId: content.taskListId,
+      namingPolicy: content.namingPolicy,
+      items: items.map((value, index) => {
+        const item = asContextRecord(value);
         return {
-          order: segment.order,
-          nodeId: segment.nodeId,
-          nodeUpdatedAt: segment.nodeUpdatedAt,
-          assetHash: segment.assetHash,
-          assetFormat: segment.assetFormat,
-          selectedVariantIndex: segment.selectedVariantIndex,
-          trimInMs: segment.trimInMs,
-          trimOutMs: segment.trimOutMs,
-          sourceDurationMs: segment.sourceDurationMs,
-          durationSeconds: segment.durationSeconds,
-          speed: segment.speed,
+          order: index + 1,
+          shotId: item.shotId,
+          selectedVideoHash: item.selectedVideoHash,
+          packageFileName: item.packageFileName,
+          sourceFormat: item.sourceFormat,
+          sourceBytes: item.sourceBytes,
+          sourceDurationMs: item.sourceDurationMs,
+          trimInMs: item.trimInMs,
+          trimOutMs: item.trimOutMs,
+          embeddedAudioEnabled: item.embeddedAudioEnabled,
+          provenance: item.provenance,
         };
       }),
-      audioTrackCount: Array.isArray(content.audioTracks) ? content.audioTracks.length : 0,
-      subtitleTrackCount: Array.isArray(content.subtitleTracks) ? content.subtitleTracks.length : 0,
-      output: content.output,
-      expectedDurationMs: content.expectedDurationMs,
-      maxRenderAttempts: content.maxRenderAttempts,
-      capabilities: content.capabilities,
     };
   }
   return content;
@@ -394,6 +423,7 @@ function projectWorkflowDocumentFacts(
 
 function projectCurrentTaskInput(input: Record<string, unknown>): Record<string, unknown> {
   const shot = asContextRecord(input.shot);
+  const revisionRequest = asContextRecord(input.revisionRequest);
   const shotFacts = Object.fromEntries(
     ['id', 'actIndex', 'sceneIndex', 'title', 'summary', 'storyBeat', 'dialogueIntent'].flatMap(
       (key) => (shot[key] === undefined ? [] : [[key, shot[key]]]),
@@ -405,42 +435,51 @@ function projectCurrentTaskInput(input: Record<string, unknown>): Record<string,
       : {}),
     ...(typeof input.shotId === 'string' ? { shotId: input.shotId } : {}),
     ...(Object.keys(shotFacts).length > 0 ? { shot: shotFacts } : {}),
+    ...(typeof revisionRequest.reason === 'string' && revisionRequest.reason.trim()
+      ? {
+          revisionRequest: {
+            action: revisionRequest.action,
+            reason: revisionRequest.reason.trim(),
+            previousRevision: revisionRequest.previousRevision,
+            previousHash: revisionRequest.previousHash,
+          },
+        }
+      : {}),
   };
 }
 
-function renderPersistentWorkflowManifest(db: SqliteIndex, runs: WorkflowRun[]): string {
-  if (runs.length === 0) return '';
-  const lines = ['Authority: SQLite workflow aggregate. Chat confirmations never approve a gate.'];
-  for (const run of runs) {
-    const runId = run.id as WorkflowRunId;
-    const currentStage = run.currentStageId
-      ? db.repos.workflows.getStageRun(run.currentStageId as never)
-      : undefined;
-    const currentTask = run.currentTaskId
-      ? db.repos.workflows.getTaskRun(run.currentTaskId as never)
+function renderPersistentTaskListManifest(db: SqliteIndex, taskLists: TaskList[]): string {
+  if (taskLists.length === 0) return '';
+  const lines = [
+    'Authority: SQLite Task List aggregate. Approval state is represented by pending gate records with exact revision and SHA-256 values.',
+  ];
+  for (const taskList of taskLists) {
+    const taskListId = taskList.id as TaskListId;
+    const currentTask = taskList.currentTaskId
+      ? db.repos.taskLists.getTask(taskList.currentTaskId as never)
       : undefined;
     lines.push(
-      `Run ${run.id}: status=${run.status}; rowVersion=${run.rowVersion ?? 0}; ` +
-        `stage=${currentStage?.stageId ?? 'none'} (${run.currentStageId ?? 'none'}); ` +
-        `task=${currentTask?.taskId ?? 'none'} (${run.currentTaskId ?? 'none'}); ` +
+      `Task List ${taskList.id}: status=${taskList.status}; rowVersion=${taskList.rowVersion ?? 0}; ` +
+        `phase=${taskList.currentPhaseKey ?? 'none'}; ` +
+        `task=${currentTask?.taskKey ?? 'none'} (${taskList.currentTaskId ?? 'none'}); ` +
         `taskStatus=${currentTask?.status ?? 'none'}; ` +
-        `taskRole=${typeof currentTask?.input.workflowTaskRole === 'string' ? currentTask.input.workflowTaskRole : 'none'}; ` +
-        `gate=${run.currentGate ?? 'none'}`,
+        `taskRole=${typeof currentTask?.input.taskRole === 'string' ? currentTask.input.taskRole : 'none'}; ` +
+        `gate=${taskList.currentGate ?? 'none'}`,
     );
     if (currentTask) {
-      const taskRole = currentTask.input.workflowTaskRole;
+      const taskRole = currentTask.input.taskRole;
       const taskContract = getMovieProductionTaskContract(taskRole);
       lines.push(
         taskContract
           ? `Current task contract: ${truncSnap(JSON.stringify(taskContract), 3000)}`
-          : 'Current task contract: unavailable; do not mutate workflow state until the task role is recognized.',
+          : 'Current task contract: unavailable; do not mutate Task List state until the task role is recognized.',
       );
       const taskInput = projectCurrentTaskInput(currentTask.input);
       if (Object.keys(taskInput).length > 0) {
         lines.push(`Current task input: ${truncSnap(JSON.stringify(taskInput), 2000)}`);
       }
     }
-    const continuation = asContextRecord(asContextRecord(run.metadata).commanderContinuation);
+    const continuation = asContextRecord(asContextRecord(taskList.metadata).commanderContinuation);
     const continuationClaim = asContextRecord(continuation.claim);
     if (typeof continuationClaim.status === 'string') {
       lines.push(
@@ -451,13 +490,13 @@ function renderPersistentWorkflowManifest(db: SqliteIndex, runs: WorkflowRun[]):
           `reason=${continuationClaim.reason ? truncSnap(String(continuationClaim.reason), 500) : 'none'}`,
       );
     }
-    const contextRecovery = asContextRecord(asContextRecord(run.metadata).contextRecovery);
+    const contextRecovery = asContextRecord(asContextRecord(taskList.metadata).contextRecovery);
     if (typeof contextRecovery.state === 'string') {
       lines.push(
         `Context recovery: state=${contextRecovery.state}; ` +
           `consecutiveFailures=${contextRecovery.consecutiveFailures ?? 0}; ` +
           `reason=${contextRecovery.reason ?? 'none'}; ` +
-          `previousRunStatus=${contextRecovery.previousRunStatus ?? 'none'}`,
+          `previousTaskListStatus=${contextRecovery.previousTaskListStatus ?? 'none'}`,
       );
     }
 
@@ -465,35 +504,36 @@ function renderPersistentWorkflowManifest(db: SqliteIndex, runs: WorkflowRun[]):
       ['production-plan', 'Production Plan'],
       ['visual-auditions', 'Visual Auditions'],
       ['visual-constitution', 'Visual Constitution'],
-      ['final-export', 'Final Export'],
+      ['delivery-manifest', 'Delivery Manifest'],
       ['context-checkpoint', 'Context Checkpoint'],
     ] as const) {
-      const document = db.repos.workflows.getLatestDocument(runId, logicalKey);
+      const document = db.repos.taskLists.getLatestDocument(taskListId, logicalKey);
       if (!document) continue;
       lines.push(
         `${label}: revision=${document.revision}; sha256=${document.contentHash}; status=${document.status}`,
       );
       lines.push(
         `${label} facts: ${truncSnap(
-          JSON.stringify(projectWorkflowDocumentFacts(logicalKey, document.content)),
-          MAX_WORKFLOW_DOCUMENT_CHARS,
+          JSON.stringify(projectPlanDocumentFacts(logicalKey, document.content)),
+          MAX_PLAN_DOCUMENT_CHARS,
         )}`,
       );
     }
 
-    const execution = db.repos.workflows.getLatestExportExecution?.(runId);
+    const execution = db.repos.taskLists.getLatestDeliveryPackageAttempt(taskListId);
     if (execution) {
       lines.push(
-        `Final Export execution: status=${execution.status}; attempt=${execution.attempt}; ` +
+        `Delivery package attempt: status=${execution.status}; attempt=${execution.attempt}; ` +
           `manifestRevision=${execution.manifestRevision}; manifestSha256=${execution.manifestHash}; ` +
-          `outputSha256=${execution.outputHash ?? 'none'}; outputBytes=${execution.outputSize ?? 'unknown'}; ` +
+          `packageSha256=${execution.packageHash ?? 'none'}; packageBytes=${execution.packageBytes ?? 'unknown'}; ` +
+          `fileCount=${execution.fileCount ?? 'unknown'}; ` +
           `error=${execution.error ? truncSnap(execution.error, 500) : 'none'}`,
       );
     }
 
-    const mediaAttempts = db.repos.workflows.listMediaAttempts?.(runId) ?? [];
-    const mediaEvaluations = db.repos.workflows.listMediaEvaluations?.(runId) ?? [];
-    const mediaCost = db.repos.workflows.getMediaCostSummary?.(runId);
+    const mediaAttempts = db.repos.taskLists.listProductionMediaAttempts(taskListId);
+    const mediaEvaluations = db.repos.taskLists.listTaskEvaluations(taskListId);
+    const mediaCost = db.repos.taskLists.getTaskCostSummary(taskListId);
     if (mediaCost) {
       lines.push(
         `Production media budget ledger: attempts=${mediaCost.attemptCount}; ` +
@@ -529,36 +569,34 @@ function renderPersistentWorkflowManifest(db: SqliteIndex, runs: WorkflowRun[]):
       }
     }
 
-    const pendingDecisions =
-      db.repos.workflows.listPendingDecisions?.({ workflowRunId: run.id }) ?? [];
-    for (const decision of pendingDecisions.slice(0, MAX_CONTEXT_WORKFLOW_DECISIONS)) {
-      const task = db.repos.workflows.getTaskRun(decision.taskRunId as never);
-      const taskRole =
-        typeof task?.input.workflowTaskRole === 'string' ? task.input.workflowTaskRole : 'none';
+    const pendingDecisions = db.repos.taskLists.listPendingDecisions({ taskListId: taskList.id });
+    for (const decision of pendingDecisions.slice(0, MAX_CONTEXT_TASK_DECISIONS)) {
+      const task = db.repos.taskLists.getTask(decision.taskId as never);
+      const taskRole = typeof task?.input.taskRole === 'string' ? task.input.taskRole : 'none';
       const options = decision.options.slice(0, 8).map((option) => ({
         id: option.id,
         label: option.label,
         description: option.description,
       }));
       lines.push(
-        `Workflow decision: status=${decision.status}; decisionKey=${decision.decisionKey}; ` +
+        `Task decision: status=${decision.status}; decisionKey=${decision.decisionKey}; ` +
           `questionId=${decision.questionId}; subjectRevision=${decision.subjectRevision}; ` +
-          `task=${task?.taskId ?? 'missing'} (${decision.taskRunId}); ` +
+          `task=${task?.taskKey ?? 'missing'} (${decision.taskId}); ` +
           `taskStatus=${task?.status ?? 'missing'}; taskRole=${taskRole}; ` +
           `allowFreeText=${decision.allowFreeText}; selectedOption=${decision.selectedOptionId ?? 'none'}`,
       );
-      lines.push(`Workflow decision question: ${truncSnap(decision.question, 1000)}`);
-      lines.push(`Workflow decision options: ${truncSnap(JSON.stringify(options), 1500)}`);
+      lines.push(`Task decision question: ${truncSnap(decision.question, 1000)}`);
+      lines.push(`Task decision options: ${truncSnap(JSON.stringify(options), 1500)}`);
       if (decision.status === 'recovery_required') {
         lines.push(
-          `Workflow decision recovery facts: answer=${decision.answer ? truncSnap(decision.answer, 1000) : 'none'}; ` +
+          `Task decision recovery facts: answer=${decision.answer ? truncSnap(decision.answer, 1000) : 'none'}; ` +
             `answeredAt=${decision.answeredAt ?? 'unknown'}; rowVersion=${decision.rowVersion}`,
         );
       }
     }
 
-    if (run.currentGate) {
-      const pending = db.repos.workflows.getPendingApproval(runId, run.currentGate);
+    if (taskList.currentGate) {
+      const pending = db.repos.taskLists.getPendingApproval(taskListId, taskList.currentGate);
       if (pending) {
         lines.push(
           `Pending human approval: ${pending.gateKey}; revision=${pending.subjectRevision}; ` +
@@ -570,23 +608,24 @@ function renderPersistentWorkflowManifest(db: SqliteIndex, runs: WorkflowRun[]):
   return lines.join('\n');
 }
 
-export function buildPersistentWorkflowManifest(db: SqliteIndex, canvasId?: string): string {
+/** Global diagnostic/test manifest. Commander runs must use the session-scoped context below. */
+export function buildPersistentTaskListManifest(db: SqliteIndex, canvasId?: string): string {
   try {
-    return renderPersistentWorkflowManifest(db, listPersistentVideoRuns(db, canvasId));
+    return renderPersistentTaskListManifest(db, listPersistentVideoTaskLists(db, canvasId));
   } catch {
-    return 'Persistent workflow manifest unavailable; pause workflow mutations until SQLite can be read.';
+    return 'Persistent Task List manifest unavailable; pause Task List mutations until SQLite can be read.';
   }
 }
 
 function getExactApprovedGate(
   db: SqliteIndex,
-  runId: WorkflowRunId,
-  gateKey: WorkflowApprovalGateKey,
-): WorkflowApproval | undefined {
-  const approval = db.repos.workflows.getLatestApproval(runId, gateKey);
+  taskListId: TaskListId,
+  gateKey: PlanApprovalGateKey,
+): PlanApproval | undefined {
+  const approval = db.repos.taskLists.getLatestApproval(taskListId, gateKey);
   if (!approval || approval.status !== 'approved') return undefined;
-  const document = db.repos.workflows.getDocumentRevision(
-    runId,
+  const document = db.repos.taskLists.getDocumentRevision(
+    taskListId,
     approval.subjectLogicalKey,
     approval.subjectRevision,
   );
@@ -597,58 +636,53 @@ function getExactApprovedGate(
     : undefined;
 }
 
-function deriveWorkflowToolPolicy(db: SqliteIndex, run: WorkflowRun): WorkflowToolPolicy {
-  const runId = run.id as WorkflowRunId;
-  const currentStage = run.currentStageId
-    ? db.repos.workflows.getStageRun(run.currentStageId as never)
-    : undefined;
-  const currentTask = run.currentTaskId
-    ? db.repos.workflows.getTaskRun(run.currentTaskId as never)
+function deriveTaskListToolPolicy(db: SqliteIndex, taskList: TaskList): TaskListToolPolicy {
+  const taskListId = taskList.id as TaskListId;
+  const currentTask = taskList.currentTaskId
+    ? db.repos.taskLists.getTask(taskList.currentTaskId as never)
     : undefined;
   const base = {
-    workflowRunId: run.id,
-    rowVersion: run.rowVersion ?? 0,
-    currentTaskRunId: run.currentTaskId,
-    currentTaskId: currentTask?.taskId,
+    taskListId: taskList.id,
+    rowVersion: taskList.rowVersion ?? 0,
+    currentTaskId: taskList.currentTaskId,
+    currentTaskKey: currentTask?.taskKey,
     currentTaskRole:
-      typeof currentTask?.input.workflowTaskRole === 'string'
-        ? currentTask.input.workflowTaskRole
-        : undefined,
-    currentStageId: currentStage?.stageId,
+      typeof currentTask?.input.taskRole === 'string' ? currentTask.input.taskRole : undefined,
+    currentPhaseKey: taskList.currentPhaseKey,
   };
   if (
-    (run.currentStageId && (!currentStage || currentStage.workflowRunId !== run.id)) ||
-    (run.currentTaskId && (!currentTask || currentTask.workflowRunId !== run.id))
+    (taskList.currentTaskId && (!currentTask || currentTask.taskListId !== taskList.id)) ||
+    (taskList.currentPhaseKey && currentTask && currentTask.phaseKey !== taskList.currentPhaseKey)
   ) {
     return {
       ...base,
       phase: 'blocked',
-      reason: 'The current durable stage/task binding could not be verified.',
+      reason: 'The current durable phase/task binding could not be verified.',
     };
   }
-  if (run.status === 'paused') {
-    const recovery = asContextRecord(asContextRecord(run.metadata).contextRecovery);
+  if (taskList.status === 'paused') {
+    const recovery = asContextRecord(asContextRecord(taskList.metadata).contextRecovery);
     return {
       ...base,
       phase: 'blocked',
-      gate: run.currentGate,
+      gate: taskList.currentGate,
       reason:
         recovery.state === 'recovery_required'
-          ? `Workflow is paused for context recovery after ${recovery.consecutiveFailures ?? 0} consecutive failures.`
-          : 'Workflow is paused.',
+          ? `Task List is paused for context recovery after ${recovery.consecutiveFailures ?? 0} consecutive failures.`
+          : 'Task List is paused.',
     };
   }
-  const planApproval = getExactApprovedGate(db, runId, 'production_plan');
-  const visualApproval = getExactApprovedGate(db, runId, 'visual_constitution');
-  const finalApproval = getExactApprovedGate(db, runId, 'final_export');
+  const planApproval = getExactApprovedGate(db, taskListId, 'production_plan');
+  const visualApproval = getExactApprovedGate(db, taskListId, 'visual_constitution');
+  const deliveryApproval = getExactApprovedGate(db, taskListId, 'delivery');
   const planApproved = Boolean(planApproval);
   const visualApproved = Boolean(visualApproval);
 
-  if (run.currentGate) {
-    const pending = db.repos.workflows.getPendingApproval(runId, run.currentGate);
+  if (taskList.currentGate) {
+    const pending = db.repos.taskLists.getPendingApproval(taskListId, taskList.currentGate);
     const subject = pending
-      ? db.repos.workflows.getDocumentRevision(
-          runId,
+      ? db.repos.taskLists.getDocumentRevision(
+          taskListId,
           pending.subjectLogicalKey,
           pending.subjectRevision,
         )
@@ -657,15 +691,15 @@ function deriveWorkflowToolPolicy(db: SqliteIndex, run: WorkflowRun): WorkflowTo
       return {
         ...base,
         phase: 'blocked',
-        gate: run.currentGate,
+        gate: taskList.currentGate,
         reason: 'The pending approval subject revision/hash could not be verified.',
       };
     }
-    if (run.currentGate === 'production_plan') {
+    if (taskList.currentGate === 'production_plan') {
       return {
         ...base,
         phase: 'production_plan_pending',
-        gate: run.currentGate,
+        gate: taskList.currentGate,
         subjectRevision: pending.subjectRevision,
       };
     }
@@ -673,15 +707,15 @@ function deriveWorkflowToolPolicy(db: SqliteIndex, run: WorkflowRun): WorkflowTo
       return {
         ...base,
         phase: 'blocked',
-        gate: run.currentGate,
+        gate: taskList.currentGate,
         reason: 'Production Plan approval is missing or inconsistent.',
       };
     }
-    if (run.currentGate === 'visual_constitution') {
+    if (taskList.currentGate === 'visual_constitution') {
       return {
         ...base,
         phase: 'visual_constitution_pending',
-        gate: run.currentGate,
+        gate: taskList.currentGate,
         subjectRevision: pending.subjectRevision,
       };
     }
@@ -689,29 +723,29 @@ function deriveWorkflowToolPolicy(db: SqliteIndex, run: WorkflowRun): WorkflowTo
       return {
         ...base,
         phase: 'blocked',
-        gate: run.currentGate,
+        gate: taskList.currentGate,
         reason: 'Visual Constitution approval is missing or inconsistent.',
       };
     }
     return {
       ...base,
-      phase: 'final_export_pending',
-      gate: run.currentGate,
+      phase: 'delivery_pending',
+      gate: taskList.currentGate,
       subjectRevision: pending.subjectRevision,
     };
   }
 
-  if (finalApproval) {
+  if (deliveryApproval) {
     return {
       ...base,
-      phase: 'final_export_approved',
-      subjectRevision: finalApproval.subjectRevision,
+      phase: 'delivery_approved',
+      subjectRevision: deliveryApproval.subjectRevision,
     };
   }
-  switch (currentStage?.stageId) {
+  switch (taskList.currentPhaseKey) {
     case 'production-plan': {
-      const latestPlan = db.repos.workflows.getLatestDocument(runId, 'production-plan');
-      const latestApproval = db.repos.workflows.getLatestApproval(runId, 'production_plan');
+      const latestPlan = db.repos.taskLists.getLatestDocument(taskListId, 'production-plan');
+      const latestApproval = db.repos.taskLists.getLatestApproval(taskListId, 'production_plan');
       return latestPlan && latestApproval?.status === 'rejected'
         ? { ...base, phase: 'production_plan_revision', subjectRevision: latestPlan.revision + 1 }
         : {
@@ -722,7 +756,7 @@ function deriveWorkflowToolPolicy(db: SqliteIndex, run: WorkflowRun): WorkflowTo
     }
     case 'style-exploration': {
       if (!planApproval) break;
-      const latest = db.repos.workflows.getLatestDocument(runId, 'visual-constitution');
+      const latest = db.repos.taskLists.getLatestDocument(taskListId, 'visual-constitution');
       return {
         ...base,
         phase: 'style_exploration',
@@ -748,12 +782,12 @@ function deriveWorkflowToolPolicy(db: SqliteIndex, run: WorkflowRun): WorkflowTo
         return { ...base, phase: 'assembly', subjectRevision: visualApproval.subjectRevision };
       }
       break;
-    case 'final-export': {
+    case 'delivery': {
       if (!planApproval || !visualApproval) break;
-      const latest = db.repos.workflows.getLatestDocument(runId, 'final-export');
+      const latest = db.repos.taskLists.getLatestDocument(taskListId, 'delivery-manifest');
       return {
         ...base,
-        phase: 'final_export_preparation',
+        phase: 'delivery_preparation',
         subjectRevision: (latest?.revision ?? 0) + 1,
       };
     }
@@ -761,46 +795,84 @@ function deriveWorkflowToolPolicy(db: SqliteIndex, run: WorkflowRun): WorkflowTo
   return {
     ...base,
     phase: 'blocked',
-    reason: 'The durable workflow stage does not have all exact approved prerequisite revisions.',
+    reason: 'The durable Task List phase does not have all exact approved prerequisite revisions.',
   };
 }
 
-export function buildPersistentWorkflowContext(
+export function buildPersistentTaskListContext(
   db: SqliteIndex,
   canvasId: string,
-): { workflowManifest: string; workflowToolPolicy?: WorkflowToolPolicy } {
-  try {
-    const runs = listPersistentVideoRuns(db, canvasId);
-    const workflowManifest = renderPersistentWorkflowManifest(db, runs);
-    if (runs.length === 0) return { workflowManifest };
-    if (runs.length > 1) {
-      return {
-        workflowManifest,
-        workflowToolPolicy: {
-          phase: 'blocked',
-          reason: 'Multiple non-terminal persistent video workflows are bound to this canvas.',
-        },
-      };
-    }
+  commanderSessionId: string,
+): { taskListManifest: string; taskListToolPolicy?: TaskListToolPolicy } {
+  const sessionId = normalizeOptionalString(commanderSessionId);
+  if (!sessionId) {
+    throw new TypeError('Commander session is required for persistent Task List context');
+  }
+  const taskLists = listPersistentVideoTaskLists(db, canvasId, sessionId);
+  const taskListManifest = renderPersistentTaskListManifest(db, taskLists);
+  if (taskLists.length === 0) return { taskListManifest };
+  if (taskLists.length > 1) {
     return {
-      workflowManifest,
-      workflowToolPolicy: deriveWorkflowToolPolicy(db, runs[0]!),
-    };
-  } catch {
-    return {
-      workflowManifest:
-        'Persistent workflow manifest unavailable; pause workflow mutations until SQLite can be read.',
-      workflowToolPolicy: {
+      taskListManifest,
+      taskListToolPolicy: {
         phase: 'blocked',
-        reason: 'Persistent workflow state could not be read from SQLite.',
+        reason: 'Multiple non-terminal persistent video Task Lists are bound to this Commander session.',
       },
     };
   }
+  return {
+    taskListManifest,
+    taskListToolPolicy: deriveTaskListToolPolicy(db, taskLists[0]!),
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Context builder
 // ---------------------------------------------------------------------------
+
+export function buildAuthorizedContext(
+  canvases: Canvas[],
+  defaultCanvasId: string | undefined,
+  presetLibrary: PresetDefinition[],
+  selectedNodes: Array<{ canvasId: string; nodeId: string }>,
+  db: SqliteIndex,
+  promptGuides?: CommanderPromptGuide[],
+  commanderSessionId?: string,
+): AgentContext {
+  const defaultCanvas = defaultCanvasId
+    ? canvases.find((canvas) => canvas.id === defaultCanvasId)
+    : undefined;
+  const context = defaultCanvas
+    ? buildContext(
+        defaultCanvas,
+        presetLibrary,
+        selectedNodes
+          .filter((selected) => selected.canvasId === defaultCanvas.id)
+          .map((selected) => selected.nodeId),
+        db,
+        promptGuides,
+        undefined,
+        commanderSessionId,
+      )
+    : { page: 'canvas', extra: {} };
+  const extra = context.extra as Record<string, unknown>;
+  extra.authorizedCanvasIds = canvases.map((canvas) => canvas.id);
+  extra.authorizedCanvases = canvases.map((canvas) => {
+    const selectedNodeIds = selectedNodes
+      .filter((selected) => selected.canvasId === canvas.id)
+      .map((selected) => selected.nodeId);
+    return {
+      id: canvas.id,
+      name: canvas.name,
+      nodeCount: canvas.nodes.length,
+      edgeCount: canvas.edges.length,
+      selectedNodeIds,
+      workspaceSnapshot: buildWorkspaceSnapshot(canvas, selectedNodeIds, db),
+    };
+  });
+  if (!defaultCanvas) extra.selectedNodeIds = [];
+  return context as AgentContext;
+}
 
 export function buildContext(
   canvas: Canvas,
@@ -809,6 +881,7 @@ export function buildContext(
   db: SqliteIndex,
   promptGuides?: CommanderPromptGuide[],
   editingNodeId?: string | null,
+  commanderSessionId?: string,
 ): AgentContext {
   const limitedSelectedNodeIds = selectedNodeIds.slice(0, MAX_CONTEXT_SELECTED_NODES);
   const nodeMap = new Map(canvas.nodes.map((node) => [node.id, node]));
@@ -821,7 +894,7 @@ export function buildContext(
       .slice(0, MAX_CONTEXT_SELECTED_NODE_SUMMARIES)
       .map((nodeId) => nodeMap.get(nodeId))
       .filter((node): node is CanvasNode => Boolean(node))
-      .map((node) => summarizeSelectedNode(node, db)),
+      .map((node) => summarizeSelectedNode(canvas.id, node, db)),
   };
   // R28: Editing awareness — tell the LLM which node the user is actively
   // editing so it avoids mutating it mid-keystroke. Only included when set.
@@ -836,17 +909,19 @@ export function buildContext(
   // Rendered as its own section in the system prompt so the LLM can reason
   // about the project without calling read tools on step 1.
   extra.workspaceSnapshot = buildWorkspaceSnapshot(canvas, limitedSelectedNodeIds, db);
-  const persistentWorkflow = buildPersistentWorkflowContext(db, canvas.id);
-  if (persistentWorkflow.workflowManifest) {
-    extra.workflowManifest = persistentWorkflow.workflowManifest;
+  const persistentTaskList = commanderSessionId
+    ? buildPersistentTaskListContext(db, canvas.id, commanderSessionId)
+    : undefined;
+  if (persistentTaskList?.taskListManifest) {
+    extra.taskListManifest = persistentTaskList.taskListManifest;
   }
-  if (persistentWorkflow.workflowToolPolicy) {
-    extra.workflowToolPolicy = persistentWorkflow.workflowToolPolicy;
+  if (persistentTaskList?.taskListToolPolicy) {
+    extra.taskListToolPolicy = persistentTaskList.taskListToolPolicy;
   }
   if (Array.isArray(promptGuides) && promptGuides.length > 0) {
     const selected = selectPromptGuidesForContext(
       promptGuides,
-      persistentWorkflow.workflowToolPolicy?.phase,
+      persistentTaskList?.taskListToolPolicy?.phase,
     );
     const autoInjected = selected.injected;
     if (autoInjected.length > 0) {
@@ -857,9 +932,13 @@ export function buildContext(
   return { page: 'canvas', extra };
 }
 
+function sha256Text(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
 export function selectPromptGuidesForContext(
   promptGuides: CommanderPromptGuide[],
-  phase?: CommanderWorkflowGuidePhase,
+  phase?: CommanderTaskListGuidePhase,
 ): {
   injected: CommanderPromptGuide[];
   discoveryOnly: Array<{ id: string; name: string }>;
@@ -914,7 +993,7 @@ export function selectPromptGuidesForContext(
 
 function isGuideApplicable(
   guide: CommanderPromptGuide,
-  phase: CommanderWorkflowGuidePhase | undefined,
+  phase: CommanderTaskListGuidePhase | undefined,
 ): boolean {
   return !guide.phases || guide.phases.length === 0 || (!!phase && guide.phases.includes(phase));
 }

@@ -3,16 +3,14 @@ import {
   createCanvasTools,
   type CanvasToolDeps,
   createColorStyleTools,
-  createJobTools,
   createPresetTools,
-  createRenderTools,
   createScriptTools,
-  createSeriesTools,
-  createWorkflowTools,
+  createTaskListTools,
 } from '../../index.js';
 import {
   createEmptyPresetTrackSet,
   type Canvas,
+  type CanvasPatch,
   type PresetDefinition,
 } from '@lucid-fin/contracts';
 
@@ -49,9 +47,18 @@ function createCanvas(): Canvas {
   };
 }
 
+function applyCanvasPatch(canvas: Canvas, patch: CanvasPatch): void {
+  for (const update of patch.updatedNodes ?? []) {
+    const node = canvas.nodes.find((entry) => entry.id === update.id);
+    if (!node) throw new Error(`Node not found: ${update.id}`);
+    Object.assign(node, structuredClone(update.changes));
+  }
+}
+
 function createCanvasDeps(canvas: Canvas): CanvasToolDeps {
   return {
     getCanvas: vi.fn(async () => canvas),
+    patchCanvas: vi.fn(async (_canvasId, patch) => applyCanvasPatch(canvas, patch)),
     deleteCanvas: vi.fn(async () => undefined),
     addNode: vi.fn(async () => undefined),
     moveNode: vi.fn(async () => undefined),
@@ -59,11 +66,49 @@ function createCanvasDeps(canvas: Canvas): CanvasToolDeps {
     connectNodes: vi.fn(async () => undefined),
     setNodePresets: vi.fn(async () => undefined),
     layoutNodes: vi.fn(async () => undefined),
-    triggerGeneration: vi.fn(async () => undefined),
+    prepareMediaTask: vi.fn(async (input) => ({
+      id: 'task-list-1',
+      canvasId: input.canvasId,
+      nodeId: input.nodeId,
+      status: 'running',
+      taskStatus: 'awaiting_prompt_assembly',
+      progress: 0,
+    })),
+    getMediaTask: vi.fn(async (id) => ({
+      id,
+      canvasId: 'canvas-1',
+      nodeId: 'node-1',
+      status: 'running',
+      taskStatus: 'awaiting_prompt_assembly',
+      progress: 0,
+    })),
+    submitMediaPrompt: vi.fn(async (input) => ({
+      id: input.taskListId,
+      canvasId: 'canvas-1',
+      nodeId: 'node-1',
+      status: 'running',
+      taskStatus: 'awaiting_provider',
+      progress: 0,
+    })),
     renameCanvas: vi.fn(async (_canvasId: string, name: string) => {
       canvas.name = name;
     }),
-    cancelGeneration: vi.fn(async () => undefined),
+    cancelMediaTask: vi.fn(async (id) => ({
+      id,
+      canvasId: 'canvas-1',
+      nodeId: 'node-1',
+      status: 'cancelled',
+      taskStatus: 'cancelled',
+      progress: 0,
+    })),
+    retryMediaEvaluation: vi.fn(async (id) => ({
+      id,
+      canvasId: 'canvas-1',
+      nodeId: 'node-1',
+      status: 'running',
+      taskStatus: 'evaluating',
+      progress: 0,
+    })),
     deleteNode: vi.fn(async () => undefined),
     deleteEdge: vi.fn(async () => undefined),
     updateNodeData: vi.fn(
@@ -78,8 +123,8 @@ function createCanvasDeps(canvas: Canvas): CanvasToolDeps {
     listShotTemplates: vi.fn(async () => []),
     saveShotTemplate: vi.fn(async (t) => t),
     deleteShotTemplate: vi.fn(async () => {}),
-    importWorkflow: vi.fn(async () => canvas),
-    exportWorkflow: vi.fn(async () => '{}'),
+    importCanvasDocument: vi.fn(async () => canvas),
+    exportCanvasDocument: vi.fn(async () => '{}'),
     setNodeColorTag: vi.fn(async () => undefined),
     toggleSeedLock: vi.fn(async () => undefined),
     selectVariant: vi.fn(async () => undefined),
@@ -174,18 +219,7 @@ describe('new agent tool groups', () => {
     });
   });
 
-  it('job, render, preset, and workflow tools delegate to dependencies', async () => {
-    const jobTools = createJobTools({
-      listJobs: vi.fn(async () => []),
-      cancelJob: vi.fn(async () => undefined),
-      pauseJob: vi.fn(async () => undefined),
-      resumeJob: vi.fn(async () => undefined),
-    });
-    const renderTools = createRenderTools({
-      startRender: vi.fn(async () => ({ renderId: 'render-1' })),
-      cancelRender: vi.fn(async () => undefined),
-      exportBundle: vi.fn(async () => ({ path: '/tmp/out.fcpxml' })),
-    });
+  it('preset and task-list tools delegate to dependencies', async () => {
     const presetTools = createPresetTools({
       listPresets: vi.fn(async () => []),
       savePreset: vi.fn(async (preset: PresetDefinition) => preset),
@@ -203,20 +237,24 @@ describe('new agent tool groups', () => {
       })),
       getPreset: vi.fn(async () => null),
     });
-    const workflowTools = createWorkflowTools({
-      pauseWorkflow: vi.fn(async () => undefined),
-      resumeWorkflow: vi.fn(async () => undefined),
-      cancelWorkflow: vi.fn(async () => undefined),
-      retryWorkflow: vi.fn(async () => undefined),
+    const taskListTools = createTaskListTools({
+      pauseTaskList: vi.fn(async () => undefined),
+      resumeTaskList: vi.fn(async () => undefined),
+      cancelTaskList: vi.fn(async () => undefined),
+      retryTaskList: vi.fn(async () => undefined),
+      decidePendingGate: vi.fn(async () => ({})),
+      prepareAudioTask: vi.fn(async () => ({}) as never),
+      getAudioTask: vi.fn(async () => ({}) as never),
+      submitAudioPrompt: vi.fn(async () => ({}) as never),
       createProductionPlan: vi.fn(async () => ({
-        workflowRunId: 'wf-plan-1',
+        taskListId: 'task-list-plan-1',
         gate: 'production_plan',
         status: 'awaiting_approval',
         revision: 1,
         contentHash: 'plan-hash-1',
       })),
       createVisualAuditions: vi.fn(async () => ({
-        workflowRunId: 'wf-plan-1',
+        taskListId: 'task-list-plan-1',
         status: 'complete' as const,
         revision: 1,
         contentHash: 'visual-hash-1',
@@ -225,25 +263,7 @@ describe('new agent tool groups', () => {
       })),
       produceMedia: vi.fn(async () => ({ status: 'accepted' })),
       refineMedia: vi.fn(async () => ({ status: 'accepted' })),
-      prepareFinalExport: vi.fn(async () => ({}) as never),
-    });
-
-    await expect(
-      getTool(jobTools, 'job.control').execute({ jobId: 'job-1', action: 'cancel' }),
-    ).resolves.toEqual({
-      success: true,
-      data: { jobId: 'job-1', action: 'cancel' },
-    });
-    await expect(
-      getTool(renderTools, 'render.start').execute({
-        canvasId: 'canvas-1',
-        workflowRunId: 'run-1',
-        expectedManifestRevision: 1,
-        expectedManifestHash: 'a'.repeat(64),
-      }),
-    ).resolves.toEqual({
-      success: true,
-      data: { renderId: 'render-1' },
+      prepareDelivery: vi.fn(async () => ({}) as never),
     });
     await expect(
       getTool(presetTools, 'preset.manage').execute({ action: 'delete', presetId: 'preset-1' }),
@@ -252,33 +272,37 @@ describe('new agent tool groups', () => {
       data: { presetId: 'preset-1' },
     });
     await expect(
-      getTool(workflowTools, 'workflow.manage').execute({
+      getTool(taskListTools, 'taskList.manage').execute({
         action: 'control',
-        id: 'wf-1',
+        id: 'task-list-1',
         controlAction: 'retry',
       }),
     ).resolves.toEqual({
       success: true,
-      data: { id: 'wf-1', action: 'retry' },
+      data: { id: 'task-list-1', action: 'retry' },
     });
   });
 
-  it('workflow tools persist a structured production plan behind the first approval gate', async () => {
+  it('task-list tools persist a structured production plan behind the first approval gate', async () => {
     const createProductionPlan = vi.fn(async () => ({
-      workflowRunId: 'wf-plan-1',
+      taskListId: 'task-list-plan-1',
       gate: 'production_plan' as const,
       status: 'awaiting_approval' as const,
       revision: 1,
       contentHash: 'plan-hash-1',
     }));
-    const workflowTools = createWorkflowTools({
-      pauseWorkflow: vi.fn(async () => undefined),
-      resumeWorkflow: vi.fn(async () => undefined),
-      cancelWorkflow: vi.fn(async () => undefined),
-      retryWorkflow: vi.fn(async () => undefined),
+    const taskListTools = createTaskListTools({
+      pauseTaskList: vi.fn(async () => undefined),
+      resumeTaskList: vi.fn(async () => undefined),
+      cancelTaskList: vi.fn(async () => undefined),
+      retryTaskList: vi.fn(async () => undefined),
+      decidePendingGate: vi.fn(async () => ({})),
+      prepareAudioTask: vi.fn(async () => ({}) as never),
+      getAudioTask: vi.fn(async () => ({}) as never),
+      submitAudioPrompt: vi.fn(async () => ({}) as never),
       createProductionPlan,
       createVisualAuditions: vi.fn(async () => ({
-        workflowRunId: 'wf-plan-1',
+        taskListId: 'task-list-plan-1',
         status: 'complete' as const,
         revision: 1,
         contentHash: 'visual-hash-1',
@@ -287,7 +311,7 @@ describe('new agent tool groups', () => {
       })),
       produceMedia: vi.fn(async () => ({ status: 'accepted' })),
       refineMedia: vi.fn(async () => ({ status: 'accepted' })),
-      prepareFinalExport: vi.fn(async () => ({}) as never),
+      prepareDelivery: vi.fn(async () => ({}) as never),
     });
 
     const plan = {
@@ -326,7 +350,7 @@ describe('new agent tool groups', () => {
     };
 
     await expect(
-      getTool(workflowTools, 'workflow.manage').execute({
+      getTool(taskListTools, 'taskList.manage').execute({
         action: 'createProductionPlan',
         canvasId: 'canvas-1',
         idea: 'samurai travels through time',
@@ -335,7 +359,7 @@ describe('new agent tool groups', () => {
     ).resolves.toEqual({
       success: true,
       data: {
-        workflowRunId: 'wf-plan-1',
+        taskListId: 'task-list-plan-1',
         gate: 'production_plan',
         status: 'awaiting_approval',
         revision: 1,
@@ -349,26 +373,7 @@ describe('new agent tool groups', () => {
     });
   });
 
-  it('series and color style tools support compatible save/list/delete flows', async () => {
-    const currentSeries = {
-      id: 'series-1',
-      title: 'Series',
-      description: 'Desc',
-      styleGuide: {
-        global: {
-          artStyle: '',
-          colorPalette: { primary: '', secondary: '', forbidden: [] },
-          lighting: 'natural' as const,
-          texture: '',
-          referenceImages: [],
-          freeformDescription: '',
-        },
-        sceneOverrides: {},
-      },
-      episodeIds: [],
-      createdAt: 1,
-      updatedAt: 1,
-    };
+  it('color style tools support compatible save/list/delete flows', async () => {
     const colorStyle = {
       id: 'style-2',
       name: 'Cool',
@@ -387,33 +392,10 @@ describe('new agent tool groups', () => {
       createdAt: 1,
       updatedAt: 1,
     };
-    const seriesTools = createSeriesTools({
-      getSeries: vi.fn(async () => currentSeries),
-      saveSeries: vi.fn(async (series: Record<string, unknown>) => series),
-      listEpisodes: vi.fn(async () => [{ id: 'episode-1', title: 'Pilot', canvasId: 'canvas-1' }]),
-      addEpisode: vi.fn(async () => ({ id: 'episode-2' })),
-      removeEpisode: vi.fn(async () => undefined),
-      reorderEpisodes: vi.fn(async () => []),
-    });
     const colorStyleTools = createColorStyleTools({
       listColorStyles: vi.fn(async () => [{ id: 'style-1', name: 'Warm' }]),
       saveColorStyle: vi.fn(async (_style: Record<string, unknown>) => undefined),
       deleteColorStyle: vi.fn(async () => undefined),
-    });
-
-    await expect(
-      getTool(seriesTools, 'series.update').execute({
-        set: { title: 'Updated Series', description: 'Updated Desc' },
-      }),
-    ).resolves.toEqual({
-      success: true,
-      data: { ...currentSeries, title: 'Updated Series', description: 'Updated Desc' },
-    });
-    await expect(
-      getTool(seriesTools, 'series.removeEpisode').execute({ episodeId: 'episode-1' }),
-    ).resolves.toEqual({
-      success: true,
-      data: { episodeId: 'episode-1' },
     });
 
     await expect(

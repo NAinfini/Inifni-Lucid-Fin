@@ -8,6 +8,9 @@ import { ToastViewport } from './components/ui/ToastViewport.js';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard.js';
 import { useBootstrap } from './hooks/use-bootstrap.js';
 import { useDailyActiveTracker } from './hooks/useDailyActiveTracker.js';
+import { getLocale } from './i18n.runtime.js';
+import { getTargetDesktopApi } from './target/api.js';
+import { TargetApp } from './target/TargetApp.js';
 import { lazyPage } from './utils/performance.js';
 import type { RootState } from './store/index.js';
 import { SkeletonPage } from './components/ui/Skeleton.js';
@@ -20,46 +23,35 @@ const Settings = lazyPage(async () => {
   const module = await import('./pages/Settings.js');
   return { default: module.Settings };
 });
-const TaskCenter = lazyPage(async () => {
-  const module = await import('./pages/TaskCenter.js');
-  return { default: module.TaskCenter };
-});
-const AudioStudio = lazyPage(async () => {
-  const module = await import('./pages/AudioStudio.js');
-  return { default: module.AudioStudio };
-});
-const ExportEngine = lazyPage(async () => {
-  const module = await import('./pages/ExportEngine.js');
-  return { default: module.ExportEngine };
-});
-const SeriesManager = lazyPage(async () => {
-  const module = await import('./pages/SeriesManager.js');
-  return { default: module.SeriesManager };
-});
-
-export function App() {
+function LegacyApp() {
   useBootstrap();
   useDailyActiveTracker();
   const onboardingComplete = useSelector((s: RootState) => s.ui.onboardingComplete);
 
   return (
+    <>
+      <CommandPalette />
+      <ToastViewport />
+      <AppShell>
+        <Suspense fallback={<SkeletonPage />}>
+          <Routes>
+            <Route path="/" element={<CanvasPage />} />
+            <Route path="/settings" element={<Settings />} />
+          </Routes>
+        </Suspense>
+      </AppShell>
+      {!onboardingComplete && <OnboardingWizard />}
+    </>
+  );
+}
+
+export function App() {
+  const targetApi = getTargetDesktopApi();
+
+  return (
     <ErrorBoundary>
       <HashRouter>
-        <CommandPalette />
-        <ToastViewport />
-        <AppShell>
-          <Suspense fallback={<SkeletonPage />}>
-            <Routes>
-              <Route path="/" element={<CanvasPage />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/tasks" element={<TaskCenter />} />
-              <Route path="/audio" element={<AudioStudio />} />
-              <Route path="/export" element={<ExportEngine />} />
-              <Route path="/series" element={<SeriesManager />} />
-            </Routes>
-          </Suspense>
-        </AppShell>
-        {!onboardingComplete && <OnboardingWizard />}
+        {targetApi === null ? <LegacyApp /> : <TargetApp api={targetApi} locale={getLocale()} />}
       </HashRouter>
     </ErrorBoundary>
   );

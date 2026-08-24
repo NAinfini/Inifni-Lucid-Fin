@@ -1,24 +1,27 @@
-import type { AgentTool, CanvasToolDeps } from './canvas-tool-utils.js';
+import { NO_TOOL_RESOURCE, type ToolDefinition, type CanvasToolDeps } from './canvas-tool-utils.js';
+import { toolResultSchema } from '../tool-registry.js';
 import { CANVAS_CONTEXT, ok, fail } from './canvas-tool-utils.js';
+import { arraySchema, enumSchema, numberSchema, objectSchema, stringSchema } from './tool-runtime-schemas.js';
 
-const askUser: AgentTool = {
+const askUser: ToolDefinition = {
   name: 'commander.askUser',
-  description: [
-    'MANDATORY: Ask the user a question with clickable options. You MUST call this tool instead of writing questions in your reply text.',
-    'Every question, confirmation, preference, or clarification MUST go through this tool — never ask via plain text.',
-    '',
-    "NOT A GREETING: Do not open a session with `askUser` when the user's message already contains an actionable brief (a setting, subject, genre, or reference). Act on what they gave you first; reserve `askUser` for clarifications that actually block progress.",
-  ].join('\n'),
+  process: 'meta',
+  category: 'meta',
+  contextReplay: 'status_only',
+  resource: NO_TOOL_RESOURCE,
+  description:
+    'Ask the user a structured question with clickable options when their input is needed.',
   tags: ['meta', 'interaction'],
   tier: 1,
-  context: CANVAS_CONTEXT,
-  parameters: {
+  outputSchema: toolResultSchema(stringSchema),
+  contexts: CANVAS_CONTEXT,
+  inputSchema: {
     type: 'object',
     properties: {
       decisionKey: {
         type: 'string',
         description:
-          'Stable semantic key for this decision (required when a persistent workflow is active), e.g. style.horror.subgenre.',
+          'Stable semantic key for this decision (required when a persistent task list is active), e.g. style.horror.subgenre.',
       },
       question: { type: 'string', description: 'The question to ask the user' },
       allowFreeText: {
@@ -29,7 +32,7 @@ const askUser: AgentTool = {
       options: {
         type: 'array',
         description:
-          'Array of option objects with label and optional description. Provide 2-6 options.',
+          'Optional clickable choices. Omit this field for a free-text-only question.',
         items: {
           type: 'object',
           description: 'A single option',
@@ -39,11 +42,17 @@ const askUser: AgentTool = {
               type: 'string',
               description: 'Longer description of what this option means',
             },
+            previewAssetHash: {
+              type: 'string',
+              description:
+                'Optional SHA-256 CAS image hash to display as a visual preview for this choice.',
+            },
           },
+          required: ['label'],
         },
       },
     },
-    required: ['question', 'options'],
+    required: ['question'],
   },
   execute: async () => {
     // This tool is NEVER executed directly — the orchestrator intercepts it
@@ -52,13 +61,32 @@ const askUser: AgentTool = {
   },
 };
 
-export function createCanvasMetaTools(deps: CanvasToolDeps): AgentTool[] {
-  const readLogs: AgentTool = {
+export function createCanvasMetaTools(deps: CanvasToolDeps): ToolDefinition[] {
+  const readLogs: ToolDefinition = {
     name: 'logger.list',
+    process: 'meta',
+    category: 'query',
+    contextReplay: 'status_only',
+    resource: NO_TOOL_RESOURCE,
     description: 'Read recent application log entries for debugging',
-    context: CANVAS_CONTEXT,
+    contexts: CANVAS_CONTEXT,
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(
+      arraySchema(
+        objectSchema(
+          {
+            id: stringSchema,
+            timestamp: numberSchema,
+            level: enumSchema(['debug', 'info', 'warn', 'error', 'fatal']),
+            category: stringSchema,
+            message: stringSchema,
+            detail: stringSchema,
+          },
+          ['id', 'timestamp', 'level', 'category', 'message'],
+        ),
+      ),
+    ),
+    inputSchema: {
       type: 'object',
       properties: {
         level: { type: 'string', description: 'Optional log level filter.' },

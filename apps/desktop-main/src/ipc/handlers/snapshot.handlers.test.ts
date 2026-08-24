@@ -60,7 +60,7 @@ describe('snapshot.handlers', () => {
   it('session:upsert and session:list round-trip', async () => {
     await ipc.invoke('session:upsert', {
       id: 's1',
-      canvasId: null,
+      defaultCanvasId: null,
       title: 'T',
       messages: '[]',
       createdAt: 1000,
@@ -70,10 +70,10 @@ describe('snapshot.handlers', () => {
     expect(rows.some((r) => r.id === 's1')).toBe(true);
   });
 
-  it('session:list strips messages field', async () => {
+  it('session:list strips messages and returns the persisted message count', async () => {
     await ipc.invoke('session:upsert', {
       id: 's1',
-      canvasId: null,
+      defaultCanvasId: null,
       title: 'T',
       messages: '[{"role":"user"}]',
       createdAt: 1000,
@@ -83,12 +83,13 @@ describe('snapshot.handlers', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].messages).toBeUndefined();
     expect(rows[0].id).toBe('s1');
+    expect(rows[0].messageCount).toBe(1);
   });
 
   it('session:get returns messages field', async () => {
     await ipc.invoke('session:upsert', {
       id: 's1',
-      canvasId: null,
+      defaultCanvasId: null,
       title: 'T',
       messages: '[{"role":"user"}]',
       createdAt: 1000,
@@ -105,7 +106,7 @@ describe('snapshot.handlers', () => {
   it('session:delete removes session', async () => {
     await ipc.invoke('session:upsert', {
       id: 's1',
-      canvasId: null,
+      defaultCanvasId: null,
       title: 'T',
       messages: '[]',
       createdAt: 1000,
@@ -116,10 +117,76 @@ describe('snapshot.handlers', () => {
     expect(rows).toHaveLength(0);
   });
 
+  it('session:move updates only the default Canvas assignment', async () => {
+    await ipc.invoke('session:upsert', {
+      id: 's1',
+      defaultCanvasId: 'canvas-a',
+      title: 'T',
+      messages: '[{"role":"user"}]',
+      createdAt: 1000,
+      updatedAt: 1000,
+    });
+    await expect(
+      ipc.invoke('session:move', { id: 's1', defaultCanvasId: 'canvas-b' }),
+    ).resolves.toEqual({ success: true });
+    expect(db.repos.sessions.get('s1' as never)).toMatchObject({
+      defaultCanvasId: 'canvas-b',
+      title: 'T',
+      messages: '[{"role":"user"}]',
+      createdAt: 1000,
+      updatedAt: 1000,
+    });
+  });
+
+  it('rejects deleting an active session and prunes terminal sessions around it', async () => {
+    await ipc.invoke('session:upsert', {
+      id: 'active-old',
+      defaultCanvasId: null,
+      title: 'Active',
+      messages: '[]',
+      createdAt: 0,
+      updatedAt: 0,
+    });
+    db.repos.commanderRuns.start({
+      id: 'active-run',
+      sessionId: 'active-old' as never,
+      authorizedCanvasIds: [],
+      intent: 'active',
+      acceptedAt: 1,
+      runStartPayload: '{}',
+      attachments: [],
+    });
+    await expect(ipc.invoke('session:delete', { id: 'active-old' })).rejects.toThrow(
+      'has an active run',
+    );
+
+    await ipc.invoke('session:upsert', {
+      id: 'terminal-old',
+      defaultCanvasId: null,
+      title: 'Terminal',
+      messages: '[]',
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    for (let index = 0; index < 50; index += 1) {
+      await ipc.invoke('session:upsert', {
+        id: `recent-${index}`,
+        defaultCanvasId: null,
+        title: 'Recent',
+        messages: '[]',
+        createdAt: index + 2,
+        updatedAt: index + 2,
+      });
+    }
+
+    expect(db.repos.sessions.get('active-old' as never)).toBeDefined();
+    expect(db.repos.sessions.get('terminal-old' as never)).toBeUndefined();
+  });
+
   it('snapshot:capture returns metadata without data field', async () => {
     await ipc.invoke('session:upsert', {
       id: 's1',
-      canvasId: null,
+      defaultCanvasId: null,
       title: 'T',
       messages: '[]',
       createdAt: 1000,
@@ -137,7 +204,7 @@ describe('snapshot.handlers', () => {
   it('snapshot:list returns metadata without data field', async () => {
     await ipc.invoke('session:upsert', {
       id: 's1',
-      canvasId: null,
+      defaultCanvasId: null,
       title: 'T',
       messages: '[]',
       createdAt: 1000,
@@ -155,7 +222,7 @@ describe('snapshot.handlers', () => {
     db.repos.entities.upsertCharacter({ id: 'c1', name: 'Before' });
     await ipc.invoke('session:upsert', {
       id: 's1',
-      canvasId: null,
+      defaultCanvasId: null,
       title: 'T',
       messages: '[]',
       createdAt: 1000,
@@ -182,7 +249,7 @@ describe('snapshot.handlers', () => {
   it('snapshot:delete removes the snapshot', async () => {
     await ipc.invoke('session:upsert', {
       id: 's1',
-      canvasId: null,
+      defaultCanvasId: null,
       title: 'T',
       messages: '[]',
       createdAt: 1000,

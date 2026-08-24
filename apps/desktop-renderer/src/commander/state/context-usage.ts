@@ -46,7 +46,7 @@ export interface ContextUsageInput {
   messages: CommanderMessage[];
   currentStreamContent: string;
   currentToolCalls: CommanderToolCall[];
-  maxTokens: number;
+  contextWindowTokens: number;
   backendContextUsage: CommanderBackendContextUsage | null;
 }
 
@@ -75,6 +75,27 @@ function emptyTally(): Tally {
   };
 }
 
+const historicalTallyCache = new WeakMap<CommanderMessage[], Tally>();
+
+function publicToolChars(tool: CommanderToolCall): { call: number; result: number } {
+  return {
+    call: JSON.stringify({ summary: tool.summary, details: tool.details }).length,
+    result: JSON.stringify({
+      artifacts: tool.artifacts,
+      errorCode: tool.errorCode,
+    }).length,
+  };
+}
+
+function historicalTally(messages: CommanderMessage[]): Tally {
+  const cached = historicalTallyCache.get(messages);
+  if (cached) return { ...cached };
+  const tally = emptyTally();
+  accumulateMessages(tally, messages);
+  historicalTallyCache.set(messages, tally);
+  return { ...tally };
+}
+
 function accumulateMessages(tally: Tally, messages: CommanderMessage[]): void {
   for (const msg of messages) {
     const contentLen = msg.content?.length ?? 0;
@@ -87,11 +108,10 @@ function accumulateMessages(tally: Tally, messages: CommanderMessage[]): void {
     }
     if (msg.toolCalls) {
       for (const tc of msg.toolCalls) {
-        tally.toolCallChars += JSON.stringify(tc.arguments).length;
+        const chars = publicToolChars(tc);
+        tally.toolCallChars += chars.call;
         tally.toolCallCount++;
-        if (tc.result !== undefined) {
-          tally.toolResultChars += JSON.stringify(tc.result).length;
-        }
+        tally.toolResultChars += chars.result;
       }
     }
   }
@@ -104,20 +124,23 @@ function accumulateInFlight(
 ): void {
   tally.assistantChars += currentStreamContent?.length ?? 0;
   for (const tc of currentToolCalls) {
-    tally.toolCallChars += JSON.stringify(tc.arguments).length;
+    const chars = publicToolChars(tc);
+    tally.toolCallChars += chars.call;
     tally.toolCallCount++;
-    if (tc.result !== undefined) {
-      tally.toolResultChars += JSON.stringify(tc.result).length;
-    }
+    tally.toolResultChars += chars.result;
   }
 }
 
 export function computeContextUsage(input: ContextUsageInput): ContextUsage {
-  const { messages, currentStreamContent, currentToolCalls, maxTokens, backendContextUsage } =
-    input;
+  const {
+    messages,
+    currentStreamContent,
+    currentToolCalls,
+    contextWindowTokens,
+    backendContextUsage,
+  } = input;
 
-  const tally = emptyTally();
-  accumulateMessages(tally, messages);
+  const tally = historicalTally(messages);
   accumulateInFlight(tally, currentStreamContent, currentToolCalls);
 
   const breakdown: ContextUsageBreakdown = {
@@ -153,7 +176,7 @@ export function computeContextUsage(input: ContextUsageInput): ContextUsage {
   const totalChars =
     tally.userChars + tally.assistantChars + tally.toolCallChars + tally.toolResultChars;
   const estimatedTokens = toTokens(totalChars);
-  const ctxWindow = maxTokens;
+  const ctxWindow = contextWindowTokens;
   const pct = ctxWindow > 0 ? Math.min(100, Math.round((estimatedTokens / ctxWindow) * 100)) : 0;
   return {
     pct,

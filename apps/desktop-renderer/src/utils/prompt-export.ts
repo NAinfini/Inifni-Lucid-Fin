@@ -22,7 +22,8 @@ export function buildExternalAIPrompt(
   nodeId: string,
   presetSummaryByNodeId?: Record<string, string>,
 ): string {
-  const node = canvas.nodes.find((n) => n.id === nodeId);
+  const nodesById = new Map(canvas.nodes.map((node) => [node.id, node]));
+  const node = nodesById.get(nodeId);
   if (!node) return '';
 
   const lines: string[] = [];
@@ -69,7 +70,7 @@ export function buildExternalAIPrompt(
     lines.push('## Connected Nodes');
     for (const edge of connectedEdges) {
       const otherId = edge.source === nodeId ? edge.target : edge.source;
-      const other = canvas.nodes.find((n) => n.id === otherId);
+      const other = nodesById.get(otherId);
       if (!other) continue;
       const direction = edge.source === nodeId ? 'output →' : 'input ←';
       lines.push(`- ${direction} **${other.title}** (${other.type})`);

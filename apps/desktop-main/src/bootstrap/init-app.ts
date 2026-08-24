@@ -65,7 +65,7 @@ import {
   listBuiltinLLMProviderPresets,
   providerHealth,
 } from '@lucid-fin/adapters-ai';
-import { AgentToolRegistry } from '@lucid-fin/application';
+import { ToolRegistry } from '@lucid-fin/application';
 import {
   listBuiltinMediaProviders,
   listBuiltinVisionProviderPresets,
@@ -75,7 +75,6 @@ import type { CodexRuntime } from '../codex/codex-runtime.js';
 import { CodexImageGenAdapter } from '../codex/codex-imagegen.adapter.js';
 import { CodexLLMAdapter } from '../codex/codex-llm.adapter.js';
 import type { ProviderOAuthManager } from '../oauth/provider-oauth-manager.js';
-import { GeminiLLMAdapter } from '@lucid-fin/adapters-ai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -179,7 +178,7 @@ export function initApp(codexRuntime?: CodexRuntime) {
   const processPromptStore = new ProcessPromptStore(promptDbPath);
 
   // Agent system
-  const toolRegistry = new AgentToolRegistry();
+  const toolRegistry = new ToolRegistry();
 
   return {
     db,
@@ -199,24 +198,6 @@ export function registerOAuthAdapters(
   llmRegistry: LLMRegistry,
 ): void {
   adapterRegistry.register(new CodexImageGenAdapter(manager.getCodexRuntime('image')));
-  adapterRegistry.register(
-    new GoogleImagen3Adapter({
-      id: 'google-imagen3-oauth',
-      name: 'Google Gemini Image (OAuth)',
-      credentialMode: 'oauth',
-      oauthTarget: { provider: 'gemini', capability: 'image' },
-      authorizationHeaders: () => manager.getGoogleAuthorizationHeaders('image'),
-    }),
-  );
-  adapterRegistry.register(
-    new VeoAdapter({
-      id: 'google-veo-2-oauth',
-      name: 'Google Gemini Video (OAuth)',
-      credentialMode: 'oauth',
-      oauthTarget: { provider: 'gemini', capability: 'video' },
-      authorizationHeaders: () => manager.getGoogleAuthorizationHeaders('video'),
-    }),
-  );
   llmRegistry.register(
     new CodexLLMAdapter('chatgpt-oauth', 'ChatGPT (OAuth)', 'llm', manager.getCodexRuntime('llm')),
   );
@@ -227,24 +208,6 @@ export function registerOAuthAdapters(
       'vision',
       manager.getCodexRuntime('vision'),
     ),
-  );
-  llmRegistry.register(
-    new GeminiLLMAdapter({
-      id: 'gemini-oauth',
-      name: 'Google Gemini (OAuth)',
-      credentialMode: 'oauth',
-      oauthTarget: { provider: 'gemini', capability: 'llm' },
-      authorizationHeaders: () => manager.getGoogleAuthorizationHeaders('llm'),
-    }),
-  );
-  llmRegistry.register(
-    new GeminiLLMAdapter({
-      id: 'gemini-vision-oauth',
-      name: 'Google Gemini Vision (OAuth)',
-      credentialMode: 'oauth',
-      oauthTarget: { provider: 'gemini', capability: 'vision' },
-      authorizationHeaders: () => manager.getGoogleAuthorizationHeaders('vision'),
-    }),
   );
 }
 

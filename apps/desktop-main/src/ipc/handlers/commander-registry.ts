@@ -1,18 +1,28 @@
-import type { AgentToolRegistry } from '@lucid-fin/application';
+export type CommanderCooperativeRuntime = {
+  cancel(): void;
+  pause(): boolean;
+  resume(): boolean;
+  cancelCurrentStep?: () => { escalated: boolean };
+  injectMessage?: (content: string) => void;
+  confirmTool?: (toolCallId: string, approved: boolean) => boolean;
+  answerQuestion?: (toolCallId: string, answer: string) => boolean;
+  hasPendingQuestion?: (toolCallId: string) => boolean;
+  compactNow?: (
+    instructions?: string,
+  ) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
+};
 
 export type RunningCommanderSession = {
   aborted: boolean;
-  canvasId: string;
-  orchestrator?: import('@lucid-fin/application').AgentOrchestrator;
+  sessionId: string;
+  defaultCanvasId?: string;
+  authorizedCanvasIds: string[];
+  runId: string;
+  orchestrator?: CommanderCooperativeRuntime;
   lastActivity: number;
 };
 
 export const runningSessions = new Map<string, RunningCommanderSession>();
-export let lastToolRegistry: AgentToolRegistry | null = null;
-
-export function setLastToolRegistry(registry: AgentToolRegistry): void {
-  lastToolRegistry = registry;
-}
 
 const SESSION_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 let cleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -24,7 +34,7 @@ export function startSessionCleanup(): void {
     for (const [id, session] of runningSessions) {
       if (!session.aborted && now - session.lastActivity > SESSION_TIMEOUT_MS) {
         session.aborted = true;
-        runningSessions.delete(id);
+        session.orchestrator?.cancel();
         console.warn(
           `Commander session ${id} timed out after ${SESSION_TIMEOUT_MS / 1000}s inactivity`,
         );
@@ -40,7 +50,7 @@ export function stopSessionCleanup(): void {
   }
 }
 
-export function touchSession(canvasId: string): void {
-  const session = runningSessions.get(canvasId);
+export function touchSession(runId: string): void {
+  const session = runningSessions.get(runId);
   if (session) session.lastActivity = Date.now();
 }

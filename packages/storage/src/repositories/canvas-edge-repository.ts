@@ -134,9 +134,9 @@ export class CanvasEdgeRepository {
 
   patchApply(
     canvasId: string,
-    added: CanvasEdge[],
+    added: Array<{ edge: CanvasEdge; zIndex: number }>,
     removedIds: string[],
-    updated: CanvasEdge[],
+    updated: Array<{ edge: CanvasEdge; zIndex: number }>,
     tx?: Tx,
   ): void {
     const d = tx ?? this.db;
@@ -166,8 +166,8 @@ export class CanvasEdgeRepository {
            ${C.zIndex.sqlName}       = excluded.${C.zIndex.sqlName},
            ${C.updatedAt.sqlName}    = excluded.${C.updatedAt.sqlName}`,
       );
-      for (const edge of [...added, ...updated]) {
-        const p = edgeToParams(canvasId, edge, 0);
+      for (const { edge, zIndex } of [...added, ...updated]) {
+        const p = edgeToParams(canvasId, edge, zIndex);
         upsertStmt.run(
           p.id,
           p.canvasId,

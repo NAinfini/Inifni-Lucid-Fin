@@ -1,12 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentOrchestrator } from './agent-orchestrator.js';
-import { AgentToolRegistry } from './tool-registry.js';
+import { ToolRegistry, toolResultSchema, type ToolDefinition } from './tool-registry.js';
+import {
+  arraySchema,
+  canonicalJsonSchema,
+  numberSchema,
+  objectSchema,
+  stringSchema,
+} from './tools/tool-runtime-schemas.js';
 import { ErrorCode, LucidError } from '@lucid-fin/contracts';
 import type {
   LLMAdapter,
   LLMStreamEvent,
   LLMToolCall,
   LLMFinishReason,
+  LLMMessage,
 } from '@lucid-fin/contracts';
 
 /**
@@ -18,6 +26,7 @@ import type {
 interface MockLLMResponse {
   content: string;
   reasoning?: string;
+  usage?: { promptTokens?: number; completionTokens?: number; reasoningTokens?: number };
   toolCalls: LLMToolCall[];
   finishReason: LLMFinishReason;
 }
@@ -35,6 +44,7 @@ async function* responseToStream(r: MockLLMResponse): AsyncIterable<LLMStreamEve
       thoughtSignature: tc.thoughtSignature,
     };
   }
+  if (r.usage) yield { kind: 'usage', ...r.usage };
   yield { kind: 'finished', finishReason: r.finishReason };
 }
 
@@ -60,11 +70,34 @@ function createMockAdapter(responses: MockLLMResponse[]): LLMAdapter {
 
 const resolvePrompt = () => 'You are a test assistant.';
 
+type TestToolDefinition = Omit<ToolDefinition, 'resource' | 'inputSchema' | 'outputSchema'> &
+  Partial<Pick<ToolDefinition, 'resource' | 'inputSchema' | 'outputSchema'>> & {
+    parameters?: ToolDefinition['inputSchema'];
+  };
+type TestToolRegistry = ToolRegistry & {
+  register(tool: TestToolDefinition): void;
+};
+
+function createTestToolRegistry(): TestToolRegistry {
+  const registry = new ToolRegistry();
+  const register = registry.register.bind(registry);
+  registry.register = ((tool: TestToolDefinition) =>
+    register({
+      ...tool,
+      resource: tool.resource ?? { kind: 'none' },
+      inputSchema: tool.inputSchema ?? tool.parameters ?? { type: 'object', properties: {} },
+      outputSchema: tool.outputSchema ?? toolResultSchema(canonicalJsonSchema, { dataOptional: true }),
+    } as ToolDefinition)) as (
+    tool: ToolDefinition,
+  ) => void;
+  return registry as TestToolRegistry;
+}
+
 describe('AgentOrchestrator', () => {
-  let toolRegistry: AgentToolRegistry;
+  let toolRegistry: TestToolRegistry;
 
   beforeEach(() => {
-    toolRegistry = new AgentToolRegistry();
+    toolRegistry = createTestToolRegistry();
   });
 
   it('returns text response when no tools called', async () => {
@@ -86,6 +119,157 @@ describe('AgentOrchestrator', () => {
           (e as Record<string, unknown>).content === 'Hello!',
       ),
     ).toBe(true);
+  });
+
+  it('routes runChecklist.manage through the registered ToolDefinition executor', async () => {
+    const execute = vi.fn(async () => ({ success: true, data: { source: 'definition' } }));
+    toolRegistry.register({
+      name: 'runChecklist.manage',
+      description: 'Manage run checklist',
+      process: 'meta',
+      category: 'meta',
+      contextReplay: 'status_only',
+      tier: 1,
+      inputSchema: objectSchema({
+        action: { type: 'string', enum: ['set'] },
+        items: arraySchema(objectSchema({ label: stringSchema })),
+      }),
+      outputSchema: toolResultSchema(objectSchema({ source: stringSchema })),
+      execute,
+    });
+    const adapter = createMockAdapter([
+      {
+        content: '',
+        toolCalls: [{
+          id: 'checklist-1',
+          name: 'runChecklist.manage',
+          arguments: { action: 'set', items: [{ label: 'One' }, { label: 'Two' }] },
+        }],
+        finishReason: 'tool_calls',
+      },
+      { content: 'Done', toolCalls: [], finishReason: 'stop' },
+    ]);
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+
+    await agent.execute('Plan this', {}, () => {});
+
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ action: 'set' }));
+  });
+
+  it('uses the host-reserved run ID for every emitted event', async () => {
+    const adapter = createMockAdapter([{ content: 'Hello!', toolCalls: [], finishReason: 'stop' }]);
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+    const events: Array<Record<string, unknown>> = [];
+
+    await agent.execute('Hi', {}, (event) => events.push(event), { runId: 'run_reserved' });
+
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.every((event) => event.runId === 'run_reserved')).toBe(true);
+  });
+
+  it('continues after a host-persisted run_start without emitting it twice', async () => {
+    const adapter = createMockAdapter([{ content: 'Hello!', toolCalls: [], finishReason: 'stop' }]);
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+    const events: Array<Record<string, unknown>> = [];
+
+    await agent.execute('Hi', {}, (event) => events.push(event), {
+      runId: 'run_reserved',
+      initialSeq: 1,
+      emitRunStart: false,
+    });
+
+    expect(events.some((event) => event.kind === 'run_start')).toBe(false);
+    expect(events[0]?.seq).toBe(1);
+    expect(events.every((event) => event.runId === 'run_reserved')).toBe(true);
+  });
+
+  it('returns whether a pending confirmation or question was actually resolved', () => {
+    const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+    const internals = agent as unknown as {
+      pendingResolvers: Map<string, (approved: boolean) => void>;
+      pendingQuestionResolvers: Map<string, (answer: string) => void>;
+    };
+    const resolveConfirmation = vi.fn();
+    const resolveQuestion = vi.fn();
+
+    internals.pendingResolvers.set('confirm-1', resolveConfirmation);
+    internals.pendingQuestionResolvers.set('question-1', resolveQuestion);
+
+    expect(agent.confirmTool('confirm-1', true)).toBe(true);
+    expect(resolveConfirmation).toHaveBeenCalledWith(true);
+    expect(agent.confirmTool('confirm-1', true)).toBe(false);
+
+    expect(agent.hasPendingQuestion('question-1')).toBe(true);
+    expect(agent.answerQuestion('question-1', 'yes')).toBe(true);
+    expect(resolveQuestion).toHaveBeenCalledWith('yes');
+    expect(agent.hasPendingQuestion('question-1')).toBe(false);
+    expect(agent.answerQuestion('question-1', 'yes')).toBe(false);
+  });
+
+  it('emits one matching failed terminal event when execution throws after run_start', async () => {
+    const adapter = createMockAdapter([{ content: 'unused', toolCalls: [], finishReason: 'stop' }]);
+    (adapter.completeWithTools as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error('LLM exploded'),
+    );
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+    const events: Array<Record<string, unknown>> = [];
+
+    await expect(agent.execute('Hi', {}, (event) => events.push(event))).rejects.toThrow(
+      'LLM exploded',
+    );
+
+    const started = events.find((event) => event.kind === 'run_start');
+    const terminals = events.filter((event) => event.kind === 'run_end');
+    expect(started).toBeDefined();
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]).toMatchObject({
+      kind: 'run_end',
+      status: 'failed',
+      runId: started?.runId,
+    });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'public_progress',
+        status: 'failed',
+        runId: started?.runId,
+      }),
+    );
+    expect(JSON.stringify(events)).not.toContain('LLM exploded');
+  });
+
+  it('publishes one cumulative resource snapshot without exposing provider reasoning', async () => {
+    const secret = 'SECRET_REASONING_SENTINEL';
+    const adapter = createMockAdapter([{
+      content: 'Public answer',
+      reasoning: secret,
+      usage: { promptTokens: 12, completionTokens: 5, reasoningTokens: 3 },
+      toolCalls: [],
+      finishReason: 'stop',
+    }]);
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+    const events: Array<Record<string, unknown>> = [];
+
+    await agent.execute('Hi', {}, (event) => events.push(event));
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'resource_state',
+        cause: {
+          kind: 'settled',
+          operationId: 'model:1:attempt:0',
+          source: 'model',
+        },
+        usage: expect.objectContaining({
+          tokens: { knowledge: 'known', value: 17 },
+          toolCalls: 0,
+          costUsd: { knowledge: 'unknown' },
+        }),
+      }),
+    );
+    expect(events.some((event) => event.kind === 'resource_usage')).toBe(false);
+    expect(JSON.stringify(events)).not.toContain(secret);
   });
 
   it('keeps the context-window cap separate from the provider output limit', async () => {
@@ -144,15 +328,22 @@ describe('AgentOrchestrator', () => {
     const agent = new AgentOrchestrator(adapter, toolRegistry, () => 'x'.repeat(8_000), {
       contextWindowTokens: 1024,
     });
+    const events: Array<Record<string, unknown>> = [];
 
-    const result = await agent.execute('hello', {}, () => {});
+    const result = await agent.execute('hello', {}, (event) => events.push(event));
 
-    expect(result.content).toMatch(/Context safety pause/i);
+    expect(result.content).toBe('');
     expect(adapter.completeWithTools).not.toHaveBeenCalled();
-    expect(result.exitDecision).toEqual({ outcome: 'budget_exhausted', metric: 'tokens' });
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'run_end',
+        status: 'blocked',
+        blocker: { kind: 'safety_limit', limit: 'context_window' },
+      }),
+    );
   });
 
-  it('persists the 92 percent hard stop against the bound workflow before returning', async () => {
+  it('persists the 92 percent hard stop against the bound task list before returning', async () => {
     const adapter = createMockAdapter([
       { content: 'must not run', toolCalls: [], finishReason: 'stop' },
     ]);
@@ -168,8 +359,8 @@ describe('AgentOrchestrator', () => {
     const agent = new AgentOrchestrator(adapter, toolRegistry, () => 'x'.repeat(8_000), {
       contextWindowTokens: 1024,
       resolvePersistentContext: () => ({
-        workflowToolPolicy: {
-          workflowRunId: 'workflow-context-1',
+        taskListToolPolicy: {
+          taskListId: 'task-list-context-1',
           phase: 'media_generation',
           rowVersion: 7,
         },
@@ -180,7 +371,7 @@ describe('AgentOrchestrator', () => {
     await agent.execute('continue', {}, () => {});
 
     expect(onContextRecoveryReport).toHaveBeenCalledWith({
-      workflowRunId: 'workflow-context-1',
+      taskListId: 'task-list-context-1',
       outcome: 'failed',
       reason: 'hard_stop',
       forcePause: true,
@@ -211,8 +402,8 @@ describe('AgentOrchestrator', () => {
       const agent = new AgentOrchestrator(adapter, toolRegistry, () => 'x'.repeat(12_300), {
         contextWindowTokens: 4096,
         resolvePersistentContext: () => ({
-          workflowToolPolicy: {
-            workflowRunId: 'workflow-context-1',
+          taskListToolPolicy: {
+            taskListId: 'task-list-context-1',
             phase: 'media_generation',
             rowVersion: attempt,
           },
@@ -223,19 +414,35 @@ describe('AgentOrchestrator', () => {
         (
           agent as unknown as {
             contextManager: {
-              compactWithLLMResult: () => Promise<{
+              compactWithLLMResult: (messages: readonly LLMMessage[]) => Promise<{
                 attempted: boolean;
                 changed: boolean;
                 truncated: number;
+                view: LLMMessage[];
               }>;
             };
           }
         ).contextManager,
         'compactWithLLMResult',
-      ).mockResolvedValue({ attempted: true, changed: false, truncated: 0 });
+      ).mockImplementation(async (messages: readonly LLMMessage[]) => ({
+        attempted: true,
+        changed: false,
+        truncated: 0,
+        view: structuredClone(messages),
+      }));
 
-      const result = await agent.execute('continue', {}, () => {});
-      if (attempt === 3) expect(result.content).toMatch(/recovery failed three times/i);
+      const events: Array<Record<string, unknown>> = [];
+      const result = await agent.execute('continue', {}, (event) => events.push(event));
+      if (attempt === 3) {
+        expect(result.content).toBe('');
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            kind: 'run_end',
+            status: 'blocked',
+            blocker: { kind: 'safety_limit', limit: 'recovery_required' },
+          }),
+        );
+      }
     }
 
     expect(onContextRecoveryReport).toHaveBeenCalledTimes(3);
@@ -257,8 +464,8 @@ describe('AgentOrchestrator', () => {
     }));
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
       resolvePersistentContext: () => ({
-        workflowToolPolicy: {
-          workflowRunId: 'workflow-context-1',
+        taskListToolPolicy: {
+          taskListId: 'task-list-context-1',
           phase: 'media_generation',
           rowVersion: 8,
         },
@@ -269,14 +476,14 @@ describe('AgentOrchestrator', () => {
     await agent.execute('continue', {}, () => {});
 
     expect(onContextRecoveryReport).toHaveBeenCalledWith({
-      workflowRunId: 'workflow-context-1',
+      taskListId: 'task-list-context-1',
       outcome: 'recovered',
       reason: 'persistent_context_reloaded',
     });
     expect(adapter.completeWithTools).toHaveBeenCalledOnce();
   });
 
-  it('rebuilds workflow authorization after a successful recovery unpauses the durable run', async () => {
+  it('rebuilds task-list authorization after recovery unpauses the durable task list', async () => {
     const adapter = createMockAdapter([
       { content: 'resumed', toolCalls: [], finishReason: 'stop' },
     ]);
@@ -286,15 +493,15 @@ describe('AgentOrchestrator', () => {
     });
     let paused = true;
     const resolvePersistentContext = vi.fn(() => ({
-      workflowToolPolicy: paused
+      taskListToolPolicy: paused
         ? {
-            workflowRunId: 'workflow-context-1',
+            taskListId: 'task-list-context-1',
             phase: 'blocked' as const,
             rowVersion: 9,
-            reason: 'Workflow is paused for context recovery.',
+            reason: 'Task list is paused for context recovery.',
           }
         : {
-            workflowRunId: 'workflow-context-1',
+            taskListId: 'task-list-context-1',
             phase: 'media_generation' as const,
             rowVersion: 10,
           },
@@ -316,45 +523,55 @@ describe('AgentOrchestrator', () => {
     expect(adapter.completeWithTools).toHaveBeenCalledOnce();
   });
 
-  it('loads only the phase-safe inspection bundle while plan approval is pending', async () => {
+  it('keeps forbidden task-list tools visible while execution remains denied', async () => {
+    const generate = vi.fn(async () => ({ success: true }));
     toolRegistry.register({
       name: 'canvas.generation',
+      process: 'image-node-generation',
+      category: 'mutation',
+      contextReplay: 'status_only',
       description: 'Generate media',
       tier: 3,
-      parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({ success: true })),
-    });
-    toolRegistry.register({
-      name: 'entity.generateRefImage',
-      description: 'Generate an entity reference image',
-      tier: 3,
-      parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({ success: true })),
+      inputSchema: objectSchema({}, []),
+      outputSchema: toolResultSchema(undefined, { dataOptional: true }),
+      execute: generate,
     });
     toolRegistry.register({
       name: 'canvas.listNodes',
+      process: 'canvas-structure',
+      category: 'query',
+      contextReplay: 'status_only',
       description: 'List nodes',
       tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
+      inputSchema: objectSchema({}, []),
+      outputSchema: toolResultSchema(arraySchema(canonicalJsonSchema)),
       execute: vi.fn(async () => ({ success: true, data: [] })),
     });
-    const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
+    const adapter = createMockAdapter([
+      {
+        content: '',
+        toolCalls: [{ id: 'forbidden', name: 'canvas.generation', arguments: {} }],
+        finishReason: 'tool_calls',
+      },
+      { content: 'blocked', toolCalls: [], finishReason: 'stop' },
+    ]);
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+    const events: Array<Record<string, unknown>> = [];
 
     await agent.execute(
       'continue',
       {
         page: 'canvas',
         extra: {
-          workflowToolPolicy: {
-            workflowRunId: 'workflow-1',
+          taskListToolPolicy: {
+            taskListId: 'task-list-1',
             phase: 'production_plan_pending',
             gate: 'production_plan',
             rowVersion: 1,
           },
         },
       },
-      () => {},
+      (event) => events.push(event as unknown as Record<string, unknown>),
     );
 
     const options = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
@@ -362,28 +579,50 @@ describe('AgentOrchestrator', () => {
     };
     const names = options.tools?.map((tool) => tool.name) ?? [];
     expect(names).toContain('canvas.listNodes');
-    expect(names).not.toContain('canvas.generation');
-    expect(names).not.toContain('entity.generateRefImage');
+    expect(names).toContain('canvas.generation');
+    expect(generate).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({ kind: 'tool_result', toolCallId: 'forbidden', skipped: true }),
+    );
   });
 
-  it('refreshes the phase-core bundle after a durable stage transition', async () => {
+  it('keeps identical tool names and schema count across phase changes and long runs', async () => {
     let advanced = false;
     toolRegistry.register({
-      name: 'workflow.manage',
-      description: 'Advance workflow',
+      name: 'taskList.manage',
+      process: 'task-list-orchestration',
+      category: 'mutation',
+      contextReplay: 'status_only',
+      description: 'Advance task list',
       tier: 2,
-      parameters: { type: 'object', properties: {}, required: [] },
+      inputSchema: objectSchema({ action: { type: 'string', enum: ['completeCurrentTask'] } }),
+      outputSchema: toolResultSchema(undefined, { dataOptional: true }),
       execute: vi.fn(async () => {
         advanced = true;
         return { success: true };
       }),
     });
     toolRegistry.register({
-      name: 'workflow.finalExport',
-      description: 'Prepare final export',
+      name: 'task.delivery',
+      process: 'ordered-delivery',
+      category: 'mutation',
+      contextReplay: 'status_only',
+      description: 'Prepare Delivery manifest',
       tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
+      inputSchema: objectSchema({}, []),
+      outputSchema: toolResultSchema(undefined, { dataOptional: true }),
       execute: vi.fn(async () => ({ success: true })),
+    });
+    toolRegistry.register({
+      name: 'canvas.listNodes',
+      process: 'canvas-structure',
+      category: 'query',
+      contextReplay: 'status_only',
+      description: 'List Canvas nodes',
+      tier: 1,
+      inputSchema: objectSchema({ page: numberSchema }, []),
+      outputSchema: toolResultSchema(arraySchema(canonicalJsonSchema)),
+      execute: vi.fn(async () => ({ success: true, data: [] })),
     });
     const adapter = createMockAdapter([
       {
@@ -391,19 +630,26 @@ describe('AgentOrchestrator', () => {
         toolCalls: [
           {
             id: 'advance',
-            name: 'workflow.manage',
+            name: 'taskList.manage',
             arguments: { action: 'completeCurrentTask' },
           },
         ],
         finishReason: 'tool_calls',
       },
+      ...Array.from({ length: 5 }, (_, index) => ({
+        content: '',
+        toolCalls: [
+          { id: `inspect-${index}`, name: 'canvas.listNodes', arguments: { page: index } },
+        ],
+        finishReason: 'tool_calls' as const,
+      })),
       { content: 'ready to export', toolCalls: [], finishReason: 'stop' },
     ]);
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
       resolvePersistentContext: () => ({
-        workflowToolPolicy: {
-          workflowRunId: 'workflow-1',
-          phase: advanced ? ('final_export_preparation' as const) : ('assembly' as const),
+        taskListToolPolicy: {
+          taskListId: 'task-list-1',
+          phase: advanced ? ('delivery_preparation' as const) : ('assembly' as const),
           rowVersion: advanced ? 2 : 1,
         },
       }),
@@ -411,23 +657,34 @@ describe('AgentOrchestrator', () => {
 
     await agent.execute('finish assembly', { page: 'canvas' }, () => {});
 
-    const firstOptions = vi.mocked(adapter.completeWithTools).mock.calls[0]?.[1] as {
-      tools?: Array<{ name: string }>;
-    };
-    const secondOptions = vi.mocked(adapter.completeWithTools).mock.calls[1]?.[1] as {
-      tools?: Array<{ name: string }>;
-    };
-    expect(firstOptions.tools?.map((tool) => tool.name)).not.toContain('workflow.finalExport');
-    expect(secondOptions.tools?.map((tool) => tool.name)).toContain('workflow.finalExport');
+    const toolSets = vi.mocked(adapter.completeWithTools).mock.calls.map((call) => {
+      const options = call[1] as { tools?: Array<{ name: string }> };
+      return (options.tools ?? []).map((tool) => tool.name).sort();
+    });
+    const expected = toolRegistry
+      .list()
+      .map((tool) => tool.name)
+      .sort();
+
+    expect(advanced).toBe(true);
+    expect(toolSets).toHaveLength(7);
+    expect(toolSets.every((names) => names.length === expected.length)).toBe(true);
+    expect(toolSets.every((names) => JSON.stringify(names) === JSON.stringify(expected))).toBe(
+      true,
+    );
   });
 
   it('executes tool calls and feeds results back', async () => {
     const mockTool = vi.fn(async () => ({ success: true, data: { count: 5 } }));
     toolRegistry.register({
       name: 'character.list',
+      process: 'entity-management',
+      category: 'query',
+      contextReplay: 'status_only',
       description: 'List characters',
       tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
+      inputSchema: objectSchema({}, []),
+      outputSchema: toolResultSchema(objectSchema({ count: numberSchema })),
       execute: mockTool,
     });
 
@@ -454,9 +711,7 @@ describe('AgentOrchestrator', () => {
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
     const events: unknown[] = [];
-    const result = await agent.execute('List characters', {}, (e) => events.push(e), {
-      discoveredTools: ['character.list'],
-    });
+    const result = await agent.execute('List characters', {}, (e) => events.push(e));
 
     expect(mockTool).toHaveBeenCalled();
     expect(result.content).toBe('Found 5 characters.');
@@ -476,9 +731,19 @@ describe('AgentOrchestrator', () => {
   it('records guide_loaded evidence for every guide returned by guide.get', async () => {
     toolRegistry.register({
       name: 'guide.get',
+      process: 'meta',
+      category: 'meta',
+      contextReplay: 'status_only',
       description: 'Load prompt guides',
       tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
+      inputSchema: objectSchema({ ids: arraySchema(stringSchema) }),
+      outputSchema: toolResultSchema(objectSchema({
+        guides: arraySchema(objectSchema({
+          id: stringSchema,
+          name: stringSchema,
+          content: stringSchema,
+        })),
+      })),
       execute: vi.fn(async () => ({
         success: true,
         data: {
@@ -501,7 +766,7 @@ describe('AgentOrchestrator', () => {
     ]);
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
 
-    await agent.execute('load guides', {}, () => {}, { discoveredTools: ['guide.get'] });
+    await agent.execute('load guides', {}, () => {});
 
     const evidence = (
       agent as unknown as {
@@ -518,6 +783,9 @@ describe('AgentOrchestrator', () => {
   it('does not treat guide-list metadata as loaded guide content', async () => {
     toolRegistry.register({
       name: 'guide.get',
+      process: 'meta',
+      category: 'meta',
+      contextReplay: 'status_only',
       description: 'List prompt guides',
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
@@ -536,7 +804,7 @@ describe('AgentOrchestrator', () => {
     ]);
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
 
-    await agent.execute('list guides', {}, () => {}, { discoveredTools: ['guide.get'] });
+    await agent.execute('list guides', {}, () => {});
 
     const evidence = (
       agent as unknown as {
@@ -551,6 +819,9 @@ describe('AgentOrchestrator', () => {
   it('handles tool execution errors gracefully', async () => {
     toolRegistry.register({
       name: 'error.tool',
+      process: 'test',
+      category: 'query',
+      contextReplay: 'status_only',
       description: 'fail',
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
@@ -574,45 +845,119 @@ describe('AgentOrchestrator', () => {
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
     const events: unknown[] = [];
-    const result = await agent.execute('do error', {}, (e) => events.push(e), {
-      discoveredTools: ['error.tool'],
-    });
+    const result = await agent.execute('do error', {}, (e) => events.push(e));
 
     expect(result.content).toBe('Tool failed, sorry.');
-    expect(
-      events.some((e: unknown) => {
-        const ev = e as Record<string, unknown>;
-        if (ev.kind !== 'tool_result') return false;
-        const err = ev.error as { params?: { message?: unknown } } | undefined;
-        return err?.params?.message === 'boom';
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'tool_result',
+        toolCallId: 'tc1',
+        status: 'failed',
+        errorCode: 'TOOL_RUNTIME',
       }),
-    ).toBe(true);
+    );
   });
 
-  it('respects maxSteps limit', async () => {
+  it('has no fixed step ceiling while productive work and resources remain', async () => {
     toolRegistry.register({
       name: 'loop.tool',
+      process: 'test',
+      category: 'query',
+      contextReplay: 'status_only',
+      resource: { kind: 'none' },
       description: 'loop',
       tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
+      parameters: {
+        type: 'object',
+        properties: { index: { type: 'number', description: 'Unique iteration' } },
+        required: ['index'],
+      },
       execute: vi.fn(async () => ({ success: true, data: 'loop' })),
     });
 
-    // Always returns tool_calls — infinite loop
+    const rounds = 205;
+    const adapter = createMockAdapter([
+      ...Array.from({ length: rounds }, (_, index) => ({
+        content: '',
+        toolCalls: [{ id: `tc-${index}`, name: 'loop.tool', arguments: { index } }],
+        finishReason: 'tool_calls' as const,
+      })),
+      { content: 'Finished naturally', toolCalls: [], finishReason: 'stop' },
+    ]);
+    Object.assign(adapter, { contextWindow: 2_000_000, effectiveContextWindow: 2_000_000 });
+
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+      contextWindowTokens: 2_000_000,
+    });
+    const result = await agent.execute('loop', {}, () => {});
+
+    expect(result.content).toBe('Finished naturally');
+    expect(adapter.completeWithTools).toHaveBeenCalledTimes(rounds + 1);
+  });
+
+  it('blocks before provider execution when a configured cost cap has no safe quote', async () => {
+    const adapter = createMockAdapter([
+      { content: 'must not execute', toolCalls: [], finishReason: 'stop' },
+    ]);
+    const events: Array<Record<string, unknown>> = [];
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+      resourceBudget: { maxCostUsd: 1 },
+    });
+
+    const result = await agent.execute('answer', {}, (event) => events.push(event));
+
+    expect(result.content).toBe('');
+    expect(adapter.completeWithTools).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'run_end',
+        status: 'blocked',
+        blocker: { kind: 'resource_budget', metric: 'cost', reason: 'unavailable' },
+      }),
+    );
+    expect(events.some((event) => event.kind === 'assistant_text')).toBe(false);
+  });
+
+  it('ends with a typed blocker before tools run when the tool-call budget is exhausted', async () => {
+    const execute = vi.fn(async () => ({ success: true }));
+    toolRegistry.register({
+      name: 'budget.read',
+      process: 'test',
+      category: 'query',
+      contextReplay: 'status_only',
+      resource: { kind: 'none' },
+      description: 'Read a budget fixture',
+      tier: 1,
+      parameters: { type: 'object', properties: {}, required: [] },
+      execute,
+    });
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [{ id: 'tc1', name: 'loop.tool', arguments: {} }],
+        toolCalls: [
+          { id: 'tool-1', name: 'budget.read', arguments: {} },
+          { id: 'tool-2', name: 'budget.read', arguments: {} },
+        ],
         finishReason: 'tool_calls',
       },
     ]);
-
-    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, { maxSteps: 3 });
-    await agent.execute('loop', {}, () => {}, {
-      discoveredTools: ['loop.tool'],
+    const events: Array<Record<string, unknown>> = [];
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
+      resourceBudget: { maxToolCalls: 1 },
     });
 
-    expect((adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls.length).toBe(3);
+    const result = await agent.execute('read', {}, (event) => events.push(event));
+
+    expect(result.content).toBe('');
+    expect(execute).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'run_end',
+        status: 'blocked',
+        blocker: { kind: 'resource_budget', metric: 'tool_calls', reason: 'exhausted' },
+      }),
+    );
+    expect(events.some((event) => event.kind === 'tool_call')).toBe(false);
   });
 
   it('includes context in system prompt', async () => {
@@ -628,17 +973,23 @@ describe('AgentOrchestrator', () => {
     expect(systemMsg.content).toContain('sc-1');
   });
 
-  it('filters tools by context page', async () => {
+  it('keeps context-tagged registered tools visible on every page', async () => {
     toolRegistry.register({
       name: 'script.only',
+      process: 'test',
+      category: 'query',
+      contextReplay: 'status_only',
       description: 'script tool',
-      context: ['script-editor'],
+      contexts: ['script-editor'],
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
       execute: vi.fn(),
     });
     toolRegistry.register({
       name: 'global.tool',
+      process: 'test',
+      category: 'query',
+      contextReplay: 'status_only',
       description: 'global',
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
@@ -652,14 +1003,16 @@ describe('AgentOrchestrator', () => {
 
     const call = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0];
     const opts = call[1];
-    // script.only must not appear (excluded by context filter for page='orchestrator')
     const toolNames = (opts.tools as Array<{ name: string }> | undefined)?.map((t) => t.name) ?? [];
-    expect(toolNames).not.toContain('script.only');
+    expect(toolNames).toEqual(['script.only', 'global.tool']);
   });
 
-  it('compacts tool definitions before sending them to the LLM', async () => {
+  it('forwards registered tool definitions without adaptive schema compaction', async () => {
     toolRegistry.register({
       name: 'canvas.createNodes',
+      process: 'canvas-structure',
+      category: 'mutation',
+      contextReplay: 'status_only',
       description:
         'Add a new node to the current canvas at a specific position with very verbose explanation text.',
       tier: 1,
@@ -693,9 +1046,7 @@ describe('AgentOrchestrator', () => {
 
     const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute('add node', { page: 'canvas' }, () => {}, {
-      discoveredTools: ['canvas.createNodes'],
-    });
+    await agent.execute('add node', { page: 'canvas' }, () => {});
 
     const opts = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
       tools: Array<Record<string, unknown>>;
@@ -710,16 +1061,20 @@ describe('AgentOrchestrator', () => {
     expect(tool.description).toBe(
       'Add a new node to the current canvas at a specific position with very verbose explanation text.',
     );
-    expect(tool.parameters.properties.canvasId?.description).toBe('');
-    expect(tool.parameters.properties.position?.description).toBe('');
+    expect(tool.parameters.properties.canvasId?.description).toBe(
+      'The target canvas identifier with extra explanatory prose that should not be forwarded verbatim.',
+    );
+    expect(tool.parameters.properties.position?.description).toBe(
+      'The desired node coordinates on the canvas surface.',
+    );
     expect(
       (tool.parameters.properties.position?.properties as Record<string, Record<string, unknown>>).x
         ?.description,
-    ).toBe('');
+    ).toBe('Horizontal coordinate with long explanation.');
     expect(
       (tool.parameters.properties.position?.properties as Record<string, Record<string, unknown>>).y
         ?.description,
-    ).toBe('');
+    ).toBe('Vertical coordinate with long explanation.');
   });
 
   it('injects history into the LLM message list', async () => {
@@ -799,6 +1154,9 @@ describe('AgentOrchestrator', () => {
     const execute = vi.fn(async () => ({ success: true, data: { id: 'char-1' } }));
     toolRegistry.register({
       name: 'character.get',
+      process: 'entity-management',
+      category: 'query',
+      contextReplay: 'status_only',
       description: 'Get a character',
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
@@ -830,19 +1188,23 @@ describe('AgentOrchestrator', () => {
           agent.confirmTool(record.toolCallId, true);
         }
       },
-      { permissionMode: 'normal', discoveredTools: ['character.get'] },
+      { permissionMode: 'normal' },
     );
 
     expect(execute).toHaveBeenCalledTimes(1);
     expect(events.some((event) => event.kind === 'tool_confirm')).toBe(false);
   });
 
-  it('injects steering messages into the next LLM iteration', async () => {
+  it('preserves an injected user message without adding host-authored steering', async () => {
     toolRegistry.register({
       name: 'canvas.listNodes',
+      process: 'canvas-structure',
+      category: 'query',
+      contextReplay: 'status_only',
       description: 'List nodes',
       tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
+      inputSchema: objectSchema({}, []),
+      outputSchema: toolResultSchema(arraySchema(objectSchema({ id: stringSchema, title: stringSchema }))),
       execute: vi.fn(async () => {
         (agent as unknown as { injectMessage?: (content: string) => void }).injectMessage?.(
           'Focus on node n-2',
@@ -868,8 +1230,9 @@ describe('AgentOrchestrator', () => {
     ]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute('list nodes', {}, () => {}, {
-      discoveredTools: ['canvas.listNodes'],
+    const events: Array<Record<string, unknown>> = [];
+    await agent.execute('list nodes', {}, (event) => {
+      events.push(event as unknown as Record<string, unknown>);
     });
 
     const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
@@ -882,14 +1245,64 @@ describe('AgentOrchestrator', () => {
         expect.objectContaining({ role: 'user', content: 'Focus on node n-2' }),
       ]),
     );
+    expect(secondCallMessages.filter((message) => message.role === 'system')).toEqual([
+      expect.objectContaining({ content: expect.stringContaining('You are a test assistant.') }),
+    ]);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'user_message', content: 'Focus on node n-2' }),
+      ]),
+    );
+  });
+
+  it('records repeated tool failures without injecting host-authored model messages', async () => {
+    toolRegistry.register({
+      name: 'canvas.updateNodes',
+      process: 'canvas-node-editing',
+      category: 'mutation',
+      contextReplay: 'status_only',
+      description: 'Update nodes',
+      tier: 2,
+      inputSchema: {
+        type: 'object',
+        properties: { attempt: { type: 'number' } },
+        required: ['attempt'],
+      },
+      outputSchema: toolResultSchema(undefined, { dataOptional: true }),
+      execute: vi.fn(async () => ({ success: false, error: 'persisted failure' })),
+    });
+    const adapter = createMockAdapter([
+      ...[1, 2, 3].map((attempt) => ({
+        content: '',
+        toolCalls: [{ id: `tc-failure-${attempt}`, name: 'canvas.updateNodes', arguments: { attempt } }],
+        finishReason: 'tool_calls' as const,
+      })),
+      { content: 'stopped', toolCalls: [], finishReason: 'stop' },
+    ]);
+    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+
+    await agent.execute('try the update', {}, () => {});
+
+    const finalMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
+      .calls[3][0] as LLMMessage[];
+    expect(finalMessages.filter((message) => message.role === 'user')).toEqual([
+      expect.objectContaining({ content: 'try the update' }),
+    ]);
+    expect(finalMessages.filter((message) => message.role === 'system')).toEqual([
+      expect.objectContaining({ content: expect.stringContaining('You are a test assistant.') }),
+    ]);
   });
 
   it('preserves tool results under the hard limit without truncation', async () => {
     toolRegistry.register({
       name: 'character.list',
+      process: 'entity-management',
+      category: 'query',
+      contextReplay: 'status_only',
       description: 'List characters',
       tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
+      inputSchema: objectSchema({}, []),
+      outputSchema: toolResultSchema(arraySchema(canonicalJsonSchema)),
       execute: vi.fn(async () => ({
         success: true,
         data: [
@@ -917,9 +1330,7 @@ describe('AgentOrchestrator', () => {
     ]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute('list characters', {}, () => {}, {
-      discoveredTools: ['character.list'],
-    });
+    await agent.execute('list characters', {}, () => {});
 
     const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
       .calls[1][0] as Array<{
@@ -938,9 +1349,19 @@ describe('AgentOrchestrator', () => {
     // Generate a mutation result that exceeds RESULT_HARD_LIMIT (20000 chars)
     toolRegistry.register({
       name: 'canvas.configureNode',
+      process: 'node-provider-selection',
+      category: 'mutation',
+      contextReplay: 'status_only',
       description: 'Set node provider',
       tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
+      inputSchema: objectSchema({}, []),
+      outputSchema: toolResultSchema(objectSchema({
+        nodeId: stringSchema,
+        nodeTitle: stringSchema,
+        status: stringSchema,
+        providerId: stringSchema,
+        details: stringSchema,
+      })),
       execute: vi.fn(async () => ({
         success: true,
         data: {
@@ -967,9 +1388,7 @@ describe('AgentOrchestrator', () => {
     ]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute('set provider', {}, () => {}, {
-      discoveredTools: ['canvas.configureNode'],
-    });
+    await agent.execute('set provider', {}, () => {});
 
     const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
       .calls[1][0] as Array<{
@@ -1025,6 +1444,9 @@ describe('AgentOrchestrator', () => {
   it('trims long strings in results exceeding the hard limit', async () => {
     toolRegistry.register({
       name: 'character.list',
+      process: 'entity-management',
+      category: 'query',
+      contextReplay: 'status_only',
       description: 'List characters',
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
@@ -1055,9 +1477,7 @@ describe('AgentOrchestrator', () => {
     ]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute('list characters', {}, () => {}, {
-      discoveredTools: ['character.list'],
-    });
+    await agent.execute('list characters', {}, () => {});
 
     const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
       .calls[1][0] as Array<{
@@ -1080,151 +1500,92 @@ describe('AgentOrchestrator', () => {
     expect(firstAlpha).toContain('...');
   });
 
-  it('loads only always-loaded tools initially and expands via tool.get', async () => {
-    // Register always-loaded tools
-    toolRegistry.register({
-      name: 'tool.list',
-      description: 'List tools',
-      tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({ success: true, data: {} })),
-    });
+  it('keeps the provider tool surface unchanged when tool.get queries the registry', async () => {
+    const getTool = vi.fn(async () => ({
+      success: true,
+      data: {
+        tools: [
+          {
+            name: 'asset.import',
+            description: 'Import an asset',
+            parameters: { type: 'object', properties: {}, required: [] },
+          },
+        ],
+      },
+    }));
     toolRegistry.register({
       name: 'tool.get',
+      process: 'meta',
+      category: 'meta',
+      contextReplay: 'status_only',
       description: 'Get tool schema',
       tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({
-        success: true,
-        data: {
-          tools: [
-            {
-              name: 'series.addEpisode',
-              description: 'Add an episode to a series',
-              parameters: { type: 'object', properties: {}, required: [] },
-            },
-          ],
-        },
+      inputSchema: objectSchema({ names: arraySchema(stringSchema) }),
+      outputSchema: toolResultSchema(objectSchema({
+        tools: arraySchema(objectSchema(
+          {
+            name: stringSchema,
+            description: stringSchema,
+            parameters: canonicalJsonSchema,
+          },
+          ['name'],
+        )),
       })),
-    });
-    toolRegistry.register({
-      name: 'guide.list',
-      description: 'List prompt guides',
-      tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({ success: true, data: [] })),
-    });
-    toolRegistry.register({
-      name: 'guide.get',
-      description: 'Get prompt guide content',
-      tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({ success: true, data: null })),
-    });
-    toolRegistry.register({
-      name: 'commander.askUser',
-      description: 'Ask the user a question',
-      tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({ success: true, data: null })),
-    });
-    toolRegistry.register({
-      name: 'canvas.getInfo',
-      description: 'Get canvas state',
-      tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({ success: true, data: {} })),
-    });
-    toolRegistry.register({
-      name: 'canvas.listNodes',
-      description: 'List canvas nodes',
-      tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({ success: true, data: [] })),
-    });
-    toolRegistry.register({
-      name: 'canvas.getNode',
-      description: 'Get a canvas node',
-      tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({ success: true, data: null })),
+      execute: getTool,
     });
 
-    // Register a tool that is NOT always-loaded or contextually-loaded
     toolRegistry.register({
-      name: 'series.addEpisode',
-      description: 'Add an episode to a series',
+      name: 'asset.import',
+      process: 'asset-library-management',
+      category: 'mutation',
+      contextReplay: 'status_only',
+      description: 'Import an asset',
       tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
+      inputSchema: objectSchema({}, []),
+      outputSchema: toolResultSchema(arraySchema(canonicalJsonSchema)),
       execute: vi.fn(async () => ({ success: true, data: [] })),
     });
 
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [
-          { id: 'tc-get', name: 'tool.get', arguments: { names: ['series.addEpisode'] } },
-        ],
+        toolCalls: [{ id: 'tc-get', name: 'tool.get', arguments: { names: ['asset.import'] } }],
         finishReason: 'tool_calls',
       },
-      {
-        content: '',
-        toolCalls: [{ id: 'tc-use', name: 'series.addEpisode', arguments: {} }],
-        finishReason: 'tool_calls',
-      },
-      {
-        content: 'done',
-        toolCalls: [],
-        finishReason: 'stop',
-      },
+      { content: 'done', toolCalls: [], finishReason: 'stop' },
     ]);
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-    await agent.execute('add episode', { page: 'canvas' }, () => {});
+    await agent.execute('import an asset', { page: 'canvas' }, () => {});
 
-    // First call: always-loaded + contextually-selected tools
     const firstOpts = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[0][1] as {
       tools: Array<{ name: string }>;
     };
-    const firstToolNames = firstOpts.tools.map((t) => t.name);
-    expect(firstToolNames).not.toContain('series.addEpisode');
-    expect(firstToolNames).toContain('tool.get');
-    expect(firstToolNames).toContain('canvas.getInfo');
-
-    // Second call: series.addEpisode now available after tool.get
     const secondOpts = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock.calls[1][1] as {
       tools: Array<{ name: string }>;
     };
-    expect(secondOpts.tools.map((t) => t.name)).toContain('series.addEpisode');
+    expect(firstOpts.tools.map((tool) => tool.name).sort()).toEqual(['asset.import', 'tool.get']);
+    expect(secondOpts.tools).toEqual(firstOpts.tools);
+    expect(getTool).toHaveBeenCalledOnce();
   });
 
-  it('returns error when calling an unloaded tool', async () => {
+  it('executes any registered tool without a tool.get activation step', async () => {
+    const importAsset = vi.fn(async () => ({ success: true, data: [] }));
     toolRegistry.register({
-      name: 'tool.list',
-      description: 'List tools',
+      name: 'asset.import',
+      process: 'asset-library-management',
+      category: 'mutation',
+      contextReplay: 'status_only',
+      description: 'Import an asset',
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({ success: true, data: {} })),
-    });
-    toolRegistry.register({
-      name: 'tool.get',
-      description: 'Get tool schema',
-      tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({ success: true, data: null })),
-    });
-    toolRegistry.register({
-      name: 'series.addEpisode',
-      description: 'Add an episode to a series',
-      tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({ success: true, data: [] })),
+      execute: importAsset,
     });
 
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [{ id: 'tc-blocked', name: 'series.addEpisode', arguments: {} }],
+        toolCalls: [{ id: 'tc-blocked', name: 'asset.import', arguments: {} }],
         finishReason: 'tool_calls',
       },
       {
@@ -1236,46 +1597,33 @@ describe('AgentOrchestrator', () => {
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
     const events: Array<Record<string, unknown>> = [];
-    await agent.execute('add an episode', {}, (e) =>
+    await agent.execute('import an asset', {}, (e) =>
       events.push(e as unknown as Record<string, unknown>),
     );
 
-    // Tool should NOT have been executed
-    expect(toolRegistry.get('series.addEpisode')!.execute).not.toHaveBeenCalled();
-
-    // Should have emitted a tool_result event with the error. v2 tool_result
-    // has no toolName — match via toolCallId against the preceding tool_call.
-    const toolCallIds = new Set(
-      events
-        .filter((e) => e.kind === 'tool_call')
-        .filter((e) => {
-          const ref = e.toolRef as { domain?: string; action?: string } | undefined;
-          return ref && `${ref.domain}.${ref.action}` === 'series.addEpisode';
-        })
-        .map((e) => e.toolCallId),
+    expect(importAsset).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({ kind: 'tool_result', toolCallId: 'tc-blocked' }),
     );
-    const toolResultEvent = events.find(
-      (e) => e.kind === 'tool_result' && toolCallIds.has(e.toolCallId),
-    );
-    expect(toolResultEvent).toBeDefined();
-    const err = toolResultEvent?.error as { params?: { message?: string } } | undefined;
-    expect(err?.params?.message).toContain("Tool 'series.addEpisode' exists but is not loaded");
-    expect(err?.params?.message).toContain('tool.get');
   });
 
-  it('process-bound system prompt injection removed — no guide in system prompt after tool call', async () => {
+  it('executes a process-bound tool without adding a system message', async () => {
+    const generate = vi.fn(async () => ({ success: true, data: { assetHash: 'asset-1' } }));
     toolRegistry.register({
-      name: 'entity.generateRefImage',
-      description: 'Generate an entity reference image',
+      name: 'canvas.generation',
+      process: 'image-node-generation',
+      category: 'mutation',
+      contextReplay: 'status_only',
+      description: 'Generate Canvas media through Prompt Assembly',
       tier: 1,
       parameters: { type: 'object', properties: {}, required: [] },
-      execute: vi.fn(async () => ({ success: true, data: { assetHash: 'asset-1' } })),
+      execute: generate,
     });
 
     const adapter = createMockAdapter([
       {
         content: '',
-        toolCalls: [{ id: 'tc-ref', name: 'entity.generateRefImage', arguments: {} }],
+        toolCalls: [{ id: 'tc-ref', name: 'canvas.generation', arguments: {} }],
         finishReason: 'tool_calls',
       },
       {
@@ -1287,9 +1635,9 @@ describe('AgentOrchestrator', () => {
 
     const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
 
-    await agent.execute('generate ref', {}, () => {}, {
-      discoveredTools: ['entity.generateRefImage'],
-    });
+    await agent.execute('generate ref', {}, () => {});
+
+    expect(generate).toHaveBeenCalledOnce();
 
     const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
       .calls[1][0] as Array<{
@@ -1297,70 +1645,9 @@ describe('AgentOrchestrator', () => {
       content: string;
     }>;
 
-    const systemPrompt = secondCallMessages.find((m) => m.role === 'system')?.content ?? '';
-    expect(systemPrompt).not.toContain('Active Process Guides');
-    expect(systemPrompt).not.toContain('Ref image rules go here.');
-  });
-
-  it('initialProcessPrompts in context is ignored (injection paths removed)', async () => {
-    const adapter = createMockAdapter([{ content: 'done', toolCalls: [], finishReason: 'stop' }]);
-    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-
-    await agent.execute(
-      'rewrite the prompt',
-      { extra: { initialProcessPrompts: ['image-node-generation'] } },
-      () => {},
-    );
-
-    const firstCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as Array<{
-      role: string;
-      content: string;
-    }>;
-
-    const systemPrompt = firstCallMessages.find((m) => m.role === 'system')?.content ?? '';
-    expect(systemPrompt).not.toContain('Image prompt rules.');
-  });
-
-  it('process prompt injection removed — system prompt has no Active Process Guides section', async () => {
-    const renameTool = vi.fn(async () => ({ success: true, data: { canvasId: 'c1' } }));
-
-    toolRegistry.register({
-      name: 'canvas.manage',
-      description: 'Rename canvas',
-      tier: 1,
-      parameters: { type: 'object', properties: {}, required: [] },
-      execute: renameTool,
-    });
-
-    const adapter = createMockAdapter([
-      {
-        content: '',
-        toolCalls: [
-          { id: 'tc-1', name: 'canvas.manage', arguments: { canvasId: 'c1', name: 'a' } },
-        ],
-        finishReason: 'tool_calls',
-      },
-      {
-        content: 'done',
-        toolCalls: [],
-        finishReason: 'stop',
-      },
-    ]);
-
-    const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-
-    await agent.execute('run workflow', {}, () => {}, {
-      discoveredTools: ['canvas.manage'],
-    });
-
-    const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
-      .calls[1][0] as Array<{
-      role: string;
-      content: string;
-    }>;
-    const systemPrompt = secondCallMessages.find((m) => m.role === 'system')?.content ?? '';
-    expect(systemPrompt).not.toContain('Active Process Guides');
+    const systemMessages = secondCallMessages.filter((message) => message.role === 'system');
+    expect(systemMessages).toHaveLength(1);
+    expect(systemMessages[0]!.content).toContain('You are a test assistant.');
   });
 
   // ── ContextGraph path (openai adapter) ───
@@ -1448,163 +1735,6 @@ describe('AgentOrchestrator', () => {
   });
 
   // ────────────────────────────────────────────────────────────
-  // G2-5: cross-session ContextGraph persistence (merge gate 5)
-  // ────────────────────────────────────────────────────────────
-  describe('G2-5 cross-session ContextGraph warm-up', () => {
-    it('round-trips seeded entity-snapshot items through execute()', async () => {
-      const { freshContextItemId } = await import('@lucid-fin/contracts-parse');
-      const adapter = createMockAdapter([
-        { content: 'Resumed.', toolCalls: [], finishReason: 'stop' },
-      ]);
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-
-      // Simulate a persisted graph from a prior session: one entity-snapshot
-      // (a kind NOT derivable from the messages array) plus noise kinds that
-      // the rebuild owns and should filter out.
-      const snapshotItem = {
-        kind: 'entity-snapshot' as const,
-        itemId: freshContextItemId(),
-        producedAtStep: 7,
-        entityRef: { entityType: 'character' as const, entityId: 'c1' },
-        snapshot: { id: 'c1', name: 'Alice' },
-      };
-      const legacyUser = {
-        kind: 'user-message' as const,
-        itemId: freshContextItemId(),
-        producedAtStep: 7,
-        content: 'This was from last session',
-      };
-
-      agent.seedContextGraph([snapshotItem, legacyUser]);
-      await agent.execute('Continue session', {}, () => {});
-
-      const finalItems = agent.getSerializedContextGraph();
-
-      // entity-snapshot survives the rebuild merge.
-      const entitySnapshots = finalItems.filter((i) => i.kind === 'entity-snapshot');
-      expect(entitySnapshots).toHaveLength(1);
-      expect(entitySnapshots[0]).toMatchObject({
-        entityRef: { entityType: 'character', entityId: 'c1' },
-        snapshot: { id: 'c1', name: 'Alice' },
-      });
-
-      // Legacy user-message from the seed is NOT re-introduced — the rebuild
-      // owns user-message kinds from the current `messages` array. The only
-      // user message should be the one from the current execute() call.
-      const userMsgs = finalItems.filter((i) => i.kind === 'user-message');
-      expect(userMsgs.map((u) => (u as { content: string }).content)).toEqual(['Continue session']);
-    });
-
-    it('preserves session-summary items across execute()', async () => {
-      const { freshContextItemId } = await import('@lucid-fin/contracts-parse');
-      const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-
-      const summary = {
-        kind: 'session-summary' as const,
-        itemId: freshContextItemId(),
-        producedAtStep: 10,
-        stepsFrom: 1,
-        stepsTo: 9,
-        content: 'Earlier: user asked about characters. Created Alice.',
-      };
-
-      agent.seedContextGraph([summary]);
-      await agent.execute('hi', {}, () => {});
-
-      const items = agent.getSerializedContextGraph();
-      const summaries = items.filter((i) => i.kind === 'session-summary');
-      expect(summaries).toHaveLength(1);
-      expect(summaries[0]).toMatchObject({
-        content: 'Earlier: user asked about characters. Created Alice.',
-      });
-    });
-
-    it('seed is single-use — a second execute() without re-seeding does not re-merge stale items', async () => {
-      const { freshContextItemId } = await import('@lucid-fin/contracts-parse');
-      const adapter = createMockAdapter([
-        { content: 'first', toolCalls: [], finishReason: 'stop' },
-        { content: 'second', toolCalls: [], finishReason: 'stop' },
-      ]);
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-
-      agent.seedContextGraph([
-        {
-          kind: 'entity-snapshot',
-          itemId: freshContextItemId(),
-          producedAtStep: 1,
-          entityRef: { entityType: 'character', entityId: 'c1' },
-          snapshot: { id: 'c1', name: 'Alice' },
-        },
-      ]);
-
-      await agent.execute('first message', {}, () => {});
-      const firstRun = agent.getSerializedContextGraph();
-      expect(firstRun.filter((i) => i.kind === 'entity-snapshot')).toHaveLength(1);
-
-      await agent.execute('second message', {}, () => {});
-      const secondRun = agent.getSerializedContextGraph();
-      // Seed was consumed by the first run; the second run should NOT
-      // contain the stale snapshot — the caller is responsible for
-      // re-seeding with the saved graph between runs.
-      expect(secondRun.filter((i) => i.kind === 'entity-snapshot')).toHaveLength(0);
-    });
-
-    it('getSerializedContextGraph returns empty array before first execute()', () => {
-      const adapter = createMockAdapter([{ content: '', toolCalls: [], finishReason: 'stop' }]);
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-      expect(agent.getSerializedContextGraph()).toEqual([]);
-    });
-
-    it('seedContextGraph accepts empty array as a no-op', async () => {
-      const adapter = createMockAdapter([{ content: 'ok', toolCalls: [], finishReason: 'stop' }]);
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-      agent.seedContextGraph([]);
-      await agent.execute('hi', {}, () => {});
-      // Should have the guide + current user message only (no snapshots).
-      const items = agent.getSerializedContextGraph();
-      expect(items.filter((i) => i.kind === 'entity-snapshot')).toHaveLength(0);
-      expect(items.filter((i) => i.kind === 'session-summary')).toHaveLength(0);
-    });
-
-    it('early abort preserves the seed — getSerializedContextGraph returns the unconsumed seed, not empty', async () => {
-      // Codex review P2: a run cancelled before the first step never
-      // runs rebuildGraphFromMessages, so the live graph is empty. The
-      // finally block must fall back to the seed so the caller's save
-      // step does not overwrite previously-persisted warm-up data with
-      // an empty snapshot.
-      const { freshContextItemId } = await import('@lucid-fin/contracts-parse');
-      const adapter = createMockAdapter([
-        { content: 'should-not-run', toolCalls: [], finishReason: 'stop' },
-      ]);
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-
-      const seed = [
-        {
-          kind: 'entity-snapshot' as const,
-          itemId: freshContextItemId(),
-          producedAtStep: 3,
-          entityRef: { entityType: 'character' as const, entityId: 'c1' },
-          snapshot: { id: 'c1', name: 'Alice' },
-        },
-      ];
-      agent.seedContextGraph(seed);
-
-      // Abort before the first iteration runs.
-      await agent.execute('cancelled', {}, () => {}, { isAborted: () => true });
-
-      const saved = agent.getSerializedContextGraph();
-      // The seed survives the early abort — caller saves the original
-      // persisted graph back, not an empty overwrite.
-      expect(saved).toHaveLength(1);
-      expect(saved[0]).toMatchObject({
-        kind: 'entity-snapshot',
-        entityRef: { entityType: 'character', entityId: 'c1' },
-      });
-    });
-  });
-
-  // ────────────────────────────────────────────────────────────
   // G2 merge gate 6: long-session stability (100+ tool-call steps)
   // ────────────────────────────────────────────────────────────
   describe('G2 long-session stability', () => {
@@ -1613,15 +1743,20 @@ describe('AgentOrchestrator', () => {
       const listTool = vi.fn(async () => ({ success: true, data: { nodes: [{ id: 'n1' }] } }));
       toolRegistry.register({
         name: 'character.list',
+        process: 'entity-management',
+        category: 'query',
+        contextReplay: 'status_only',
         description: 'list',
         tier: 1,
-        parameters: { type: 'object', properties: {}, required: [] },
+        inputSchema: objectSchema({}, []),
+        outputSchema: toolResultSchema(objectSchema({
+          nodes: arraySchema(objectSchema({ id: stringSchema })),
+        })),
         execute: listTool,
       });
 
-      // Build 100 tool-call rounds, each calling `character.list` with
-      // IDENTICAL arguments — exercises the dedup pipeline plus
-      // `shrinkCoveredToolMessages` stubbing of historical payloads.
+      // Build 100 tool-call rounds with identical arguments to exercise the
+      // bounded dedup path without relying on a persisted private graph.
       const rounds = 100;
       const responses: MockLLMResponse[] = [];
       for (let i = 0; i < rounds; i++) {
@@ -1635,41 +1770,26 @@ describe('AgentOrchestrator', () => {
 
       const adapter = createMockAdapter(responses);
       const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-        maxSteps: rounds + 5,
+        contextWindowTokens: 2_000_000,
       });
-      await agent.execute('run many list calls', {}, () => {}, {
-        discoveredTools: ['character.list'],
-      });
+      await agent.execute('run many list calls', {}, () => {});
 
-      const items = agent.getSerializedContextGraph();
-      // Structural invariants for a long run:
-      //  - Exactly one guide item (top-level system prompt).
-      expect(items.filter((i) => i.kind === 'guide')).toHaveLength(1);
-      //  - Every surviving tool-result has a toolCallId and paramsHash.
-      for (const item of items) {
-        if (item.kind === 'tool-result') {
-          expect(item.toolCallId).toBeTruthy();
-          expect(item.paramsHash).toBeTruthy();
-        }
-      }
-      // Dedup-index bound: only 1 unique (toolKey, paramsHash) identity
-      // was ever called → the dedup index must collapse to exactly 1.
-      // (Stubbed historical messages are excluded from the index; only
-      // the latest real success payload is indexed.)
-      expect(agent['contextGraph']).toBeNull(); // graph is cleared after execute
-      // The serialized snapshot retains the historical stubs for wire
-      // ordering; assert a reasonable upper bound that confirms no
-      // unbounded accumulation beyond one-per-call.
-      const toolResults = items.filter((i) => i.kind === 'tool-result');
-      expect(toolResults.length).toBeLessThanOrEqual(rounds);
+      expect(listTool).toHaveBeenCalled();
+      expect(listTool.mock.calls.length).toBeLessThan(rounds);
+      expect(adapter.completeWithTools).toHaveBeenCalledTimes(rounds + 1);
+      expect(agent['contextGraph']).toBeNull();
     });
 
     it('50 rounds with 2 distinct arg shapes — structural invariants hold', async () => {
       toolRegistry.register({
         name: 'character.list',
+        process: 'entity-management',
+        category: 'query',
+        contextReplay: 'status_only',
         description: 'list',
         tier: 1,
-        parameters: { type: 'object', properties: {}, required: [] },
+        inputSchema: objectSchema({ page: numberSchema }, []),
+        outputSchema: toolResultSchema(objectSchema({}, [])),
         execute: vi.fn(async () => ({ success: true, data: {} })),
       });
 
@@ -1686,24 +1806,15 @@ describe('AgentOrchestrator', () => {
 
       const adapter = createMockAdapter(responses);
       const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-        maxSteps: rounds + 5,
+        contextWindowTokens: 2_000_000,
       });
-      await expect(
-        agent.execute('long', {}, () => {}, { discoveredTools: ['character.list'] }),
-      ).resolves.toBeDefined();
+      await expect(agent.execute('long', {}, () => {})).resolves.toBeDefined();
 
-      const items = agent.getSerializedContextGraph();
-      expect(items.filter((i) => i.kind === 'guide')).toHaveLength(1);
-      for (const item of items) {
-        if (item.kind === 'tool-result') {
-          expect(item.toolCallId).toBeTruthy();
-          expect(item.paramsHash).toBeTruthy();
-        }
-      }
-      // Upper bound: no more tool-results than rounds — no unbounded
-      // duplication across the rebuild path.
-      const toolResults = items.filter((i) => i.kind === 'tool-result');
-      expect(toolResults.length).toBeLessThanOrEqual(rounds);
+      const execute = toolRegistry.get('character.list')?.execute as ReturnType<typeof vi.fn>;
+      expect(execute).toHaveBeenCalled();
+      expect(execute.mock.calls.length).toBeLessThan(rounds);
+      expect(adapter.completeWithTools).toHaveBeenCalledTimes(rounds + 1);
+      expect(agent['contextGraph']).toBeNull();
     });
   });
 
@@ -1800,241 +1911,102 @@ describe('AgentOrchestrator', () => {
       expect(first.escalated).toBe(false);
       expect(second.escalated).toBe(true);
     });
-  });
 
-  describe('style-plate-lock injection (dormant — specs removed)', () => {
-    function registerBatchCreate() {
-      toolRegistry.register({
-        name: 'canvas.createNodes',
-        description: 'Create nodes and edges atomically',
-        tier: 1,
-        parameters: { type: 'object', properties: {}, required: [] },
-        execute: vi.fn(async () => ({ success: true, data: { nodeIds: ['n1'] } })),
+    it('pauses at the next safe boundary and resumes the same run without scheduling work while paused', async () => {
+      let releaseTool!: () => void;
+      const toolStarted = new Promise<void>((resolve) => {
+        toolRegistry.register({
+          name: 'canvas.inspect',
+          process: 'canvas-management',
+          category: 'query',
+          contextReplay: 'status_only',
+          description: 'Inspect the Canvas',
+          tier: 1,
+          parameters: { type: 'object', properties: {}, required: [] },
+          execute: vi.fn(async () => {
+            resolve();
+            await new Promise<void>((release) => {
+              releaseTool = release;
+            });
+            return { success: true, data: { inspected: true } };
+          }),
+        });
       });
-    }
-
-    function registerEntityRefImage() {
-      toolRegistry.register({
-        name: 'entity.generateRefImage',
-        description: 'Generate an entity reference image',
-        tier: 1,
-        parameters: { type: 'object', properties: {}, required: [] },
-        execute: vi.fn(async () => ({ success: true, data: { hash: 'h1' } })),
-      });
-    }
-
-    it('Bug A — initialProcessPrompts no longer injects into system prompt (injection paths removed)', async () => {
-      const adapter = createMockAdapter([{ content: 'done', toolCalls: [], finishReason: 'stop' }]);
+      const adapter = createMockAdapter([
+        {
+          content: '',
+          toolCalls: [{ id: 'inspect-1', name: 'canvas.inspect', arguments: {} }],
+          finishReason: 'tool_calls',
+        },
+        { content: 'Inspection complete', toolCalls: [], finishReason: 'stop' },
+      ]);
       const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+      const events: Array<Record<string, unknown>> = [];
+      const execution = agent.execute('Inspect', {}, (event) => events.push(event));
 
-      await agent.execute(
-        'start a new story',
-        { extra: { initialProcessPrompts: ['style-plate-lock'] } },
-        () => {},
-      );
-
-      const firstCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
-        .calls[0][0] as Array<{
-        role: string;
-        content: string;
-      }>;
-
-      const systemPrompt = firstCallMessages.find((m) => m.role === 'system')?.content ?? '';
-      expect(systemPrompt).not.toContain('Lock the plate before ref-images.');
-    });
-
-    it('Bug B — spec infrastructure dormant, no style-plate-lock injection on entity.generateRefImage', async () => {
-      registerEntityRefImage();
-
-      const adapter = createMockAdapter([
-        {
-          content: '',
-          toolCalls: [
-            {
-              id: 'tc-ref',
-              name: 'entity.generateRefImage',
-              arguments: { canvasId: 'c1', characterId: 'char-1' },
-            },
-          ],
-          finishReason: 'tool_calls',
-        },
-        {
-          content: 'done',
-          toolCalls: [],
-          finishReason: 'stop',
-        },
-      ]);
-
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-        resolveCanvasSettings: () => ({ stylePlate: null }),
+      await toolStarted;
+      expect(agent.pause()).toBe(true);
+      expect(adapter.completeWithTools).toHaveBeenCalledTimes(1);
+      releaseTool();
+      await vi.waitFor(() => {
+        expect(events.some((event) => event.kind === 'run_paused')).toBe(true);
       });
+      expect(adapter.completeWithTools).toHaveBeenCalledTimes(1);
 
-      await agent.execute('build a scene', { extra: { canvasId: 'c1' } }, () => {});
+      expect(agent.resume()).toBe(true);
+      await execution;
 
-      const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
-        .calls[1][0] as Array<{
-        role: string;
-        content: string;
-      }>;
-      const systemPrompt = secondCallMessages.find((m) => m.role === 'system')?.content ?? '';
-      expect(systemPrompt).not.toContain('style-plate-lock');
+      expect(events.some((event) => event.kind === 'run_resumed')).toBe(true);
+      expect(adapter.completeWithTools).toHaveBeenCalledTimes(2);
     });
 
-    it('spec infrastructure dormant — no resolveProcessPrompt calls for style-plate-lock', async () => {
-      registerBatchCreate();
-
-      const adapter = createMockAdapter([
-        {
-          content: '',
-          toolCalls: [
-            {
-              id: 'tc-text',
-              name: 'canvas.createNodes',
-              arguments: { canvasId: 'c1', nodes: [{ type: 'text', label: 'note' }] },
-            },
-          ],
-          finishReason: 'tool_calls',
-        },
-        {
-          content: 'done',
-          toolCalls: [],
-          finishReason: 'stop',
-        },
-      ]);
-
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-        resolveCanvasSettings: () => ({ stylePlate: null }),
+    it('cancels a paused run without resuming or scheduling another model step', async () => {
+      let releaseTool!: () => void;
+      const toolStarted = new Promise<void>((resolve) => {
+        toolRegistry.register({
+          name: 'canvas.inspect',
+          process: 'canvas-management',
+          category: 'query',
+          contextReplay: 'status_only',
+          description: 'Inspect the Canvas',
+          tier: 1,
+          parameters: { type: 'object', properties: {}, required: [] },
+          execute: vi.fn(async () => {
+            resolve();
+            await new Promise<void>((release) => {
+              releaseTool = release;
+            });
+            return { success: true, data: { inspected: true } };
+          }),
+        });
       });
-
-      await agent.execute('add a caption', { extra: { canvasId: 'c1' } }, () => {});
-
-      const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
-        .calls[1][0] as Array<{
-        role: string;
-        content: string;
-      }>;
-      const systemPrompt = secondCallMessages.find((m) => m.role === 'system')?.content ?? '';
-      expect(systemPrompt).not.toContain('Active Process Guides');
-    });
-
-    it('does NOT inject when stylePlate is already set (no-op regardless)', async () => {
-      registerBatchCreate();
-
       const adapter = createMockAdapter([
         {
           content: '',
-          toolCalls: [
-            {
-              id: 'tc-img',
-              name: 'canvas.createNodes',
-              arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
-            },
-          ],
+          toolCalls: [{ id: 'inspect-1', name: 'canvas.inspect', arguments: {} }],
           finishReason: 'tool_calls',
         },
-        {
-          content: 'done',
-          toolCalls: [],
-          finishReason: 'stop',
-        },
+        { content: 'must not run', toolCalls: [], finishReason: 'stop' },
       ]);
-
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-        resolveCanvasSettings: () => ({ stylePlate: 'neo-noir watercolor' }),
-      });
-
-      await agent.execute('build a scene', { extra: { canvasId: 'c1' } }, () => {});
-
-      const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
-        .calls[1][0] as Array<{
-        role: string;
-        content: string;
-      }>;
-      const systemPrompt = secondCallMessages.find((m) => m.role === 'system')?.content ?? '';
-      expect(systemPrompt).not.toContain('style-plate-lock');
-    });
-
-    it('no-op when two generation tool calls in same session (specs dormant)', async () => {
-      registerEntityRefImage();
-
-      const adapter = createMockAdapter([
-        {
-          content: '',
-          toolCalls: [
-            {
-              id: 'tc-img-1',
-              name: 'entity.generateRefImage',
-              arguments: { canvasId: 'c1', characterId: 'char-1' },
-            },
-          ],
-          finishReason: 'tool_calls',
-        },
-        {
-          content: '',
-          toolCalls: [
-            {
-              id: 'tc-img-2',
-              name: 'entity.generateRefImage',
-              arguments: { canvasId: 'c1', characterId: 'char-2' },
-            },
-          ],
-          finishReason: 'tool_calls',
-        },
-        {
-          content: 'done',
-          toolCalls: [],
-          finishReason: 'stop',
-        },
-      ]);
-
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt, {
-        resolveCanvasSettings: () => ({ stylePlate: null }),
-      });
-
-      await agent.execute('build two scenes', { extra: { canvasId: 'c1' } }, () => {});
-
-      const thirdCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
-        .calls[2][0] as Array<{
-        role: string;
-        content: string;
-      }>;
-      const systemPrompt = thirdCallMessages.find((m) => m.role === 'system')?.content ?? '';
-      expect(systemPrompt).not.toContain('style-plate-lock');
-    });
-
-    it('is a no-op when resolveCanvasSettings is not provided', async () => {
-      registerBatchCreate();
-
-      const adapter = createMockAdapter([
-        {
-          content: '',
-          toolCalls: [
-            {
-              id: 'tc-img',
-              name: 'canvas.createNodes',
-              arguments: { canvasId: 'c1', nodes: [{ type: 'image', label: 'hero' }] },
-            },
-          ],
-          finishReason: 'tool_calls',
-        },
-        {
-          content: 'done',
-          toolCalls: [],
-          finishReason: 'stop',
-        },
-      ]);
-
       const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
+      const events: Array<Record<string, unknown>> = [];
+      const execution = agent.execute('Inspect', {}, (event) => events.push(event));
 
-      await agent.execute('build a scene', { extra: { canvasId: 'c1' } }, () => {});
+      await toolStarted;
+      expect(agent.pause()).toBe(true);
+      expect(agent.pause()).toBe(false);
+      releaseTool();
+      await vi.waitFor(() => {
+        expect(events.some((event) => event.kind === 'run_paused')).toBe(true);
+      });
 
-      const secondCallMessages = (adapter.completeWithTools as ReturnType<typeof vi.fn>).mock
-        .calls[1][0] as Array<{
-        role: string;
-        content: string;
-      }>;
-      const systemPrompt = secondCallMessages.find((m) => m.role === 'system')?.content ?? '';
-      expect(systemPrompt).not.toContain('style-plate-lock');
+      agent.cancel();
+      await execution;
+
+      expect(agent.resume()).toBe(false);
+      expect(events.some((event) => event.kind === 'run_resumed')).toBe(false);
+      expect(events).toContainEqual(expect.objectContaining({ kind: 'run_end', status: 'cancelled' }));
+      expect(adapter.completeWithTools).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -2043,6 +2015,9 @@ describe('AgentOrchestrator', () => {
       const mockTool = vi.fn(async () => ({ success: true, data: { x: 1 } }));
       toolRegistry.register({
         name: 'character.list',
+        process: 'entity-management',
+        category: 'query',
+        contextReplay: 'status_only',
         description: 'List characters',
         tier: 1,
         parameters: { type: 'object', properties: {}, required: [] },
@@ -2073,9 +2048,7 @@ describe('AgentOrchestrator', () => {
 
       const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
       const events: Array<Record<string, unknown>> = [];
-      await agent.execute('list', {}, (e) => events.push(e as Record<string, unknown>), {
-        discoveredTools: ['character.list'],
-      });
+      await agent.execute('list', {}, (e) => events.push(e as Record<string, unknown>));
 
       // Only the first call actually executes.
       expect(mockTool).toHaveBeenCalledTimes(1);
@@ -2097,12 +2070,27 @@ describe('AgentOrchestrator', () => {
       expect(skippedResults).toHaveLength(1);
       expect((skippedResults[0] as Record<string, unknown>).toolCallId).toBe('tc-2');
       expect((skippedResults[0] as Record<string, unknown>).synthetic).toBe(true);
+
+      const finalRequest = vi.mocked(adapter.completeWithTools).mock.calls[2]?.[0] as Array<{
+        role: string;
+        content: string;
+        toolCallId?: string;
+      }>;
+      const duplicateFact = finalRequest.find((message) => message.toolCallId === 'tc-2');
+      expect(JSON.parse(duplicateFact?.content ?? '{}')).toMatchObject({
+        success: false,
+        error: 'Identical tool call was skipped because it already completed in this run.',
+      });
+      expect(duplicateFact?.content).not.toMatch(/change arguments|try a different|instead of/i);
     });
 
     it('does not short-circuit when args differ', async () => {
       const mockTool = vi.fn(async (args: unknown) => ({ success: true, data: args }));
       toolRegistry.register({
         name: 'character.get',
+        process: 'entity-management',
+        category: 'query',
+        contextReplay: 'status_only',
         description: 'Get character',
         tier: 1,
         parameters: {
@@ -2129,9 +2117,7 @@ describe('AgentOrchestrator', () => {
 
       const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
       const events: Array<Record<string, unknown>> = [];
-      await agent.execute('x', {}, (e) => events.push(e as Record<string, unknown>), {
-        discoveredTools: ['character.get'],
-      });
+      await agent.execute('x', {}, (e) => events.push(e as Record<string, unknown>));
 
       expect(mockTool).toHaveBeenCalledTimes(2);
       const skipNotes = events.filter(
@@ -2140,10 +2126,13 @@ describe('AgentOrchestrator', () => {
       expect(skipNotes).toHaveLength(0);
     });
 
-    it('does not deduplicate a transient unloaded-tool failure after discovery succeeds', async () => {
+    it('does not reset tool-call deduplication when tool.get queries the registry', async () => {
       const target = vi.fn(async () => ({ success: true, data: { completed: true } }));
       toolRegistry.register({
         name: 'tool.get',
+        process: 'meta',
+        category: 'meta',
+        contextReplay: 'status_only',
         description: 'Load tool schema',
         tier: 1,
         parameters: { type: 'object', properties: {}, required: [] },
@@ -2154,6 +2143,9 @@ describe('AgentOrchestrator', () => {
       });
       toolRegistry.register({
         name: 'test.execute',
+        process: 'test',
+        category: 'mutation',
+        contextReplay: 'status_only',
         description: 'Execute a test action',
         tier: 2,
         parameters: { type: 'object', properties: {}, required: [] },
@@ -2162,7 +2154,7 @@ describe('AgentOrchestrator', () => {
       const adapter = createMockAdapter([
         {
           content: '',
-          toolCalls: [{ id: 'unloaded', name: 'test.execute', arguments: {} }],
+          toolCalls: [{ id: 'first', name: 'test.execute', arguments: {} }],
           finishReason: 'tool_calls',
         },
         {
@@ -2185,64 +2177,4 @@ describe('AgentOrchestrator', () => {
     });
   });
 
-  describe('Phase I — askUser forcing on rogue option-list markdown', () => {
-    it('emits force_ask_user phase_note when model emits A/B/C prose without calling askUser', async () => {
-      toolRegistry.register({
-        name: 'commander.askUser',
-        description: 'Ask user',
-        tier: 1,
-        parameters: {
-          type: 'object',
-          properties: {
-            question: { type: 'string' },
-            options: { type: 'array' },
-          },
-          required: ['question'],
-        },
-        execute: async () => ({ success: true, data: { answer: 'A' } }),
-      });
-
-      const adapter = createMockAdapter([
-        {
-          content:
-            'You could go a couple of ways:\nA. add a character\nB. add an image\nC. set the scene',
-          toolCalls: [],
-          finishReason: 'stop',
-        },
-      ]);
-
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-      const events: Array<Record<string, unknown>> = [];
-      await agent.execute('what next?', {}, (e) => events.push(e as Record<string, unknown>), {
-        discoveredTools: ['commander.askUser'],
-      });
-
-      const forceNotes = events.filter(
-        (e) => e.kind === 'phase_note' && e.note === 'force_ask_user',
-      );
-      expect(forceNotes).toHaveLength(1);
-      expect((forceNotes[0]!.params as Record<string, unknown>).detectedPattern).toBe(
-        'option_list',
-      );
-    });
-
-    it('does not fire force_ask_user when there is no option-list markdown', async () => {
-      const adapter = createMockAdapter([
-        {
-          content: 'Here is a summary of your project state.',
-          toolCalls: [],
-          finishReason: 'stop',
-        },
-      ]);
-
-      const agent = new AgentOrchestrator(adapter, toolRegistry, resolvePrompt);
-      const events: Array<Record<string, unknown>> = [];
-      await agent.execute('status', {}, (e) => events.push(e as Record<string, unknown>));
-
-      const forceNotes = events.filter(
-        (e) => e.kind === 'phase_note' && e.note === 'force_ask_user',
-      );
-      expect(forceNotes).toHaveLength(0);
-    });
-  });
 });

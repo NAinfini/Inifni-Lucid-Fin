@@ -5,6 +5,7 @@
 export class Semaphore {
   private current = 0;
   private readonly queue: Array<() => void> = [];
+  private queueHead = 0;
 
   constructor(private readonly limit: number) {
     if (limit < 1) throw new RangeError('Semaphore limit must be >= 1');
@@ -28,11 +29,16 @@ export class Semaphore {
   }
 
   private release(): void {
-    const next = this.queue.shift();
+    const next =
+      this.queueHead < this.queue.length ? this.queue[this.queueHead++] : undefined;
     if (next) {
       next();
     } else {
       this.current--;
+    }
+    if (this.queueHead > 1_024 && this.queueHead * 2 >= this.queue.length) {
+      this.queue.splice(0, this.queueHead);
+      this.queueHead = 0;
     }
   }
 }

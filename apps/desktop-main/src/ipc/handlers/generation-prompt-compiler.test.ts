@@ -263,7 +263,7 @@ describe('applyStyleGuideDefaultsToEmptyTracks', () => {
       BUILT_IN_PRESET_LIBRARY,
     );
     expect(result.scene.entries).toHaveLength(1);
-    expect(result.scene.entries[0]?.presetId).toBe('scene:low-key');
+    expect(result.scene.entries[0]?.presetId).toBe('builtin-scene-low-key');
   });
 
   it('fills both look and scene when both are configured', () => {

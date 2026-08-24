@@ -1,6 +1,8 @@
 export {};
 
 import type {
+  AssetEntry,
+  AssetMeta,
   AssetType,
   Canvas,
   Character,
@@ -9,6 +11,14 @@ import type {
   OAuthProviderTarget,
   CommanderPromptGuide,
   CommanderProcessBehaviorSettings,
+  CommanderStartRequest,
+  CommanderStartResponse,
+  CommanderRunRecord,
+  CommanderRunControlRequest,
+  CommanderRunControlResponse,
+  CommanderRunTreeRequest,
+  CommanderRunTreeResponse,
+  CommanderToolActionResponse,
   ColorStyle,
   TimelineEvent,
   WireEnvelope,
@@ -28,17 +38,22 @@ import type {
   PresetLibraryImportPayload,
   PresetResetRequest,
   ReferenceImage,
-  WorkflowActivitySummary,
-  WorkflowApprovalContext,
-  WorkflowApprovalGateKey,
-  WorkflowFinalExportContext,
-  ApproveWorkflowGateResult,
+  TaskListSummary,
+  TaskSummary,
+  TaskDecision,
+  PlanApprovalContext,
+  PlanApprovalGateKey,
+  DeliveryManifestContext,
+  ApprovePlanGateResult,
+  RevisePlanGateResult,
+  RequestVisualAuditionChangesInput,
+  RequestVisualAuditionChangesResult,
   SelectVisualConstitutionCandidateInput,
   VisualConstitutionSelectionResult,
-  WorkflowVisualAuditionContext,
-  WorkflowStageRun,
-  WorkflowTaskSummary,
+  VisualAuditionContext,
+  PromptAssemblyRecord,
 } from '@lucid-fin/contracts';
+import type { TargetDesktopApiV1 } from '@lucid-fin/target-contracts';
 
 /** Parsed script structure */
 interface ParsedScript {
@@ -76,86 +91,11 @@ interface StyleGuide {
   [key: string]: unknown;
 }
 
-/** Asset metadata */
-interface AssetMeta {
-  hash: string;
-  type: string;
-  format: string;
-  mimeType: string;
-  size: number;
-  duration?: number;
-  createdAt: string;
-  [key: string]: unknown;
-}
-
-/** Job request */
-interface JobRequest {
-  type: string;
-  providerId: string;
-  prompt: string;
-  width?: number;
-  height?: number;
-  duration?: number;
-  seed?: number;
-  params?: Record<string, unknown>;
-  priority?: number;
-}
-
-/** Job summary */
-interface JobSummary {
-  id: string;
-  adapter: string;
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
-  progress: number;
-  result?: unknown;
-  error?: string;
-  [key: string]: unknown;
-}
-
 /** Snapshot */
 interface SnapshotMeta {
   id: string;
   name: string;
   createdAt: string;
-}
-
-/** Render request (P2 — expand as render pipeline is built) */
-interface RenderRequest {
-  sceneId: string;
-  segments?: Array<{ inputPath: string; startTime: number; duration: number; speed: number }>;
-  outputFormat?: 'mp4' | 'mov' | 'webm';
-  resolution?: { width: number; height: number };
-  fps?: number;
-  codec?: 'h264' | 'h265' | 'prores';
-  quality?: 'draft' | 'standard' | 'high';
-  outputPath?: string;
-  workflowRunId?: string;
-  expectedManifestRevision?: number;
-  expectedManifestHash?: string;
-  retry?: boolean;
-}
-
-/** Render result */
-interface RenderResult {
-  jobId?: string;
-  outputPath: string;
-  duration: number;
-  format: string;
-}
-
-/** Export preset */
-interface ExportPreset {
-  format: 'fcpxml' | 'edl';
-  project: unknown;
-  outputPath?: string;
-  canvasId?: string;
-}
-
-/** Export result */
-interface ExportResult {
-  outputPath: string;
-  format: string;
-  fileSize: number;
 }
 
 /** FFmpeg probe result */
@@ -165,39 +105,6 @@ interface ProbeResult {
   height: number;
   codec: string;
   fps: number;
-}
-
-/** Prompt template */
-interface PromptEntry {
-  code: string;
-  name: string;
-  type: string;
-  hasCustom: boolean;
-}
-
-/** Prompt detail */
-interface PromptDetail {
-  code: string;
-  name: string;
-  defaultValue: string;
-  customValue: string | null;
-}
-
-/** Series metadata */
-interface SeriesData {
-  id: string;
-  title: string;
-  description: string;
-}
-
-/** Episode metadata */
-interface EpisodeData {
-  id: string;
-  title: string;
-  order: number;
-  status: 'draft' | 'in_progress' | 'review' | 'final';
-  createdAt: number;
-  updatedAt: number;
 }
 
 interface UpdateInfo {
@@ -222,18 +129,6 @@ interface MainLoggerEntry {
   detail?: string;
 }
 
-interface CommanderToolSummary {
-  name: string;
-  description: string;
-  tags?: string[];
-  tier: number;
-}
-
-interface CommanderToolSearchResult {
-  name: string;
-  description: string;
-}
-
 /** Per-kind folder CRUD surface exposed to the renderer. */
 interface FolderKindApi {
   list: () => Promise<Folder[]>;
@@ -245,6 +140,7 @@ interface FolderKindApi {
 
 declare global {
   interface Window {
+    lucidTarget?: TargetDesktopApiV1;
     lucidAPI: {
       openExternal: (url: string) => Promise<void>;
       settings: {
@@ -267,7 +163,8 @@ declare global {
         save: (
           data: (Omit<CharacterData, 'id'> & { id?: string }) | Record<string, unknown>,
         ) => Promise<Character>;
-        delete: (id: string) => Promise<void>;
+        copy: (ids: string[], targetFolderId: string | null) => Promise<{ created: Character[] }>;
+        delete: (ids: string[]) => Promise<{ deletedIds: string[] }>;
         setRefImage: (
           characterId: string,
           slot: string,
@@ -277,13 +174,14 @@ declare global {
         removeRefImage: (characterId: string, slot: string) => Promise<void>;
         saveLoadout: (characterId: string, loadout: EquipmentLoadout) => Promise<EquipmentLoadout>;
         deleteLoadout: (characterId: string, loadoutId: string) => Promise<void>;
-        setFolder: (id: string, folderId: string | null) => Promise<void>;
+        setFolder: (ids: string[], folderId: string | null) => Promise<{ movedIds: string[] }>;
       };
       equipment: {
         list: (filter?: { type?: string }) => Promise<Equipment[]>;
         get: (id: string) => Promise<Equipment>;
         save: (data: Record<string, unknown>) => Promise<Equipment>;
-        delete: (id: string) => Promise<void>;
+        copy: (ids: string[], targetFolderId: string | null) => Promise<{ created: Equipment[] }>;
+        delete: (ids: string[]) => Promise<{ deletedIds: string[] }>;
         setRefImage: (
           equipmentId: string,
           slot: string,
@@ -291,13 +189,14 @@ declare global {
           isStandard: boolean,
         ) => Promise<ReferenceImage>;
         removeRefImage: (equipmentId: string, slot: string) => Promise<void>;
-        setFolder: (id: string, folderId: string | null) => Promise<void>;
+        setFolder: (ids: string[], folderId: string | null) => Promise<{ movedIds: string[] }>;
       };
       location: {
         list: (filter?: { type?: string }) => Promise<Location[]>;
         get: (id: string) => Promise<Location>;
         save: (data: Record<string, unknown>) => Promise<Location>;
-        delete: (id: string) => Promise<void>;
+        copy: (ids: string[], targetFolderId: string | null) => Promise<{ created: Location[] }>;
+        delete: (ids: string[]) => Promise<{ deletedIds: string[] }>;
         setRefImage: (
           locationId: string,
           slot: string,
@@ -305,17 +204,7 @@ declare global {
           isStandard: boolean,
         ) => Promise<ReferenceImage>;
         removeRefImage: (locationId: string, slot: string) => Promise<void>;
-        setFolder: (id: string, folderId: string | null) => Promise<void>;
-      };
-      entity: {
-        generateReferenceImage: (request: {
-          entityType: 'character' | 'equipment' | 'location';
-          entityId: string;
-          description: string;
-          provider: string;
-          variantCount?: number;
-          seed?: number;
-        }) => Promise<{ variants: string[] }>;
+        setFolder: (ids: string[], folderId: string | null) => Promise<{ movedIds: string[] }>;
       };
       style: {
         save: (data: Partial<StyleGuide>) => Promise<void>;
@@ -328,76 +217,97 @@ declare global {
         extract: (
           assetHash: string,
           assetType: 'image' | 'video',
-        ) => Promise<{ workflowRunId: string }>;
+        ) => Promise<{ taskListId: string }>;
       };
-      asset: {
-        import: (filePath: string, type: string) => Promise<AssetMeta>;
-        importBuffer: (buffer: ArrayBuffer, fileName: string, type: string) => Promise<AssetMeta>;
-        pickFile: (type: string) => Promise<AssetMeta | null>;
-        query: (filter: Record<string, unknown>) => Promise<AssetMeta[]>;
+      assetEntry: {
+        import: (filePath: string, type: string) => Promise<AssetEntry>;
+        importBuffer: (buffer: ArrayBuffer, fileName: string, type: string) => Promise<AssetEntry>;
+        pickFile: (type: string) => Promise<AssetEntry | null>;
+        query: (filter: Record<string, unknown>) => Promise<AssetEntry[]>;
+        copy: (entryIds: string[], targetFolderId: string | null) => Promise<AssetEntry[]>;
+        move: (entryIds: string[], folderId: string | null) => Promise<{ movedEntryIds: string[] }>;
+        rename: (entryId: string, displayName: string) => Promise<AssetEntry>;
+        delete: (entryIds: string[]) => Promise<{ deletedEntryIds: string[] }>;
+      };
+      assetContent: {
         getPath: (hash: string, type: string, ext: string) => Promise<string>;
+        inspect: (hash: string) => Promise<AssetMeta>;
         export: (args: {
           hash: string;
           type: AssetType;
           format: string;
           name?: string;
         }) => Promise<{ success: true; path: string } | null>;
-        exportBatch: (args: {
-          items: Array<{ hash: string; type: string; name?: string }>;
-        }) => Promise<{ success: true; count: number; directory: string } | null>;
-        delete: (hash: string) => Promise<{ success: true }>;
-        setFolder: (hash: string, folderId: string | null) => Promise<void>;
       };
-      job: {
-        submit: (request: JobRequest) => Promise<{ jobId: string }>;
-        list: (filter?: Record<string, unknown>) => Promise<JobSummary[]>;
-        cancel: (jobId: string) => Promise<void>;
-        pause: (jobId: string) => Promise<void>;
-        resume: (jobId: string) => Promise<void>;
-        onProgress: (cb: (job: JobSummary) => void) => () => void;
-        onComplete: (cb: (job: JobSummary) => void) => () => void;
-        onSubmitted: (cb: (data: { id: string; status: string }) => void) => () => void;
-        onFailed: (
-          cb: (data: { id: string; status: string; error?: string }) => void,
-        ) => () => void;
-        onCancelled: (cb: (data: { id: string; status: string }) => void) => () => void;
-        onPaused: (cb: (data: { id: string; status: string }) => void) => () => void;
-        onResumed: (cb: (data: { id: string; status: string }) => void) => () => void;
-      };
-      refimage: {
-        onStart: (
-          cb: (data: { jobId: string; provider: string; width: number; height: number }) => void,
-        ) => () => void;
-        onComplete: (cb: (data: { jobId: string; assetHash: string }) => void) => () => void;
-        onFailed: (cb: (data: { jobId: string; error: string }) => void) => () => void;
-      };
-      workflow: {
-        list: (filter?: Record<string, unknown>) => Promise<WorkflowActivitySummary[]>;
-        get: (id: string) => Promise<WorkflowActivitySummary>;
-        getStages: (workflowRunId: string) => Promise<WorkflowStageRun[]>;
-        getTasks: (workflowRunId: string) => Promise<WorkflowTaskSummary[]>;
-        getPendingApproval: (workflowRunId: string) => Promise<WorkflowApprovalContext | null>;
-        getVisualAuditions: (
-          workflowRunId: string,
-        ) => Promise<WorkflowVisualAuditionContext | null>;
-        getFinalExport: (workflowRunId: string) => Promise<WorkflowFinalExportContext | null>;
+      taskLists: {
+        list: (filter?: Record<string, unknown>) => Promise<TaskListSummary[]>;
+        get: (id: string) => Promise<TaskListSummary>;
+        getTasks: (taskListId: string) => Promise<TaskSummary[]>;
+        startMedia: (request: {
+          canvasId: string;
+          nodeId: string;
+          commanderSessionId: string;
+          providerId?: string;
+          seed?: number;
+          commanderIntent?: string;
+        }) => Promise<{ taskListId: string; promptAssemblyId: string }>;
+        cancelMedia: (request: {
+          canvasId: string;
+          nodeId: string;
+          commanderSessionId: string;
+        }) => Promise<
+          | { ok: true; taskListId: string; status: TaskListSummary['status'] }
+          | { ok: false; code: 'no_active_task' }
+        >;
+        retryMediaEvaluation: (request: {
+          taskListId: string;
+          commanderSessionId: string;
+        }) => Promise<{ taskListId: string; status: TaskListSummary['status'] }>;
+        retryMedia: (request: {
+          canvasId: string;
+          nodeId: string;
+          commanderSessionId: string;
+          providerId?: string;
+        }) => Promise<{ taskListId: string; promptAssemblyId: string }>;
+        getPendingApproval: (taskListId: string) => Promise<PlanApprovalContext | null>;
+        getVisualAuditions: (taskListId: string) => Promise<VisualAuditionContext | null>;
+        getDelivery: (taskListId: string) => Promise<DeliveryManifestContext | null>;
         selectVisualCandidate: (
           request: SelectVisualConstitutionCandidateInput,
         ) => Promise<VisualConstitutionSelectionResult>;
+        requestVisualAuditionChanges: (
+          request: RequestVisualAuditionChangesInput,
+        ) => Promise<RequestVisualAuditionChangesResult>;
         approveGate: (request: {
-          workflowRunId: string;
-          gateKey: WorkflowApprovalGateKey;
+          taskListId: string;
+          gateKey: PlanApprovalGateKey;
           expectedRowVersion: number;
           expectedSubjectRevision: number;
           expectedSubjectHash: string;
-        }) => Promise<ApproveWorkflowGateResult>;
-        start: (request: Record<string, unknown>) => Promise<{ workflowRunId: string }>;
-        pause: (id: string) => Promise<void>;
-        resume: (id: string) => Promise<void>;
-        cancel: (id: string) => Promise<void>;
-        retryTask: (taskRunId: string) => Promise<void>;
-        retryStage: (stageRunId: string) => Promise<void>;
-        retryWorkflow: (id: string) => Promise<void>;
+        }) => Promise<ApprovePlanGateResult>;
+        requestChanges: (request: {
+          taskListId: string;
+          gateKey: PlanApprovalGateKey;
+          expectedRowVersion: number;
+          expectedSubjectRevision: number;
+          expectedSubjectHash: string;
+          reason: string;
+        }) => Promise<RevisePlanGateResult>;
+        rejectGate: (request: {
+          taskListId: string;
+          gateKey: PlanApprovalGateKey;
+          expectedRowVersion: number;
+          expectedSubjectRevision: number;
+          expectedSubjectHash: string;
+          reason: string;
+        }) => Promise<RevisePlanGateResult>;
+        listPendingDecisions: (request: {
+          taskListId?: string;
+          canvasId?: string;
+        }) => Promise<TaskDecision[]>;
+      };
+      promptAssembly: {
+        get: (id: string) => Promise<PromptAssemblyRecord | null>;
       };
       keychain: {
         isConfigured: (provider: string) => Promise<boolean>;
@@ -417,15 +327,6 @@ declare global {
         logout: (request: { target: OAuthProviderTarget }) => Promise<OAuthProviderStatus>;
         onChanged: (cb: (status: OAuthProviderStatus) => void) => () => void;
       };
-      ai: {
-        chat: (message: string, context?: Record<string, unknown>) => Promise<unknown>;
-        onStream: (cb: (...args: unknown[]) => void) => () => void;
-        onEvent: (cb: (event: Record<string, unknown>) => void) => () => void;
-        promptList: () => Promise<PromptEntry[]>;
-        promptGet: (code: string) => Promise<PromptDetail>;
-        promptSetCustom: (code: string, value: string) => Promise<void>;
-        promptClearCustom: (code: string) => Promise<void>;
-      };
       processPrompt: {
         list: () => Promise<IpcProcessPrompt[]>;
         get: (processKey: string) => Promise<IpcProcessPrompt>;
@@ -439,45 +340,45 @@ declare global {
         asset: FolderKindApi;
       };
       commander: {
-        chat: (
-          canvasId: string,
-          message: string,
-          history: Array<Record<string, unknown>>,
-          selectedNodeIds: string[],
-          promptGuides?: CommanderPromptGuide[],
-          customLLMProvider?: LLMProviderRuntimeConfig,
-          permissionMode?: 'danger' | 'auto' | 'normal' | 'strict',
-          locale?: string,
-          maxSteps?: number,
-          temperature?: number,
-          maxTokens?: number,
-          sessionId?: string,
-          defaultProviders?: Record<string, string>,
-          processSettings?: CommanderProcessBehaviorSettings,
-        ) => Promise<void>;
-        cancel: (canvasId: string) => Promise<void>;
-        cancelCurrentStep: (canvasId: string) => Promise<{ escalated: boolean }>;
-        compact: (
-          canvasId: string,
-        ) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
-        injectMessage: (canvasId: string, message: string) => Promise<void>;
-        confirmTool: (canvasId: string, toolCallId: string, approved: boolean) => Promise<void>;
-        answerQuestion: (canvasId: string, toolCallId: string, answer: string) => Promise<void>;
-        toolList: () => Promise<CommanderToolSummary[]>;
-        toolSearch: (query?: string) => Promise<CommanderToolSearchResult[]>;
-        hydrateEvents: (sessionId: string) => Promise<{ events: unknown[] }>;
-        onStream: (cb: (envelope: WireEnvelope<TimelineEvent>) => void) => () => void;
-        onCanvasUpdated: (cb: (data: { canvasId: string; canvas: Canvas }) => void) => () => void;
+        start: (request: CommanderStartRequest) => Promise<CommanderStartResponse>;
+        cancel: (request: { runId: string }) => Promise<void>;
+        cancelStep: (request: { runId: string }) => Promise<{ escalated: boolean }>;
+        compact: (request: {
+          runId: string;
+        }) => Promise<{ freedChars: number; messageCount: number; toolCount: number }>;
+        injectMessage: (request: { runId: string; message: string }) => Promise<void>;
+        toolDecision: (request: {
+          sessionId: string;
+          runId: string;
+          toolCallId: string;
+          approved: boolean;
+        }) => Promise<CommanderToolActionResponse>;
+        toolAnswer: (request: {
+          sessionId: string;
+          runId: string;
+          toolCallId: string;
+          answer: string;
+        }) => Promise<CommanderToolActionResponse>;
+        runGet: (request: { runId: string }) => Promise<CommanderRunRecord>;
+        runControl: (request: CommanderRunControlRequest) => Promise<CommanderRunControlResponse>;
+        runTree: (request: CommanderRunTreeRequest) => Promise<CommanderRunTreeResponse>;
+        eventsHydrate: (request: {
+          runId: string;
+          afterSeq: number;
+        }) => Promise<{ run: CommanderRunRecord; events: TimelineEvent[] }>;
+        onStream: (
+          cb: (envelope: WireEnvelope<TimelineEvent> & { sessionId: string }) => void,
+        ) => () => void;
+        onCanvasDispatch: (cb: (data: { canvasId: string; canvas: Canvas }) => void) => () => void;
         onEntitiesUpdated: (cb: (data: { toolName: string }) => void) => () => void;
         onSettingsDispatch: (
           cb: (data: { action: string; payload: Record<string, unknown> }) => void,
         ) => () => void;
-        onUndoDispatch: (cb: (data: { action: 'undo' | 'redo' }) => void) => () => void;
       };
       session: {
         upsert: (s: {
           id: string;
-          canvasId: string | null;
+          defaultCanvasId: string | null;
           title: string;
           messages: string;
           createdAt: number;
@@ -486,21 +387,23 @@ declare global {
         list: (limit?: number) => Promise<
           Array<{
             id: string;
-            canvasId: string | null;
+            defaultCanvasId: string | null;
             title: string;
+            messageCount: number;
             createdAt: number;
             updatedAt: number;
           }>
         >;
         get: (id: string) => Promise<{
           id: string;
-          canvasId: string | null;
+          defaultCanvasId: string | null;
           title: string;
           messages: string;
           createdAt: number;
           updatedAt: number;
         }>;
         delete: (id: string) => Promise<{ success: true }>;
+        move: (id: string, defaultCanvasId: string | null) => Promise<{ success: true }>;
       };
       snapshot: {
         capture: (
@@ -544,45 +447,72 @@ declare global {
         getRecent: () => Promise<MainLoggerEntry[]>;
         onEntry: (cb: (entry: MainLoggerEntry) => void) => () => void;
       };
-      render: {
-        start: (request: RenderRequest) => Promise<RenderResult>;
-        status: (jobId: string) => Promise<{
-          progress: number;
-          stage: string;
-          outputPath?: string;
-          error?: string;
+      deliveryPackage: {
+        start: (request: {
+          taskListId: string;
+          canvasId: string;
+          expectedManifestRevision: number;
+          expectedManifestHash: string;
+        }) => Promise<
+          | { cancelled: true }
+          | {
+              cancelled: false;
+              attempt: import('@lucid-fin/contracts').DeliveryPackageAttemptView;
+            }
+        >;
+        status: (
+          attemptId: string,
+        ) => Promise<import('@lucid-fin/contracts').DeliveryPackageAttemptView | null>;
+        cancel: (attemptId: string) => Promise<{
+          attempt: import('@lucid-fin/contracts').DeliveryPackageAttemptView | null;
         }>;
-        cancel: (jobId: string) => Promise<void>;
+        retry: (attemptId: string) => Promise<{
+          attempt: import('@lucid-fin/contracts').DeliveryPackageAttemptView;
+        }>;
+        open: (attemptId: string) => Promise<{ opened: true }>;
       };
-      export: {
-        nle: (preset: ExportPreset) => Promise<ExportResult>;
-        assetBundle: (
-          assetHashes: string[],
-          outputPath?: string,
-          canvasId?: string,
-        ) => Promise<ExportResult | null>;
-        subtitles: (format: 'srt' | 'ass', outputPath: string) => Promise<void>;
-        storyboard: (
-          nodes: Array<Record<string, unknown>>,
-          projectTitle?: string,
-          outputPath?: string,
-        ) => Promise<ExportResult | null>;
-        metadata: (
-          format: 'csv' | 'json',
-          nodes: Array<Record<string, unknown>>,
-          projectTitle?: string,
-          outputPath?: string,
-        ) => Promise<ExportResult | null>;
-        importSrt: (
-          canvasId: string,
-          filePath: string,
-          alignToNodes?: boolean,
-        ) => Promise<{ importedCount: number; alignedCount: number; noVideoNodes?: boolean }>;
-        capcut: (
-          nodes: Array<Record<string, unknown>>,
-          projectTitle?: string,
-          outputDir?: string,
-        ) => Promise<{ draftDir: string } | null>;
+      reviewCut: {
+        start: (request: {
+          taskListId: string;
+          canvasId: string;
+          expectedManifestRevision: number;
+          expectedManifestHash: string;
+        }) => Promise<
+          | { cancelled: true }
+          | {
+              cancelled: false;
+              job: {
+                jobId: string;
+                status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+                progress: number;
+                outputPath: string;
+                manifestRevision: number;
+                manifestHash: string;
+                error?: string;
+              };
+            }
+        >;
+        status: (jobId: string) => Promise<{
+          jobId: string;
+          status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+          progress: number;
+          outputPath: string;
+          manifestRevision: number;
+          manifestHash: string;
+          error?: string;
+        } | null>;
+        cancel: (jobId: string) => Promise<{
+          job: {
+            jobId: string;
+            status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+            progress: number;
+            outputPath: string;
+            manifestRevision: number;
+            manifestHash: string;
+            error?: string;
+          } | null;
+        }>;
+        open: (jobId: string) => Promise<{ opened: true }>;
       };
       ffmpeg: {
         probe: (filePath: string) => Promise<ProbeResult>;
@@ -593,71 +523,26 @@ declare global {
           options?: Record<string, unknown>,
         ) => Promise<void>;
       };
-      series: {
-        get: () => Promise<SeriesData | null>;
-        save: (data: SeriesData) => Promise<SeriesData>;
-        delete: () => Promise<void>;
-        episodes: {
-          list: () => Promise<EpisodeData[]>;
-          add: (episode: EpisodeData) => Promise<EpisodeData>;
-          remove: (id: string) => Promise<void>;
-          reorder: (ids: string[]) => Promise<void>;
-        };
-      };
       canvas: {
-        list: () => Promise<Array<{ id: string; name: string; updatedAt: number }>>;
+        list: () => Promise<
+          Array<{ id: string; name: string; updatedAt: number; archivedAt?: number }>
+        >;
         loadAll: () => Promise<Canvas[]>;
         load: (id: string) => Promise<Canvas>;
         save: (data: Canvas) => Promise<void>;
         create: (name: string) => Promise<Canvas>;
         delete: (id: string) => Promise<void>;
+        restore: (id: string) => Promise<void>;
+        deletePermanent: (id: string) => Promise<void>;
         rename: (id: string, name: string) => Promise<void>;
         patch: (args: { canvasId: string; patch: unknown }) => Promise<void>;
       };
-      canvasGeneration: {
-        generate: (
-          canvasId: string,
-          nodeId: string,
-          providerId?: string,
-          variantCount?: number,
-          seed?: number,
-          providerConfig?: { baseUrl: string; model: string; apiKey?: string },
-        ) => Promise<void>;
-        cancel: (canvasId: string, nodeId: string) => Promise<void>;
-        estimateCost: (
-          canvasId: string,
-          nodeId: string,
-          providerId: string,
-          providerConfig?: { baseUrl: string; model: string; apiKey?: string },
-        ) => Promise<{ estimatedCost: number; currency: string }>;
-        extractLastFrame: (canvasId: string, nodeId: string) => Promise<void>;
-        onProgress: (
-          cb: (data: {
-            canvasId: string;
-            nodeId: string;
-            progress: number;
-            currentStep?: string;
-          }) => void,
-        ) => () => void;
-        onComplete: (
-          cb: (data: {
-            canvasId: string;
-            nodeId: string;
-            variants: string[];
-            primaryAssetHash: string;
-            cost?: number;
-            generationTimeMs: number;
-            characterRefs?: Array<{ entityId: string; imageHashes: string[] }>;
-            equipmentRefs?: Array<{ entityId: string; imageHashes: string[] }>;
-            locationRefs?: Array<{ entityId: string; imageHashes: string[] }>;
-            frameReferenceHashes?: { first?: string; last?: string };
-            sourceImageHash?: string;
-            model?: string;
-          }) => void,
-        ) => () => void;
-        onFailed: (
-          cb: (data: { canvasId: string; nodeId: string; error: string }) => void,
-        ) => () => void;
+      canvasDelivery: {
+        update: (args: {
+          canvasId: string;
+          expectedRevision: number;
+          deliverySequence: import('@lucid-fin/contracts').OrderedDeliverySequence;
+        }) => Promise<{ deliverySequence: import('@lucid-fin/contracts').OrderedDeliverySequence }>;
       };
       preset: {
         list: (filter?: {
@@ -677,28 +562,6 @@ declare global {
           style?: 'prompt' | 'description' | 'style-analysis',
         ) => Promise<{ prompt: string }>;
       };
-      embedding: {
-        generate: (assetHash: string) => Promise<{ ok: boolean }>;
-        search: (
-          query: string,
-          limit?: number,
-        ) => Promise<{ hash: string; score: number; description: string }[]>;
-        reindex: () => Promise<{ indexed: number; failed: number }>;
-      };
-      lipsync: {
-        process: (canvasId: string, nodeId: string) => Promise<void>;
-        checkAvailability: () => Promise<{ available: boolean; backend: string }>;
-      };
-      video: {
-        pickFile: () => Promise<string | null>;
-        clone: (
-          filePath: string,
-          threshold?: number,
-        ) => Promise<{ canvasId: string; nodeCount: number }>;
-        onCloneProgress: (
-          cb: (data: { step: string; current: number; total: number; message: string }) => void,
-        ) => () => void;
-      };
       storage: {
         getOverview: () => Promise<{
           appRoot: string;
@@ -710,9 +573,9 @@ declare global {
           paths: { appRoot: string; database: string; globalAssets: string; logs: string };
         }>;
         openFolder: (folderPath: string) => Promise<void>;
+        openPath: (filePath: string) => Promise<void>;
         showInFolder: (filePath: string) => Promise<void>;
         clearLogs: () => Promise<{ cleared: number }>;
-        clearEmbeddings: () => Promise<{ success: boolean; error?: string }>;
         vacuumDatabase: () => Promise<{ success: boolean; error?: string }>;
         backupDatabase: (destPath: string) => Promise<{ success: boolean; error?: string }>;
         restoreDatabase: (

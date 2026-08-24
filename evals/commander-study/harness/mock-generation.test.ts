@@ -1,23 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { AgentToolRegistry } from '@lucid-fin/application';
+import { ToolRegistry, type ToolDefinition } from '@lucid-fin/application';
 import { installMockGeneration, MOCKED_TOOL_NAMES } from './mock-generation.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeDummyTool(name: string) {
+function makeDummyTool(name: string): ToolDefinition {
   return {
     name,
     description: `Original ${name}`,
+    process: 'eval-fixture',
+    category: 'query',
     tier: 3 as const,
     parameters: { type: 'object' as const, properties: {} },
     execute: async () => ({ success: true, data: { original: true } }),
   };
 }
 
-function setupRegistry(): AgentToolRegistry {
-  const registry = new AgentToolRegistry();
+function setupRegistry(): ToolRegistry {
+  const registry = new ToolRegistry();
   for (const name of MOCKED_TOOL_NAMES) {
     registry.register(makeDummyTool(name));
   }
@@ -59,7 +61,7 @@ describe('installMockGeneration', () => {
     });
 
     it('does not add tools beyond the mocked names', () => {
-      const registry = new AgentToolRegistry();
+      const registry = new ToolRegistry();
       registry.register(makeDummyTool('custom.tool'));
       installMockGeneration(registry);
       const names = registry.list().map((t) => t.name);

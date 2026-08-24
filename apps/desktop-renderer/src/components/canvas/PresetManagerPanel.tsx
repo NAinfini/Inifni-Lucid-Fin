@@ -217,9 +217,6 @@ export function PresetManagerPanel() {
       if (api?.preset) {
         const library = await api.preset.list();
         dispatch(setPresets(library));
-        if (library.length > 0 && !managerSelectedPresetId) {
-          dispatch(selectManagerPreset(library[0].id));
-        }
       }
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason);
@@ -227,7 +224,7 @@ export function PresetManagerPanel() {
     } finally {
       dispatch(setPresetsLoading(false));
     }
-  }, [dispatch, managerSelectedPresetId]);
+  }, [dispatch]);
 
   useEffect(() => {
     void loadPresets();

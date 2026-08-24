@@ -8,16 +8,14 @@
  * fails at compile time, not at runtime against a live DB.
  */
 export * from './assets.js';
-export * from './jobs.js';
 export * from './entities.js';
 export * from './script.js';
 export * from './color-style.js';
-export * from './workflow.js';
+export * from './task-execution.js';
 export * from './canvas.js';
 export * from './canvas-node.js';
 export * from './canvas-edge.js';
 export * from './shot-template.js';
-export * from './series.js';
 export * from './preset.js';
 export * from './session-snapshot.js';
 export * from './prompt.js';

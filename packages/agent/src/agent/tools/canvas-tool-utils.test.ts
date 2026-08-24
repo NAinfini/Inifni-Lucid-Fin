@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createEmptyPresetTrackSet,
   type Canvas,
+  type CanvasPatch,
   type CanvasNode,
   type PresetTrack,
   type PresetTrackSet,
@@ -44,6 +45,24 @@ import {
   selectEdgeHandles,
   type CanvasToolDeps,
 } from './canvas-tool-utils.js';
+
+function applyCanvasPatch(canvas: Canvas, patch: CanvasPatch): void {
+  const nodesById = new Map(canvas.nodes.map((node) => [node.id, node]));
+  for (const update of patch.updatedNodes ?? []) {
+    const node = nodesById.get(update.id);
+    if (!node) throw new Error(`Node not found: ${update.id}`);
+    Object.assign(node, update.changes);
+  }
+  canvas.nodes.push(...(patch.addedNodes ?? []));
+  const removedNodeIds = new Set(patch.removedNodeIds ?? []);
+  if (removedNodeIds.size > 0) {
+    canvas.nodes = canvas.nodes.filter((node) => !removedNodeIds.has(node.id));
+    canvas.edges = canvas.edges.filter(
+      (edge) => !removedNodeIds.has(edge.source) && !removedNodeIds.has(edge.target),
+    );
+  }
+  canvas.updatedAt = patch.timestamp;
+}
 
 function createCanvas(): Canvas {
   return {
@@ -110,6 +129,7 @@ function createCanvas(): Canvas {
 function createDeps(canvas = createCanvas()): CanvasToolDeps {
   return {
     getCanvas: vi.fn(async () => canvas),
+    patchCanvas: vi.fn(async (_canvasId, patch) => applyCanvasPatch(canvas, patch)),
     deleteCanvas: vi.fn(async () => undefined),
     addNode: vi.fn(async (_canvasId, node) => {
       canvas.nodes.push(node);
@@ -126,8 +146,26 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     }),
     setNodePresets: vi.fn(async () => undefined),
     layoutNodes: vi.fn(async () => undefined),
-    triggerGeneration: vi.fn(async () => undefined),
-    cancelGeneration: vi.fn(async () => undefined),
+    prepareMediaTask: vi.fn(async (input) => ({
+      id: 'task-list-1', canvasId: input.canvasId, nodeId: input.nodeId,
+      status: 'running', taskStatus: 'awaiting_prompt_assembly', progress: 0,
+    })),
+    getMediaTask: vi.fn(async (id) => ({
+      id, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'running', taskStatus: 'awaiting_prompt_assembly', progress: 0,
+    })),
+    submitMediaPrompt: vi.fn(async (input) => ({
+      id: input.taskListId, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'running', taskStatus: 'awaiting_provider', progress: 0,
+    })),
+    cancelMediaTask: vi.fn(async (id) => ({
+      id, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'cancelled', taskStatus: 'cancelled', progress: 0,
+    })),
+    retryMediaEvaluation: vi.fn(async (id) => ({
+      id, canvasId: 'canvas-1', nodeId: 'node-1',
+      status: 'running', taskStatus: 'evaluating', progress: 0,
+    })),
     deleteNode: vi.fn(async (_canvasId, nodeId) => {
       canvas.nodes = canvas.nodes.filter((node) => node.id !== nodeId);
       canvas.edges = canvas.edges.filter(
@@ -141,8 +179,8 @@ function createDeps(canvas = createCanvas()): CanvasToolDeps {
     listShotTemplates: vi.fn(async () => []),
     saveShotTemplate: vi.fn(async (t) => t),
     deleteShotTemplate: vi.fn(async () => {}),
-    importWorkflow: vi.fn(async () => canvas),
-    exportWorkflow: vi.fn(async () => '{}'),
+    importCanvasDocument: vi.fn(async () => canvas),
+    exportCanvasDocument: vi.fn(async () => '{}'),
     setNodeColorTag: vi.fn(async () => undefined),
     toggleSeedLock: vi.fn(async () => undefined),
     selectVariant: vi.fn(async () => undefined),
@@ -356,15 +394,22 @@ describe('canvas-tool-utils', () => {
         updatedAt: 999,
       }),
     );
-    expect(deps.deleteNode).toHaveBeenCalledWith('canvas-1', 'text-1');
-    expect(deps.addNode).toHaveBeenCalledWith(
+    expect(deps.patchCanvas).toHaveBeenCalledTimes(1);
+    expect(deps.patchCanvas).toHaveBeenCalledWith(
       'canvas-1',
-      expect.objectContaining({ id: 'text-1' }),
+      expect.objectContaining({
+        operations: ['updateNode'],
+        updatedNodes: [
+          expect.objectContaining({
+            id: 'text-1',
+            changes: expect.objectContaining({ bypassed: true, locked: true, updatedAt: 999 }),
+          }),
+        ],
+      }),
     );
-    expect(deps.connectNodes).toHaveBeenCalledWith(
-      'canvas-1',
-      expect.objectContaining({ id: 'edge-1' }),
-    );
+    expect(deps.deleteNode).not.toHaveBeenCalled();
+    expect(deps.addNode).not.toHaveBeenCalled();
+    expect(deps.connectNodes).not.toHaveBeenCalled();
   });
 
   it('builds default node data and preset track sets', () => {

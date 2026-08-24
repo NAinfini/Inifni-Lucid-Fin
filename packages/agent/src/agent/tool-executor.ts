@@ -1,17 +1,64 @@
-import type { LLMToolCall } from '@lucid-fin/contracts';
+import type { LLMToolCall, RunBlocker } from '@lucid-fin/contracts';
 import { parseCanonicalToolName } from '@lucid-fin/contracts';
-import type { CommanderError } from '@lucid-fin/contracts';
-import type { AgentToolRegistry, AgentTool, ToolResult } from './tool-registry.js';
-import type { StreamEmit } from './stream-emit.js';
+import type { CommanderErrorCode } from '@lucid-fin/contracts';
+import {
+  InvalidToolOutputError,
+  validateToolSchema,
+  type ToolRegistry,
+  type ToolDefinition,
+  type ToolCategory,
+  type ToolResult,
+  type PublicToolProjection,
+  type ToolResourceContext,
+} from './tool-registry.js';
+import { emitWithRecovery, type StreamEmit } from './stream-emit.js';
 import type { ContextGraph } from './graph/context-graph.js';
 import { getToolCompactionCategory } from '@lucid-fin/shared-utils';
 import { safeStringify, trimObjectStrings, truncateString } from './context-manager.js';
-import { ToolCatalog } from './tool-catalog.js';
 import { inferErrorCodeFromMessage } from './error-inference.js';
-import { getWorkflowToolDenial, type WorkflowToolPolicy } from './workflow-tool-policy.js';
+import { getTaskListToolDenial, type TaskListToolPolicy } from './task-list-tool-policy.js';
+import {
+  RunResourceBudgetController,
+  type ResourceMeasurement,
+  type ResourceQuote,
+  type ResourceStateSnapshot,
+} from './run-resource-budget.js';
+import {
+  describeToolProgram,
+  executeToolProgram,
+  ToolProgramBlockedError,
+  ToolProgramCancelledError,
+  type ToolProgramChildCall,
+  type ToolProgramChildResult,
+} from './tool-program.js';
+import type { SubagentToolHost } from './subagent-tools.js';
+import type { CanonicalJsonValue } from './event-context-projector.js';
 
-function commanderErrorFromMessage(message: string): CommanderError {
-  return { code: inferErrorCodeFromMessage(message), params: { message } };
+export type ToolProgramChildOutcome =
+  | { status: 'completed' | 'failed' | 'cancelled' }
+  | { status: 'blocked'; blocker: RunBlocker };
+
+export interface ToolProgramChildLifecycleRequest {
+  parentRunId: string;
+  displayName: string;
+  objective: string;
+  resourceController: RunResourceBudgetController;
+}
+
+export interface ToolProgramChildLifecycle {
+  runId: string;
+  emit: StreamEmit;
+  beforeDispatch: () => Promise<'ready' | 'cancelled'>;
+  isCancelled: () => boolean;
+  finalize: (outcome: ToolProgramChildOutcome) => Promise<void> | void;
+}
+
+export type ToolProgramChildLifecycleFactory = (
+  request: ToolProgramChildLifecycleRequest,
+) => Promise<ToolProgramChildLifecycle> | ToolProgramChildLifecycle;
+
+function errorCodeFromMessage(message: string): CommanderErrorCode {
+  return inferErrorCodeFromMessage(message);
 }
 
 // ---------------------------------------------------------------------------
@@ -47,12 +94,7 @@ const MUTATION_ACTION_PREFIXES = [
   'update',
 ];
 
-const WORKFLOW_GATE_AUTHORIZED_TOOLS = new Set([
-  'workflow.visual',
-  'workflow.media',
-  'workflow.finalExport',
-  'render.start',
-]);
+const TASK_LIST_GATE_AUTHORIZED_TOOLS = new Set(['task.visual', 'task.media', 'task.delivery']);
 
 // ---------------------------------------------------------------------------
 // Pre-execution argument validation
@@ -64,62 +106,11 @@ export interface ArgValidationError {
   actual: string;
 }
 
-/**
- * Validate tool call arguments against the tool's JSON Schema before
- * execution. Checks required fields, type correctness, and enum membership.
- * Returns an array of errors — empty means valid.
- *
- * This is lightweight and intentionally does NOT do deep nested validation
- * or entity existence lookups (those would require DB access). It catches
- * the most common LLM mistakes: missing required fields, wrong types, and
- * invalid enum values.
- */
-export function validateArgs(tool: AgentTool, args: Record<string, unknown>): ArgValidationError[] {
-  const errors: ArgValidationError[] = [];
-  const schema = tool.parameters;
-
-  // Check required fields
-  if (schema.required) {
-    for (const field of schema.required) {
-      if (!(field in args) || args[field] === undefined || args[field] === null) {
-        const prop = schema.properties[field];
-        const expected = prop ? `${prop.type} (${prop.description})` : 'required';
-        errors.push({ field, expected, actual: 'missing' });
-      }
-    }
-  }
-
-  // Check type correctness and enum values for provided fields
-  for (const [field, value] of Object.entries(args)) {
-    if (value === undefined || value === null) continue;
-    const prop = schema.properties[field];
-    if (!prop) continue; // Unknown field — tools may accept extra args
-
-    // Type check
-    const actualType = Array.isArray(value) ? 'array' : typeof value;
-    if (prop.type === 'array' && !Array.isArray(value)) {
-      errors.push({ field, expected: 'array', actual: actualType });
-    } else if (prop.type === 'object' && (typeof value !== 'object' || Array.isArray(value))) {
-      errors.push({ field, expected: 'object', actual: actualType });
-    } else if (
-      (prop.type === 'string' && typeof value !== 'string') ||
-      (prop.type === 'number' && typeof value !== 'number') ||
-      (prop.type === 'boolean' && typeof value !== 'boolean')
-    ) {
-      errors.push({ field, expected: prop.type, actual: actualType });
-    }
-
-    // Enum check (only for strings)
-    if (prop.enum && typeof value === 'string' && !prop.enum.includes(value)) {
-      errors.push({
-        field,
-        expected: `one of [${prop.enum.join(', ')}]`,
-        actual: value,
-      });
-    }
-  }
-
-  return errors;
+export function validateArgs(tool: ToolDefinition, args: Record<string, unknown>): ArgValidationError[] {
+  return validateToolSchema(tool.inputSchema, args).map((error) => ({
+    ...error,
+    field: error.field.replace(/^\$\.?/, '') || '$',
+  }));
 }
 
 /**
@@ -127,7 +118,7 @@ export function validateArgs(tool: AgentTool, args: Record<string, unknown>): Ar
  */
 function formatArgValidationErrors(toolName: string, errors: ArgValidationError[]): string {
   const lines = errors.map((e) => `  - ${e.field}: expected ${e.expected}, got ${e.actual}`);
-  return `Argument validation failed for ${toolName}:\n${lines.join('\n')}\nFix the arguments and retry. Provide ALL required fields in the same call — do not send empty arguments.`;
+  return `Argument validation failed for ${toolName}:\n${lines.join('\n')}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +137,7 @@ function formatArgValidationErrors(toolName: string, errors: ArgValidationError[
  *            batch. Deletes are also tier 3 because the snapshot system
  *            provides rollback (see snapshot-tools.ts).
  * - tier 4 = expensive one-shot OR irreversible project-scope action
- *            (render.start, provider.removeCustom, canvas.deleteCanvas,
+ *            (provider.removeCustom, canvas.deleteCanvas,
  *            job.create). Confirmed in every mode
  *            except `danger`.
  *            Rationale: these burn significant money or destroy the
@@ -174,13 +165,13 @@ export function resolveEffectiveToolTier(
 ): number {
   const action = typeof args?.action === 'string' ? args.action : undefined;
 
-  if (toolName === 'workflow.manage' && action === 'control') {
+  if (toolName === 'taskList.manage' && action === 'control') {
     return args?.controlAction === 'cancel' ? 4 : 2;
   }
 
   if (toolName === 'canvas.generation') {
-    if (action === 'start' || action === 'refine') return 3;
-    if (action === 'estimate') return 1;
+    if (action === 'submit') return 3;
+    if (action === 'status' || action === 'estimate') return 1;
     if (action === 'cancel') return 2;
   }
 
@@ -272,7 +263,7 @@ function classifyError(err: unknown, toolResult?: ToolResult): ErrorClass {
   // Typed signals first. Tools that know why they failed set `errorClass`
   // on the result, and thrown exceptions commonly carry `.code` or
   // `.status` — both are locale-independent.
-  if (toolResult?.errorClass) return toolResult.errorClass;
+  if (toolResult?.success === false && toolResult.errorClass) return toolResult.errorClass;
   // A TypedToolError thrown from a validator helper carries the class
   // directly — accept it without running through the code/status probes.
   if (isRecord(err) && typeof (err as { errorClass?: unknown }).errorClass === 'string') {
@@ -342,22 +333,6 @@ function classifyError(err: unknown, toolResult?: ToolResult): ErrorClass {
   return 'fatal';
 }
 
-function buildRecoveryHint(errorClass: ErrorClass, toolName: string, _errMsg: string): string {
-  const domain = toolName.split('.')[0];
-  switch (errorClass) {
-    case 'transient':
-      return `Transient error (network/rate limit). The system will retry automatically. If the issue persists, try a different approach.`;
-    case 'not_found':
-      return `The entity may have been deleted or the ID is stale. Call ${domain}.list to refresh your view and verify the ID.`;
-    case 'validation':
-      return `Parameter validation failed. Read the error details above and retry with corrected arguments. Provide ALL required fields.`;
-    case 'permission':
-      return `The user denied this action. Do not retry the same tool call. Ask the user for guidance or try an alternative approach.`;
-    case 'fatal':
-      return `Unexpected error. Report this to the user and consider a different approach.`;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Tool result summarization
 // ---------------------------------------------------------------------------
@@ -395,17 +370,19 @@ export function summarizeToolResult(
   toolName: string,
   result: ToolResult,
   maxResultChars?: number,
+  category?: ToolCategory,
 ): string {
   const serialized = safeStringify(result);
   if (serialized.length <= SMALL_RESULT_LIMIT) return serialized;
 
   // Never truncate meta tool results
-  const entry = (ToolCatalog.byKey as Readonly<Record<string, { category: string }>>)[toolName];
-  if (entry?.category === 'meta') return serialized;
+  if (category === 'meta') return serialized;
 
   const hardLimit = maxResultChars ?? RESULT_HARD_LIMIT;
 
   if (serialized.length <= hardLimit) return serialized;
+
+  if (result.success === false) return safeStringify(trimObjectStrings(result));
 
   // Over the hard limit: trim long string fields but preserve structure.
   const [, action = ''] = toolName.split('.');
@@ -436,29 +413,38 @@ export interface ToolExecutionEntry {
   tc: LLMToolCall;
   resultContent: string;
   success: boolean;
-  /**
-   * Mirror payload used to synthesise `tool_call` + `tool_result` events
-   * for dedup'd duplicate calls so the UI's tool cards don't hang on a
-   * perpetual "pending" state. One of `result` or `error` is set.
-   */
-  mirror?: {
-    result?: ToolResult;
-    error?: CommanderError;
-    durationMs: number;
-  };
+  /** Resource boundary that stopped this call before a public tool event or side effect. */
+  blocked?: RunBlocker;
+  /** Normalized outcome reused by dedup mirrors without re-projecting. */
+  mirror?: NormalizedToolOutcome;
 }
 
-export interface WorkflowAskUserPersistenceRequest {
-  workflowRunId: string;
+interface NormalizedToolOutcome {
+  projection: PublicToolProjection;
+  canonicalResult?: ToolResult;
+  status: 'succeeded' | 'failed' | 'skipped';
+  errorCode?: CommanderErrorCode;
+  durationMs: number;
+  skipped?: true;
+  synthetic?: true;
+}
+
+export interface TaskDecisionPersistenceRequest {
+  taskListId: string;
   questionId: string;
   decisionKey: string;
   question: string;
-  options: Array<{ id: string; label: string; description?: string }>;
+  options: Array<{
+    id: string;
+    label: string;
+    description?: string;
+    previewAssetHash?: string;
+  }>;
   allowFreeText: boolean;
-  policy: WorkflowToolPolicy;
+  policy: TaskListToolPolicy;
 }
 
-export interface WorkflowAskUserPersistenceResult {
+export interface TaskDecisionPersistenceResult {
   questionId: string;
   status: 'pending' | 'answered' | 'recovery_required';
   answer?: string;
@@ -477,12 +463,76 @@ export interface ToolExecutorOptions {
   currentStep?: number;
   /** Auto-injected into tool arguments so the LLM never needs to provide it. */
   canvasId?: string;
-  /** Host-derived workflow authorization, refreshed from SQLite each step. */
-  workflowPolicy?: WorkflowToolPolicy;
-  /** Host callback that durably reserves workflow-bound AskUser decisions. */
-  onWorkflowAskUser?: (
-    request: WorkflowAskUserPersistenceRequest,
-  ) => Promise<WorkflowAskUserPersistenceResult> | WorkflowAskUserPersistenceResult;
+  /** Host-derived task-list authorization, refreshed from SQLite each step. */
+  taskListPolicy?: TaskListToolPolicy;
+  /** Host callback that durably reserves task-list-bound AskUser decisions. */
+  onTaskDecision?: (
+    request: TaskDecisionPersistenceRequest,
+  ) => Promise<TaskDecisionPersistenceResult> | TaskDecisionPersistenceResult;
+  /** Suspend/resume the Run active-time clock around explicit human waits. */
+  onUserWaitState?: (state: 'started' | 'ended') => void;
+  /** Per-run resource ledger, owned and wired by the orchestrator. */
+  resourceController?: RunResourceBudgetController;
+  /** Host-reserved Run identity used by stable Tool Program operation IDs. */
+  runId?: string;
+  /** Parent Run cooperative pause boundary, checked between Program dispatches. */
+  beforeProgramDispatch?: () => Promise<void>;
+  /** Host-owned durable child Run boundary for typed Tool Program execution. */
+  toolProgramLifecycleFactory?: ToolProgramChildLifecycleFactory;
+  /** Model-directed child Run host, scoped by the current parent Run. */
+  subagents?: SubagentToolHost;
+}
+
+interface ReservedToolResource {
+  context: ToolResourceContext;
+  operationId: string;
+  quote: ResourceQuote;
+}
+
+interface ToolExecutionPlan {
+  ordinal: number;
+  resource?: ReservedToolResource;
+  scope?: ToolExecutionScope;
+}
+
+interface ToolExecutionScope {
+  isCancelledOrAborted: () => boolean;
+  pendingResolvers: Map<string, (approved: boolean) => void>;
+  pendingQuestionResolvers: Map<string, (answer: string) => void>;
+}
+
+interface ToolCallBatchOptions {
+  programOperations?: true;
+}
+
+function asMeasurement(quote: ResourceQuote): ResourceMeasurement {
+  return {
+    tokens:
+      quote.tokens.knowledge === 'unknown'
+        ? { knowledge: 'unknown' }
+        : { knowledge: quote.tokens.knowledge, value: quote.tokens.value },
+    toolCalls: quote.toolCalls,
+    costUsd:
+      quote.costUsd.knowledge === 'unknown'
+        ? { knowledge: 'unknown' }
+        : { knowledge: quote.costUsd.knowledge, value: quote.costUsd.value },
+  };
+}
+
+function unknownToolQuote(): ResourceQuote {
+  return {
+    tokens: { knowledge: 'unknown' },
+    toolCalls: 0,
+    costUsd: { knowledge: 'unknown' },
+  };
+}
+
+function rawToolQuotaQuote(toolCalls: number): ResourceQuote {
+  return {
+    tokens: { knowledge: 'known', value: 0, upperBound: true },
+    toolCalls,
+    costUsd: { knowledge: 'known', value: 0, upperBound: true },
+  };
 }
 
 /**
@@ -506,91 +556,372 @@ export class ToolExecutor {
   opts: ToolExecutorOptions;
 
   constructor(
-    private tools: AgentToolRegistry,
+    private tools: ToolRegistry,
     opts?: ToolExecutorOptions,
   ) {
     this.opts = opts ?? {};
   }
 
-  /** Check if a tool is always-loaded or discovered. */
-  isToolActive(name: string, activeToolNames: Set<string>): boolean {
-    return activeToolNames.has(name);
+  private async waitForUser<T>(waiter: () => Promise<T>): Promise<T> {
+    this.opts.onUserWaitState?.('started');
+    try {
+      return await waiter();
+    } finally {
+      this.opts.onUserWaitState?.('ended');
+    }
+  }
+
+  mergedArgsFor(tc: LLMToolCall): Record<string, unknown> {
+    const contextArgs: Record<string, unknown> = {};
+    const inputProperties = this.tools.get(tc.name)?.inputSchema.properties;
+    if (this.opts.canvasId && inputProperties?.canvasId && tc.arguments.canvasId === undefined) {
+      contextArgs.canvasId = this.opts.canvasId;
+    }
+    const taskListId = this.opts.taskListPolicy?.taskListId;
+    if ((tc.name.startsWith('task.') || tc.name === 'taskList.manage') && taskListId) {
+      if (inputProperties?.taskListId) contextArgs.taskListId = taskListId;
+      if (
+        inputProperties?.expectedRowVersion &&
+        this.opts.taskListPolicy?.rowVersion !== undefined
+      ) {
+        contextArgs.expectedRowVersion = this.opts.taskListPolicy.rowVersion;
+      }
+      if (inputProperties?.taskId && this.opts.taskListPolicy?.currentTaskId) {
+        contextArgs.taskId = this.opts.taskListPolicy.currentTaskId;
+      }
+    }
+    return { ...tc.arguments, ...contextArgs };
+  }
+
+  private resourceContext(tc: LLMToolCall, ordinal: number): ToolResourceContext {
+    return {
+      ordinal,
+      step: this.opts.currentStep ?? 0,
+      toolCallId: tc.id,
+    };
+  }
+
+  private operationId(tc: LLMToolCall, ordinal: number): string {
+    const context = this.resourceContext(tc, ordinal);
+    return `tool:${context.step}:${context.ordinal}:${context.toolCallId}`;
+  }
+
+  private emitResourceState(state: ResourceStateSnapshot, emit: StreamEmit): void {
+    const controller = this.opts.resourceController;
+    if (!controller) throw new Error('Tool resource state requires an active resource controller');
+    const checkpoint = controller.exportCheckpoint();
+    const restored = RunResourceBudgetController.restoreCheckpoint(checkpoint, {
+      now: () => 0,
+    }).controllers.get(controller.leaseId);
+    if (!restored) throw new Error('Resource checkpoint is missing the active tool Run lease');
+    const canonicalState = restored.snapshot(state.cause);
+    emitWithRecovery(
+      emit,
+      {
+        ...canonicalState,
+        clock: { ...canonicalState.clock, changedAt: state.clock.changedAt },
+      },
+      { kind: 'resource_checkpoint', checkpoint },
+    );
+  }
+
+  private async reserveToolResource(
+    tc: LLMToolCall,
+    tool: ToolDefinition | undefined,
+    mergedArgs: Record<string, unknown>,
+    ordinal: number,
+    emit: StreamEmit,
+  ): Promise<{ resource?: ReservedToolResource; blocked?: RunBlocker }> {
+    const controller = this.opts.resourceController;
+    if (!controller || !tool || tool.resource.kind === 'none') return {};
+
+    const context = this.resourceContext(tc, ordinal);
+    let quoted: ResourceQuote;
+    try {
+      quoted = await tool.resource.quote(mergedArgs, context);
+    } catch {
+      // A failed quote has no verifiable upper bound. Preserve the safety
+      // invariant by treating it exactly as an unavailable provider quote.
+      quoted = unknownToolQuote();
+    }
+    // The raw model batch owns the call-count budget. Tool-level resource
+    // declarations only account for provider tokens and cost, never a second
+    // copy of the same selected call.
+    const quote: ResourceQuote = { ...quoted, toolCalls: 0 };
+    const operationId = this.operationId(tc, ordinal);
+    const reservation = controller.reserve(operationId, 'tool', quote);
+    this.emitResourceState(reservation.state, emit);
+    if (!reservation.accepted) return { blocked: reservation.blocker };
+    return { resource: { context, operationId, quote } };
+  }
+
+  private async settleToolResource(
+    tool: ToolDefinition | undefined,
+    mergedArgs: Record<string, unknown>,
+    resource: ReservedToolResource | undefined,
+    result: ToolResult,
+    emit: StreamEmit,
+  ): Promise<void> {
+    const controller = this.opts.resourceController;
+    if (!controller || !resource) return;
+
+    let measurement = asMeasurement(resource.quote);
+    if (tool && tool.resource.kind === 'metered' && tool.resource.measure) {
+      try {
+        measurement = await tool.resource.measure(result, mergedArgs, resource.context);
+      } catch {
+        // The retained conservative quote is the only safe settlement when a
+        // provider measurement cannot be produced.
+      }
+    }
+    this.emitResourceState(controller.settle(resource.operationId, 'tool', measurement), emit);
+  }
+
+  private emitToolCall(
+    tc: LLMToolCall,
+    mergedArgs: Record<string, unknown>,
+    emit: StreamEmit,
+  ): void {
+    emit({
+      kind: 'tool_call',
+      toolCallId: tc.id,
+      toolRef: parseCanonicalToolName(tc.name),
+      args: mergedArgs,
+    });
+  }
+
+  private emitNormalizedOutcome(
+    toolCallId: string,
+    outcome: NormalizedToolOutcome,
+    emit: StreamEmit,
+  ): void {
+    const resultEvent: Parameters<StreamEmit>[0] = {
+      kind: 'tool_result',
+      toolCallId,
+      projection: outcome.projection,
+      status: outcome.status,
+      ...(outcome.errorCode ? { errorCode: outcome.errorCode } : {}),
+      durationMs: outcome.durationMs,
+      ...(outcome.skipped ? { skipped: true } : {}),
+      ...(outcome.synthetic ? { synthetic: true } : {}),
+    };
+    const context = outcome.status === 'succeeded' ? outcome.projection.context : undefined;
+    const recovery = outcome.canonicalResult
+      ? {
+          kind: 'tool_result' as const,
+          result: outcome.canonicalResult as CanonicalJsonValue,
+        }
+      : undefined;
+    if (!context) {
+      if (recovery) emitWithRecovery(emit, resultEvent, recovery);
+      else emit(resultEvent);
+      return;
+    }
+    emit.batch((firstSeq) => [
+      recovery ? { body: resultEvent, recovery } : resultEvent,
+      {
+        kind: 'context_fact',
+        schemaVersion: 1,
+        source: { kind: 'tool_result', toolCallId, toolResultSeq: firstSeq },
+        completeness: context.completeness,
+        facts: context.facts,
+      },
+    ]);
+  }
+
+  private completeOutcome(
+    toolCallId: string,
+    toolName: string,
+    mergedArgs: Record<string, unknown>,
+    result: ToolResult,
+    status: NormalizedToolOutcome['status'],
+    durationMs: number,
+    emit: StreamEmit,
+    flags?: Pick<NormalizedToolOutcome, 'errorCode' | 'skipped' | 'synthetic'>,
+    validatedResult?: ToolResult,
+  ): NormalizedToolOutcome {
+    const canonicalResult = this.tools.get(toolName)
+      ? (validatedResult ?? this.tools.canonicalizeResult(toolName, result))
+      : undefined;
+    const outcome: NormalizedToolOutcome = {
+      projection: this.tools.projectPublicResult(
+        toolName,
+        mergedArgs,
+        canonicalResult ?? result,
+      ),
+      ...(canonicalResult ? { canonicalResult } : {}),
+      status,
+      durationMs,
+      ...flags,
+    };
+    this.emitNormalizedOutcome(toolCallId, outcome, emit);
+    return outcome;
+  }
+
+  private completeInvalidOutput(
+    toolCallId: string,
+    toolName: string,
+    mergedArgs: Record<string, unknown>,
+    durationMs: number,
+    emit: StreamEmit,
+  ): NormalizedToolOutcome {
+    const outcome: NormalizedToolOutcome = {
+      projection: this.tools.projectPublicCall(toolName, mergedArgs),
+      status: 'failed',
+      durationMs,
+      errorCode: 'INVALID_TOOL_OUTPUT',
+    };
+    this.emitNormalizedOutcome(toolCallId, outcome, emit);
+    return outcome;
+  }
+
+  private async executeProgramChildren(
+    calls: readonly ToolProgramChildCall[],
+    emit: StreamEmit,
+    scope: ToolExecutionScope,
+    isProgramCancelled: () => boolean = () => false,
+  ): Promise<readonly ToolProgramChildResult[]> {
+    if (calls.some((call) => call.tool === 'tool.program')) {
+      throw new Error('Nested tool.program calls are not allowed');
+    }
+    const childCalls: LLMToolCall[] = calls.map((call) => ({
+      id: call.operationId,
+      name: call.tool,
+      arguments: call.args,
+    }));
+    const messages: Array<{ role: string; content: string; toolCallId?: string }> = [];
+    const execution = await this.executeToolCalls(
+      childCalls,
+      emit,
+      messages,
+      () => scope.isCancelledOrAborted() || isProgramCancelled(),
+      scope.pendingResolvers,
+      scope.pendingQuestionResolvers,
+      { programOperations: true },
+    );
+    if (execution.blocked) throw new ToolProgramBlockedError(execution.blocked);
+    if (execution.cancelled) throw new ToolProgramCancelledError();
+
+    const contentById = new Map(
+      messages
+        .filter((message) => message.role === 'tool' && message.toolCallId)
+        .map((message) => [message.toolCallId!, message.content]),
+    );
+    for (const [duplicateId, firstId] of execution.dupMap) {
+      const content = contentById.get(firstId);
+      if (content !== undefined) contentById.set(duplicateId, content);
+    }
+
+    return childCalls.map((call) => {
+      const content = contentById.get(call.id);
+      if (content === undefined) {
+        return {
+          operationId: call.id,
+          success: false,
+          error: `Child tool '${call.name}' returned no result`,
+        };
+      }
+      let parsed: unknown = content;
+      try {
+        parsed = JSON.parse(content);
+      } catch {
+        // Canonical executor results may be a bounded string.
+      }
+      const record =
+        parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? (parsed as Record<string, unknown>)
+          : undefined;
+      const success = record?.success === false ? false : true;
+      if (success && this.tools.get(call.name)?.category === 'mutation') {
+        this.opts.contextGraph?.invalidateForMutation(call.name, call.arguments);
+      }
+      return {
+        operationId: call.id,
+        success,
+        ...(success
+          ? { value: record && 'data' in record ? record.data : parsed }
+          : {
+              error:
+                typeof record?.error === 'string'
+                  ? record.error
+                  : `Child tool '${call.name}' failed`,
+            }),
+      };
+    });
+  }
+
+  private async executeHostedToolProgram(
+    rawProgram: unknown,
+    input: Record<string, unknown>,
+    parentEmit: StreamEmit,
+    scope: ToolExecutionScope,
+  ): Promise<ToolResult> {
+    const parentRunId = this.opts.runId!;
+    const lifecycleFactory = this.opts.toolProgramLifecycleFactory;
+    const resourceController = this.opts.resourceController;
+    if (!lifecycleFactory || !resourceController) {
+      return executeToolProgram(rawProgram, input, {
+        runId: parentRunId,
+        beforeDispatch: async () => {
+          await this.opts.beforeProgramDispatch?.();
+          return scope.isCancelledOrAborted() ? 'cancelled' : 'ready';
+        },
+        dispatch: (calls) => this.executeProgramChildren(calls, parentEmit, scope),
+      });
+    }
+
+    const lifecycle = await lifecycleFactory({
+      parentRunId,
+      ...describeToolProgram(rawProgram),
+      resourceController,
+    });
+    let finalized = false;
+    const finalize = async (outcome: ToolProgramChildOutcome): Promise<void> => {
+      if (finalized) return;
+      finalized = true;
+      await lifecycle.finalize(outcome);
+    };
+    const beforeDispatch = async (): Promise<'ready' | 'cancelled'> => {
+      const [, childState] = await Promise.all([
+        this.opts.beforeProgramDispatch?.(),
+        lifecycle.beforeDispatch(),
+      ]);
+      return scope.isCancelledOrAborted() || lifecycle.isCancelled() || childState === 'cancelled'
+        ? 'cancelled'
+        : 'ready';
+    };
+
+    try {
+      const result = await executeToolProgram(rawProgram, input, {
+        runId: lifecycle.runId,
+        beforeDispatch,
+        dispatch: (calls) =>
+          this.executeProgramChildren(calls, lifecycle.emit, scope, lifecycle.isCancelled),
+      });
+      if ((await beforeDispatch()) === 'cancelled') throw new ToolProgramCancelledError();
+      await finalize({ status: result.success ? 'completed' : 'failed' });
+      return result;
+    } catch (error) {
+      if (error instanceof ToolProgramBlockedError) {
+        await finalize({ status: 'blocked', blocker: error.blocker });
+      } else if (error instanceof ToolProgramCancelledError) {
+        await finalize({ status: 'cancelled' });
+      } else {
+        await finalize({ status: 'failed' });
+      }
+      throw error;
+    }
   }
 
   /** Execute a single tool call, handling errors, retries, and result summarization. */
   async executeSingle(
     tc: LLMToolCall,
-    activeToolNames: Set<string>,
-    discoveredToolNames: Set<string>,
     emit: StreamEmit,
+    callAlreadyEmitted = false,
+    plan: ToolExecutionPlan = { ordinal: 0 },
   ): Promise<ToolExecutionEntry> {
     const tool = this.tools.get(tc.name);
-
-    // Approval gates are enforced at execution time even when a stale model
-    // response forges a call whose schema is no longer exposed. This check is
-    // deliberately independent of permission mode and cannot be confirmed
-    // away by the model or chat text.
-    const workflowDenial = getWorkflowToolDenial(this.opts.workflowPolicy, tc.name, tc.arguments);
-    if (workflowDenial) {
-      const deniedPayload = { success: false, error: workflowDenial };
-      const mirrorError = commanderErrorFromMessage(workflowDenial);
-      emit({
-        kind: 'tool_result',
-        toolCallId: tc.id,
-        error: mirrorError,
-        durationMs: 0,
-        skipped: true,
-      });
-      return {
-        tc,
-        resultContent: safeStringify(deniedPayload),
-        success: false,
-        mirror: { error: mirrorError, durationMs: 0 },
-      };
-    }
-
-    // Block unloaded tools
-    if (tool && !activeToolNames.has(tc.name)) {
-      const unloadedPayload = {
-        success: false,
-        error: `Tool '${tc.name}' exists but is not loaded. Call tool.get('${tc.name}') first to load its schema.`,
-      };
-      emit({
-        kind: 'tool_result',
-        toolCallId: tc.id,
-        error: commanderErrorFromMessage(unloadedPayload.error),
-        durationMs: 0,
-        skipped: true,
-      });
-      return {
-        tc,
-        resultContent: safeStringify(unloadedPayload),
-        success: false,
-        mirror: {
-          error: commanderErrorFromMessage(unloadedPayload.error),
-          durationMs: 0,
-        },
-      };
-    }
-
-    // Auto-inject context-level arguments so the LLM never needs to provide them.
-    // Injection MUST happen before validation so that auto-injected fields like
-    // canvasId satisfy required-field checks in the tool schema.
-    // Context args override LLM-provided values — when the LLM sends canvasId
-    // (from stale examples or hallucination), the auto-injected value wins.
-    const contextArgs: Record<string, unknown> = {};
-    if (this.opts.canvasId) contextArgs.canvasId = this.opts.canvasId;
-    const workflowRunId = this.opts.workflowPolicy?.workflowRunId;
-    if ((tc.name.startsWith('workflow.') || tc.name === 'render.start') && workflowRunId) {
-      contextArgs.workflowRunId = workflowRunId;
-      if (tc.name.startsWith('workflow.') && this.opts.workflowPolicy?.rowVersion !== undefined) {
-        contextArgs.expectedRowVersion = this.opts.workflowPolicy.rowVersion;
-      }
-      if (tc.name.startsWith('workflow.') && this.opts.workflowPolicy?.currentTaskRunId) {
-        contextArgs.taskRunId = this.opts.workflowPolicy.currentTaskRunId;
-      }
-    }
-    const mergedArgs = { ...tc.arguments, ...contextArgs };
+    const mergedArgs = this.mergedArgsFor(tc);
 
     // Pre-execution argument validation against the tool's JSON Schema.
     // Catches missing required fields, wrong types, and invalid enum values
@@ -599,30 +930,54 @@ export class ToolExecutor {
       const validationErrors = validateArgs(tool, mergedArgs as Record<string, unknown>);
       if (validationErrors.length > 0) {
         const errorMsg = formatArgValidationErrors(tc.name, validationErrors);
-        const requiredFields = tool.parameters.required ?? [];
-        const validationPayload = {
+        const validationPayload: ToolResult = {
           success: false,
           error: errorMsg,
-          _recovery: `Retry with all required fields: [${requiredFields.join(', ')}]. Do not call tool.get — just fix the arguments and call again.`,
+          errorClass: 'validation',
         };
-        const mirrorError = commanderErrorFromMessage(errorMsg);
-        emit({
-          kind: 'tool_result',
-          toolCallId: tc.id,
-          error: mirrorError,
-          durationMs: 0,
-          skipped: true,
-        });
+        if (!callAlreadyEmitted) this.emitToolCall(tc, mergedArgs, emit);
+        const mirror = this.completeOutcome(
+          tc.id,
+          tc.name,
+          mergedArgs,
+          validationPayload,
+          'skipped',
+          0,
+          emit,
+          { errorCode: errorCodeFromMessage(errorMsg), skipped: true },
+        );
         return {
           tc,
           resultContent: safeStringify(validationPayload),
           success: false,
-          mirror: {
-            error: mirrorError,
-            durationMs: 0,
-          },
+          mirror,
         };
       }
+    }
+
+    // Approval gates are enforced at execution time even though the provider
+    // sees a stable catalog. This check is independent of permission mode and
+    // cannot be confirmed away by the model or chat text.
+    const taskListDenial = getTaskListToolDenial(this.opts.taskListPolicy, tc.name, mergedArgs);
+    if (taskListDenial) {
+      const deniedPayload: ToolResult = { success: false, error: taskListDenial };
+      if (!callAlreadyEmitted) this.emitToolCall(tc, mergedArgs, emit);
+      const mirror = this.completeOutcome(
+        tc.id,
+        tc.name,
+        mergedArgs,
+        deniedPayload,
+        'skipped',
+        0,
+        emit,
+        { errorCode: errorCodeFromMessage(taskListDenial), skipped: true },
+      );
+      return {
+        tc,
+        resultContent: safeStringify(deniedPayload),
+        success: false,
+        mirror,
+      };
     }
 
     const startedAt = Date.now();
@@ -653,145 +1008,201 @@ export class ToolExecutor {
           } catch {
             /* keep raw string */
           }
-          const cachedResult: ToolResult =
+          const cachedCandidate: ToolResult =
             typeof parsed === 'object' && parsed !== null && 'success' in (parsed as object)
               ? (parsed as ToolResult)
               : { success: true, data: parsed };
-          const toolMaxResult = this.tools.get(tc.name)?.maxResultChars;
-          const resultContent = summarizeToolResult(tc.name, cachedResult, toolMaxResult);
-          const durationMs = Math.max(0, completedAt - startedAt);
-          emit({
-            kind: 'tool_call',
-            toolCallId: tc.id,
-            toolRef: parseCanonicalToolName(tc.name),
-            args: {},
-          });
-          emit({
-            kind: 'tool_call',
-            toolCallId: tc.id,
-            toolRef: parseCanonicalToolName(tc.name),
-            args: tc.arguments,
-          });
-          emit({
-            kind: 'tool_result',
-            toolCallId: tc.id,
-            result: cachedResult,
-            durationMs,
-          });
-          return {
-            tc,
-            resultContent,
-            success: true,
-            mirror: { result: cachedResult, durationMs },
-          };
+          let cachedResult: ToolResult | undefined;
+          try {
+            cachedResult = this.tools.canonicalizeResult(tc.name, cachedCandidate);
+          } catch (error) {
+            if (!(error instanceof InvalidToolOutputError)) throw error;
+          }
+          if (cachedResult) {
+            const toolMaxResult = this.tools.get(tc.name)?.maxResultChars;
+            const resultContent = summarizeToolResult(
+              tc.name,
+              cachedResult,
+              toolMaxResult,
+              tool?.category,
+            );
+            const durationMs = Math.max(0, completedAt - startedAt);
+            const cachedSuccess = cachedResult.success === true;
+            if (!callAlreadyEmitted) this.emitToolCall(tc, mergedArgs, emit);
+            const mirror = this.completeOutcome(
+              tc.id,
+              tc.name,
+              mergedArgs,
+              cachedResult,
+              cachedSuccess ? 'succeeded' : 'failed',
+              durationMs,
+              emit,
+              cachedResult.success === true
+                ? undefined
+                : { errorCode: errorCodeFromMessage(cachedResult.error) },
+              cachedResult,
+            );
+            return {
+              tc,
+              resultContent,
+              success: cachedSuccess,
+              mirror,
+            };
+          }
         }
       }
     }
 
-    emit({
-      kind: 'tool_call',
-      toolCallId: tc.id,
-      toolRef: parseCanonicalToolName(tc.name),
-      args: {},
-    });
-    emit({
-      kind: 'tool_call',
-      toolCallId: tc.id,
-      toolRef: parseCanonicalToolName(tc.name),
-      args: tc.arguments,
-    });
+    let reservedResource = plan.resource;
+    if (!reservedResource) {
+      const reservation = await this.reserveToolResource(
+        tc,
+        tool,
+        mergedArgs,
+        plan.ordinal,
+        emit,
+      );
+      if (reservation.blocked) {
+        return { tc, resultContent: '', success: false, blocked: reservation.blocked };
+      }
+      reservedResource = reservation.resource;
+    }
+    // A metered operation is reserved before its public call event, so a
+    // budget block cannot leave an orphaned tool_call in the timeline.
+    if (!callAlreadyEmitted) this.emitToolCall(tc, mergedArgs, emit);
 
     const maxRetries = 2;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const toolResult = await this.tools.execute(tc.name, mergedArgs);
+        const executionContext =
+          (tc.name === 'tool.program' && plan.scope && this.opts.runId) || this.opts.subagents
+            ? {
+                operationId: this.operationId(tc, plan.ordinal),
+                ...(tc.name === 'tool.program' && plan.scope && this.opts.runId
+                  ? {
+                      executeToolProgram: (program: unknown, input: Record<string, unknown>) =>
+                        this.executeHostedToolProgram(program, input, emit, plan.scope!),
+                    }
+                  : {}),
+                ...(this.opts.subagents ? { subagents: this.opts.subagents } : {}),
+              }
+            : undefined;
+        const toolResult = await this.tools.execute(
+          tc.name,
+          mergedArgs,
+          executionContext,
+        );
         const completedAt = Date.now();
         const toolMaxResult = this.tools.get(tc.name)?.maxResultChars;
 
-        // Check for logical failure with recovery hint
-        if (toolResult.success === false && toolResult.error) {
-          const errorClass = classifyError(toolResult.error, toolResult);
+        // Preserve a typed failure fact. The model chooses any next action.
+        if (toolResult.success === false) {
+          const errorMessage = toolResult.error ?? 'Tool execution failed';
+          const errorClass = classifyError(errorMessage, toolResult);
           if (errorClass === 'transient' && attempt < maxRetries) {
             await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
             continue;
           }
-          const hint = buildRecoveryHint(errorClass, tc.name, toolResult.error);
-          const enriched = { ...toolResult, _recovery: hint };
-          const resultContent = summarizeToolResult(tc.name, enriched as ToolResult, toolMaxResult);
+          const actualResult: ToolResult = { ...toolResult, error: errorMessage, errorClass };
+          const resultContent = summarizeToolResult(
+            tc.name,
+            actualResult,
+            toolMaxResult,
+            tool?.category,
+          );
           const durationMs = Math.max(0, completedAt - startedAt);
-          const mirrorError = commanderErrorFromMessage(toolResult.error);
-          emit({
-            kind: 'tool_result',
-            toolCallId: tc.id,
-            error: mirrorError,
+          await this.settleToolResource(tool, mergedArgs, reservedResource, actualResult, emit);
+          const mirror = this.completeOutcome(
+            tc.id,
+            tc.name,
+            mergedArgs,
+            actualResult,
+            'failed',
             durationMs,
-          });
+            emit,
+            { errorCode: errorCodeFromMessage(errorMessage) },
+          );
           return {
             tc,
             resultContent,
             success: false,
-            mirror: { error: mirrorError, durationMs },
+            mirror,
           };
         }
 
-        const resultContent = summarizeToolResult(tc.name, toolResult, toolMaxResult);
+        const resultContent = summarizeToolResult(
+          tc.name,
+          toolResult,
+          toolMaxResult,
+          tool?.category,
+        );
 
-        // tool.get discovery
-        if (tc.name === 'tool.get' && toolResult.success && toolResult.data != null) {
-          const data = toolResult.data;
-          const items = Array.isArray(data)
-            ? data
-            : isRecord(data) && Array.isArray(data.tools)
-              ? data.tools
-              : [data];
-          for (const item of items) {
-            if (isRecord(item) && typeof item.name === 'string' && this.tools.get(item.name)) {
-              // Keep discovery state and the current turn's active set in
-              // lockstep. `tool.get` is scheduled before all other calls, so
-              // a later call in this same assistant turn can now execute.
-              discoveredToolNames.add(item.name);
-              activeToolNames.add(item.name);
-            }
-          }
-        }
-        emit({
-          kind: 'tool_result',
-          toolCallId: tc.id,
-          result: toolResult,
-          durationMs: Math.max(0, completedAt - startedAt),
-        });
+        const durationMs = Math.max(0, completedAt - startedAt);
+        await this.settleToolResource(tool, mergedArgs, reservedResource, toolResult, emit);
+        const mirror = this.completeOutcome(
+          tc.id,
+          tc.name,
+          mergedArgs,
+          toolResult,
+          'succeeded',
+          durationMs,
+          emit,
+          undefined,
+          toolResult,
+        );
         return {
           tc,
           resultContent,
-          success: toolResult.success !== false,
-          mirror: {
-            result: toolResult,
-            durationMs: Math.max(0, completedAt - startedAt),
-          },
+          success: true,
+          mirror,
         };
       } catch (err) {
-        const errorClass = classifyError(err);
+        if (err instanceof ToolProgramBlockedError) {
+          const error = err.message;
+          const completedAt = Date.now();
+          const actualResult: ToolResult = { success: false, error, errorClass: 'fatal' };
+          await this.settleToolResource(tool, mergedArgs, reservedResource, actualResult, emit);
+          const mirror = this.completeOutcome(
+            tc.id,
+            tc.name,
+            mergedArgs,
+            actualResult,
+            'failed',
+            Math.max(0, completedAt - startedAt),
+            emit,
+            { errorCode: errorCodeFromMessage(error) },
+          );
+          return { tc, resultContent: safeStringify(actualResult), success: false, blocked: err.blocker, mirror };
+        }
+        const invalidOutput = err instanceof InvalidToolOutputError;
+        const errorClass = invalidOutput ? 'fatal' : classifyError(err);
         if (errorClass === 'transient' && attempt < maxRetries) {
           await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
           continue;
         }
         const errMsg = err instanceof Error ? err.message : String(err);
         const completedAt = Date.now();
-        const hint = buildRecoveryHint(errorClass, tc.name, errMsg);
-        const resultContent = safeStringify({ success: false, error: errMsg, _recovery: hint });
         const durationMs = Math.max(0, completedAt - startedAt);
-        const mirrorError = commanderErrorFromMessage(errMsg);
-        emit({
-          kind: 'tool_result',
-          toolCallId: tc.id,
-          error: mirrorError,
-          durationMs,
-        });
+        const actualResult: ToolResult = { success: false, error: errMsg, errorClass };
+        const resultContent = safeStringify(actualResult);
+        await this.settleToolResource(tool, mergedArgs, reservedResource, actualResult, emit);
+        const mirror = invalidOutput
+          ? this.completeInvalidOutput(tc.id, tc.name, mergedArgs, durationMs, emit)
+          : this.completeOutcome(
+              tc.id,
+              tc.name,
+              mergedArgs,
+              actualResult,
+              'failed',
+              durationMs,
+              emit,
+              { errorCode: errorCodeFromMessage(errMsg) },
+            );
         return {
           tc,
           resultContent,
           success: false,
-          mirror: { error: mirrorError, durationMs },
+          mirror,
         };
       }
     }
@@ -809,15 +1220,43 @@ export class ToolExecutor {
    */
   async executeToolCalls(
     toolCalls: LLMToolCall[],
-    activeToolNames: Set<string>,
-    discoveredToolNames: Set<string>,
     emit: StreamEmit,
     messages: Array<{ role: string; content: string; toolCallId?: string }>,
     isCancelledOrAborted: () => boolean,
     pendingResolvers: Map<string, (approved: boolean) => void>,
     pendingQuestionResolvers: Map<string, (answer: string) => void>,
-  ): Promise<{ cancelled: boolean; dupMap: Map<string, string> }> {
+    batchOptions: ToolCallBatchOptions = {},
+  ): Promise<{ cancelled: boolean; dupMap: Map<string, string>; blocked?: RunBlocker }> {
     const mode = this.opts?.permissionMode ?? 'normal';
+    const scope: ToolExecutionScope = {
+      isCancelledOrAborted,
+      pendingResolvers,
+      pendingQuestionResolvers,
+    };
+
+    // Charge every model-selected call as one atomic quota operation before
+    // deduplication or schema validation. Invalid and duplicate calls still
+    // consume this bounded model-output entitlement.
+    const resourceController = this.opts.resourceController;
+    if (resourceController && toolCalls.length > 0) {
+      const quotas = batchOptions.programOperations
+        ? toolCalls.map((tc) => ({ operationId: tc.id, quote: rawToolQuotaQuote(1) }))
+        : [{
+            operationId: `tool:${this.opts.currentStep ?? 0}:quota`,
+            quote: rawToolQuotaQuote(toolCalls.length),
+          }];
+      for (const quota of quotas) {
+        const reservation = resourceController.reserve(quota.operationId, 'tool', quota.quote);
+        this.emitResourceState(reservation.state, emit);
+        if (!reservation.accepted) {
+          return { cancelled: false, dupMap: new Map(), blocked: reservation.blocker };
+        }
+        this.emitResourceState(
+          resourceController.settle(quota.operationId, 'tool', asMeasurement(quota.quote)),
+          emit,
+        );
+      }
+    }
 
     // Deduplicate identical tool calls
     const deduped = new Map<string, string>(); // signature -> first tc.id
@@ -826,6 +1265,7 @@ export class ToolExecutor {
     // Track dupes keyed on the winning id so we can mirror its tool_result
     // back out to their cards after execution.
     const dupesByFirstId = new Map<string, LLMToolCall[]>();
+    const ordinalById = new Map(toolCalls.map((tc, ordinal) => [tc.id, ordinal]));
     for (const tc of toolCalls) {
       const sig = `${tc.name}::${safeStringify(tc.arguments)}`;
       const existing = deduped.get(sig);
@@ -840,17 +1280,14 @@ export class ToolExecutor {
       }
     }
 
-    // Run discovery first so schemas loaded by `tool.get` are active for the
-    // remaining calls in this assistant turn. Then parallelize only pure reads;
-    // mutations and other meta tools stay serial to avoid stale write races.
+    // Parallelize only pure reads; mutations and meta tools stay serial to
+    // avoid stale write races.
     type Run = {
       kind: 'parallel' | 'serial' | 'interactive';
       calls: LLMToolCall[];
     };
     const runs: Run[] = [];
-    const discoveryCalls = uniqueToolCalls.filter((tc) => tc.name === 'tool.get');
-    const remainingCalls = uniqueToolCalls.filter((tc) => tc.name !== 'tool.get');
-    for (const tc of [...discoveryCalls, ...remainingCalls]) {
+    for (const tc of uniqueToolCalls) {
       if (this.isInteractive(tc, mode)) {
         runs.push({ kind: 'interactive', calls: [tc] });
       } else if (!isPureReadTool(tc.name)) {
@@ -872,76 +1309,141 @@ export class ToolExecutor {
 
       if (run.kind === 'interactive') {
         const tc = run.calls[0];
+        const mergedArgs = this.mergedArgsFor(tc);
         if (tc.name === 'commander.askUser') {
-          const question = typeof tc.arguments.question === 'string' ? tc.arguments.question : '';
-          const rawOptions = Array.isArray(tc.arguments.options) ? tc.arguments.options : [];
+          const tool = this.tools.get(tc.name);
+          const validationErrors = tool ? validateArgs(tool, mergedArgs) : [];
+          if (validationErrors.length > 0) {
+            const error = formatArgValidationErrors(tc.name, validationErrors);
+            const payload: ToolResult = { success: false, error, errorClass: 'validation' };
+            this.emitToolCall(tc, mergedArgs, emit);
+            this.completeOutcome(tc.id, tc.name, mergedArgs, payload, 'skipped', 0, emit, {
+              errorCode: errorCodeFromMessage(error),
+              skipped: true,
+            });
+            messages.push({ role: 'tool', content: safeStringify(payload), toolCallId: tc.id });
+            continue;
+          }
+          this.emitToolCall(tc, mergedArgs, emit);
+          const question = typeof mergedArgs.question === 'string' ? mergedArgs.question : '';
+          const rawOptions = Array.isArray(mergedArgs.options) ? mergedArgs.options : [];
           const allowFreeText =
-            typeof tc.arguments.allowFreeText === 'boolean' ? tc.arguments.allowFreeText : true;
+            typeof mergedArgs.allowFreeText === 'boolean' ? mergedArgs.allowFreeText : true;
+          const hasInvalidPreviewHash = rawOptions.some((rawOption: unknown) => {
+            if (!rawOption || typeof rawOption !== 'object') return false;
+            if (!('previewAssetHash' in rawOption)) return false;
+            const previewAssetHash = (rawOption as { previewAssetHash?: unknown }).previewAssetHash;
+            return (
+              typeof previewAssetHash !== 'string' ||
+              !/^[a-f0-9]{64}$/i.test(previewAssetHash.trim())
+            );
+          });
+          if (hasInvalidPreviewHash) {
+            const error = 'commander.askUser previewAssetHash must be a SHA-256 CAS asset hash.';
+            const payload: ToolResult = { success: false, error, errorClass: 'validation' };
+            this.completeOutcome(
+              tc.id,
+              tc.name,
+              mergedArgs,
+              payload,
+              'failed',
+              0,
+              emit,
+              { errorCode: errorCodeFromMessage(error) },
+            );
+            messages.push({ role: 'tool', content: safeStringify(payload), toolCallId: tc.id });
+            continue;
+          }
           const mapped = rawOptions
             .map((opt: unknown) => {
-              const option = opt as { label?: string; description?: string };
+              const option = (opt && typeof opt === 'object' ? opt : {}) as {
+                label?: string;
+                description?: string;
+                previewAssetHash?: string;
+              };
               return {
                 label: typeof option.label === 'string' ? option.label.trim() : '',
                 ...(typeof option.description === 'string' && option.description.trim()
                   ? { description: option.description.trim() }
                   : {}),
+                ...(typeof option.previewAssetHash === 'string'
+                  ? { previewAssetHash: option.previewAssetHash.trim() }
+                  : {}),
               };
             })
-            .filter((o) => o.label.length > 0)
             .map((o, idx) => ({
               id: `opt-${idx}`,
               label: o.label,
               ...('description' in o ? { description: o.description } : {}),
+              ...('previewAssetHash' in o ? { previewAssetHash: o.previewAssetHash } : {}),
             }));
-          if (
-            mapped.length < 2 ||
-            mapped.length > 6 ||
-            new Set(mapped.map((option) => option.label)).size !== mapped.length
-          ) {
-            const error =
-              'commander.askUser requires between 2 and 6 non-empty options with unique labels.';
-            const payload = {
-              success: false,
-              error,
-              _recovery: 'Provide 2 to 6 clickable options, then call commander.askUser again.',
-            };
-            emit({
-              kind: 'tool_result',
-              toolCallId: tc.id,
-              error: commanderErrorFromMessage(error),
-              durationMs: 0,
-            });
+          if (mapped.length === 0 && !allowFreeText) {
+            const error = 'commander.askUser empty option lists require allowFreeText=true.';
+            const payload: ToolResult = { success: false, error, errorClass: 'validation' };
+            this.completeOutcome(
+              tc.id,
+              tc.name,
+              mergedArgs,
+              payload,
+              'failed',
+              0,
+              emit,
+              { errorCode: errorCodeFromMessage(error) },
+            );
             messages.push({ role: 'tool', content: safeStringify(payload), toolCallId: tc.id });
             continue;
           }
-          const workflowRunId = this.opts.workflowPolicy?.workflowRunId;
+          if (
+            mapped.some((option) => option.label.length === 0) ||
+            new Set(mapped.map((option) => option.label)).size !== mapped.length
+          ) {
+            const error = 'commander.askUser requires non-empty options with unique labels.';
+            const payload: ToolResult = { success: false, error, errorClass: 'validation' };
+            this.completeOutcome(
+              tc.id,
+              tc.name,
+              mergedArgs,
+              payload,
+              'failed',
+              0,
+              emit,
+              { errorCode: errorCodeFromMessage(error) },
+            );
+            messages.push({ role: 'tool', content: safeStringify(payload), toolCallId: tc.id });
+            continue;
+          }
+          const taskListId = this.opts.taskListPolicy?.taskListId;
           const decisionKey =
-            typeof tc.arguments.decisionKey === 'string' ? tc.arguments.decisionKey.trim() : '';
+            typeof mergedArgs.decisionKey === 'string' ? mergedArgs.decisionKey.trim() : '';
           let questionId = tc.id;
           let persistedAnswer: string | undefined;
           let persistedSelectedOptionId: string | undefined;
-          if (workflowRunId) {
-            if (!decisionKey || !this.opts.onWorkflowAskUser) {
+          if (taskListId) {
+            if (!decisionKey || !this.opts.onTaskDecision) {
               const error =
-                'Workflow-bound commander.askUser requires a stable decisionKey and durable host persistence.';
+                'Task-list-bound commander.askUser requires a stable decisionKey and durable host persistence.';
               const payload = { success: false, error };
-              emit({
-                kind: 'tool_result',
-                toolCallId: tc.id,
-                error: commanderErrorFromMessage(error),
-                durationMs: 0,
-              });
+              this.completeOutcome(
+                tc.id,
+                tc.name,
+                mergedArgs,
+                payload,
+                'failed',
+                0,
+                emit,
+                { errorCode: errorCodeFromMessage(error) },
+              );
               messages.push({ role: 'tool', content: safeStringify(payload), toolCallId: tc.id });
               continue;
             }
-            const persisted = await this.opts.onWorkflowAskUser({
-              workflowRunId,
+            const persisted = await this.opts.onTaskDecision({
+              taskListId,
               questionId: tc.id,
               decisionKey,
               question,
               options: mapped,
               allowFreeText,
-              policy: this.opts.workflowPolicy!,
+              policy: this.opts.taskListPolicy!,
             });
             questionId = persisted.questionId;
             if (persisted.status !== 'pending') {
@@ -960,23 +1462,26 @@ export class ToolExecutor {
           }
           const answer =
             persistedAnswer ??
-            (await new Promise<string>((resolve) => {
-              const receiveAnswer = (candidate: string): void => {
-                const normalized = candidate.trim();
-                if (
-                  !normalized ||
-                  (!allowFreeText && !mapped.some((option) => option.label === normalized))
-                ) {
-                  // The host removes the resolver before invoking it. Restore
-                  // the same guarded resolver so an invalid IPC answer cannot
-                  // close or bypass a closed-choice question.
+            (await this.waitForUser(
+              () =>
+                new Promise<string>((resolve) => {
+                  const receiveAnswer = (candidate: string): void => {
+                    const normalized = candidate.trim();
+                    if (
+                      !normalized ||
+                      (!allowFreeText && !mapped.some((option) => option.label === normalized))
+                    ) {
+                      // The host removes the resolver before invoking it. Restore
+                      // the same guarded resolver so an invalid IPC answer cannot
+                      // close or bypass a closed-choice question.
+                      pendingQuestionResolvers.set(questionId, receiveAnswer);
+                      return;
+                    }
+                    resolve(normalized);
+                  };
                   pendingQuestionResolvers.set(questionId, receiveAnswer);
-                  return;
-                }
-                resolve(normalized);
-              };
-              pendingQuestionResolvers.set(questionId, receiveAnswer);
-            }));
+                }),
+            ));
           // Close the pending-question card on the UI before the tool_result
           // lands. The timeline selector clears `pendingQuestion` when it
           // sees `user_answer` with a matching `questionId`.
@@ -989,12 +1494,16 @@ export class ToolExecutor {
           ) {
             const error = 'commander.askUser requires one of the listed options.';
             const payload = { success: false, error };
-            emit({
-              kind: 'tool_result',
-              toolCallId: tc.id,
-              error: commanderErrorFromMessage(error),
-              durationMs: 0,
-            });
+            this.completeOutcome(
+              tc.id,
+              tc.name,
+              mergedArgs,
+              payload,
+              'failed',
+              0,
+              emit,
+              { errorCode: errorCodeFromMessage(error) },
+            );
             messages.push({ role: 'tool', content: safeStringify(payload), toolCallId: tc.id });
             continue;
           }
@@ -1004,31 +1513,82 @@ export class ToolExecutor {
             answer,
             selectedOptionId: persistedSelectedOptionId ?? selectedOption?.id,
           });
-          const answerPayload = { success: true, data: { answer } };
-          emit({
-            kind: 'tool_result',
-            toolCallId: tc.id,
-            result: answerPayload,
-            durationMs: 0,
-          });
+          let answerPayload: ToolResult;
+          try {
+            answerPayload = this.tools.canonicalizeResult(tc.name, {
+              success: true,
+              data: { answer },
+            });
+          } catch (error) {
+            if (!(error instanceof InvalidToolOutputError)) throw error;
+            answerPayload = { success: false, error: error.message, errorClass: 'fatal' };
+            this.completeInvalidOutput(tc.id, tc.name, mergedArgs, 0, emit);
+            messages.push({
+              role: 'tool',
+              content: safeStringify(answerPayload),
+              toolCallId: tc.id,
+            });
+            continue;
+          }
+          this.completeOutcome(
+            tc.id,
+            tc.name,
+            mergedArgs,
+            answerPayload,
+            'succeeded',
+            0,
+            emit,
+            undefined,
+            answerPayload,
+          );
           messages.push({ role: 'tool', content: safeStringify(answerPayload), toolCallId: tc.id });
         } else {
           // needs-confirmation path
           const tool = this.tools.get(tc.name);
+          const validationErrors = tool ? validateArgs(tool, mergedArgs) : [];
+          if (validationErrors.length > 0) {
+            const errorMsg = formatArgValidationErrors(tc.name, validationErrors);
+            const payload: ToolResult = {
+              success: false,
+              error: errorMsg,
+              errorClass: 'validation',
+            };
+            this.emitToolCall(tc, mergedArgs, emit);
+            this.completeOutcome(tc.id, tc.name, mergedArgs, payload, 'skipped', 0, emit, {
+              errorCode: errorCodeFromMessage(errorMsg),
+              skipped: true,
+            });
+            messages.push({ role: 'tool', content: safeStringify(payload), toolCallId: tc.id });
+            continue;
+          }
+          const taskListDenial = getTaskListToolDenial(this.opts.taskListPolicy, tc.name, mergedArgs);
+          if (taskListDenial) {
+            const payload: ToolResult = { success: false, error: taskListDenial };
+            this.emitToolCall(tc, mergedArgs, emit);
+            this.completeOutcome(tc.id, tc.name, mergedArgs, payload, 'skipped', 0, emit, {
+              errorCode: errorCodeFromMessage(taskListDenial),
+              skipped: true,
+            });
+            messages.push({ role: 'tool', content: safeStringify(payload), toolCallId: tc.id });
+            continue;
+          }
           // Composite tools can have an action-specific effective tier.
           // Unknown tools remain highest-stakes so the user cannot be
           // surprised by a misleadingly safe label.
-          const tier = resolveEffectiveToolTier(tc.name, tc.arguments, tool?.tier ?? 4);
+          const tier = resolveEffectiveToolTier(tc.name, mergedArgs, tool?.tier ?? 4);
           emit({
             kind: 'tool_confirm_prompt',
             toolCallId: tc.id,
             toolRef: parseCanonicalToolName(tc.name),
             tier,
-            args: tc.arguments,
+            args: mergedArgs,
           });
-          const approved = await new Promise<boolean>((resolve) => {
-            pendingResolvers.set(tc.id, resolve);
-          });
+          const approved = await this.waitForUser(
+            () =>
+              new Promise<boolean>((resolve) => {
+                pendingResolvers.set(tc.id, resolve);
+              }),
+          );
           // Close the pending-confirmation card on the UI. The timeline
           // selector clears `pendingConfirmation` on `user_confirmation`.
           emit({
@@ -1037,21 +1597,32 @@ export class ToolExecutor {
             approved,
           });
           if (!approved) {
-            const skippedPayload = { success: false, error: 'Tool execution skipped by user' };
-            emit({
-              kind: 'tool_result',
-              toolCallId: tc.id,
-              error: commanderErrorFromMessage('Tool execution declined by user'),
-              durationMs: 0,
-              skipped: true,
-            });
+            const skippedPayload: ToolResult = {
+              success: false,
+              error: 'Tool execution skipped by user',
+            };
+            this.emitToolCall(tc, mergedArgs, emit);
+            this.completeOutcome(
+              tc.id,
+              tc.name,
+              mergedArgs,
+              skippedPayload,
+              'skipped',
+              0,
+              emit,
+              { errorCode: errorCodeFromMessage('Tool execution declined by user'), skipped: true },
+            );
             messages.push({
               role: 'tool',
               content: safeStringify(skippedPayload),
               toolCallId: tc.id,
             });
           } else {
-            const res = await this.executeSingle(tc, activeToolNames, discoveredToolNames, emit);
+            const res = await this.executeSingle(tc, emit, false, {
+              ordinal: ordinalById.get(tc.id) ?? 0,
+              scope,
+            });
+            if (res.blocked) return { cancelled: false, dupMap, blocked: res.blocked };
             messages.push({ role: 'tool', content: res.resultContent, toolCallId: tc.id });
           }
         }
@@ -1070,43 +1641,71 @@ export class ToolExecutor {
         const windowSize =
           run.kind === 'serial' ? 1 : Math.max(1, Math.min(concurrency, queue.length - idx));
         const batch = queue.slice(idx, idx + windowSize);
+        const plans = new Map<string, ToolExecutionPlan>();
+        for (const tc of batch) {
+          const plan: ToolExecutionPlan = { ordinal: ordinalById.get(tc.id) ?? 0, scope };
+          const tool = this.tools.get(tc.name);
+          const mergedArgs = this.mergedArgsFor(tc);
+          // Reserve only calls that passed the same local guards as execution.
+          // Invalid and denied calls are still charged by the raw batch quota,
+          // then emit their paired public outcome from executeSingle below.
+          if (
+            tool &&
+            tool.resource.kind === 'metered' &&
+            validateArgs(tool, mergedArgs).length === 0 &&
+            !getTaskListToolDenial(this.opts.taskListPolicy, tc.name, mergedArgs)
+          ) {
+            const reservation = await this.reserveToolResource(
+              tc,
+              tool,
+              mergedArgs,
+              plan.ordinal,
+              emit,
+            );
+            if (reservation.blocked) {
+              // Earlier reservations in this window did not start execution;
+              // settle them to their retained quotes before the typed block.
+              if (resourceController) {
+                for (const prior of plans.values()) {
+                  if (prior.resource) {
+                    this.emitResourceState(
+                      resourceController.settle(
+                        prior.resource.operationId,
+                        'tool',
+                        asMeasurement(prior.resource.quote),
+                      ),
+                      emit,
+                    );
+                  }
+                }
+              }
+              return { cancelled: false, dupMap, blocked: reservation.blocked };
+            }
+            plan.resource = reservation.resource;
+          }
+          plans.set(tc.id, plan);
+        }
+        // All read-window reservations complete before any Promise.all work
+        // begins. Mutation windows stay at one call and use this same path.
         const results = await Promise.all(
-          batch.map((tc) => this.executeSingle(tc, activeToolNames, discoveredToolNames, emit)),
+          batch.map((tc) => this.executeSingle(tc, emit, false, plans.get(tc.id)!)),
         );
 
         let successes = 0;
         let failures = 0;
         for (const res of results) {
+          if (res.blocked) return { cancelled: false, dupMap, blocked: res.blocked };
           ordered.set(res.tc.id, res.resultContent);
           if (res.success) successes++;
           else failures++;
 
-          // Mirror the winner's tool_call (final args) + tool_result to any
-          // deduplicated dupes so their UI cards don't hang on "pending".
+          // Mirror the winner's normalized outcome to each duplicate without
+          // invoking the public result projector again.
           const dupes = dupesByFirstId.get(res.tc.id);
           if (dupes && res.mirror) {
             for (const dup of dupes) {
-              emit({
-                kind: 'tool_call',
-                toolCallId: dup.id,
-                toolRef: parseCanonicalToolName(dup.name),
-                args: dup.arguments,
-              });
-              if (res.mirror.result !== undefined) {
-                emit({
-                  kind: 'tool_result',
-                  toolCallId: dup.id,
-                  result: res.mirror.result,
-                  durationMs: res.mirror.durationMs,
-                });
-              } else if (res.mirror.error) {
-                emit({
-                  kind: 'tool_result',
-                  toolCallId: dup.id,
-                  error: res.mirror.error,
-                  durationMs: res.mirror.durationMs,
-                });
-              }
+              this.emitToolCall(dup, this.mergedArgsFor(dup), emit);
+              this.emitNormalizedOutcome(dup.id, res.mirror, emit);
             }
           }
         }
@@ -1139,23 +1738,35 @@ export class ToolExecutor {
 
   private isInteractive(tc: LLMToolCall, mode: string): boolean {
     if (tc.name === 'commander.askUser') return true;
-    // A stale or forged workflow call cannot become authorized through a
+    // A stale or forged task-list call cannot become authorized through a
     // confirmation click. Let executeSingle reject it immediately instead of
     // blocking an unattended continuation on a confirmation that can never
     // succeed.
-    if (getWorkflowToolDenial(this.opts.workflowPolicy, tc.name, tc.arguments)) return false;
+    if (getTaskListToolDenial(this.opts.taskListPolicy, tc.name, tc.arguments)) return false;
 
-    // An exact host-derived workflow gate is the authorization for its bounded
+    const targetCanvasId =
+      typeof tc.arguments.canvasId === 'string' ? tc.arguments.canvasId : undefined;
+    const tool = this.tools.get(tc.name);
+    // Cross-Canvas writes are always a one-call user decision, including in
+    // danger/auto modes and after a task-list gate has been approved.
+    if (
+      targetCanvasId &&
+      tool?.category === 'mutation' &&
+      targetCanvasId !== this.opts.canvasId
+    ) {
+      return true;
+    }
+
+    // An exact host-derived task-list gate is the authorization for its bounded
     // phase tool. Strict mode deliberately keeps its per-call confirmation
-    // contract; normal and auto may continue the approved workflow.
+    // contract; normal and auto may continue the approved task list.
     if (
       (mode === 'normal' || mode === 'auto') &&
-      this.opts.workflowPolicy?.workflowRunId &&
-      WORKFLOW_GATE_AUTHORIZED_TOOLS.has(tc.name)
+      this.opts.taskListPolicy?.taskListId &&
+      TASK_LIST_GATE_AUTHORIZED_TOOLS.has(tc.name)
     ) {
       return false;
     }
-    const tool = this.tools.get(tc.name);
     // Unknown tool → treat as tier 4 so the highest-stakes confirmation
     // gate triggers. Registered tools always have tier (register() guard).
     const tier = resolveEffectiveToolTier(tc.name, tc.arguments, tool?.tier ?? 4);

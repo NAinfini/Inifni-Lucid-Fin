@@ -6,6 +6,15 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { PROCESS_PROMPT_DEFAULTS, ProcessPromptStore } from './process-prompt-store.js';
 
 const tempFiles: string[] = [];
+const RETIRED_PROCESS_PROMPT_KEYS = [
+  'ordered-delivery',
+  'task-list-orchestration',
+  'style-plate-lock',
+  'entities-before-generation',
+  'batch-create-guidance',
+  'prompt-quality-gate',
+  'story-task-list-phase',
+] as const;
 
 function createTempDbPath(): string {
   const dbPath = path.join(
@@ -29,14 +38,14 @@ afterEach(() => {
 });
 
 describe('ProcessPromptStore', () => {
-  it('ships compact, substantive defaults for every process category', () => {
+  it('ships concise reference facts for every retained process category', () => {
     const expectedSnippets: Record<string, string[]> = {
       'entity-ref-image-generation': ['full-sheet', 'anti-collapse', 'ortho-grid', 'bible'],
       'image-node-generation': ['five elements', 'canvas.setNodeRefs'],
       'video-node-generation': ['three-part', 'canvas.setVideoFrames'],
       'audio-generation': [
         'emotionVector',
-        'bracketed',
+        'Bracketed',
         'Genre anchor',
         'BPM',
         'Environment acoustics',
@@ -55,32 +64,15 @@ describe('ProcessPromptStore', () => {
       'media-config': ['canvas.setMediaParams', 'width', 'duration', 'emotionVector'],
       'script-development': ['script.manage', 'Fountain'],
       'vision-analysis': ['text.analyze', 'intent'],
-      'snapshot-and-rollback': ['snapshot.restore', 'commander.askUser'],
-      'render-and-export': ['render.start', 'render.exportBundle'],
-      'workflow-orchestration': [
-        'workflow.manage',
-        'workflow.visual',
-        'workflow.media',
-        'visible preview selector',
-      ],
-      'series-management': ['series.update', 'episode'],
+      'snapshot-and-rollback': ['snapshot.restore', 'authenticated user confirmation'],
       'prompt-template-management': ['prompt.setCustom', 'process-prompt store'],
       'asset-library-management': ['asset.import', 'asset.list'],
-      'job-control': ['job.control', 'pause'],
-      'entities-before-generation': ['reference images', 'entity.generateRefImage'],
-      'batch-create-guidance': ['batch-creating', 'backdrops'],
-      'prompt-quality-gate': ['canvas.getNode', 'canvas.previewPrompt'],
-      'story-workflow-phase': [
-        'The only approval gates',
-        'Production Plan',
-        'Visual Constitution',
-        'workflow.visual',
-        'workflow.media',
-      ],
       'canvas-settings': ['canvas.getInfo', 'stylePlate'],
     };
 
-    expect(PROCESS_PROMPT_DEFAULTS).toHaveLength(30);
+    expect(PROCESS_PROMPT_DEFAULTS).toHaveLength(21);
+
+    const processKeys = PROCESS_PROMPT_DEFAULTS.map((entry) => entry.processKey);
 
     for (const entry of PROCESS_PROMPT_DEFAULTS) {
       expect(entry.defaultValue.length).toBeGreaterThan(220);
@@ -88,43 +80,82 @@ describe('ProcessPromptStore', () => {
         expect(entry.defaultValue).toContain(snippet);
       }
     }
+
+    for (const processKey of RETIRED_PROCESS_PROMPT_KEYS) {
+      expect(processKeys).not.toContain(processKey);
+    }
   });
 
-  it('seeds defaults on construction', () => {
+  it('keeps retained guides free of fixed host workflows and forced questions', () => {
+    const fixedWorkflowPatterns = [
+      /reference workflow/i,
+      /commander\.askUser/i,
+      /\b(?:must|stop|always|exactly once)\b/i,
+      /^\s*\d+\.\s+(?:call|read|write|create|use|check|verify)\b/im,
+      /blind retry/i,
+    ];
+
+    for (const entry of PROCESS_PROMPT_DEFAULTS) {
+      for (const pattern of fixedWorkflowPatterns) {
+        expect(entry.defaultValue).not.toMatch(pattern);
+      }
+    }
+
+    expect(
+      PROCESS_PROMPT_DEFAULTS.find((entry) => entry.processKey === 'image-node-generation')
+        ?.defaultValue,
+    ).toContain('byte-for-byte');
+    expect(
+      PROCESS_PROMPT_DEFAULTS.find((entry) => entry.processKey === 'snapshot-and-rollback')
+        ?.defaultValue,
+    ).toContain('authenticated user confirmation');
+  });
+
+  it('seeds retained creative guides on construction', () => {
     const store = new ProcessPromptStore(createTempDbPath());
 
     const prompts = store.list();
+    const retainedCreativeKeys = [
+      'entity-ref-image-generation',
+      'image-node-generation',
+      'video-node-generation',
+      'audio-generation',
+      'vision-analysis',
+      'script-development',
+    ];
 
     expect(prompts).toHaveLength(PROCESS_PROMPT_DEFAULTS.length);
-    expect(prompts.some((prompt) => prompt.processKey === 'image-node-generation')).toBe(true);
-    expect(prompts.some((prompt) => prompt.processKey === 'provider-management')).toBe(true);
+    for (const processKey of retainedCreativeKeys) {
+      expect(prompts.some((prompt) => prompt.processKey === processKey)).toBe(true);
+      expect(store.getEffectiveValue(processKey)).not.toBeNull();
+    }
     store.close();
   });
 
-  it('returns default values until a custom prompt is saved', () => {
+  it('returns a retained creative default value until a custom prompt is saved', () => {
     const store = new ProcessPromptStore(createTempDbPath());
 
-    expect(store.getEffectiveValue('provider-management')).toBe(
-      PROCESS_PROMPT_DEFAULTS.find((entry) => entry.processKey === 'provider-management')
+    expect(store.getEffectiveValue('image-node-generation')).toBe(
+      PROCESS_PROMPT_DEFAULTS.find((entry) => entry.processKey === 'image-node-generation')
         ?.defaultValue,
     );
 
-    store.setCustom('provider-management', 'Custom provider rules');
+    store.setCustom('image-node-generation', 'Custom image rules');
 
-    expect(store.getEffectiveValue('provider-management')).toBe('Custom provider rules');
-    expect(store.get('provider-management')?.customValue).toBe('Custom provider rules');
+    expect(store.getEffectiveValue('image-node-generation')).toBe('Custom image rules');
+    expect(store.get('image-node-generation')?.customValue).toBe('Custom image rules');
     store.close();
   });
 
-  it('resets a custom value back to its default', () => {
+  it('resets a retained creative custom value back to its default', () => {
     const store = new ProcessPromptStore(createTempDbPath());
 
-    store.setCustom('canvas-node-editing', 'Temporary override');
-    store.resetToDefault('canvas-node-editing');
+    store.setCustom('video-node-generation', 'Temporary override');
+    store.resetToDefault('video-node-generation');
 
-    expect(store.get('canvas-node-editing')?.customValue).toBeNull();
-    expect(store.getEffectiveValue('canvas-node-editing')).toBe(
-      PROCESS_PROMPT_DEFAULTS.find((entry) => entry.processKey === 'canvas-node-editing')
+    expect(store.get('video-node-generation')?.customValue).toBeNull();
+    expect(store.getEffectiveValue('video-node-generation')).toBe(
+      PROCESS_PROMPT_DEFAULTS.find((entry) => entry.processKey === 'video-node-generation')
         ?.defaultValue,
     );
     store.close();
@@ -143,25 +174,34 @@ describe('ProcessPromptStore', () => {
     expect(secondCount).toBe(firstCount);
   });
 
-  it('keeps legacy rows in storage while hiding them from the current catalog', () => {
+  it('keeps retired rows and custom values while hiding them from the current catalog', () => {
     const dbPath = createTempDbPath();
     const first = new ProcessPromptStore(dbPath);
-    first.seedDefaults([
-      {
-        processKey: 'legacy-process',
-        name: 'Legacy Process',
+    first.seedDefaults(
+      RETIRED_PROCESS_PROMPT_KEYS.map((processKey) => ({
+        processKey,
+        name: `Retired ${processKey}`,
         description: 'Retained for compatibility',
         defaultValue: 'Legacy rules',
-      },
-    ]);
+      })),
+    );
+    first.setCustom('ordered-delivery', 'Retained custom delivery guide');
 
-    expect(first.list().some((prompt) => prompt.processKey === 'legacy-process')).toBe(false);
-    expect(first.get('legacy-process')?.defaultValue).toBe('Legacy rules');
+    const firstListedKeys = first.list().map((prompt) => prompt.processKey);
+    for (const processKey of RETIRED_PROCESS_PROMPT_KEYS) {
+      expect(firstListedKeys).not.toContain(processKey);
+      expect(first.get(processKey)?.defaultValue).toBe('Legacy rules');
+    }
+    expect(first.get('ordered-delivery')?.customValue).toBe('Retained custom delivery guide');
     first.close();
 
     const second = new ProcessPromptStore(dbPath);
-    expect(second.list().some((prompt) => prompt.processKey === 'legacy-process')).toBe(false);
-    expect(second.get('legacy-process')?.defaultValue).toBe('Legacy rules');
+    const secondListedKeys = second.list().map((prompt) => prompt.processKey);
+    for (const processKey of RETIRED_PROCESS_PROMPT_KEYS) {
+      expect(secondListedKeys).not.toContain(processKey);
+      expect(second.get(processKey)?.defaultValue).toBe('Legacy rules');
+    }
+    expect(second.get('ordered-delivery')?.customValue).toBe('Retained custom delivery guide');
     second.close();
   });
 

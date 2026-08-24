@@ -29,6 +29,9 @@ export const equipmentSlice = createSlice({
     addEquipment(state, action: PayloadAction<Equipment>) {
       state.items.push(action.payload);
     },
+    addEquipmentBatch(state, action: PayloadAction<Equipment[]>) {
+      state.items.push(...action.payload);
+    },
     updateEquipment(state, action: PayloadAction<{ id: string; data: Partial<Equipment> }>) {
       const item = state.items.find((e) => e.id === action.payload.id);
       if (item) Object.assign(item, action.payload.data);
@@ -36,6 +39,11 @@ export const equipmentSlice = createSlice({
     removeEquipment(state, action: PayloadAction<string>) {
       state.items = state.items.filter((e) => e.id !== action.payload);
       if (state.selectedId === action.payload) state.selectedId = null;
+    },
+    removeEquipmentBatch(state, action: PayloadAction<string[]>) {
+      const ids = new Set(action.payload);
+      state.items = state.items.filter((equipment) => !ids.has(equipment.id));
+      if (state.selectedId && ids.has(state.selectedId)) state.selectedId = null;
     },
     selectEquipment(state, action: PayloadAction<string | null>) {
       state.selectedId = action.payload;
@@ -88,14 +96,22 @@ export const equipmentSlice = createSlice({
       const item = state.items.find((e) => e.id === action.payload.id);
       if (item) item.folderId = action.payload.folderId;
     },
+    moveItemsToFolder(state, action: PayloadAction<{ ids: string[]; folderId: string | null }>) {
+      const ids = new Set(action.payload.ids);
+      for (const equipment of state.items) {
+        if (ids.has(equipment.id)) equipment.folderId = action.payload.folderId;
+      }
+    },
   },
 });
 
 export const {
   setEquipment,
   addEquipment,
+  addEquipmentBatch,
   updateEquipment,
   removeEquipment,
+  removeEquipmentBatch,
   selectEquipment,
   setLoading,
   setEquipmentRefImage,
@@ -107,4 +123,5 @@ export const {
   setCurrentFolder,
   setFoldersLoading,
   moveItemToFolder,
+  moveItemsToFolder,
 } = equipmentSlice.actions;

@@ -1,12 +1,20 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import type {
   Canvas,
-  CommanderPromptGuide,
-  CommanderProcessBehaviorSettings,
-  TimelineEvent,
-  WireEnvelope,
+  CanvasDeliveryUpdateRequest,
+  CanvasDeliveryUpdateResponse,
+  CommanderToolAnswerResponse,
+  CommanderToolDecisionResponse,
+  CommanderStartRequest,
+  CommanderStartResponse,
+  CommanderRunGetResponse,
+  CommanderRunControlRequest,
+  CommanderRunControlResponse,
+  CommanderRunTreeRequest,
+  CommanderRunTreeResponse,
+  CommanderEventsHydrateResponse,
+  CommanderStreamPayload,
   LLMProviderRuntimeInput,
-  LLMProviderRuntimeConfig,
   PresetCategory,
   PresetDefinition,
   PresetLibraryExportPayload,
@@ -27,63 +35,17 @@ type Callback = (...args: unknown[]) => void;
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-/** Channels that need longer timeouts (generation, AI, export, etc.) */
+/** Channels that need longer timeouts (generation, AI, packaging, etc.) */
 const LONG_TIMEOUT_CHANNELS = new Set([
-  'ai:chat',
-  'canvas:generate',
-  'video:clone',
-  'lipsync:process',
-  'render:start',
-  'export:nle',
-  'export:assetBundle',
-  'export:storyboard',
-  'export:metadata',
-  'export:capcut',
-  'asset:reindexEmbeddings',
-  'entity:generateReferenceImage',
+  'deliveryPackage:start',
   'vision:describeImage',
   'colorStyle:extract',
 ]);
 const LONG_TIMEOUT_MS = 300_000; // 5 minutes
 
-/** Channels where the handler streams events separately and can run indefinitely. */
-const NO_TIMEOUT_CHANNELS = new Set(['commander:chat']);
-
-/* ---------- IPC rate limiting ---------- */
-
-const RATE_LIMITED_CHANNELS: Record<string, { maxPerSecond: number }> = {
-  'canvas:generate': { maxPerSecond: 2 },
-  'entity:generateReferenceImage': { maxPerSecond: 2 },
-};
-
-const rateLimitState = new Map<string, number[]>();
-
-function checkRateLimit(channel: string): void {
-  const config = RATE_LIMITED_CHANNELS[channel];
-  if (!config) return;
-
-  const now = Date.now();
-  const window = 1000; // 1-second sliding window
-  let timestamps = rateLimitState.get(channel) ?? [];
-  timestamps = timestamps.filter((t) => now - t < window);
-
-  if (timestamps.length >= config.maxPerSecond) {
-    throw new Error(`IPC rate limited: ${channel} exceeds ${config.maxPerSecond} calls/sec`);
-  }
-
-  timestamps.push(now);
-  rateLimitState.set(channel, timestamps);
-}
-
-/* ---------- invoke with timeout + rate limiting ---------- */
+/* ---------- invoke with timeout ---------- */
 
 function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
-  checkRateLimit(channel);
-
-  if (NO_TIMEOUT_CHANNELS.has(channel)) {
-    return ipcRenderer.invoke(channel, ...args) as Promise<T>;
-  }
-
   const timeoutMs = LONG_TIMEOUT_CHANNELS.has(channel) ? LONG_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
 
   return new Promise<T>((resolve, reject) => {
@@ -108,8 +70,6 @@ function typedInvoke<C extends IpcChannel>(
   channel: C,
   request: IpcRequest<C>,
 ): Promise<IpcResponse<C>> {
-  checkRateLimit(channel);
-
   const timeoutMs = LONG_TIMEOUT_CHANNELS.has(channel) ? LONG_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
 
   return new Promise<IpcResponse<C>>((resolve, reject) => {
@@ -136,8 +96,12 @@ function subscribe(channel: string, cb: Callback): () => void {
 }
 
 let appReady = false;
+let appInitError: string | null = null;
 ipcRenderer.on('app:ready', () => {
   appReady = true;
+});
+ipcRenderer.on('app:init-error', (_event, error: unknown) => {
+  appInitError = typeof error === 'string' ? error : String(error);
 });
 
 contextBridge.exposeInMainWorld('lucidAPI', {
@@ -183,7 +147,9 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     list: () => invoke('character:list'),
     get: (id: string) => invoke('character:get', { id }),
     save: (data: Record<string, unknown>) => invoke('character:save', data),
-    delete: (id: string) => invoke('character:delete', { id }),
+    copy: (ids: string[], targetFolderId: string | null) =>
+      invoke('character:copy', { ids, targetFolderId }),
+    delete: (ids: string[]) => invoke('character:delete', { ids }),
     setRefImage: (characterId: string, slot: string, assetHash: string, isStandard: boolean) =>
       invoke('character:setRefImage', { characterId, slot, assetHash, isStandard }),
     removeRefImage: (characterId: string, slot: string) =>
@@ -192,8 +158,8 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       invoke('character:saveLoadout', { characterId, loadout }),
     deleteLoadout: (characterId: string, loadoutId: string) =>
       invoke('character:deleteLoadout', { characterId, loadoutId }),
-    setFolder: (id: string, folderId: string | null) =>
-      invoke<void>('character:setFolder', { id, folderId }),
+    setFolder: (ids: string[], folderId: string | null) =>
+      invoke('character:setFolder', { ids, folderId }),
   },
 
   // Equipment
@@ -201,13 +167,15 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     list: (filter?: { type?: string }) => invoke('equipment:list', filter ?? {}),
     get: (id: string) => invoke('equipment:get', { id }),
     save: (data: Record<string, unknown>) => invoke('equipment:save', data),
-    delete: (id: string) => invoke('equipment:delete', { id }),
+    copy: (ids: string[], targetFolderId: string | null) =>
+      invoke('equipment:copy', { ids, targetFolderId }),
+    delete: (ids: string[]) => invoke('equipment:delete', { ids }),
     setRefImage: (equipmentId: string, slot: string, assetHash: string, isStandard: boolean) =>
       invoke('equipment:setRefImage', { equipmentId, slot, assetHash, isStandard }),
     removeRefImage: (equipmentId: string, slot: string) =>
       invoke('equipment:removeRefImage', { equipmentId, slot }),
-    setFolder: (id: string, folderId: string | null) =>
-      invoke<void>('equipment:setFolder', { id, folderId }),
+    setFolder: (ids: string[], folderId: string | null) =>
+      invoke('equipment:setFolder', { ids, folderId }),
   },
 
   // Location
@@ -215,25 +183,16 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     list: (filter?: { type?: string }) => invoke('location:list', filter ?? {}),
     get: (id: string) => invoke('location:get', { id }),
     save: (data: Record<string, unknown>) => invoke('location:save', data),
-    delete: (id: string) => invoke('location:delete', { id }),
+    copy: (ids: string[], targetFolderId: string | null) =>
+      invoke('location:copy', { ids, targetFolderId }),
+    delete: (ids: string[]) => invoke('location:delete', { ids }),
     setRefImage: (locationId: string, slot: string, assetHash: string, isStandard: boolean) =>
       invoke('location:setRefImage', { locationId, slot, assetHash, isStandard }),
     removeRefImage: (locationId: string, slot: string) =>
       invoke('location:removeRefImage', { locationId, slot }),
-    setFolder: (id: string, folderId: string | null) =>
-      invoke<void>('location:setFolder', { id, folderId }),
+    setFolder: (ids: string[], folderId: string | null) =>
+      invoke('location:setFolder', { ids, folderId }),
   },
-  entity: {
-    generateReferenceImage: (request: {
-      entityType: 'character' | 'equipment' | 'location';
-      entityId: string;
-      description: string;
-      provider: string;
-      variantCount?: number;
-      seed?: number;
-    }) => invoke<{ variants: string[] }>('entity:generateReferenceImage', request),
-  },
-
   // Style Guide
   style: {
     save: (data: Record<string, unknown>) => invoke('style:save', data),
@@ -249,72 +208,63 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       invoke('colorStyle:extract', { assetHash, assetType }),
   },
 
-  // Assets
-  asset: {
-    import: (filePath: string, type: string) => invoke('asset:import', { filePath, type }),
+  // Logical Asset library entries
+  assetEntry: {
+    import: (filePath: string, type: string) => invoke('assetEntry:import', { filePath, type }),
     importBuffer: (buffer: ArrayBuffer, fileName: string, type: string) =>
-      invoke('asset:importBuffer', { buffer, fileName, type }),
-    pickFile: (type: string) => invoke('asset:pickFile', { type }),
-    query: (filter: Record<string, unknown>) => invoke('asset:query', filter),
+      invoke('assetEntry:importBuffer', { buffer, fileName, type }),
+    pickFile: (type: string) => invoke('assetEntry:pickFile', { type }),
+    query: (filter: Record<string, unknown>) => invoke('assetEntry:query', filter),
+    copy: (entryIds: string[], targetFolderId: string | null) =>
+      invoke('assetEntry:copy', { entryIds, targetFolderId }),
+    move: (entryIds: string[], folderId: string | null) =>
+      invoke('assetEntry:move', { entryIds, folderId }),
+    rename: (entryId: string, displayName: string) =>
+      invoke('assetEntry:rename', { entryId, displayName }),
+    delete: (entryIds: string[]) => invoke('assetEntry:delete', { entryIds }),
+  },
+
+  // Hash-addressed CAS content operations
+  assetContent: {
     getPath: (hash: string, type: string, ext: string) =>
-      invoke('asset:getPath', { hash, type, ext }),
+      invoke('assetContent:getPath', { hash, type, ext }),
+    inspect: (hash: string) => invoke('assetContent:inspect', { hash }),
     export: (args: { hash: string; type: string; format: string; name?: string }) =>
-      invoke('asset:export', args),
-    exportBatch: (args: { items: Array<{ hash: string; type: string; name?: string }> }) =>
-      invoke('asset:exportBatch', args),
-    delete: (hash: string) => invoke('asset:delete', { hash }),
-    setFolder: (hash: string, folderId: string | null) =>
-      invoke<void>('asset:setFolder', { hash, folderId }),
+      invoke('assetContent:export', args),
   },
 
   // Jobs
-  job: {
-    submit: (request: Record<string, unknown>) => invoke('job:submit', request),
-    list: (filter?: Record<string, unknown>) => invoke('job:list', filter ?? {}),
-    cancel: (jobId: string) => invoke('job:cancel', { jobId }),
-    pause: (jobId: string) => invoke('job:pause', { jobId }),
-    resume: (jobId: string) => invoke('job:resume', { jobId }),
-    onProgress: (cb: Callback) => subscribe('job:progress', cb),
-    onComplete: (cb: Callback) => subscribe('job:complete', cb),
-    onSubmitted: (cb: Callback) => subscribe('job:submitted', cb),
-    onFailed: (cb: Callback) => subscribe('job:failed', cb),
-    onCancelled: (cb: Callback) => subscribe('job:cancelled', cb),
-    onPaused: (cb: Callback) => subscribe('job:paused', cb),
-    onResumed: (cb: Callback) => subscribe('job:resumed', cb),
-  },
-
-  refimage: {
-    onStart: (cb: Callback) => subscribe('refimage:start', cb),
-    onComplete: (cb: Callback) => subscribe('refimage:complete', cb),
-    onFailed: (cb: Callback) => subscribe('refimage:failed', cb),
-  },
-
-  // Workflows
-  workflow: {
-    list: (filter?: Record<string, unknown>) => invoke('workflow:list', filter ?? {}),
-    get: (id: string) => invoke('workflow:get', { id }),
-    getStages: (workflowRunId: string) => invoke('workflow:getStages', { workflowRunId }),
-    getTasks: (workflowRunId: string) => invoke('workflow:getTasks', { workflowRunId }),
-    getPendingApproval: (workflowRunId: string) =>
-      invoke('workflow:getPendingApproval', { workflowRunId }),
-    getVisualAuditions: (workflowRunId: string) =>
-      invoke('workflow:getVisualAuditions', { workflowRunId }),
-    getFinalExport: (workflowRunId: string) => invoke('workflow:getFinalExport', { workflowRunId }),
+  // Persistent Task Lists. Execution mutations are Commander tools.
+  taskLists: {
+    list: (filter?: Record<string, unknown>) => invoke('taskList:list', filter ?? {}),
+    get: (id: string) => invoke('taskList:get', { id }),
+    getTasks: (taskListId: string) => invoke('taskList:getTasks', { taskListId }),
+    startMedia: (request: Record<string, unknown>) => invoke('taskList:startMedia', request),
+    cancelMedia: (request: { canvasId: string; nodeId: string }) =>
+      invoke('taskList:cancelMedia', request),
+    retryMediaEvaluation: (taskListId: string) =>
+      invoke('taskList:retryMediaEvaluation', { taskListId }),
+    retryMedia: (request: { canvasId: string; nodeId: string; providerId?: string }) =>
+      invoke('taskList:retryMedia', request),
+    getPendingApproval: (taskListId: string) =>
+      invoke('taskList:getPendingApproval', { taskListId }),
+    getVisualAuditions: (taskListId: string) =>
+      invoke('taskList:getVisualAuditions', { taskListId }),
+    getDelivery: (taskListId: string) => invoke('taskList:getDelivery', { taskListId }),
     selectVisualCandidate: (request: Record<string, unknown>) =>
-      invoke('workflow:selectVisualCandidate', request),
-    approveGate: (request: Record<string, unknown>) => invoke('workflow:approveGate', request),
+      invoke('taskList:selectVisualCandidate', request),
+    requestVisualAuditionChanges: (request: Record<string, unknown>) =>
+      invoke('taskList:requestVisualAuditionChanges', request),
+    approveGate: (request: Record<string, unknown>) => invoke('taskList:approveGate', request),
     requestChanges: (request: Record<string, unknown>) =>
-      invoke('workflow:requestChanges', request),
-    rejectGate: (request: Record<string, unknown>) => invoke('workflow:rejectGate', request),
+      invoke('taskList:requestChanges', request),
+    rejectGate: (request: Record<string, unknown>) => invoke('taskList:rejectGate', request),
     listPendingDecisions: (request: Record<string, unknown>) =>
-      invoke('workflow:listPendingDecisions', request),
-    start: (request: Record<string, unknown>) => invoke('workflow:start', request),
-    pause: (id: string) => invoke('workflow:pause', { id }),
-    resume: (id: string) => invoke('workflow:resume', { id }),
-    cancel: (id: string) => invoke('workflow:cancel', { id }),
-    retryTask: (taskRunId: string) => invoke('workflow:retryTask', { taskRunId }),
-    retryStage: (stageRunId: string) => invoke('workflow:retryStage', { stageRunId }),
-    retryWorkflow: (id: string) => invoke('workflow:retryWorkflow', { id }),
+      invoke('taskList:listPendingDecisions', request),
+  },
+
+  promptAssembly: {
+    get: (id: string) => invoke('promptAssembly:get', { id }),
   },
 
   // Keychain
@@ -349,18 +299,6 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       subscribe('providerOAuth:changed', cb as Callback),
   },
 
-  // AI Commander
-  ai: {
-    chat: (message: string, context?: Record<string, unknown>) =>
-      invoke('ai:chat', { message, context }),
-    onStream: (cb: Callback) => subscribe('ai:stream', cb),
-    onEvent: (cb: Callback) => subscribe('ai:event', cb),
-    promptList: () => invoke('ai:prompt:list'),
-    promptGet: (code: string) => invoke('ai:prompt:get', { code }),
-    promptSetCustom: (code: string, value: string) =>
-      invoke('ai:prompt:setCustom', { code, value }),
-    promptClearCustom: (code: string) => invoke('ai:prompt:clearCustom', { code }),
-  },
   processPrompt: {
     list: () => typedInvoke('processPrompt:list', undefined as IpcRequest<'processPrompt:list'>),
     get: (processKey: string) => typedInvoke('processPrompt:get', { processKey }),
@@ -409,92 +347,59 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     },
   },
   commander: {
-    chat: (
-      canvasId: string,
-      message: string,
-      history: Array<Record<string, unknown>>,
-      selectedNodeIds: string[],
-      promptGuides?: CommanderPromptGuide[],
-      customLLMProvider?: LLMProviderRuntimeConfig,
-      permissionMode?: 'danger' | 'auto' | 'normal' | 'strict',
-      locale?: string,
-      maxSteps?: number,
-      temperature?: number,
-      maxTokens?: number,
-      sessionId?: string,
-      defaultProviders?: Record<string, string>,
-      processSettings?: CommanderProcessBehaviorSettings,
-    ) =>
-      invoke<void>('commander:chat', {
-        canvasId,
-        message,
-        history,
-        selectedNodeIds,
-        promptGuides,
-        customLLMProvider,
-        permissionMode,
-        locale,
-        maxSteps,
-        temperature,
-        maxTokens,
-        sessionId,
-        defaultProviders,
-        processSettings,
-      }),
-    cancel: (canvasId: string) => invoke('commander:cancel', { canvasId }),
-    cancelCurrentStep: (canvasId: string) =>
-      invoke<{ escalated: boolean }>('commander:cancel-step', { canvasId }),
-    compact: (canvasId: string) =>
-      invoke<{ freedChars: number; messageCount: number; toolCount: number }>('commander:compact', {
-        canvasId,
-      }),
-    injectMessage: (canvasId: string, message: string) =>
-      invoke('commander:inject-message', { canvasId, message }),
-    confirmTool: (canvasId: string, toolCallId: string, approved: boolean) =>
-      invoke('commander:tool:decision', { canvasId, toolCallId, approved }),
-    answerQuestion: (canvasId: string, toolCallId: string, answer: string) =>
-      invoke('commander:tool:answer', { canvasId, toolCallId, answer }),
-    toolList: () =>
-      invoke<
-        Array<{
-          name: string;
-          description: string;
-          tags?: string[];
-          tier: number;
-        }>
-      >('commander:tool-list'),
-    toolSearch: (query?: string) =>
-      invoke<
-        Array<{
-          name: string;
-          description: string;
-        }>
-      >('commander:tool-search', { query }),
-    hydrateEvents: (sessionId: string) =>
-      invoke<{ events: unknown[] }>('commander:events:hydrate', { sessionId }),
-    onStream: (cb: (envelope: WireEnvelope<TimelineEvent>) => void) => {
+    start: (request: CommanderStartRequest) =>
+      invoke<CommanderStartResponse>('commander:start', request),
+    cancel: (request: { runId: string }) => invoke<void>('commander:cancel', request),
+    cancelStep: (request: { runId: string }) =>
+      invoke<{ escalated: boolean }>('commander:cancel-step', request),
+    compact: (request: { runId: string }) =>
+      invoke<{ freedChars: number; messageCount: number; toolCount: number }>(
+        'commander:compact',
+        request,
+      ),
+    injectMessage: (request: { runId: string; message: string }) =>
+      invoke<void>('commander:inject-message', request),
+    toolDecision: (request: {
+      runId: string;
+      sessionId: string;
+      toolCallId: string;
+      approved: boolean;
+    }) => invoke<CommanderToolDecisionResponse>('commander:tool:decision', request),
+    toolAnswer: (request: {
+      runId: string;
+      sessionId: string;
+      toolCallId: string;
+      answer: string;
+    }) => invoke<CommanderToolAnswerResponse>('commander:tool:answer', request),
+    runGet: (request: { runId: string }) =>
+      invoke<CommanderRunGetResponse>('commander:run:get', request),
+    runControl: (request: CommanderRunControlRequest) =>
+      invoke<CommanderRunControlResponse>('commander:run:control', request),
+    runTree: (request: CommanderRunTreeRequest) =>
+      invoke<CommanderRunTreeResponse>('commander:run:tree', request),
+    eventsHydrate: (request: { runId: string; afterSeq: number }) =>
+      invoke<CommanderEventsHydrateResponse>('commander:events:hydrate', request),
+    onStream: (cb: (envelope: CommanderStreamPayload) => void) => {
       // Main emits v2 envelopes directly — no wrapping needed at the bridge.
       const wrapped: Callback = (...args: unknown[]) => {
-        cb(args[0] as WireEnvelope<TimelineEvent>);
+        cb(args[0] as CommanderStreamPayload);
       };
       return subscribe('commander:stream', wrapped);
     },
-    onCanvasUpdated: (cb: (data: { canvasId: string; canvas: Canvas }) => void) =>
+    onCanvasDispatch: (cb: (data: { canvasId: string; canvas: Canvas }) => void) =>
       subscribe('commander:canvas:dispatch', cb as Callback),
     onEntitiesUpdated: (cb: (data: { toolName: string }) => void) =>
       subscribe('commander:entities:updated', cb as Callback),
     onSettingsDispatch: (
       cb: (data: { action: string; payload: Record<string, unknown> }) => void,
     ) => subscribe('commander:settings:dispatch', cb as Callback),
-    onUndoDispatch: (cb: (data: { action: 'undo' | 'redo' }) => void) =>
-      subscribe('commander:undo:dispatch', cb as Callback),
   },
 
   // Session history
   session: {
     upsert: (s: {
       id: string;
-      canvasId: string | null;
+      defaultCanvasId: string | null;
       title: string;
       messages: string;
       createdAt: number;
@@ -504,8 +409,9 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       invoke<
         Array<{
           id: string;
-          canvasId: string | null;
+          defaultCanvasId: string | null;
           title: string;
+          messageCount: number;
           createdAt: number;
           updatedAt: number;
         }>
@@ -513,13 +419,15 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     get: (id: string) =>
       invoke<{
         id: string;
-        canvasId: string | null;
+        defaultCanvasId: string | null;
         title: string;
         messages: string;
         createdAt: number;
         updatedAt: number;
       }>('session:get', { id }),
     delete: (id: string) => invoke<{ success: true }>('session:delete', { id }),
+    move: (id: string, defaultCanvasId: string | null) =>
+      invoke<{ success: true }>('session:move', { id, defaultCanvasId }),
   },
 
   // Snapshots
@@ -552,7 +460,13 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     }
     return subscribe('app:ready', cb);
   },
-  onInitError: (cb: Callback) => subscribe('app:init-error', cb),
+  onInitError: (cb: Callback) => {
+    if (appInitError !== null) {
+      cb(appInitError);
+      return () => {};
+    }
+    return subscribe('app:init-error', cb);
+  },
   onFlushBeforeQuit: (cb: Callback) => subscribe('app:flush-before-quit', cb),
   sendFlushComplete: () => {
     ipcRenderer.send('app:flush-complete');
@@ -568,35 +482,21 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     onToast: (cb: Callback) => subscribe('updater:toast', cb),
   },
 
-  // Render
-  render: {
-    start: (request: Record<string, unknown>) => invoke('render:start', request),
-    status: (jobId: string) => invoke('render:status', { jobId }),
-    cancel: (jobId: string) => invoke('render:cancel', { jobId }),
+  // Authoritative Delivery package
+  deliveryPackage: {
+    start: (request: Record<string, unknown>) => invoke('deliveryPackage:start', request),
+    status: (attemptId: string) => invoke('deliveryPackage:status', { attemptId }),
+    cancel: (attemptId: string) => invoke('deliveryPackage:cancel', { attemptId }),
+    retry: (attemptId: string) => invoke('deliveryPackage:retry', { attemptId }),
+    open: (attemptId: string) => invoke('deliveryPackage:open', { attemptId }),
   },
 
-  // Export
-  export: {
-    nle: (preset: Record<string, unknown>) => invoke('export:nle', preset),
-    assetBundle: (assetHashes: string[], outputPath?: string, canvasId?: string) =>
-      invoke('export:assetBundle', { assetHashes, outputPath, canvasId }),
-    subtitles: (format: string, outputPath: string) =>
-      invoke('export:subtitles', { format, outputPath }),
-    storyboard: (
-      nodes: Array<Record<string, unknown>>,
-      projectTitle?: string,
-      outputPath?: string,
-    ) => invoke('export:storyboard', { nodes, projectTitle, outputPath }),
-    metadata: (
-      format: 'csv' | 'json',
-      nodes: Array<Record<string, unknown>>,
-      projectTitle?: string,
-      outputPath?: string,
-    ) => invoke('export:metadata', { format, nodes, projectTitle, outputPath }),
-    importSrt: (canvasId: string, filePath: string, alignToNodes?: boolean) =>
-      invoke('import:srt', { canvasId, filePath, alignToNodes }),
-    capcut: (nodes: Array<Record<string, unknown>>, projectTitle?: string, outputDir?: string) =>
-      invoke<{ draftDir: string }>('export:capcut', { nodes, projectTitle, outputDir }),
+  // Derived Review Cut preview
+  reviewCut: {
+    start: (request: Record<string, unknown>) => invoke('reviewCut:start', request),
+    status: (jobId: string) => invoke('reviewCut:status', { jobId }),
+    cancel: (jobId: string) => invoke('reviewCut:cancel', { jobId }),
+    open: (jobId: string) => invoke('reviewCut:open', { jobId }),
   },
 
   // FFmpeg
@@ -608,18 +508,6 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       invoke('ffmpeg:transcode', { input, output, options }),
   },
 
-  // Series
-  series: {
-    get: () => invoke('series:get'),
-    save: (data: Record<string, unknown>) => invoke('series:save', data),
-    delete: () => invoke('series:delete'),
-    episodes: {
-      list: () => invoke('series:episodes:list'),
-      add: (episode: Record<string, unknown>) => invoke('series:episodes:add', episode),
-      remove: (id: string) => invoke('series:episodes:remove', { id }),
-      reorder: (ids: string[]) => invoke('series:episodes:reorder', { ids }),
-    },
-  },
 
   // Canvas
   canvas: {
@@ -630,105 +518,14 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     patch: (args: IpcRequest<'canvas:patch'>) => typedInvoke('canvas:patch', args),
     create: (name: string) => typedInvoke('canvas:create', { name }),
     delete: (id: string) => invoke('canvas:delete', { id }),
+    restore: (id: string) => invoke('canvas:restore', { id }),
+    deletePermanent: (id: string) => invoke('canvas:deletePermanent', { id }),
     rename: (id: string, name: string) => invoke('canvas:rename', { id, name }),
   },
-  canvasGeneration: {
-    generate: (
-      canvasId: string,
-      nodeId: string,
-      providerId?: string,
-      variantCount?: number,
-      seed?: number,
-      providerConfig?: { baseUrl: string; model: string; apiKey?: string },
-    ) =>
-      invoke('canvas:generate', {
-        canvasId,
-        nodeId,
-        providerId,
-        providerConfig,
-        variantCount,
-        seed,
-      }),
-    cancel: (canvasId: string, nodeId: string) =>
-      invoke('canvas:cancelGeneration', { canvasId, nodeId }),
-    estimateCost: (
-      canvasId: string,
-      nodeId: string,
-      providerId: string,
-      providerConfig?: { baseUrl: string; model: string; apiKey?: string },
-    ) => invoke('canvas:estimateCost', { canvasId, nodeId, providerId, providerConfig }),
-    extractLastFrame: (canvasId: string, nodeId: string) =>
-      invoke('video:extractLastFrame', { canvasId, nodeId }),
-    onProgress: (
-      cb: (data: {
-        canvasId: string;
-        nodeId: string;
-        progress: number;
-        currentStep?: string;
-      }) => void,
-    ) => {
-      const handler = (
-        _event: IpcRendererEvent,
-        data: {
-          canvasId: string;
-          nodeId: string;
-          progress: number;
-          currentStep?: string;
-        },
-      ) => cb(data);
-      ipcRenderer.on('canvas:generation:progress', handler);
-      return () => ipcRenderer.removeListener('canvas:generation:progress', handler);
-    },
-    onComplete: (
-      cb: (data: {
-        canvasId: string;
-        nodeId: string;
-        variants: string[];
-        primaryAssetHash: string;
-        cost?: number;
-        generationTimeMs: number;
-        characterRefs?: Array<{ entityId: string; imageHashes: string[] }>;
-        equipmentRefs?: Array<{ entityId: string; imageHashes: string[] }>;
-        locationRefs?: Array<{ entityId: string; imageHashes: string[] }>;
-        frameReferenceHashes?: { first?: string; last?: string };
-        sourceImageHash?: string;
-        model?: string;
-      }) => void,
-    ) => {
-      const handler = (
-        _event: IpcRendererEvent,
-        data: {
-          canvasId: string;
-          nodeId: string;
-          variants: string[];
-          primaryAssetHash: string;
-          cost?: number;
-          generationTimeMs: number;
-          characterRefs?: Array<{ entityId: string; imageHashes: string[] }>;
-          equipmentRefs?: Array<{ entityId: string; imageHashes: string[] }>;
-          locationRefs?: Array<{ entityId: string; imageHashes: string[] }>;
-          frameReferenceHashes?: { first?: string; last?: string };
-          sourceImageHash?: string;
-          model?: string;
-        },
-      ) => cb(data);
-      ipcRenderer.on('canvas:generation:complete', handler);
-      return () => ipcRenderer.removeListener('canvas:generation:complete', handler);
-    },
-    onFailed: (cb: (data: { canvasId: string; nodeId: string; error: string }) => void) => {
-      const handler = (
-        _event: IpcRendererEvent,
-        data: {
-          canvasId: string;
-          nodeId: string;
-          error: string;
-        },
-      ) => cb(data);
-      ipcRenderer.on('canvas:generation:failed', handler);
-      return () => ipcRenderer.removeListener('canvas:generation:failed', handler);
-    },
+  canvasDelivery: {
+    update: (request: CanvasDeliveryUpdateRequest) =>
+      invoke<CanvasDeliveryUpdateResponse>('canvasDelivery:update', request),
   },
-
   // Presets
   preset: {
     list: (filter?: { includeBuiltIn?: boolean; category?: PresetCategory }) =>
@@ -748,41 +545,6 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       invoke<{ prompt: string }>('vision:describeImage', { assetHash, assetType, style }),
   },
 
-  // Embedding (Semantic Search)
-  embedding: {
-    generate: (assetHash: string) => invoke('asset:generateEmbedding', { assetHash }),
-    search: (query: string, limit?: number) =>
-      invoke<{ hash: string; score: number; description: string }[]>('asset:searchSemantic', {
-        query,
-        limit,
-      }),
-    reindex: () => invoke('asset:reindexEmbeddings'),
-  },
-
-  // Video Clone (F1)
-  video: {
-    pickFile: () => invoke<string | null>('video:pickFile'),
-    clone: (filePath: string, threshold?: number) =>
-      invoke<{ canvasId: string; nodeCount: number }>('video:clone', { filePath, threshold }),
-    onCloneProgress: (
-      cb: (data: { step: string; current: number; total: number; message: string }) => void,
-    ) => {
-      const handler = (
-        _event: IpcRendererEvent,
-        data: { step: string; current: number; total: number; message: string },
-      ) => cb(data);
-      ipcRenderer.on('video:clone:progress', handler);
-      return () => ipcRenderer.removeListener('video:clone:progress', handler);
-    },
-  },
-
-  // Lip Sync (F2)
-  lipsync: {
-    process: (canvasId: string, nodeId: string) => invoke('lipsync:process', { canvasId, nodeId }),
-    checkAvailability: () =>
-      invoke<{ available: boolean; backend: string }>('lipsync:checkAvailability'),
-  },
-
   // Storage Management
   storage: {
     getOverview: () =>
@@ -796,9 +558,9 @@ contextBridge.exposeInMainWorld('lucidAPI', {
         paths: { appRoot: string; database: string; globalAssets: string; logs: string };
       }>('storage:getOverview'),
     openFolder: (folderPath: string) => invoke('storage:openFolder', { path: folderPath }),
+    openPath: (filePath: string) => invoke('storage:openPath', { path: filePath }),
     showInFolder: (filePath: string) => invoke('storage:showInFolder', { path: filePath }),
     clearLogs: () => invoke<{ cleared: number }>('storage:clearLogs'),
-    clearEmbeddings: () => invoke<{ success: boolean; error?: string }>('storage:clearEmbeddings'),
     vacuumDatabase: () => invoke<{ success: boolean; error?: string }>('storage:vacuumDatabase'),
     backupDatabase: (destPath: string) =>
       invoke<{ success: boolean; error?: string }>('storage:backupDatabase', { destPath }),

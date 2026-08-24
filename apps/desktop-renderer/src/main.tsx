@@ -4,6 +4,9 @@ import { Provider } from 'react-redux';
 import { store } from './store/index.js';
 import { App } from './App.js';
 import './styles/globals.css';
+import { registerFlushOnQuit } from './utils/flush-on-quit.js';
+
+registerFlushOnQuit();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

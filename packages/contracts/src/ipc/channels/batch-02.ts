@@ -7,6 +7,9 @@
  * contract-owned.
  */
 
+import type { Character } from '../../dto/character.js';
+import type { Equipment } from '../../dto/equipment.js';
+
 // ── character:list ───────────────────────────────────────────
 export type CharacterListRequest = Record<string, never>;
 export type CharacterListResponse = unknown[];
@@ -22,10 +25,20 @@ export type CharacterSaveRequest = unknown;
 export type CharacterSaveResponse = unknown;
 
 // ── character:delete ─────────────────────────────────────────
-export interface CharacterDeleteRequest {
-  id: string;
+export interface CharacterCopyRequest {
+  ids: string[];
+  targetFolderId: string | null;
 }
-export type CharacterDeleteResponse = void;
+export interface CharacterCopyResponse {
+  created: Character[];
+}
+
+export interface CharacterDeleteRequest {
+  ids: string[];
+}
+export interface CharacterDeleteResponse {
+  deletedIds: string[];
+}
 
 // ── character:setRefImage ────────────────────────────────────
 export interface CharacterSetRefImageRequest {
@@ -74,10 +87,20 @@ export type EquipmentSaveRequest = unknown;
 export type EquipmentSaveResponse = unknown;
 
 // ── equipment:delete ─────────────────────────────────────────
-export interface EquipmentDeleteRequest {
-  id: string;
+export interface EquipmentCopyRequest {
+  ids: string[];
+  targetFolderId: string | null;
 }
-export type EquipmentDeleteResponse = void;
+export interface EquipmentCopyResponse {
+  created: Equipment[];
+}
+
+export interface EquipmentDeleteRequest {
+  ids: string[];
+}
+export interface EquipmentDeleteResponse {
+  deletedIds: string[];
+}
 
 // ── equipment:setRefImage ────────────────────────────────────
 export interface EquipmentSetRefImageRequest {

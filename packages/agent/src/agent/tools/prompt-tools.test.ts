@@ -62,22 +62,26 @@ describe('createPromptTools', () => {
       });
     });
 
-    it('fetches a single prompt by string id (fetch mode)', async () => {
+    it('fetches one prompt with a one-item ID array', async () => {
       const deps = createDeps();
-      await expect(getTool('prompt.get', deps).execute({ ids: 'scene.system' })).resolves.toEqual({
+      await expect(
+        getTool('prompt.get', deps).execute({ ids: ['scene.system'] }),
+      ).resolves.toEqual({
         success: true,
-        data: {
-          code: 'scene.system',
-          name: 'Scene',
-          defaultValue: 'default',
-          customValue: null,
-        },
+        data: [
+          {
+            code: 'scene.system',
+            name: 'Scene',
+            defaultValue: 'default',
+            customValue: null,
+          },
+        ],
       });
     });
 
     it('returns error for missing prompt in fetch mode', async () => {
       const deps = createDeps();
-      await expect(getTool('prompt.get', deps).execute({ ids: 'missing' })).resolves.toEqual({
+      await expect(getTool('prompt.get', deps).execute({ ids: ['missing'] })).resolves.toEqual({
         success: false,
         error: 'Prompt not found: missing',
       });
@@ -114,10 +118,10 @@ describe('createPromptTools', () => {
       };
     }
 
-    it('single string ID returns single prompt (backward compat)', async () => {
+    it('rejects a non-array prompt ID payload', async () => {
       const deps = createBatchDeps();
       const result = await getTool('prompt.get', deps).execute({ ids: 'scene.system' });
-      expect(result).toEqual({ success: true, data: scenePrompt });
+      expect(result).toEqual({ success: false, error: 'ids must be an array of strings' });
     });
 
     it('array of IDs returns array of prompts', async () => {

@@ -7,6 +7,7 @@ import {
   canvasSlice,
   removeNodeCharacterRef,
   removeNodeEquipmentRef,
+  removeEntityRefsFromAllCanvases,
   setActiveCanvas,
   setCanvases,
   setNodeCharacterRefs,
@@ -57,6 +58,33 @@ function setup() {
 }
 
 describe('canvas character refs', () => {
+  it('removes a batch of deleted character references in one traversal', () => {
+    let state = setup();
+    state = canvasSlice.reducer(
+      state,
+      setNodeCharacterRefs({
+        id: 'img-1',
+        characterRefs: [
+          { characterId: 'remove-a', loadoutId: 'a' },
+          { characterId: 'keep', loadoutId: 'keep' },
+          { characterId: 'remove-b', loadoutId: 'b' },
+        ],
+      }),
+    );
+    state = canvasSlice.reducer(
+      state,
+      removeEntityRefsFromAllCanvases({
+        entityType: 'character',
+        entityIds: ['remove-a', 'remove-b'],
+      }),
+    );
+
+    const image = state.canvases.entities['canvas-1']!.nodes.find((node) => node.id === 'img-1');
+    expect((image?.data as ImageNodeData).characterRefs).toEqual([
+      { characterId: 'keep', loadoutId: 'keep' },
+    ]);
+  });
+
   it('adds a character ref to an image node', () => {
     let state = setup();
     state = canvasSlice.reducer(

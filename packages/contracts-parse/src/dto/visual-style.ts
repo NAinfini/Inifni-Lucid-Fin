@@ -49,7 +49,7 @@ export const VisualStyleProvenanceSchema = z
   .object({
     source: z.enum(['canvas-draft', 'legacy-style-plate', 'visual-constitution']),
     policyHash: z.string().min(1),
-    workflowRunId: z.string().min(1).optional(),
+    taskListId: z.string().min(1).optional(),
     revision: z.number().int().positive().optional(),
     contentHash: z.string().min(1).optional(),
   })

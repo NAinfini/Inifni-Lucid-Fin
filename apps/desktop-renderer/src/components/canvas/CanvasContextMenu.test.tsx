@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CanvasContextMenu } from './CanvasContextMenu.js';
 
@@ -22,6 +22,19 @@ describe('CanvasContextMenu', () => {
     );
 
     expect(screen.getByTestId('canvas-trigger')).toBeTruthy();
+  });
+
+  it('does not expose an upload action without an implementation', async () => {
+    render(
+      <CanvasContextMenu onAddNode={() => {}} hasClipboard={false}>
+        <div data-testid="canvas-trigger" />
+      </CanvasContextMenu>,
+    );
+
+    fireEvent.contextMenu(screen.getByTestId('canvas-trigger'));
+    await screen.findByText('Add Text Node');
+
+    expect(screen.queryByText('Upload Media')).toBeNull();
   });
 
   it('rejects non-native trigger components before Radix can enter a ref loop', () => {

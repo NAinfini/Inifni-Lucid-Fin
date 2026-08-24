@@ -1,68 +1,61 @@
 /**
  * asset + storage channels — Batch 4.
  *
- * Covers the 8 asset:* and 13 storage:* invoke channels registered in
+ * Covers the Asset entry/content and storage invoke channels registered in
  * `apps/desktop-main/src/ipc/handlers/asset.handlers.ts` and
  * `storage.handlers.ts`.
  *
- * Complex DTO payloads (AssetRef, AssetMeta) and the storage:getOverview
- * summary object stay as `z.unknown()` at this stage — Phase C will
- * zodify the DTOs once they move out of `packages/contracts/src/dto/`.
- *
- * `asset:import`, `asset:importBuffer`, and `asset:pickFile` can return
- * `null` when the user cancels the picker; modelled as `.nullable()`.
- * `asset:exportBatch` also has a cancel path returning `null`.
+ * Entry creation and queries return the canonical joined AssetEntry DTO.
+ * Picker and export cancellation paths are explicitly nullable.
  */
 import { z } from 'zod';
 import { defineInvokeChannel } from '../../channels.js';
+import { AssetEntrySchema, AssetMetaSchema } from '../../dto/asset.js';
 
 // ── Shared primitives ────────────────────────────────────────
 const AssetType = z.enum(['image', 'video', 'audio']);
-const AssetRefShape = z.unknown();
-const AssetMetaShape = z.unknown();
-
-// ── asset:import ─────────────────────────────────────────────
-const AssetImportRequest = z.object({
+// ── assetEntry:import ────────────────────────────────────────
+const AssetEntryImportRequest = z.object({
   filePath: z.string().min(1),
   type: AssetType,
 });
-const AssetImportResponse = AssetRefShape;
-export const assetImportChannel = defineInvokeChannel({
-  channel: 'asset:import',
-  request: AssetImportRequest,
-  response: AssetImportResponse,
+const AssetEntryImportResponse = AssetEntrySchema;
+export const assetEntryImportChannel = defineInvokeChannel({
+  channel: 'assetEntry:import',
+  request: AssetEntryImportRequest,
+  response: AssetEntryImportResponse,
 });
-export type AssetImportRequest = z.infer<typeof AssetImportRequest>;
-export type AssetImportResponse = z.infer<typeof AssetImportResponse>;
+export type AssetEntryImportRequest = z.infer<typeof AssetEntryImportRequest>;
+export type AssetEntryImportResponse = z.infer<typeof AssetEntryImportResponse>;
 
-// ── asset:importBuffer ───────────────────────────────────────
-const AssetImportBufferRequest = z.object({
+// ── assetEntry:importBuffer ──────────────────────────────────
+const AssetEntryImportBufferRequest = z.object({
   buffer: z.unknown(),
   fileName: z.string().min(1),
   type: AssetType,
 });
-const AssetImportBufferResponse = AssetRefShape;
-export const assetImportBufferChannel = defineInvokeChannel({
-  channel: 'asset:importBuffer',
-  request: AssetImportBufferRequest,
-  response: AssetImportBufferResponse,
+const AssetEntryImportBufferResponse = AssetEntrySchema;
+export const assetEntryImportBufferChannel = defineInvokeChannel({
+  channel: 'assetEntry:importBuffer',
+  request: AssetEntryImportBufferRequest,
+  response: AssetEntryImportBufferResponse,
 });
-export type AssetImportBufferRequest = z.infer<typeof AssetImportBufferRequest>;
-export type AssetImportBufferResponse = z.infer<typeof AssetImportBufferResponse>;
+export type AssetEntryImportBufferRequest = z.infer<typeof AssetEntryImportBufferRequest>;
+export type AssetEntryImportBufferResponse = z.infer<typeof AssetEntryImportBufferResponse>;
 
-// ── asset:pickFile ───────────────────────────────────────────
-const AssetPickFileRequest = z.object({ type: AssetType });
-const AssetPickFileResponse = AssetRefShape.nullable();
-export const assetPickFileChannel = defineInvokeChannel({
-  channel: 'asset:pickFile',
-  request: AssetPickFileRequest,
-  response: AssetPickFileResponse,
+// ── assetEntry:pickFile ──────────────────────────────────────
+const AssetEntryPickFileRequest = z.object({ type: AssetType });
+const AssetEntryPickFileResponse = AssetEntrySchema.nullable();
+export const assetEntryPickFileChannel = defineInvokeChannel({
+  channel: 'assetEntry:pickFile',
+  request: AssetEntryPickFileRequest,
+  response: AssetEntryPickFileResponse,
 });
-export type AssetPickFileRequest = z.infer<typeof AssetPickFileRequest>;
-export type AssetPickFileResponse = z.infer<typeof AssetPickFileResponse>;
+export type AssetEntryPickFileRequest = z.infer<typeof AssetEntryPickFileRequest>;
+export type AssetEntryPickFileResponse = z.infer<typeof AssetEntryPickFileResponse>;
 
-// ── asset:query ──────────────────────────────────────────────
-const AssetQueryRequest = z
+// ── assetEntry:query ─────────────────────────────────────────
+const AssetEntryQueryRequest = z
   .object({
     type: z.string().optional(),
     tags: z.array(z.string()).optional(),
@@ -71,83 +64,114 @@ const AssetQueryRequest = z
     offset: z.number().optional(),
   })
   .strict();
-const AssetQueryResponse = z.array(AssetMetaShape);
-export const assetQueryChannel = defineInvokeChannel({
-  channel: 'asset:query',
-  request: AssetQueryRequest,
-  response: AssetQueryResponse,
+const AssetEntryQueryResponse = z.array(AssetEntrySchema);
+export const assetEntryQueryChannel = defineInvokeChannel({
+  channel: 'assetEntry:query',
+  request: AssetEntryQueryRequest,
+  response: AssetEntryQueryResponse,
 });
-export type AssetQueryRequest = z.infer<typeof AssetQueryRequest>;
-export type AssetQueryResponse = z.infer<typeof AssetQueryResponse>;
+export type AssetEntryQueryRequest = z.infer<typeof AssetEntryQueryRequest>;
+export type AssetEntryQueryResponse = z.infer<typeof AssetEntryQueryResponse>;
 
-// ── asset:getPath ────────────────────────────────────────────
-const AssetGetPathRequest = z.object({
+// ── assetEntry:copy / move / rename / delete ─────────────────
+const AssetEntryCopyRequest = z
+  .object({
+    entryIds: z.array(z.string().trim().min(1)).min(1),
+    targetFolderId: z.string().trim().min(1).nullable(),
+  })
+  .strict();
+const AssetEntryCopyResponse = z.array(AssetEntrySchema);
+export const assetEntryCopyChannel = defineInvokeChannel({
+  channel: 'assetEntry:copy',
+  request: AssetEntryCopyRequest,
+  response: AssetEntryCopyResponse,
+});
+export type AssetEntryCopyRequest = z.infer<typeof AssetEntryCopyRequest>;
+export type AssetEntryCopyResponse = z.infer<typeof AssetEntryCopyResponse>;
+
+const AssetEntryMoveRequest = z
+  .object({
+    entryIds: z.array(z.string().trim().min(1)).min(1),
+    folderId: z.string().trim().min(1).nullable(),
+  })
+  .strict();
+const AssetEntryMoveResponse = z.object({ movedEntryIds: z.array(z.string()) }).strict();
+export const assetEntryMoveChannel = defineInvokeChannel({
+  channel: 'assetEntry:move',
+  request: AssetEntryMoveRequest,
+  response: AssetEntryMoveResponse,
+});
+export type AssetEntryMoveRequest = z.infer<typeof AssetEntryMoveRequest>;
+export type AssetEntryMoveResponse = z.infer<typeof AssetEntryMoveResponse>;
+
+const AssetEntryRenameRequest = z
+  .object({
+    entryId: z.string().trim().min(1),
+    displayName: z.string().trim().min(1).max(255),
+  })
+  .strict();
+export const assetEntryRenameChannel = defineInvokeChannel({
+  channel: 'assetEntry:rename',
+  request: AssetEntryRenameRequest,
+  response: AssetEntrySchema,
+});
+export type AssetEntryRenameRequest = z.infer<typeof AssetEntryRenameRequest>;
+export type AssetEntryRenameResponse = z.infer<typeof AssetEntrySchema>;
+
+const AssetEntryDeleteRequest = z
+  .object({ entryIds: z.array(z.string().trim().min(1)).min(1) })
+  .strict();
+const AssetEntryDeleteResponse = z.object({ deletedEntryIds: z.array(z.string()) }).strict();
+export const assetEntryDeleteChannel = defineInvokeChannel({
+  channel: 'assetEntry:delete',
+  request: AssetEntryDeleteRequest,
+  response: AssetEntryDeleteResponse,
+});
+export type AssetEntryDeleteRequest = z.infer<typeof AssetEntryDeleteRequest>;
+export type AssetEntryDeleteResponse = z.infer<typeof AssetEntryDeleteResponse>;
+
+// ── assetContent:getPath ─────────────────────────────────────
+const AssetContentGetPathRequest = z.object({
   hash: z.string().min(1),
   type: AssetType,
   ext: z.string(),
 });
-const AssetGetPathResponse = z.string();
-export const assetGetPathChannel = defineInvokeChannel({
-  channel: 'asset:getPath',
-  request: AssetGetPathRequest,
-  response: AssetGetPathResponse,
+const AssetContentGetPathResponse = z.string();
+export const assetContentGetPathChannel = defineInvokeChannel({
+  channel: 'assetContent:getPath',
+  request: AssetContentGetPathRequest,
+  response: AssetContentGetPathResponse,
 });
-export type AssetGetPathRequest = z.infer<typeof AssetGetPathRequest>;
-export type AssetGetPathResponse = z.infer<typeof AssetGetPathResponse>;
+export type AssetContentGetPathRequest = z.infer<typeof AssetContentGetPathRequest>;
+export type AssetContentGetPathResponse = z.infer<typeof AssetContentGetPathResponse>;
 
-// ── asset:delete ─────────────────────────────────────────────
-const AssetDeleteRequest = z.object({ hash: z.string().min(1) });
-const AssetDeleteResponse = z.object({ success: z.boolean() });
-export const assetDeleteChannel = defineInvokeChannel({
-  channel: 'asset:delete',
-  request: AssetDeleteRequest,
-  response: AssetDeleteResponse,
+// ── assetContent:inspect ─────────────────────────────────────
+const AssetContentInspectRequest = z.object({ hash: z.string().min(1) }).strict();
+export const assetContentInspectChannel = defineInvokeChannel({
+  channel: 'assetContent:inspect',
+  request: AssetContentInspectRequest,
+  response: AssetMetaSchema,
 });
-export type AssetDeleteRequest = z.infer<typeof AssetDeleteRequest>;
-export type AssetDeleteResponse = z.infer<typeof AssetDeleteResponse>;
+export type AssetContentInspectRequest = z.infer<typeof AssetContentInspectRequest>;
+export type AssetContentInspectResponse = z.infer<typeof AssetMetaSchema>;
 
-// ── asset:export ─────────────────────────────────────────────
-const AssetExportRequest = z.object({
+// ── assetContent:export ──────────────────────────────────────
+const AssetContentExportRequest = z.object({
   hash: z.string().min(1),
   type: AssetType,
   format: z.string(),
   name: z.string().optional(),
 });
-const AssetExportResponse = z.object({ success: z.literal(true), path: z.string() }).nullable();
-export const assetExportChannel = defineInvokeChannel({
-  channel: 'asset:export',
-  request: AssetExportRequest,
-  response: AssetExportResponse,
-});
-export type AssetExportRequest = z.infer<typeof AssetExportRequest>;
-export type AssetExportResponse = z.infer<typeof AssetExportResponse>;
-
-// ── asset:exportBatch ────────────────────────────────────────
-const AssetExportBatchRequest = z.object({
-  items: z
-    .array(
-      z.object({
-        hash: z.string().min(1),
-        type: AssetType,
-        name: z.string().optional(),
-      }),
-    )
-    .min(1),
-});
-const AssetExportBatchResponse = z
-  .object({
-    success: z.literal(true),
-    count: z.number(),
-    directory: z.string(),
-  })
+const AssetContentExportResponse = z
+  .object({ success: z.literal(true), path: z.string() })
   .nullable();
-export const assetExportBatchChannel = defineInvokeChannel({
-  channel: 'asset:exportBatch',
-  request: AssetExportBatchRequest,
-  response: AssetExportBatchResponse,
+export const assetContentExportChannel = defineInvokeChannel({
+  channel: 'assetContent:export',
+  request: AssetContentExportRequest,
+  response: AssetContentExportResponse,
 });
-export type AssetExportBatchRequest = z.infer<typeof AssetExportBatchRequest>;
-export type AssetExportBatchResponse = z.infer<typeof AssetExportBatchResponse>;
+export type AssetContentExportRequest = z.infer<typeof AssetContentExportRequest>;
+export type AssetContentExportResponse = z.infer<typeof AssetContentExportResponse>;
 
 // ── storage:getOverview ──────────────────────────────────────
 // Response is a large summary object; kept as `z.unknown()` per precedent.
@@ -172,6 +196,17 @@ export const storageOpenFolderChannel = defineInvokeChannel({
 export type StorageOpenFolderRequest = z.infer<typeof StorageOpenFolderRequest>;
 export type StorageOpenFolderResponse = z.infer<typeof StorageOpenFolderResponse>;
 
+// storage:openPath
+const StorageOpenPathRequest = z.object({ path: z.string() });
+const StorageOpenPathResponse = z.void();
+export const storageOpenPathChannel = defineInvokeChannel({
+  channel: 'storage:openPath',
+  request: StorageOpenPathRequest,
+  response: StorageOpenPathResponse,
+});
+export type StorageOpenPathRequest = z.infer<typeof StorageOpenPathRequest>;
+export type StorageOpenPathResponse = z.infer<typeof StorageOpenPathResponse>;
+
 // ── storage:showInFolder ─────────────────────────────────────
 const StorageShowInFolderRequest = z.object({ path: z.string() });
 const StorageShowInFolderResponse = z.void();
@@ -193,20 +228,6 @@ export const storageClearLogsChannel = defineInvokeChannel({
 });
 export type StorageClearLogsRequest = z.infer<typeof StorageClearLogsRequest>;
 export type StorageClearLogsResponse = z.infer<typeof StorageClearLogsResponse>;
-
-// ── storage:clearEmbeddings ──────────────────────────────────
-const StorageClearEmbeddingsRequest = z.object({}).strict();
-const StorageClearEmbeddingsResponse = z.object({
-  success: z.boolean(),
-  error: z.string().optional(),
-});
-export const storageClearEmbeddingsChannel = defineInvokeChannel({
-  channel: 'storage:clearEmbeddings',
-  request: StorageClearEmbeddingsRequest,
-  response: StorageClearEmbeddingsResponse,
-});
-export type StorageClearEmbeddingsRequest = z.infer<typeof StorageClearEmbeddingsRequest>;
-export type StorageClearEmbeddingsResponse = z.infer<typeof StorageClearEmbeddingsResponse>;
 
 // ── storage:vacuumDatabase ───────────────────────────────────
 const StorageVacuumDatabaseRequest = z.object({}).strict();
@@ -286,23 +307,29 @@ export const storagePickOpenFileChannel = defineInvokeChannel({
 export type StoragePickOpenFileRequest = z.infer<typeof StoragePickOpenFileRequest>;
 export type StoragePickOpenFileResponse = z.infer<typeof StoragePickOpenFileResponse>;
 
-export const assetChannels = [
-  assetImportChannel,
-  assetImportBufferChannel,
-  assetPickFileChannel,
-  assetQueryChannel,
-  assetGetPathChannel,
-  assetDeleteChannel,
-  assetExportChannel,
-  assetExportBatchChannel,
+export const assetEntryChannels = [
+  assetEntryImportChannel,
+  assetEntryImportBufferChannel,
+  assetEntryPickFileChannel,
+  assetEntryQueryChannel,
+  assetEntryCopyChannel,
+  assetEntryMoveChannel,
+  assetEntryRenameChannel,
+  assetEntryDeleteChannel,
+] as const;
+
+export const assetContentChannels = [
+  assetContentGetPathChannel,
+  assetContentInspectChannel,
+  assetContentExportChannel,
 ] as const;
 
 export const storageChannels = [
   storageGetOverviewChannel,
   storageOpenFolderChannel,
+  storageOpenPathChannel,
   storageShowInFolderChannel,
   storageClearLogsChannel,
-  storageClearEmbeddingsChannel,
   storageVacuumDatabaseChannel,
   storageBackupDatabaseChannel,
   storageRestoreDatabaseChannel,

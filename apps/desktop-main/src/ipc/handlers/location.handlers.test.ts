@@ -44,12 +44,14 @@ function registerHandlers(db?: Record<string, unknown>) {
         }),
         getLocation: db.getLocation,
         upsertLocation: db.upsertLocation,
+        copyLocations: db.copyLocations,
         deleteLocation: db.deleteLocation,
       }
     : {
         listLocations: vi.fn(() => ({ rows: [], degradedCount: 0 })),
         getLocation: vi.fn(),
         upsertLocation: vi.fn(),
+        copyLocations: vi.fn(),
         deleteLocation: vi.fn(),
       };
 
@@ -79,6 +81,7 @@ describe('registerLocationHandlers', () => {
     const handlers = registerHandlers();
 
     expect([...handlers.keys()].sort()).toEqual([
+      'location:copy',
       'location:delete',
       'location:get',
       'location:list',
@@ -86,6 +89,34 @@ describe('registerLocationHandlers', () => {
       'location:save',
       'location:setRefImage',
     ]);
+  });
+
+  it('copies and deletes multiple locations with one repository call', async () => {
+    resetCommon();
+    const created = [makeLocation({ id: 'copy-1' }), makeLocation({ id: 'copy-2' })];
+    const db = {
+      listLocations: vi.fn(),
+      getLocation: vi.fn(),
+      upsertLocation: vi.fn(),
+      copyLocations: vi.fn(() => created),
+      deleteLocation: vi.fn((ids: string[]) => [...new Set(ids)]),
+    };
+    const handlers = registerHandlers(db);
+
+    await expect(
+      handlers.get('location:copy')?.(
+        {},
+        { ids: ['location-1', 'location-2'], targetFolderId: 'folder-1' },
+      ),
+    ).resolves.toEqual({ created });
+    expect(db.copyLocations).toHaveBeenCalledOnce();
+    expect(db.copyLocations).toHaveBeenCalledWith(['location-1', 'location-2'], 'folder-1');
+
+    await expect(
+      handlers.get('location:delete')?.({}, { ids: ['location-1', 'location-2'] }),
+    ).resolves.toEqual({ deletedIds: ['location-1', 'location-2'] });
+    expect(db.deleteLocation).toHaveBeenCalledOnce();
+    expect(db.deleteLocation).toHaveBeenCalledWith(['location-1', 'location-2']);
   });
 
   it('lists locations with the active project id and optional type filter', async () => {

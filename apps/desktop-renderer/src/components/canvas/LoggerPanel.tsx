@@ -7,6 +7,7 @@ import { setRightPanel } from '../../store/slices/ui.js';
 import { cn } from '../../lib/utils.js';
 import { useI18n } from '../../hooks/use-i18n.js';
 import { EmptyState } from '../ui/EmptyState.js';
+import { enqueueToast } from '../../store/slices/toast.js';
 
 const LEVEL_STYLES: Record<LogLevel, string> = {
   debug: 'text-gray-400 bg-gray-500/10',
@@ -71,19 +72,28 @@ export function LoggerPanel() {
     });
   };
 
-  const handleCopyEntry = useCallback((entry: (typeof entries)[0], e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    const text = `[${formatTimestamp(entry.timestamp)}] [${entry.level.toUpperCase()}] [${entry.category}] ${entry.message}${entry.detail ? '\n' + entry.detail : ''}`;
-    void navigator.clipboard
-      .writeText(text)
-      .then(() => {
-        setCopiedId(entry.id);
-        setTimeout(() => setCopiedId(null), 1500);
-      })
-      .catch(() => {
-        /* clipboard write failure is non-critical */
-      });
-  }, []);
+  const handleCopyEntry = useCallback(
+    (entry: (typeof entries)[0], e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      const text = `[${formatTimestamp(entry.timestamp)}] [${entry.level.toUpperCase()}] [${entry.category}] ${entry.message}${entry.detail ? '\n' + entry.detail : ''}`;
+      void navigator.clipboard
+        .writeText(text)
+        .then(() => {
+          setCopiedId(entry.id);
+          setTimeout(() => setCopiedId(null), 1500);
+        })
+        .catch((error: unknown) => {
+          dispatch(
+            enqueueToast({
+              variant: 'error',
+              title: t('logger.copyFailed'),
+              message: error instanceof Error ? error.message : String(error),
+            }),
+          );
+        });
+    },
+    [dispatch, t],
+  );
 
   const handleCopyAll = useCallback(() => {
     const text = filteredEntries
@@ -92,10 +102,16 @@ export function LoggerPanel() {
           `[${formatTimestamp(e.timestamp)}] [${e.level.toUpperCase()}] [${e.category}] ${e.message}${e.detail ? '\n' + e.detail : ''}`,
       )
       .join('\n');
-    void navigator.clipboard.writeText(text).catch(() => {
-      /* clipboard write failure is non-critical */
+    void navigator.clipboard.writeText(text).catch((error: unknown) => {
+      dispatch(
+        enqueueToast({
+          variant: 'error',
+          title: t('logger.copyFailed'),
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
     });
-  }, [filteredEntries]);
+  }, [dispatch, filteredEntries, t]);
 
   // Only auto-scroll when NEW entries arrive, not on expand/copy/filter changes
   useEffect(() => {
@@ -119,7 +135,7 @@ export function LoggerPanel() {
             type="button"
             onClick={handleCopyAll}
             className="inline-flex h-6 items-center gap-1 rounded-md border border-border/60 px-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="Copy all"
+            title={t('logger.copyAll')}
           >
             <Copy className="h-3 w-3" />
           </button>
@@ -170,7 +186,7 @@ export function LoggerPanel() {
 
       <div ref={listRef} className="flex-1 overflow-y-auto px-2.5 py-2 space-y-1.5">
         {filteredEntries.length === 0 ? (
-          <EmptyState icon={ScrollText} title="No log entries" />
+          <EmptyState icon={ScrollText} title={t('logger.noEntries')} />
         ) : null}
         {filteredEntries.map((entry) => {
           const expandable = Boolean(entry.detail);
@@ -214,7 +230,7 @@ export function LoggerPanel() {
                       type="button"
                       onClick={(e) => handleCopyEntry(entry, e)}
                       className="shrink-0 rounded-md p-0.5 text-muted-foreground hover:text-foreground"
-                      title="Copy"
+                      title={t('logger.copy')}
                     >
                       {copiedId === entry.id ? (
                         <Check className="h-3 w-3 text-emerald-400" />

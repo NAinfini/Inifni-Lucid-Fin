@@ -135,9 +135,25 @@ export function registerCharacterHandlers(ipcMain: IpcMain, db: SqliteIndex): vo
     return char;
   });
 
-  ipcMain.handle('character:delete', async (_e, args: { id: string }) => {
-    if (!args || typeof args.id !== 'string') throw new Error('id is required');
-    db.repos.entities.deleteCharacter(parseCharacterId(args.id));
+  ipcMain.handle(
+    'character:copy',
+    async (_e, args: { ids: string[]; targetFolderId: string | null }) => {
+      if (!Array.isArray(args?.ids) || args.ids.length === 0) throw new Error('ids are required');
+      if (args.targetFolderId !== null && typeof args.targetFolderId !== 'string') {
+        throw new Error('targetFolderId must be a string or null');
+      }
+      const created = db.repos.entities.copyCharacters(
+        args.ids.map(parseCharacterId),
+        args.targetFolderId,
+      );
+      return { created };
+    },
+  );
+
+  ipcMain.handle('character:delete', async (_e, args: { ids: string[] }) => {
+    if (!Array.isArray(args?.ids) || args.ids.length === 0) throw new Error('ids are required');
+    const deletedIds = db.repos.entities.deleteCharacter(args.ids.map(parseCharacterId));
+    return { deletedIds };
   });
 
   ipcMain.handle(

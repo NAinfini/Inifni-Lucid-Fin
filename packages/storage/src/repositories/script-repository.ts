@@ -1,10 +1,10 @@
 /**
- * ScriptRepository — Phase G1-4.10.
+ * Script persistence.
  *
  * Wraps `scripts` CRUD behind a direct-to-repository interface. Schema is
  * a singleton-style store: `getScript()` returns the most-recently-updated
  * row (there is only ever one script per project in current use). Column
- * names flow through `ScriptsTable` (G1-1) so schema drift fails at compile
+ * names flow through `ScriptsTable` so schema drift fails at compile
  * time.
  */
 

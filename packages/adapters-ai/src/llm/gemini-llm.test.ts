@@ -41,6 +41,38 @@ describe('GeminiLLMAdapter', () => {
     }
   });
 
+  it('sends configured reasoning strength and omits a blank value', async () => {
+    const requestBodies: Array<Record<string, unknown>> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: string | URL, init?: RequestInit) => {
+        requestBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+        return new Response(
+          JSON.stringify({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }),
+    );
+
+    try {
+      const adapter = new GeminiLLMAdapter();
+      adapter.configure('sk-gemini', { reasoningEffort: 'HIGH' });
+      await adapter.complete([{ role: 'user', content: 'hello' }]);
+
+      adapter.configure('sk-gemini', { reasoningEffort: '   ' });
+      await adapter.complete([{ role: 'user', content: 'hello again' }]);
+
+      expect(requestBodies[0]).toMatchObject({
+        generationConfig: { thinkingConfig: { thinkingLevel: 'HIGH' } },
+      });
+      expect(requestBodies[1]).toMatchObject({ generationConfig: { maxOutputTokens: 4096 } });
+      expect(requestBodies[1].generationConfig).not.toHaveProperty('thinkingConfig');
+    } finally {
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    }
+  });
+
   it('uses main-process OAuth headers without an API key', async () => {
     const authorizationHeaders = vi.fn(async () => ({
       Authorization: 'Bearer access-token',

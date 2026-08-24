@@ -31,6 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/Dialog.js';
+import { useConfirm } from '../ui/ConfirmDialog.js';
 
 const CATEGORIES: PresetCategory[] = [
   'camera',
@@ -249,6 +250,7 @@ function CategoryCell({
 export function ShotTemplateManagerPanel() {
   const { t } = useI18n();
   const dispatch = useDispatch();
+  const { confirm, ConfirmDialog } = useConfirm();
   const builtInTemplates = useSelector((state: RootState) => state.shotTemplates.builtIn);
   const customTemplates = useSelector((state: RootState) => state.shotTemplates.custom);
   const hiddenIds = useSelector((state: RootState) => state.shotTemplates.hiddenIds);
@@ -280,11 +282,20 @@ export function ShotTemplateManagerPanel() {
   }, [customTemplates.length, dispatch, t]);
 
   const handleDeleteTemplate = useCallback(
-    (templateId: string) => {
+    async (template: ShotTemplate) => {
+      const confirmed = await confirm({
+        title: t('shotTemplates.deleteConfirm').replace('{name}', template.name),
+        description: t('shotTemplates.deleteConfirmDescription'),
+        confirmLabel: t('action.delete'),
+        destructive: true,
+      });
+      if (!confirmed) return;
+
+      const templateId = template.id;
       dispatch(removeCustomTemplate(templateId));
       setExpandedId((current) => (current === templateId ? null : current));
     },
-    [dispatch],
+    [confirm, dispatch, t],
   );
 
   const handleUpdateTemplate = useCallback(
@@ -442,7 +453,7 @@ export function ShotTemplateManagerPanel() {
                       <div className="flex justify-end">
                         <button
                           type="button"
-                          onClick={() => handleDeleteTemplate(template.id)}
+                          onClick={() => void handleDeleteTemplate(template)}
                           aria-label={t('shotTemplates.deleteTemplate')}
                           className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2 py-1 text-[11px] text-destructive hover:bg-destructive/10 transition-colors"
                         >
@@ -469,6 +480,7 @@ export function ShotTemplateManagerPanel() {
           {t('shotTemplates.addTemplate')}
         </button>
       </div>
+      {ConfirmDialog}
     </div>
   );
 }

@@ -1,20 +1,13 @@
 // @vitest-environment jsdom
 
 import React, { act } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createRoot, type Root } from 'react-dom/client';
-import type { ApproveWorkflowGateResult } from '@lucid-fin/contracts';
 import { ProductionPlanApprovalCard } from './ProductionPlanApprovalCard.js';
 import { t } from '../../i18n.js';
 
 function flushPromises(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-function setTextareaValue(textarea: HTMLTextAreaElement, value: string): void {
-  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
-  setter?.call(textarea, value);
-  textarea.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 describe('ProductionPlanApprovalCard', () => {
@@ -38,27 +31,21 @@ describe('ProductionPlanApprovalCard', () => {
     container.remove();
   });
 
-  it('shows the exact revision and only approves after an explicit click', async () => {
-    const onApprove = vi.fn(
-      async () => ({ ok: true, code: 'approved' }) as ApproveWorkflowGateResult,
-    );
-    const onApproved = vi.fn();
-    const onRequestChanges = vi.fn(async () => undefined);
-    const onRequested = vi.fn();
+  it('shows the plan as a read-only chat artifact without approval controls', async () => {
     await act(async () => {
       root.render(
         <ProductionPlanApprovalCard
           context={{
-            run: {
+            taskList: {
               id: 'wf-1',
-              workflowType: 'movie.production.v2',
+              taskListType: 'movie.production.v2',
               entityType: 'project',
               triggerSource: 'commander',
               status: 'awaiting_approval',
               summary: 'Production plan awaiting approval',
               progress: 0,
-              completedStages: 0,
-              totalStages: 0,
+              completedPhases: 0,
+              totalPhases: 0,
               completedTasks: 0,
               totalTasks: 0,
               input: {},
@@ -71,7 +58,7 @@ describe('ProductionPlanApprovalCard', () => {
             },
             approval: {
               id: 'approval-1',
-              workflowRunId: 'wf-1',
+              taskListId: 'wf-1',
               gateKey: 'production_plan',
               subjectLogicalKey: 'production-plan',
               subjectRevision: 3,
@@ -83,7 +70,7 @@ describe('ProductionPlanApprovalCard', () => {
             },
             document: {
               id: 'doc-3',
-              workflowRunId: 'wf-1',
+              taskListId: 'wf-1',
               logicalKey: 'production-plan',
               documentType: 'production_plan',
               revision: 3,
@@ -124,58 +111,23 @@ describe('ProductionPlanApprovalCard', () => {
               updatedAt: 1,
             },
           }}
-          onApprove={onApprove}
-          onApproved={onApproved}
-          onRequestChanges={onRequestChanges}
-          onRequested={onRequested}
         />,
       );
       await flushPromises();
     });
 
     expect(container.textContent).toContain('The Last Signal');
-    expect(container.textContent).toContain(`${t('workflowApproval.revision')} 3`);
-    expect(container.textContent).toContain('a'.repeat(64));
+    expect(container.textContent).toContain(`${t('planApproval.revision')} 3`);
+    expect(container.textContent).not.toContain('a'.repeat(64));
     expect(container.textContent).toContain('science-fiction thriller');
     expect(container.textContent).toContain('tense and intimate');
     expect(container.textContent).toContain('adult genre audience');
     expect(container.textContent).toContain('The broadcast');
     expect(container.textContent).toContain('Disbelief gives way to fear.');
-    expect(onApprove).not.toHaveBeenCalled();
-
-    const requestChangesButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes(t('workflowApproval.requestChanges')),
-    );
-    await act(async () => {
-      requestChangesButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      await flushPromises();
-    });
-    const reason = container.querySelector<HTMLTextAreaElement>('textarea');
-    if (!reason) throw new Error('Expected a request-changes reason field');
-    const submitChanges = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes(t('workflowApproval.submitRequestChanges')),
-    );
-    expect(submitChanges?.hasAttribute('disabled')).toBe(true);
-
-    await act(async () => {
-      setTextareaValue(reason, 'Please make the second act less bleak.');
-      await flushPromises();
-    });
-    await act(async () => {
-      submitChanges?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      await flushPromises();
-    });
-    expect(onRequestChanges).toHaveBeenCalledWith('Please make the second act less bleak.');
-    expect(onRequested).toHaveBeenCalledTimes(1);
-
-    const approveButton = Array.from(container.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes(t('workflowApproval.approve')),
-    );
-    await act(async () => {
-      approveButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      await flushPromises();
-    });
-    expect(onApprove).toHaveBeenCalledTimes(1);
-    expect(onApproved).toHaveBeenCalledTimes(1);
+    const actDetails = container.querySelector<HTMLDetailsElement>('details');
+    expect(actDetails?.open).toBe(false);
+    expect(container.querySelector('textarea')).toBeNull();
+    expect(container.querySelectorAll('button')).toHaveLength(0);
+    expect(container.textContent).toContain(t('planApproval.chatDecisionHint'));
   });
 });

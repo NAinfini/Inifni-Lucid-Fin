@@ -12,6 +12,7 @@
 import { z } from 'zod';
 import { ResolutionPolicySchema } from './resolution.js';
 import { CanvasVisualStylePolicySchema } from './visual-style.js';
+import { OrderedDeliverySequenceSchema } from './ordered-delivery.js';
 
 export const CanvasViewportSchema = z.object({
   x: z.number(),
@@ -53,6 +54,8 @@ export const CanvasSchema = z.object({
   viewport: CanvasViewportSchema,
   notes: z.array(z.unknown()),
   settings: CanvasSettingsSchema.optional(),
+  deliverySequence: OrderedDeliverySequenceSchema.optional(),
+  archivedAt: z.number().int().nonnegative().optional(),
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
 });

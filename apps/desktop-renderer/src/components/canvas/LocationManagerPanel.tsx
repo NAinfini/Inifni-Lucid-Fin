@@ -7,8 +7,9 @@ import { enqueueToast } from '../../store/slices/toast.js';
 import {
   setLocations,
   addLocation,
+  addLocations,
   updateLocation,
-  removeLocation,
+  removeLocations,
   selectLocation,
   setLocationsLoading,
   setLocationRefImage,
@@ -19,7 +20,7 @@ import {
   removeFolder,
   setCurrentFolder,
   setFoldersLoading,
-  moveItemToFolder,
+  moveItemsToFolder,
 } from '../../store/slices/locations.js';
 import { getAPI } from '../../utils/api.js';
 import type { Location, ReferenceImage } from '@lucid-fin/contracts';
@@ -83,7 +84,8 @@ export function LocationManagerPanel() {
     unsavedChangesKey: 'locationManager.unsavedChanges',
   });
 
-  const selectedLoc = useMemo(() => items.find((l) => l.id === selectedId), [items, selectedId]);
+  const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+  const selectedLoc = selectedId ? itemsById.get(selectedId) : undefined;
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const folderApi = useEntityFolders({
@@ -176,49 +178,50 @@ export function LocationManagerPanel() {
 
   const handleMoveIdsToFolder = useCallback(
     async (ids: string[], folderId: string | null) => {
+      if (ids.length === 0) return;
       const api = getAPI();
       if (!api?.location) return;
-      for (const id of ids) {
-        try {
-          await api.location.setFolder(id, folderId);
-          dispatch(moveItemToFolder({ id, folderId }));
-        } catch (reason) {
-          reportError(reason, 'handleMoveIdsToFolder');
-        }
+      try {
+        const { movedIds } = await api.location.setFolder(ids, folderId);
+        dispatch(moveItemsToFolder({ ids: movedIds, folderId }));
+      } catch (reason) {
+        reportError(reason, 'handleMoveIdsToFolder');
+      }
+    },
+    [dispatch, reportError],
+  );
+
+  const handleCopyIds = useCallback(
+    async (ids: string[], targetFolderId: string | null) => {
+      if (ids.length === 0) return;
+      const api = getAPI();
+      if (!api?.location) return;
+      try {
+        const { created } = await api.location.copy(ids, targetFolderId);
+        dispatch(addLocations(created));
+      } catch (reason) {
+        reportError(reason, 'handleCopyIds');
       }
     },
     [dispatch, reportError],
   );
 
   const handlePaste = useCallback(
-    (payload: { mode: 'copy' | 'cut'; items: Location[] }) => {
+    async (payload: { mode: 'copy' | 'cut'; items: Location[] }) => {
       const folderId = folderApi.currentFolderId;
       if (payload.mode === 'cut') {
-        void handleMoveIdsToFolder(
+        await handleMoveIdsToFolder(
           payload.items.map((it) => it.id),
           folderId,
         );
       } else {
-        const api = getAPI();
-        if (!api?.location) return;
-        void (async () => {
-          for (const original of payload.items) {
-            try {
-              const { id: _id, ...rest } = original;
-              const saved = (await api.location.save({
-                ...rest,
-                name: `${original.name} ${t('action.copySuffix')}`,
-                folderId,
-              } as Record<string, unknown>)) as Location;
-              dispatch(addLocation(saved));
-            } catch (reason) {
-              reportError(reason, 'handlePasteCopy');
-            }
-          }
-        })();
+        await handleCopyIds(
+          payload.items.map((item) => item.id),
+          folderId,
+        );
       }
     },
-    [folderApi.currentFolderId, handleMoveIdsToFolder, dispatch, reportError, t],
+    [folderApi.currentFolderId, handleCopyIds, handleMoveIdsToFolder],
   );
 
   const saveDraft = useCallback(async () => {
@@ -252,7 +255,7 @@ export function LocationManagerPanel() {
   const handleDeleteIds = useCallback(
     async (ids: string[]) => {
       if (ids.length === 0) return;
-      const names = ids.map((id) => items.find((l) => l.id === id)?.name || id).join(', ');
+      const names = ids.map((id) => itemsById.get(id)?.name ?? id).join(', ');
       const ok = await confirm({
         title: t('locationManager.deleteConfirm').replace('{name}', names),
         destructive: true,
@@ -262,18 +265,19 @@ export function LocationManagerPanel() {
       if (!ok) return;
       setError(null);
       const api = getAPI();
-      for (const id of ids) {
-        try {
-          if (api?.location) await api.location.delete(id);
-          dispatch(removeLocation(id));
-          dispatch(removeEntityRefsFromAllCanvases({ entityType: 'location', entityId: id }));
-          if (selectedId === id) setDrawerOpen(false);
-        } catch (reason) {
-          reportError(reason, 'handleDeleteIds');
-        }
+      if (!api?.location) return;
+      try {
+        const { deletedIds } = await api.location.delete(ids);
+        dispatch(removeLocations(deletedIds));
+        if (selectedId && deletedIds.includes(selectedId)) setDrawerOpen(false);
+        dispatch(
+          removeEntityRefsFromAllCanvases({ entityType: 'location', entityIds: deletedIds }),
+        );
+      } catch (reason) {
+        reportError(reason, 'handleDeleteIds');
       }
     },
-    [confirm, dispatch, items, reportError, selectedId, setError, t],
+    [confirm, dispatch, itemsById, reportError, selectedId, setError, t],
   );
 
   const handleRefImageUpload = useCallback(
@@ -283,7 +287,7 @@ export function LocationManagerPanel() {
       try {
         const api = getAPI();
         if (!api) return;
-        const asset = (await api.asset.pickFile('image')) as { hash: string } | null;
+        const asset = await api.assetEntry.pickFile('image');
         if (!asset) return;
         const refImage = (await api.location.setRefImage(
           selectedLoc.id,
@@ -427,6 +431,7 @@ export function LocationManagerPanel() {
           onCreateItem={() => void createNewLocation()}
           onOpenItem={(l) => void handleOpenItem(l)}
           onDeleteItems={(ids) => void handleDeleteIds(ids)}
+          onDuplicateItems={(ids) => void handleCopyIds(ids, folderApi.currentFolderId)}
           compact={drawerShown}
           renderThumbnail={(l) => (
             <ListThumb
@@ -469,7 +474,7 @@ export function LocationManagerPanel() {
             paste: clipboard.paste,
             cutIds,
           }}
-          onPaste={handlePaste}
+          onPaste={(payload) => void handlePaste(payload)}
           header={
             <div className="flex items-center gap-2">
               <MapPin className="h-3.5 w-3.5 text-primary" />

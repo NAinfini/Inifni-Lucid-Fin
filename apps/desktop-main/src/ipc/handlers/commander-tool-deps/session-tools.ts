@@ -1,14 +1,14 @@
 import {
   createSnapshotTools,
-  createTodoTools,
+  createRunChecklistTools,
   parseSessionId,
   parseSnapshotId,
-  type AgentToolRegistry,
+  type ToolRegistry,
   type SqliteIndex,
 } from './helpers.js';
 
 export function registerSessionTools(
-  registry: AgentToolRegistry,
+  registry: ToolRegistry,
   db: SqliteIndex,
   sessionId?: string,
 ): void {
@@ -25,7 +25,7 @@ export function registerSessionTools(
     }
   }
 
-  for (const tool of createTodoTools()) {
+  for (const tool of createRunChecklistTools()) {
     registry.register(tool);
   }
 }

@@ -9,6 +9,7 @@ export {
   type Unsubscribe,
 } from './event-bus.js';
 export { ok, err, isOk, isErr, mapOk, mapErr, type Result } from './result.js';
+export { LRUCache, type LRUCacheOptions } from './lru-cache.js';
 export {
   getToolCompactionCategory,
   getClassifiedToolNames,

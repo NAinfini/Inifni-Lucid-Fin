@@ -6,7 +6,7 @@
  * Stream events are no longer normalized into the legacy `commanderSlice` —
  * UI consumers read directly from `commanderTimelineSlice.events`.
  *
- * Non-stream side-effects (canvas updates, settings/undo pushes, entity
+ * Non-stream side-effects (canvas updates, settings pushes, entity
  * refreshes) still land on their dedicated slices — those channels are
  * orthogonal to the Commander timeline.
  */
@@ -14,9 +14,18 @@
 import {
   ENTITY_REFRESH_TOOL_ENTITY,
   normalizeLLMProviderRuntimeConfig,
+  type CommanderAttachmentInput,
+  type CommanderRunIntent,
   type CommanderPromptGuide,
   type CommanderProcessBehaviorSettings,
+  type PublicToolDetails,
 } from '@lucid-fin/contracts';
+
+export interface CommanderStartResources {
+  attachments?: CommanderAttachmentInput[];
+  selectedNodes?: Array<{ canvasId: string; nodeId: string }>;
+  extraCanvasIds?: string[];
+}
 
 import type { AppDispatch, RootState } from '../../store/index.js';
 import {
@@ -26,28 +35,14 @@ import {
   appendFinalizedAssistantMessage,
   ensureActiveSession,
   finishStreaming,
-  selectIsStreaming,
   setProviderId,
   startStreaming,
   streamError,
-  switchCanvas,
-  upsertFinalizedAssistantMessage,
 } from '../../store/slices/commander.js';
-import {
-  addNode,
-  addEdge,
-  moveNode,
-  removeEdges,
-  removeNodes,
-  renameCanvas,
-  renameNode,
-  updateEdge,
-  updateNodeData,
-} from '../../store/slices/canvas/canvas.js';
+import { applyCommanderCanvasSnapshot } from '../../store/slices/canvas/canvas.js';
 import { setCharacters } from '../../store/slices/characters.js';
 import { setEquipment } from '../../store/slices/equipment.js';
 import { setLocations } from '../../store/slices/locations.js';
-import { upsertPreset } from '../../store/slices/presets.js';
 import {
   addCustomProvider,
   recordEntityCreate,
@@ -63,21 +58,21 @@ import {
 } from '../../store/slices/settings.js';
 import { selectActiveSkills } from '../../store/slices/skillDefinitions.js';
 import { addLog } from '../../store/slices/logger.js';
-import { flushPendingCanvasSave } from '../../store/middleware/persist.js';
+import { loadTaskLists } from '../../store/slices/task-lists.js';
+import { flushPendingPersistence } from '../../store/middleware/persist.js';
 import type { LucidAPI } from '../../utils/api.js';
 import type {
   CommanderCanvasUpdatedPayload,
   CommanderEntitiesUpdatedPayload,
   CommanderSettingsDispatchPayload,
   CommanderTransport,
-  CommanderUndoDispatchPayload,
   Unsub,
 } from '../transport/CommanderTransport.js';
-import { buildCommanderHistory } from './history-builder.js';
 import type { TimelineEvent } from '@lucid-fin/contracts';
 import { appendEvent as appendTimelineEvent } from '../state/commander-timeline-slice.js';
 import { selectEventsForRun } from '../state/commander-timeline-selectors.js';
 import { buildFinalizedAssistantMessage } from '../state/run-derivation.js';
+import { sanitizeCommanderMessages } from '../state/session-persistence.js';
 import {
   incrementLLMRetry,
   incrementRunAbort,
@@ -98,7 +93,7 @@ function localizeRuntimeError(raw: string, t: (key: string) => string): string {
   if (/operation was aborted|the user aborted a request|AbortError/i.test(raw)) {
     return t('commander.runtimeError.operationAborted');
   }
-  return raw;
+  return t('commander.unknownError');
 }
 
 function selectCommanderPromptGuides(state: RootState): CommanderPromptGuide[] {
@@ -153,33 +148,12 @@ export interface CommanderSessionServiceDeps {
   getLocale: () => string;
 }
 
-/**
- * User-initiated `cancel()` waits this long for the backend's
- * `run_end(status='cancelled')` before locally finalizing. Matches D2b
- * in PLAN v7.
- */
-const CANCEL_TIMEOUT_MS = 2000;
-
-interface RunEndLatch {
-  promise: Promise<boolean>;
-  resolve: (arrived: boolean) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
 export class CommanderSessionService {
-  /** Maps in-flight tool call ids → tool names + args, so we can record usage on result. */
+  /** Maps in-flight public tool call metadata so result telemetry can be correlated. */
   private readonly toolCallNames = new Map<
     string,
-    { name: string; args?: Record<string, unknown> }
+    { name: string; details?: PublicToolDetails }
   >();
-
-  /**
-   * D2b — Promise latches indexed by runId. `cancel()` awaits the
-   * matching latch; the `run_end` side-effect resolves it. Idempotent on
-   * repeat-cancel: a second `cancel()` for the same runId receives the
-   * same Promise. Never leaks — timer-expiry clears the entry.
-   */
-  private readonly runEndLatches = new Map<string, RunEndLatch>();
 
   constructor(private readonly deps: CommanderSessionServiceDeps) {}
 
@@ -189,10 +163,22 @@ export class CommanderSessionService {
    * auto-snapshot, canvas-save) and dispatches into the slice to reflect
    * user intent before hitting the IPC boundary.
    */
-  async start(message: string): Promise<void> {
+  async start(message: string, resources: CommanderStartResources = {}): Promise<boolean> {
+    return this.startIntent({ kind: 'user_message', message }, resources);
+  }
+
+  async startIntent(
+    intent: CommanderRunIntent,
+    resources: CommanderStartResources = {},
+  ): Promise<boolean> {
     const { dispatch, getState, t, getLocale, transport, api } = this.deps;
-    const trimmed = message.trim();
-    if (!trimmed) return;
+    const displayMessage =
+      intent.kind === 'user_message' ? intent.message.trim() : intent.label.trim();
+    if (!displayMessage) return false;
+
+    let runAccepted = false;
+    let hadActiveRun = false;
+    let sessionId: string | null = getState().commander.activeSessionId;
 
     try {
       if (!transport.available) {
@@ -204,41 +190,73 @@ export class CommanderSessionService {
       if (!state.settings.bootstrapped) {
         throw new Error(t('commander.backendNotReady'));
       }
-      const currentCanvasId = state.canvas.activeCanvasId;
-      if (!currentCanvasId) {
-        throw new Error(t('commander.noActiveCanvas'));
+      sessionId ??= crypto.randomUUID();
+      const session =
+        state.commander.sessions.find((candidate) => candidate.id === sessionId) ?? null;
+      const defaultCanvasId = session?.defaultCanvasId ?? null;
+      if (
+        defaultCanvasId &&
+        state.canvas.canvases.entities[defaultCanvasId]?.archivedAt !== undefined
+      ) {
+        throw new Error(t('commander.canvasArchived'));
+      }
+      const viewedCanvasId = state.canvas.activeCanvasId;
+      const selectedNodes = [
+        ...(resources.selectedNodes ?? []),
+        ...(viewedCanvasId
+          ? state.canvas.selectedNodeIds.map((nodeId) => ({ canvasId: viewedCanvasId, nodeId }))
+          : []),
+      ].filter(({ canvasId, nodeId }, index, nodes) => {
+        const canvas = state.canvas.canvases.entities[canvasId];
+        return (
+          !!canvas?.nodes.some((node) => node.id === nodeId) &&
+          nodes.findIndex((node) => node.canvasId === canvasId && node.nodeId === nodeId) === index
+        );
+      });
+      const authorizedCanvasIds = [
+        ...new Set(
+          [
+            defaultCanvasId,
+            ...(resources.extraCanvasIds ?? []),
+            ...selectedNodes.map((node) => node.canvasId),
+          ].filter(
+            (canvasId): canvasId is string =>
+              typeof canvasId === 'string' && !!state.canvas.canvases.entities[canvasId],
+          ),
+        ),
+      ];
+      const currentRunId = state.commanderTimeline.currentRunIdBySessionId[sessionId] ?? null;
+      hadActiveRun = currentRunId !== null;
+
+      if (currentRunId) {
+        if (intent.kind !== 'user_message') {
+          throw new Error('A typed Commander intent must wait for the active run to finish');
+        }
+        if (
+          (resources.attachments?.length ?? 0) > 0 ||
+          (resources.extraCanvasIds?.length ?? 0) > 0 ||
+          (resources.selectedNodes?.length ?? 0) > 0
+        ) {
+          throw new Error('Attachments, canvas scope, and node references require the next run');
+        }
+        dispatch(addInjectedMessage({ sessionId, content: displayMessage }));
+        await transport.injectMessage(currentRunId, displayMessage);
+        return true;
       }
 
-      // Sync Commander's canvas binding if it drifted (e.g. cold start)
-      if (state.commander.activeCanvasId !== currentCanvasId) {
-        dispatch(switchCanvas(currentCanvasId));
-      }
-
-      if (selectIsStreaming(state)) {
-        dispatch(addInjectedMessage(trimmed));
-        await transport.injectMessage(currentCanvasId, trimmed);
-        return;
-      }
-
-      const history = buildCommanderHistory(state.commander.messages);
+      if (!session) dispatch(ensureActiveSession({ id: sessionId, defaultCanvasId }));
       const promptGuides = selectCommanderPromptGuides(state);
       const llmSettings = state.settings.llm;
-      const selectedNodeIds = state.canvas.selectedNodeIds;
-      const hasUserMessages = state.commander.messages.some((entry) => entry.role === 'user');
-      const sessionId = state.commander.activeSessionId ?? crypto.randomUUID();
-
-      if (!state.commander.activeSessionId) {
-        dispatch(ensureActiveSession(sessionId));
-      }
+      const hasUserMessages = session?.messages.some((entry) => entry.role === 'user') ?? false;
 
       // Auto-snapshot: capture project state before the first message of a session
-      if (!selectIsStreaming(state) && !hasUserMessages) {
+      if (!hasUserMessages) {
         try {
           // Ensure the session row exists so the FK constraint on snapshots is satisfied
           if (api?.session?.upsert) {
             await api.session.upsert({
               id: sessionId,
-              canvasId: currentCanvasId,
+              defaultCanvasId,
               title: '',
               messages: '[]',
               createdAt: Date.now(),
@@ -269,14 +287,21 @@ export class CommanderSessionService {
       //      state that was never persisted (e.g. cold-load drift).
       // Failures here MUST surface — a silent catch lets the AI read an
       // empty/stale canvas and hallucinate "no nodes exist".
-      flushPendingCanvasSave();
-      const { activeCanvasId: canvasId, canvases, viewport } = state.canvas;
-      const activeCanvas = canvasId ? canvases.entities[canvasId] : undefined;
-      if (activeCanvas && api?.canvas?.save) {
+      await flushPendingPersistence();
+      const { canvases, viewport } = state.canvas;
+      const saveCanvas = api?.canvas?.save;
+      for (const canvasId of authorizedCanvasIds) {
+        if (!saveCanvas) throw new Error(t('commander.canvasSyncFailed'));
+        const canvas = canvases.entities[canvasId];
+        if (!canvas) {
+          throw new Error(t('commander.canvasSyncFailed'));
+        }
         const canvasToSave =
-          activeCanvas.viewport === viewport ? activeCanvas : { ...activeCanvas, viewport };
+          canvasId === viewedCanvasId && canvas.viewport !== viewport
+            ? { ...canvas, viewport }
+            : canvas;
         try {
-          await api.canvas.save(canvasToSave);
+          await saveCanvas(canvasToSave);
         } catch (err) {
           dispatch(
             addLog({
@@ -290,9 +315,13 @@ export class CommanderSessionService {
         }
       }
 
-      dispatch(addUserMessage(trimmed));
-      dispatch(startStreaming());
-      dispatch(recordPrompt({ wordCount: trimmed.split(/\s+/).length }));
+      if (intent.kind === 'user_message') {
+        dispatch(addUserMessage({ sessionId, content: displayMessage }));
+      }
+      dispatch(startStreaming(sessionId));
+      if (intent.kind === 'user_message') {
+        dispatch(recordPrompt({ wordCount: displayMessage.split(/\s+/).length }));
+      }
 
       const llmProviders = llmSettings?.providers ?? [];
       const activeProvider =
@@ -307,15 +336,20 @@ export class CommanderSessionService {
             authStyle: activeProvider.authStyle,
             credentialMode: activeProvider.credentialMode,
             oauthTarget: activeProvider.oauthTarget,
+            supportsModelOverride: activeProvider.supportsModelOverride,
+            supportsReasoningEffort: activeProvider.supportsReasoningEffort,
+            reasoningEffortsByModel: activeProvider.reasoningEffortsByModel,
+            reasoningEffort: activeProvider.reasoningEffort,
             supportsVision: activeProvider.supportsVision,
             contextWindow: activeProvider.contextWindow,
           })
         : undefined;
       const permissionMode = state.commander.permissionMode;
       const {
-        maxSteps,
+        resourceBudget,
         temperature,
-        maxTokens,
+        contextWindowTokens,
+        maxOutputTokens,
         qualityGateBehavior,
         requireStylePlateBeforeRefImage,
       } = state.commander;
@@ -326,27 +360,32 @@ export class CommanderSessionService {
 
       // Build default provider map from canvas settings
       const defaultProviders: Record<string, string> = {};
-      const cs = activeCanvas?.settings;
+      const cs = defaultCanvasId ? canvases.entities[defaultCanvasId]?.settings : undefined;
       if (cs?.imageProviderId) defaultProviders.image = cs.imageProviderId;
       if (cs?.videoProviderId) defaultProviders.video = cs.videoProviderId;
       if (cs?.audioProviderId) defaultProviders.audio = cs.audioProviderId;
 
-      await transport.chat(
-        currentCanvasId,
-        trimmed,
-        history,
-        selectedNodeIds,
+      const accepted = await transport.start({
+        ...(defaultCanvasId ? { defaultCanvasId } : {}),
+        authorizedCanvasIds,
+        sessionId,
+        intent,
+        selectedNodes,
+        attachments: resources.attachments,
         promptGuides,
         customLLMProvider,
         permissionMode,
-        getLocale(),
-        maxSteps,
+        locale: getLocale(),
+        resourceBudget,
         temperature,
-        maxTokens,
-        sessionId,
-        Object.keys(defaultProviders).length > 0 ? defaultProviders : undefined,
+        contextWindowTokens,
+        maxOutputTokens,
+        defaultProviders: Object.keys(defaultProviders).length > 0 ? defaultProviders : undefined,
         processSettings,
-      );
+      });
+      runAccepted = true;
+      await this.hydrateAcceptedRun(accepted.runId, accepted.sessionId);
+      return true;
     } catch (error) {
       const rawMsg = error instanceof Error ? error.message : String(error);
       const msg = localizeRuntimeError(rawMsg, t);
@@ -354,52 +393,43 @@ export class CommanderSessionService {
         addLog({
           level: 'error',
           category: 'commander',
-          message: rawMsg,
-          detail: error instanceof Error ? (error.stack ?? error.message) : String(error),
+          message: 'Commander start failed',
         }),
       );
-      dispatch(streamError(msg));
+      if (
+        !hadActiveRun &&
+        sessionId &&
+        getState().commander.sessions.some((session) => session.id === sessionId)
+      ) {
+        dispatch(streamError({ sessionId, error: msg }));
+      }
+      return runAccepted;
     }
   }
 
-  /**
-   * User-initiated cancel. Prefers the backend-driven finalize (richer
-   * exitDecision/summary) and only falls back to a local `terminalKind=
-   * 'cancelled'` finalize when (a) transport unavailable, (b) no
-   * activeCanvasId, or (c) `awaitRunEnd` times out. See D2b in PLAN v7.
-   */
   async cancel(): Promise<void> {
     const { dispatch, getState, transport } = this.deps;
     incrementRunAbort();
 
     const state = getState();
-    const currentRunId = state.commanderTimeline.currentRunId;
-    const activeCanvasId = state.commander.activeCanvasId;
-
-    if (!transport.available || !activeCanvasId) {
-      if (currentRunId) this.finalizeLocallyAsCancelled(currentRunId);
-      dispatch(finishStreaming());
-      this.persistSessionOnTerminal();
+    const sessionId = state.commander.activeSessionId;
+    const currentRunId = sessionId
+      ? state.commanderTimeline.currentRunIdBySessionId[sessionId]
+      : undefined;
+    if (!transport.available || !sessionId || !currentRunId) {
       return;
     }
 
     try {
-      await transport.cancel(activeCanvasId);
+      await transport.cancel(currentRunId);
     } catch {
-      // Transport cancel itself failed — fall through to timeout path.
-    }
-
-    // Fast-path: if run_end already finalized during the transport.cancel
-    // await, no reason to wait further.
-    if (!currentRunId || getState().commander.finalizedRunIds.includes(currentRunId)) {
-      return;
-    }
-
-    const arrived = await this.awaitRunEnd(currentRunId, CANCEL_TIMEOUT_MS);
-    if (!arrived) {
-      this.finalizeLocallyAsCancelled(currentRunId);
-      dispatch(finishStreaming());
-      this.persistSessionOnTerminal();
+      dispatch(
+        addLog({
+          level: 'error',
+          category: 'commander',
+          message: 'Failed to cancel Commander run',
+        }),
+      );
     }
   }
 
@@ -412,18 +442,18 @@ export class CommanderSessionService {
    * regular cancel.
    */
   async cancelCurrentStep(): Promise<{ escalated: boolean }> {
-    const { dispatch, getState, transport } = this.deps;
+    const { getState, transport } = this.deps;
     incrementStepAbort();
-    const activeCanvasId = getState().canvas.activeCanvasId;
-    if (!transport.available || !activeCanvasId) return { escalated: false };
+    const state = getState();
+    const sessionId = state.commander.activeSessionId;
+    const runId = sessionId
+      ? state.commanderTimeline.currentRunIdBySessionId[sessionId]
+      : undefined;
+    if (!transport.available || !runId) return { escalated: false };
     try {
-      const result = await transport.cancelCurrentStep(activeCanvasId);
+      const result = await transport.cancelCurrentStep(runId);
       if (result.escalated) {
         incrementRunAbort();
-        const runId = getState().commanderTimeline.currentRunId;
-        if (runId) this.finalizeLocallyAsCancelled(runId);
-        dispatch(finishStreaming());
-        this.persistSessionOnTerminal();
       }
       return result;
     } catch {
@@ -431,51 +461,36 @@ export class CommanderSessionService {
     }
   }
 
-  /** Build a cancelled-finalize message from the current timeline and
-   *  dispatch it through the normal append path (reducer dedup will no-op
-   *  if a backend run_end already finalized this runId). */
-  private finalizeLocallyAsCancelled(runId: string): void {
-    const { dispatch, getState } = this.deps;
-    const state = getState();
-    const events = selectEventsForRun(state, runId);
-    const message = buildFinalizedAssistantMessage(
-      runId,
-      'cancelled',
-      events,
-      state.commanderTimeline.locallyResolvedConfirmations,
-      state.commanderTimeline.locallyResolvedQuestions,
-    );
-    if (message) {
-      dispatch(appendFinalizedAssistantMessage({ message, runId }));
+  private async hydrateAcceptedRun(runId: string, sessionId?: string): Promise<void> {
+    const existing = selectEventsForRun(this.deps.getState(), runId);
+    const afterSeq = existing.at(-1)?.seq ?? -1;
+    try {
+      const { events } = await this.deps.transport.hydrate(runId, afterSeq);
+      const ownerSessionId =
+        sessionId ?? this.deps.getState().commanderTimeline.sessionIdByRunId[runId];
+      if (!ownerSessionId) return;
+      for (const event of events) this.acceptTimelineEvent(ownerSessionId, event);
+    } catch {
+      this.deps.dispatch(
+        addLog({
+          level: 'warn',
+          category: 'commander',
+          message: 'Commander run hydration failed',
+        }),
+      );
     }
   }
 
-  /** Resolve a run_end Promise latch if one exists for this runId. No-op
-   *  when no latch was created (e.g. normal completion without cancel). */
-  private resolveRunEndLatch(runId: string): void {
-    const entry = this.runEndLatches.get(runId);
-    if (!entry) return;
-    clearTimeout(entry.timer);
-    this.runEndLatches.delete(runId);
-    entry.resolve(true);
-  }
-
-  /** Wait for the `run_end` event matching `runId`. Idempotent: repeat
-   *  calls receive the same Promise. Timer expiry resolves `false` and
-   *  deletes the entry. */
-  private awaitRunEnd(runId: string, ms: number): Promise<boolean> {
-    const existing = this.runEndLatches.get(runId);
-    if (existing) return existing.promise;
-    let resolve!: (arrived: boolean) => void;
-    const promise = new Promise<boolean>((r) => {
-      resolve = r;
-    });
-    const timer = setTimeout(() => {
-      this.runEndLatches.delete(runId);
-      resolve(false);
-    }, ms);
-    this.runEndLatches.set(runId, { promise, resolve, timer });
-    return promise;
+  private acceptTimelineEvent(sessionId: string, event: TimelineEvent): void {
+    const { dispatch, getState } = this.deps;
+    const existing = selectEventsForRun(getState(), event.runId);
+    if ((existing.at(-1)?.seq ?? -1) >= event.seq) return;
+    const isSessionCurrentRun =
+      event.kind === 'run_start' ||
+      event.runId === getState().commanderTimeline.currentRunIdBySessionId[sessionId];
+    dispatch(appendTimelineEvent({ sessionId, event }));
+    if (isSessionCurrentRun) dispatch(updateRunPhase({ sessionId, event }));
+    this.applyTimelineSideEffects(sessionId, event, isSessionCurrentRun);
   }
 
   /**
@@ -496,12 +511,7 @@ export class CommanderSessionService {
     if (!transport.available) return () => {};
 
     const unsubStream = transport.onStreamEnvelope((envelope) => {
-      const event = envelope.event as TimelineEvent;
-      dispatch(appendTimelineEvent(event));
-      // Phase FSM — drive the legacy `commander.phase` field so the
-      // LiveActivityBar / cursor gate / elapsed timers stay honest.
-      dispatch(updateRunPhase(event));
-      this.applyTimelineSideEffects(event);
+      this.acceptTimelineEvent(envelope.sessionId, envelope.event as TimelineEvent);
     });
     const unsubCanvas = transport.onCanvasUpdated((data) => this.handleCanvasUpdate(data));
     const unsubEntities = transport.onEntitiesUpdated((data) => {
@@ -512,14 +522,12 @@ export class CommanderSessionService {
       );
     });
     const unsubSettings = transport.onSettingsDispatch((data) => this.handleSettingsDispatch(data));
-    const unsubUndo = transport.onUndoDispatch((data) => this.handleUndoDispatch(data));
 
     return () => {
       unsubStream();
       unsubCanvas();
       unsubEntities();
       unsubSettings();
-      unsubUndo();
     };
   }
 
@@ -530,28 +538,32 @@ export class CommanderSessionService {
    * frames, running per-tool entity-refresh dispatches, persisting the
    * session on `run_end`, etc.
    */
-  private applyTimelineSideEffects(event: TimelineEvent): void {
+  private applyTimelineSideEffects(
+    sessionId: string,
+    event: TimelineEvent,
+    isSessionCurrentRun: boolean,
+  ): void {
     const { dispatch } = this.deps;
 
     switch (event.kind) {
       case 'tool_call': {
         const toolName = `${event.toolRef.domain}.${event.toolRef.action}`;
-        this.toolCallNames.set(event.toolCallId, { name: toolName, args: event.args });
+        this.toolCallNames.set(`${event.runId}:${event.toolCallId}`, {
+          name: toolName,
+          ...(event.details ? { details: event.details } : {}),
+        });
         return;
       }
       case 'tool_result': {
-        const entry = this.toolCallNames.get(event.toolCallId);
-        this.toolCallNames.delete(event.toolCallId);
+        const key = `${event.runId}:${event.toolCallId}`;
+        const entry = this.toolCallNames.get(key);
+        this.toolCallNames.delete(key);
         const toolName = entry?.name;
-        const toolArgs = entry?.args;
-        const isError = !!event.error;
+        const toolDetails = entry?.details;
+        const isError = event.status === 'failed';
         if (toolName) {
           dispatch(recordToolCall({ toolName, error: isError }));
           if (!isError) {
-            const resultRecord =
-              typeof event.result === 'object' && event.result !== null
-                ? (event.result as { success?: unknown; data?: unknown })
-                : undefined;
             if (toolName === 'node.create' || toolName === 'shot.create') {
               dispatch(recordShotCreate());
               dispatch(recordProjectActivity({ nodesCreated: 1 }));
@@ -560,7 +572,7 @@ export class CommanderSessionService {
             } else if (toolName === 'prop.create') {
               dispatch(recordEntityCreate({ entityType: 'prop' }));
             } else if (toolName === 'entity.create') {
-              const entityType = toolArgs?.type;
+              const entityType = toolDetails?.type;
               if (
                 entityType === 'character' ||
                 entityType === 'location' ||
@@ -573,18 +585,6 @@ export class CommanderSessionService {
               if (bucket === 'character' || bucket === 'location' || bucket === 'equipment') {
                 dispatch(recordEntityCreate({ entityType: bucket }));
               }
-            }
-            if (
-              (toolName === 'preset.create' || toolName === 'preset.update') &&
-              resultRecord &&
-              'data' in resultRecord &&
-              resultRecord.data &&
-              typeof resultRecord.data === 'object' &&
-              'id' in (resultRecord.data as Record<string, unknown>)
-            ) {
-              dispatch(
-                upsertPreset(resultRecord.data as import('@lucid-fin/contracts').PresetDefinition),
-              );
             }
           }
         }
@@ -599,30 +599,23 @@ export class CommanderSessionService {
         return;
       case 'run_end': {
         const runId = event.runId;
-        if (event.status === 'failed') dispatch(recordError());
-
         const events = selectEventsForRun(this.deps.getState(), runId);
         const state = this.deps.getState();
         const message = buildFinalizedAssistantMessage(
           runId,
           event.status,
           events,
-          state.commanderTimeline.locallyResolvedConfirmations,
-          state.commanderTimeline.locallyResolvedQuestions,
+          state.commanderTimeline.locallyResolvedConfirmationsBySessionId[sessionId]?.[runId] ?? [],
+          state.commanderTimeline.locallyResolvedQuestionsBySessionId[sessionId]?.[runId] ?? [],
         );
         if (message) {
-          const alreadyFinalized = state.commander.finalizedRunIds.includes(runId);
-          if (alreadyFinalized) {
-            // Late run_end after local cancel: merge backend's richer
-            // exitDecision/summary into the existing message.
-            dispatch(upsertFinalizedAssistantMessage({ message, runId }));
-          } else {
-            dispatch(appendFinalizedAssistantMessage({ message, runId }));
-          }
+          dispatch(appendFinalizedAssistantMessage({ sessionId, message, runId }));
         }
-        this.resolveRunEndLatch(runId);
-        dispatch(finishStreaming());
-        this.persistSessionOnTerminal();
+        if (!isSessionCurrentRun) return;
+        if (event.status === 'failed') dispatch(recordError());
+        dispatch(finishStreaming(sessionId));
+        this.persistSessionOnTerminal(sessionId);
+        dispatch(loadTaskLists({}));
         return;
       }
       case 'cancelled':
@@ -636,19 +629,17 @@ export class CommanderSessionService {
   }
 
   /** Persist the active commander session to SQLite after a terminal stream event. */
-  private persistSessionOnTerminal(): void {
+  private persistSessionOnTerminal(sessionId: string): void {
     const { api, getState } = this.deps;
     const freshState = getState();
-    const sid = freshState.commander.activeSessionId;
-    if (!sid || freshState.commander.messages.length === 0) return;
-    const sess = freshState.commander.sessions.find((s) => s.id === sid);
-    if (!sess) return;
+    const sess = freshState.commander.sessions.find((session) => session.id === sessionId);
+    if (!sess || sess.messages.length === 0) return;
     api?.session
       ?.upsert({
         id: sess.id,
-        canvasId: freshState.canvas.activeCanvasId ?? null,
+        defaultCanvasId: sess.defaultCanvasId,
         title: sess.title,
-        messages: JSON.stringify(sess.messages),
+        messages: JSON.stringify(sanitizeCommanderMessages(sess.messages)),
         createdAt: sess.createdAt,
         updatedAt: sess.updatedAt,
       })
@@ -656,94 +647,7 @@ export class CommanderSessionService {
   }
 
   private handleCanvasUpdate(data: CommanderCanvasUpdatedPayload): void {
-    const { dispatch, getState } = this.deps;
-    const currentState = getState();
-    const currentCanvas = currentState.canvas.canvases.entities[data.canvasId];
-    if (!currentCanvas) return;
-    const incoming = data.canvas;
-
-    // Canvas-level properties
-    if (incoming.name !== currentCanvas.name) {
-      dispatch(renameCanvas({ id: data.canvasId, name: incoming.name }));
-    }
-
-    // Nodes: detect added, removed, updated
-    const currentNodeIds = new Set(currentCanvas.nodes.map((n) => n.id));
-    const incomingNodeIds = new Set(incoming.nodes.map((n) => n.id));
-
-    // Added nodes
-    for (const node of incoming.nodes) {
-      if (!currentNodeIds.has(node.id)) {
-        dispatch(
-          addNode({
-            id: node.id,
-            type: node.type,
-            title: node.title,
-            position: node.position,
-            data: node.data,
-            width: node.width,
-            height: node.height,
-          }),
-        );
-      }
-    }
-
-    // Removed nodes
-    const removedNodeIds = [...currentNodeIds].filter((id) => !incomingNodeIds.has(id));
-    if (removedNodeIds.length > 0) {
-      dispatch(removeNodes(removedNodeIds));
-    }
-
-    // Updated nodes — compare fields individually to apply granular diffs.
-    // No updatedAt gate: the per-field checks below prevent unnecessary
-    // dispatches, while an updatedAt gate would silently skip legitimate
-    // updates when the renderer has a newer timestamp from a concurrent
-    // user edit on a different field.
-    for (const inNode of incoming.nodes) {
-      if (!currentNodeIds.has(inNode.id)) continue;
-      const curNode = currentCanvas.nodes.find((n) => n.id === inNode.id);
-      if (!curNode) continue;
-
-      if (curNode.position.x !== inNode.position.x || curNode.position.y !== inNode.position.y) {
-        dispatch(moveNode({ id: inNode.id, position: inNode.position }));
-      }
-      if (curNode.title !== inNode.title) {
-        dispatch(renameNode({ id: inNode.id, title: inNode.title }));
-      }
-      if (JSON.stringify(curNode.data) !== JSON.stringify(inNode.data)) {
-        dispatch(updateNodeData({ id: inNode.id, data: inNode.data as Record<string, unknown> }));
-      }
-    }
-
-    // Edges: detect added, removed, updated
-    const currentEdgeIds = new Set(currentCanvas.edges.map((e) => e.id));
-    const incomingEdgeIds = new Set(incoming.edges.map((e) => e.id));
-
-    for (const edge of incoming.edges) {
-      if (!currentEdgeIds.has(edge.id)) {
-        dispatch(addEdge(edge));
-      }
-    }
-
-    for (const inEdge of incoming.edges) {
-      if (!currentEdgeIds.has(inEdge.id)) continue;
-      const curEdge = currentCanvas.edges.find((e) => e.id === inEdge.id);
-      if (!curEdge) continue;
-      const changed =
-        curEdge.source !== inEdge.source ||
-        curEdge.target !== inEdge.target ||
-        curEdge.sourceHandle !== inEdge.sourceHandle ||
-        curEdge.targetHandle !== inEdge.targetHandle ||
-        JSON.stringify(curEdge.data) !== JSON.stringify(inEdge.data);
-      if (changed) {
-        dispatch(updateEdge({ id: inEdge.id, changes: inEdge }));
-      }
-    }
-
-    const removedEdgeIds = [...currentEdgeIds].filter((id) => !incomingEdgeIds.has(id));
-    if (removedEdgeIds.length > 0) {
-      dispatch(removeEdges(removedEdgeIds));
-    }
+    this.deps.dispatch(applyCommanderCanvasSnapshot(data));
   }
 
   private handleSettingsDispatch(data: CommanderSettingsDispatchPayload): void {
@@ -762,15 +666,6 @@ export class CommanderSessionService {
     const actionCreator = settingsActionMap[data.action];
     if (actionCreator) {
       dispatch(actionCreator(data.payload as never) as never);
-    }
-  }
-
-  private handleUndoDispatch(data: CommanderUndoDispatchPayload): void {
-    const { dispatch } = this.deps;
-    if (data.action === 'undo') {
-      dispatch({ type: 'undo/undo' });
-    } else if (data.action === 'redo') {
-      dispatch({ type: 'undo/redo' });
     }
   }
 }

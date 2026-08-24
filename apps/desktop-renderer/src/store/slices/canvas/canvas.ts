@@ -26,6 +26,7 @@ import * as refReducers from './canvas-ref-reducers.js';
 import * as edgeReducers from './canvas-edge-reducers.js';
 import * as generationReducers from './canvas-generation-reducers.js';
 import * as presetReducers from './canvas-preset-reducers.js';
+import * as deliveryReducers from './canvas-delivery-reducers.js';
 
 // ---------------------------------------------------------------------------
 // Entity adapter for normalized canvas storage
@@ -92,9 +93,15 @@ const internalCanvasSlice = createSlice({
         .map((canvas) => normalizeCanvasNodeFrames(canvas))
         .map((canvas) => sanitizeTransientNodeStatus(canvas));
       canvasAdapter.setAll(state.canvases, normalized);
-      const stillValid = state.canvases.ids.includes(state.activeCanvasId ?? '');
+      const activeCanvas = state.activeCanvasId
+        ? state.canvases.entities[state.activeCanvasId]
+        : undefined;
+      const stillValid = Boolean(activeCanvas && activeCanvas.archivedAt === undefined);
       if (!stillValid) {
-        state.activeCanvasId = (state.canvases.ids[0] as string) ?? null;
+        state.activeCanvasId =
+          (state.canvases.ids.find(
+            (id) => state.canvases.entities[id]?.archivedAt === undefined,
+          ) as string | undefined) ?? null;
         state.selectedNodeIds = [];
         state.selectedEdgeIds = [];
       }
@@ -113,8 +120,31 @@ const internalCanvasSlice = createSlice({
     removeCanvas(state, action: PayloadAction<string>) {
       canvasAdapter.removeOne(state.canvases, action.payload);
       if (state.activeCanvasId === action.payload) {
-        state.activeCanvasId = (state.canvases.ids[0] as string) ?? null;
+        state.activeCanvasId =
+          (state.canvases.ids.find(
+            (id) => state.canvases.entities[id]?.archivedAt === undefined,
+          ) as string | undefined) ?? null;
       }
+    },
+
+    archiveCanvas(state, action: PayloadAction<{ id: string; archivedAt: number }>) {
+      const canvas = state.canvases.entities[action.payload.id];
+      if (!canvas) return;
+      canvas.archivedAt = action.payload.archivedAt;
+      if (state.activeCanvasId === action.payload.id) {
+        state.activeCanvasId =
+          (state.canvases.ids.find(
+            (id) => state.canvases.entities[id]?.archivedAt === undefined,
+          ) as string | undefined) ?? null;
+        state.selectedNodeIds = [];
+        state.selectedEdgeIds = [];
+      }
+    },
+
+    restoreCanvas(state, action: PayloadAction<string>) {
+      const canvas = state.canvases.entities[action.payload];
+      if (!canvas) return;
+      delete canvas.archivedAt;
     },
 
     setActiveCanvas(state, action: PayloadAction<string | null>) {
@@ -124,7 +154,8 @@ const internalCanvasSlice = createSlice({
         outgoing.viewport = state.viewport;
       }
 
-      state.activeCanvasId = action.payload;
+      const incoming = action.payload ? state.canvases.entities[action.payload] : undefined;
+      state.activeCanvasId = incoming?.archivedAt === undefined ? action.payload : null;
       state.selectedNodeIds = [];
       state.selectedEdgeIds = [];
 
@@ -141,6 +172,23 @@ const internalCanvasSlice = createSlice({
         canvas.name = action.payload.name;
         canvas.updatedAt = Date.now();
       }
+    },
+
+    applyCommanderCanvasSnapshot(
+      state,
+      action: PayloadAction<{ canvasId: string; canvas: Canvas }>,
+    ) {
+      if (action.payload.canvas.id !== action.payload.canvasId) return;
+      const normalized = sanitizeTransientNodeStatus(
+        normalizeCanvasNodeFrames(action.payload.canvas),
+      );
+      canvasAdapter.setOne(state.canvases, normalized);
+      if (state.activeCanvasId !== action.payload.canvasId) return;
+      state.viewport = normalized.viewport;
+      const nodeIds = new Set(normalized.nodes.map((node) => node.id));
+      const edgeIds = new Set(normalized.edges.map((edge) => edge.id));
+      state.selectedNodeIds = state.selectedNodeIds.filter((id) => nodeIds.has(id));
+      state.selectedEdgeIds = state.selectedEdgeIds.filter((id) => edgeIds.has(id));
     },
 
     // --- Node actions (delegated) ------------------------------------------
@@ -240,10 +288,6 @@ const internalCanvasSlice = createSlice({
 
     clearGenerationHistory: generationReducers.clearGenerationHistory,
 
-    // --- Lip Sync (F2) ----------------------------------------------------
-
-    setNodeLipSync: generationReducers.setNodeLipSync,
-
     // --- Preset / track actions (delegated) --------------------------------
 
     applyNodeShotTemplate: presetReducers.applyNodeShotTemplate,
@@ -251,6 +295,16 @@ const internalCanvasSlice = createSlice({
     updateNodePresetTrackEntry: presetReducers.updateNodePresetTrackEntry,
     removeNodePresetTrackEntry: presetReducers.removeNodePresetTrackEntry,
     moveNodePresetTrackEntry: presetReducers.moveNodePresetTrackEntry,
+
+    // --- Ordered delivery --------------------------------------------------
+
+    addDeliveryItem: deliveryReducers.addDeliveryItem,
+    replaceDeliveryItem: deliveryReducers.replaceDeliveryItem,
+    reorderDeliveryItem: deliveryReducers.reorderDeliveryItem,
+    trimDeliveryItem: deliveryReducers.trimDeliveryItem,
+    setDeliveryEmbeddedAudio: deliveryReducers.setDeliveryEmbeddedAudio,
+    removeDeliveryItems: deliveryReducers.removeDeliveryItems,
+    synchronizeDeliverySequenceRevision: deliveryReducers.synchronizeDeliverySequenceRevision,
 
     // --- Selection ---------------------------------------------------------
 
@@ -343,10 +397,12 @@ const internalCanvasSlice = createSlice({
       state,
       action: PayloadAction<{
         entityType: 'character' | 'equipment' | 'location';
-        entityId: string;
+        entityIds: string[];
       }>,
     ) {
-      const { entityType, entityId } = action.payload;
+      const { entityType } = action.payload;
+      const entityIds = new Set(action.payload.entityIds);
+      if (entityIds.size === 0) return;
       const now = Date.now();
       for (const canvasId of state.canvases.ids) {
         const canvas = state.canvases.entities[canvasId as string];
@@ -357,17 +413,17 @@ const internalCanvasSlice = createSlice({
           const data = node.data as ImageNodeData | VideoNodeData;
           if (entityType === 'character' && data.characterRefs) {
             const before = data.characterRefs.length;
-            data.characterRefs = data.characterRefs.filter((r) => r.characterId !== entityId);
+            data.characterRefs = data.characterRefs.filter((r) => !entityIds.has(r.characterId));
             if (data.characterRefs.length < before) dirty = true;
           }
           if (entityType === 'equipment' && data.equipmentRefs) {
             const before = data.equipmentRefs.length;
-            data.equipmentRefs = data.equipmentRefs.filter((r) => r.equipmentId !== entityId);
+            data.equipmentRefs = data.equipmentRefs.filter((r) => !entityIds.has(r.equipmentId));
             if (data.equipmentRefs.length < before) dirty = true;
           }
           if (entityType === 'location' && data.locationRefs) {
             const before = data.locationRefs.length;
-            data.locationRefs = data.locationRefs.filter((r) => r.locationId !== entityId);
+            data.locationRefs = data.locationRefs.filter((r) => !entityIds.has(r.locationId));
             if (data.locationRefs.length < before) dirty = true;
           }
         }
@@ -407,8 +463,11 @@ export const {
   setCanvases,
   addCanvas,
   removeCanvas,
+  archiveCanvas,
+  restoreCanvas,
   setActiveCanvas,
   renameCanvas,
+  applyCommanderCanvasSnapshot,
   addNode,
   removeNodes,
   updateNode,
@@ -451,6 +510,13 @@ export const {
   updateNodePresetTrackEntry,
   removeNodePresetTrackEntry,
   moveNodePresetTrackEntry,
+  addDeliveryItem,
+  replaceDeliveryItem,
+  reorderDeliveryItem,
+  trimDeliveryItem,
+  setDeliveryEmbeddedAudio,
+  removeDeliveryItems,
+  synchronizeDeliverySequenceRevision,
   setNodeCharacterRefs,
   addNodeCharacterRef,
   removeNodeCharacterRef,
@@ -495,8 +561,6 @@ export const {
   setNodeGroupId,
   // M10: Generation history
   clearGenerationHistory,
-  // F2: Lip Sync
-  setNodeLipSync,
   // L17: Advanced generation params
   setNodeAdvancedParams,
   setNodeSourceImage,

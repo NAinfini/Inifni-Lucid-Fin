@@ -36,38 +36,6 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       return () => ipcRenderer.removeListener(`${channel}:event`, listener);
     },
   },
-  ai: {
-    chat: async (req: unknown) => {
-      const parsed = parseRequest('ai:chat', req);
-      return ipcRenderer.invoke('ai:chat', parsed);
-    },
-    onEvent: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('ai:event', listener);
-      return () => ipcRenderer.removeListener('ai:event', listener);
-    },
-    promptClearCustom: async (req: unknown) => {
-      const parsed = parseRequest('ai:prompt:clearCustom', req);
-      return ipcRenderer.invoke('ai:prompt:clearCustom', parsed);
-    },
-    promptGet: async (req: unknown) => {
-      const parsed = parseRequest('ai:prompt:get', req);
-      return ipcRenderer.invoke('ai:prompt:get', parsed);
-    },
-    promptList: async (req: unknown) => {
-      const parsed = parseRequest('ai:prompt:list', req);
-      return ipcRenderer.invoke('ai:prompt:list', parsed);
-    },
-    promptSetCustom: async (req: unknown) => {
-      const parsed = parseRequest('ai:prompt:setCustom', req);
-      return ipcRenderer.invoke('ai:prompt:setCustom', parsed);
-    },
-    onStream: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('ai:stream', listener);
-      return () => ipcRenderer.removeListener('ai:stream', listener);
-    },
-  },
   app: {
     onInitError: (cb: (payload: unknown) => void) => {
       const listener = (_e: unknown, payload: unknown) => cb(payload);
@@ -88,66 +56,55 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       return ipcRenderer.invoke('app:version', parsed);
     },
   },
-  asset: {
-    delete: async (req: unknown) => {
-      const parsed = parseRequest('asset:delete', req);
-      return ipcRenderer.invoke('asset:delete', parsed);
-    },
+  assetContent: {
     export: async (req: unknown) => {
-      const parsed = parseRequest('asset:export', req);
-      return ipcRenderer.invoke('asset:export', parsed);
-    },
-    exportBatch: async (req: unknown) => {
-      const parsed = parseRequest('asset:exportBatch', req);
-      return ipcRenderer.invoke('asset:exportBatch', parsed);
-    },
-    generateEmbedding: async (req: unknown) => {
-      const parsed = parseRequest('asset:generateEmbedding', req);
-      return ipcRenderer.invoke('asset:generateEmbedding', parsed);
+      const parsed = parseRequest('assetContent:export', req);
+      return ipcRenderer.invoke('assetContent:export', parsed);
     },
     getPath: async (req: unknown) => {
-      const parsed = parseRequest('asset:getPath', req);
-      return ipcRenderer.invoke('asset:getPath', parsed);
+      const parsed = parseRequest('assetContent:getPath', req);
+      return ipcRenderer.invoke('assetContent:getPath', parsed);
+    },
+    inspect: async (req: unknown) => {
+      const parsed = parseRequest('assetContent:inspect', req);
+      return ipcRenderer.invoke('assetContent:inspect', parsed);
+    },
+  },
+  assetEntry: {
+    copy: async (req: unknown) => {
+      const parsed = parseRequest('assetEntry:copy', req);
+      return ipcRenderer.invoke('assetEntry:copy', parsed);
+    },
+    delete: async (req: unknown) => {
+      const parsed = parseRequest('assetEntry:delete', req);
+      return ipcRenderer.invoke('assetEntry:delete', parsed);
     },
     import: async (req: unknown) => {
-      const parsed = parseRequest('asset:import', req);
-      return ipcRenderer.invoke('asset:import', parsed);
+      const parsed = parseRequest('assetEntry:import', req);
+      return ipcRenderer.invoke('assetEntry:import', parsed);
     },
     importBuffer: async (req: unknown) => {
-      const parsed = parseRequest('asset:importBuffer', req);
-      return ipcRenderer.invoke('asset:importBuffer', parsed);
+      const parsed = parseRequest('assetEntry:importBuffer', req);
+      return ipcRenderer.invoke('assetEntry:importBuffer', parsed);
+    },
+    move: async (req: unknown) => {
+      const parsed = parseRequest('assetEntry:move', req);
+      return ipcRenderer.invoke('assetEntry:move', parsed);
     },
     pickFile: async (req: unknown) => {
-      const parsed = parseRequest('asset:pickFile', req);
-      return ipcRenderer.invoke('asset:pickFile', parsed);
+      const parsed = parseRequest('assetEntry:pickFile', req);
+      return ipcRenderer.invoke('assetEntry:pickFile', parsed);
     },
     query: async (req: unknown) => {
-      const parsed = parseRequest('asset:query', req);
-      return ipcRenderer.invoke('asset:query', parsed);
+      const parsed = parseRequest('assetEntry:query', req);
+      return ipcRenderer.invoke('assetEntry:query', parsed);
     },
-    onReindexProgress: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('asset:reindex:progress', listener);
-      return () => ipcRenderer.removeListener('asset:reindex:progress', listener);
-    },
-    reindexEmbeddings: async (req: unknown) => {
-      const parsed = parseRequest('asset:reindexEmbeddings', req);
-      return ipcRenderer.invoke('asset:reindexEmbeddings', parsed);
-    },
-    searchSemantic: async (req: unknown) => {
-      const parsed = parseRequest('asset:searchSemantic', req);
-      return ipcRenderer.invoke('asset:searchSemantic', parsed);
-    },
-    setFolder: async (req: unknown) => {
-      const parsed = parseRequest('asset:setFolder', req);
-      return ipcRenderer.invoke('asset:setFolder', parsed);
+    rename: async (req: unknown) => {
+      const parsed = parseRequest('assetEntry:rename', req);
+      return ipcRenderer.invoke('assetEntry:rename', parsed);
     },
   },
   canvas: {
-    cancelGeneration: async (req: unknown) => {
-      const parsed = parseRequest('canvas:cancelGeneration', req);
-      return ipcRenderer.invoke('canvas:cancelGeneration', parsed);
-    },
     create: async (req: unknown) => {
       const parsed = parseRequest('canvas:create', req);
       return ipcRenderer.invoke('canvas:create', parsed);
@@ -156,28 +113,9 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       const parsed = parseRequest('canvas:delete', req);
       return ipcRenderer.invoke('canvas:delete', parsed);
     },
-    estimateCost: async (req: unknown) => {
-      const parsed = parseRequest('canvas:estimateCost', req);
-      return ipcRenderer.invoke('canvas:estimateCost', parsed);
-    },
-    generate: async (req: unknown) => {
-      const parsed = parseRequest('canvas:generate', req);
-      return ipcRenderer.invoke('canvas:generate', parsed);
-    },
-    onGenerationComplete: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('canvas:generation:complete', listener);
-      return () => ipcRenderer.removeListener('canvas:generation:complete', listener);
-    },
-    onGenerationFailed: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('canvas:generation:failed', listener);
-      return () => ipcRenderer.removeListener('canvas:generation:failed', listener);
-    },
-    onGenerationProgress: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('canvas:generation:progress', listener);
-      return () => ipcRenderer.removeListener('canvas:generation:progress', listener);
+    deletePermanent: async (req: unknown) => {
+      const parsed = parseRequest('canvas:deletePermanent', req);
+      return ipcRenderer.invoke('canvas:deletePermanent', parsed);
     },
     list: async (req: unknown) => {
       const parsed = parseRequest('canvas:list', req);
@@ -187,6 +125,10 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       const parsed = parseRequest('canvas:load', req);
       return ipcRenderer.invoke('canvas:load', parsed);
     },
+    loadAll: async (req: unknown) => {
+      const parsed = parseRequest('canvas:loadAll', req);
+      return ipcRenderer.invoke('canvas:loadAll', parsed);
+    },
     patch: async (req: unknown) => {
       const parsed = parseRequest('canvas:patch', req);
       return ipcRenderer.invoke('canvas:patch', parsed);
@@ -195,12 +137,26 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       const parsed = parseRequest('canvas:rename', req);
       return ipcRenderer.invoke('canvas:rename', parsed);
     },
+    restore: async (req: unknown) => {
+      const parsed = parseRequest('canvas:restore', req);
+      return ipcRenderer.invoke('canvas:restore', parsed);
+    },
     save: async (req: unknown) => {
       const parsed = parseRequest('canvas:save', req);
       return ipcRenderer.invoke('canvas:save', parsed);
     },
   },
+  canvasDelivery: {
+    update: async (req: unknown) => {
+      const parsed = parseRequest('canvasDelivery:update', req);
+      return ipcRenderer.invoke('canvasDelivery:update', parsed);
+    },
+  },
   character: {
+    copy: async (req: unknown) => {
+      const parsed = parseRequest('character:copy', req);
+      return ipcRenderer.invoke('character:copy', parsed);
+    },
     delete: async (req: unknown) => {
       const parsed = parseRequest('character:delete', req);
       return ipcRenderer.invoke('character:delete', parsed);
@@ -272,14 +228,14 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       const parsed = parseRequest('commander:cancel', req);
       return ipcRenderer.invoke('commander:cancel', parsed);
     },
+    cancelStep: async (req: unknown) => {
+      const parsed = parseRequest('commander:cancel-step', req);
+      return ipcRenderer.invoke('commander:cancel-step', parsed);
+    },
     onCanvasDispatch: (cb: (payload: unknown) => void) => {
       const listener = (_e: unknown, payload: unknown) => cb(payload);
       ipcRenderer.on('commander:canvas:dispatch', listener);
       return () => ipcRenderer.removeListener('commander:canvas:dispatch', listener);
-    },
-    chat: async (req: unknown) => {
-      const parsed = parseRequest('commander:chat', req);
-      return ipcRenderer.invoke('commander:chat', parsed);
     },
     compact: async (req: unknown) => {
       const parsed = parseRequest('commander:compact', req);
@@ -298,23 +254,31 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       const parsed = parseRequest('commander:inject-message', req);
       return ipcRenderer.invoke('commander:inject-message', parsed);
     },
+    runControl: async (req: unknown) => {
+      const parsed = parseRequest('commander:run:control', req);
+      return ipcRenderer.invoke('commander:run:control', parsed);
+    },
+    runGet: async (req: unknown) => {
+      const parsed = parseRequest('commander:run:get', req);
+      return ipcRenderer.invoke('commander:run:get', parsed);
+    },
+    runTree: async (req: unknown) => {
+      const parsed = parseRequest('commander:run:tree', req);
+      return ipcRenderer.invoke('commander:run:tree', parsed);
+    },
     onSettingsDispatch: (cb: (payload: unknown) => void) => {
       const listener = (_e: unknown, payload: unknown) => cb(payload);
       ipcRenderer.on('commander:settings:dispatch', listener);
       return () => ipcRenderer.removeListener('commander:settings:dispatch', listener);
     },
+    start: async (req: unknown) => {
+      const parsed = parseRequest('commander:start', req);
+      return ipcRenderer.invoke('commander:start', parsed);
+    },
     onStream: (cb: (payload: unknown) => void) => {
       const listener = (_e: unknown, payload: unknown) => cb(payload);
       ipcRenderer.on('commander:stream', listener);
       return () => ipcRenderer.removeListener('commander:stream', listener);
-    },
-    toolList: async (req: unknown) => {
-      const parsed = parseRequest('commander:tool-list', req);
-      return ipcRenderer.invoke('commander:tool-list', parsed);
-    },
-    toolSearch: async (req: unknown) => {
-      const parsed = parseRequest('commander:tool-search', req);
-      return ipcRenderer.invoke('commander:tool-search', parsed);
     },
     toolAnswer: async (req: unknown) => {
       const parsed = parseRequest('commander:tool:answer', req);
@@ -324,19 +288,34 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       const parsed = parseRequest('commander:tool:decision', req);
       return ipcRenderer.invoke('commander:tool:decision', parsed);
     },
-    onUndoDispatch: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('commander:undo:dispatch', listener);
-      return () => ipcRenderer.removeListener('commander:undo:dispatch', listener);
-    },
   },
-  entity: {
-    generateReferenceImage: async (req: unknown) => {
-      const parsed = parseRequest('entity:generateReferenceImage', req);
-      return ipcRenderer.invoke('entity:generateReferenceImage', parsed);
+  deliveryPackage: {
+    cancel: async (req: unknown) => {
+      const parsed = parseRequest('deliveryPackage:cancel', req);
+      return ipcRenderer.invoke('deliveryPackage:cancel', parsed);
+    },
+    open: async (req: unknown) => {
+      const parsed = parseRequest('deliveryPackage:open', req);
+      return ipcRenderer.invoke('deliveryPackage:open', parsed);
+    },
+    retry: async (req: unknown) => {
+      const parsed = parseRequest('deliveryPackage:retry', req);
+      return ipcRenderer.invoke('deliveryPackage:retry', parsed);
+    },
+    start: async (req: unknown) => {
+      const parsed = parseRequest('deliveryPackage:start', req);
+      return ipcRenderer.invoke('deliveryPackage:start', parsed);
+    },
+    status: async (req: unknown) => {
+      const parsed = parseRequest('deliveryPackage:status', req);
+      return ipcRenderer.invoke('deliveryPackage:status', parsed);
     },
   },
   equipment: {
+    copy: async (req: unknown) => {
+      const parsed = parseRequest('equipment:copy', req);
+      return ipcRenderer.invoke('equipment:copy', parsed);
+    },
     delete: async (req: unknown) => {
       const parsed = parseRequest('equipment:delete', req);
       return ipcRenderer.invoke('equipment:delete', parsed);
@@ -364,32 +343,6 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     setRefImage: async (req: unknown) => {
       const parsed = parseRequest('equipment:setRefImage', req);
       return ipcRenderer.invoke('equipment:setRefImage', parsed);
-    },
-  },
-  export: {
-    assetBundle: async (req: unknown) => {
-      const parsed = parseRequest('export:assetBundle', req);
-      return ipcRenderer.invoke('export:assetBundle', parsed);
-    },
-    capcut: async (req: unknown) => {
-      const parsed = parseRequest('export:capcut', req);
-      return ipcRenderer.invoke('export:capcut', parsed);
-    },
-    metadata: async (req: unknown) => {
-      const parsed = parseRequest('export:metadata', req);
-      return ipcRenderer.invoke('export:metadata', parsed);
-    },
-    nle: async (req: unknown) => {
-      const parsed = parseRequest('export:nle', req);
-      return ipcRenderer.invoke('export:nle', parsed);
-    },
-    storyboard: async (req: unknown) => {
-      const parsed = parseRequest('export:storyboard', req);
-      return ipcRenderer.invoke('export:storyboard', parsed);
-    },
-    subtitles: async (req: unknown) => {
-      const parsed = parseRequest('export:subtitles', req);
-      return ipcRenderer.invoke('export:subtitles', parsed);
     },
   },
   ffmpeg: {
@@ -494,69 +447,6 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       return ipcRenderer.invoke('health:ping', parsed);
     },
   },
-  import: {
-    srt: async (req: unknown) => {
-      const parsed = parseRequest('import:srt', req);
-      return ipcRenderer.invoke('import:srt', parsed);
-    },
-  },
-  job: {
-    cancel: async (req: unknown) => {
-      const parsed = parseRequest('job:cancel', req);
-      return ipcRenderer.invoke('job:cancel', parsed);
-    },
-    onCancelled: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('job:cancelled', listener);
-      return () => ipcRenderer.removeListener('job:cancelled', listener);
-    },
-    onComplete: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('job:complete', listener);
-      return () => ipcRenderer.removeListener('job:complete', listener);
-    },
-    onFailed: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('job:failed', listener);
-      return () => ipcRenderer.removeListener('job:failed', listener);
-    },
-    list: async (req: unknown) => {
-      const parsed = parseRequest('job:list', req);
-      return ipcRenderer.invoke('job:list', parsed);
-    },
-    pause: async (req: unknown) => {
-      const parsed = parseRequest('job:pause', req);
-      return ipcRenderer.invoke('job:pause', parsed);
-    },
-    onPaused: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('job:paused', listener);
-      return () => ipcRenderer.removeListener('job:paused', listener);
-    },
-    onProgress: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('job:progress', listener);
-      return () => ipcRenderer.removeListener('job:progress', listener);
-    },
-    resume: async (req: unknown) => {
-      const parsed = parseRequest('job:resume', req);
-      return ipcRenderer.invoke('job:resume', parsed);
-    },
-    onResumed: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('job:resumed', listener);
-      return () => ipcRenderer.removeListener('job:resumed', listener);
-    },
-    submit: async (req: unknown) => {
-      const parsed = parseRequest('job:submit', req);
-      return ipcRenderer.invoke('job:submit', parsed);
-    },
-    onSubmitted: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('job:submitted', listener);
-      return () => ipcRenderer.removeListener('job:submitted', listener);
-    },
-  },
   keychain: {
     delete: async (req: unknown) => {
       const parsed = parseRequest('keychain:delete', req);
@@ -579,17 +469,11 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       return ipcRenderer.invoke('keychain:test', parsed);
     },
   },
-  lipsync: {
-    checkAvailability: async (req: unknown) => {
-      const parsed = parseRequest('lipsync:checkAvailability', req);
-      return ipcRenderer.invoke('lipsync:checkAvailability', parsed);
-    },
-    process: async (req: unknown) => {
-      const parsed = parseRequest('lipsync:process', req);
-      return ipcRenderer.invoke('lipsync:process', parsed);
-    },
-  },
   location: {
+    copy: async (req: unknown) => {
+      const parsed = parseRequest('location:copy', req);
+      return ipcRenderer.invoke('location:copy', parsed);
+    },
     delete: async (req: unknown) => {
       const parsed = parseRequest('location:delete', req);
       return ipcRenderer.invoke('location:delete', parsed);
@@ -674,6 +558,12 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       return ipcRenderer.invoke('processPrompt:setCustom', parsed);
     },
   },
+  promptAssembly: {
+    get: async (req: unknown) => {
+      const parsed = parseRequest('promptAssembly:get', req);
+      return ipcRenderer.invoke('promptAssembly:get', parsed);
+    },
+  },
   provider: {
     health: async (req: unknown) => {
       const parsed = parseRequest('provider:health', req);
@@ -707,35 +597,22 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       return ipcRenderer.invoke('providerOAuth:status', parsed);
     },
   },
-  refimage: {
-    onComplete: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('refimage:complete', listener);
-      return () => ipcRenderer.removeListener('refimage:complete', listener);
-    },
-    onFailed: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('refimage:failed', listener);
-      return () => ipcRenderer.removeListener('refimage:failed', listener);
-    },
-    onStart: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('refimage:start', listener);
-      return () => ipcRenderer.removeListener('refimage:start', listener);
-    },
-  },
-  render: {
+  reviewCut: {
     cancel: async (req: unknown) => {
-      const parsed = parseRequest('render:cancel', req);
-      return ipcRenderer.invoke('render:cancel', parsed);
+      const parsed = parseRequest('reviewCut:cancel', req);
+      return ipcRenderer.invoke('reviewCut:cancel', parsed);
+    },
+    open: async (req: unknown) => {
+      const parsed = parseRequest('reviewCut:open', req);
+      return ipcRenderer.invoke('reviewCut:open', parsed);
     },
     start: async (req: unknown) => {
-      const parsed = parseRequest('render:start', req);
-      return ipcRenderer.invoke('render:start', parsed);
+      const parsed = parseRequest('reviewCut:start', req);
+      return ipcRenderer.invoke('reviewCut:start', parsed);
     },
     status: async (req: unknown) => {
-      const parsed = parseRequest('render:status', req);
-      return ipcRenderer.invoke('render:status', parsed);
+      const parsed = parseRequest('reviewCut:status', req);
+      return ipcRenderer.invoke('reviewCut:status', parsed);
     },
   },
   script: {
@@ -756,36 +633,6 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       return ipcRenderer.invoke('script:save', parsed);
     },
   },
-  series: {
-    delete: async (req: unknown) => {
-      const parsed = parseRequest('series:delete', req);
-      return ipcRenderer.invoke('series:delete', parsed);
-    },
-    episodesAdd: async (req: unknown) => {
-      const parsed = parseRequest('series:episodes:add', req);
-      return ipcRenderer.invoke('series:episodes:add', parsed);
-    },
-    episodesList: async (req: unknown) => {
-      const parsed = parseRequest('series:episodes:list', req);
-      return ipcRenderer.invoke('series:episodes:list', parsed);
-    },
-    episodesRemove: async (req: unknown) => {
-      const parsed = parseRequest('series:episodes:remove', req);
-      return ipcRenderer.invoke('series:episodes:remove', parsed);
-    },
-    episodesReorder: async (req: unknown) => {
-      const parsed = parseRequest('series:episodes:reorder', req);
-      return ipcRenderer.invoke('series:episodes:reorder', parsed);
-    },
-    get: async (req: unknown) => {
-      const parsed = parseRequest('series:get', req);
-      return ipcRenderer.invoke('series:get', parsed);
-    },
-    save: async (req: unknown) => {
-      const parsed = parseRequest('series:save', req);
-      return ipcRenderer.invoke('series:save', parsed);
-    },
-  },
   session: {
     delete: async (req: unknown) => {
       const parsed = parseRequest('session:delete', req);
@@ -798,6 +645,10 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     list: async (req: unknown) => {
       const parsed = parseRequest('session:list', req);
       return ipcRenderer.invoke('session:list', parsed);
+    },
+    move: async (req: unknown) => {
+      const parsed = parseRequest('session:move', req);
+      return ipcRenderer.invoke('session:move', parsed);
     },
     upsert: async (req: unknown) => {
       const parsed = parseRequest('session:upsert', req);
@@ -848,10 +699,6 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       const parsed = parseRequest('storage:backupDatabase', req);
       return ipcRenderer.invoke('storage:backupDatabase', parsed);
     },
-    clearEmbeddings: async (req: unknown) => {
-      const parsed = parseRequest('storage:clearEmbeddings', req);
-      return ipcRenderer.invoke('storage:clearEmbeddings', parsed);
-    },
     clearLogs: async (req: unknown) => {
       const parsed = parseRequest('storage:clearLogs', req);
       return ipcRenderer.invoke('storage:clearLogs', parsed);
@@ -863,6 +710,10 @@ contextBridge.exposeInMainWorld('lucidAPI', {
     openFolder: async (req: unknown) => {
       const parsed = parseRequest('storage:openFolder', req);
       return ipcRenderer.invoke('storage:openFolder', parsed);
+    },
+    openPath: async (req: unknown) => {
+      const parsed = parseRequest('storage:openPath', req);
+      return ipcRenderer.invoke('storage:openPath', parsed);
     },
     pickFolder: async (req: unknown) => {
       const parsed = parseRequest('storage:pickFolder', req);
@@ -899,6 +750,72 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       return ipcRenderer.invoke('style:save', parsed);
     },
   },
+  taskLists: {
+    approveGate: async (req: unknown) => {
+      const parsed = parseRequest('taskList:approveGate', req);
+      return ipcRenderer.invoke('taskList:approveGate', parsed);
+    },
+    cancelMedia: async (req: unknown) => {
+      const parsed = parseRequest('taskList:cancelMedia', req);
+      return ipcRenderer.invoke('taskList:cancelMedia', parsed);
+    },
+    get: async (req: unknown) => {
+      const parsed = parseRequest('taskList:get', req);
+      return ipcRenderer.invoke('taskList:get', parsed);
+    },
+    getDelivery: async (req: unknown) => {
+      const parsed = parseRequest('taskList:getDelivery', req);
+      return ipcRenderer.invoke('taskList:getDelivery', parsed);
+    },
+    getPendingApproval: async (req: unknown) => {
+      const parsed = parseRequest('taskList:getPendingApproval', req);
+      return ipcRenderer.invoke('taskList:getPendingApproval', parsed);
+    },
+    getTasks: async (req: unknown) => {
+      const parsed = parseRequest('taskList:getTasks', req);
+      return ipcRenderer.invoke('taskList:getTasks', parsed);
+    },
+    getVisualAuditions: async (req: unknown) => {
+      const parsed = parseRequest('taskList:getVisualAuditions', req);
+      return ipcRenderer.invoke('taskList:getVisualAuditions', parsed);
+    },
+    list: async (req: unknown) => {
+      const parsed = parseRequest('taskList:list', req);
+      return ipcRenderer.invoke('taskList:list', parsed);
+    },
+    listPendingDecisions: async (req: unknown) => {
+      const parsed = parseRequest('taskList:listPendingDecisions', req);
+      return ipcRenderer.invoke('taskList:listPendingDecisions', parsed);
+    },
+    rejectGate: async (req: unknown) => {
+      const parsed = parseRequest('taskList:rejectGate', req);
+      return ipcRenderer.invoke('taskList:rejectGate', parsed);
+    },
+    requestChanges: async (req: unknown) => {
+      const parsed = parseRequest('taskList:requestChanges', req);
+      return ipcRenderer.invoke('taskList:requestChanges', parsed);
+    },
+    requestVisualAuditionChanges: async (req: unknown) => {
+      const parsed = parseRequest('taskList:requestVisualAuditionChanges', req);
+      return ipcRenderer.invoke('taskList:requestVisualAuditionChanges', parsed);
+    },
+    retryMedia: async (req: unknown) => {
+      const parsed = parseRequest('taskList:retryMedia', req);
+      return ipcRenderer.invoke('taskList:retryMedia', parsed);
+    },
+    retryMediaEvaluation: async (req: unknown) => {
+      const parsed = parseRequest('taskList:retryMediaEvaluation', req);
+      return ipcRenderer.invoke('taskList:retryMediaEvaluation', parsed);
+    },
+    selectVisualCandidate: async (req: unknown) => {
+      const parsed = parseRequest('taskList:selectVisualCandidate', req);
+      return ipcRenderer.invoke('taskList:selectVisualCandidate', parsed);
+    },
+    startMedia: async (req: unknown) => {
+      const parsed = parseRequest('taskList:startMedia', req);
+      return ipcRenderer.invoke('taskList:startMedia', parsed);
+    },
+  },
   updater: {
     check: async (req: unknown) => {
       const parsed = parseRequest('updater:check', req);
@@ -927,107 +844,10 @@ contextBridge.exposeInMainWorld('lucidAPI', {
       return () => ipcRenderer.removeListener('updater:toast', listener);
     },
   },
-  video: {
-    clone: async (req: unknown) => {
-      const parsed = parseRequest('video:clone', req);
-      return ipcRenderer.invoke('video:clone', parsed);
-    },
-    onCloneProgress: (cb: (payload: unknown) => void) => {
-      const listener = (_e: unknown, payload: unknown) => cb(payload);
-      ipcRenderer.on('video:clone:progress', listener);
-      return () => ipcRenderer.removeListener('video:clone:progress', listener);
-    },
-    extractLastFrame: async (req: unknown) => {
-      const parsed = parseRequest('video:extractLastFrame', req);
-      return ipcRenderer.invoke('video:extractLastFrame', parsed);
-    },
-    pickFile: async (req: unknown) => {
-      const parsed = parseRequest('video:pickFile', req);
-      return ipcRenderer.invoke('video:pickFile', parsed);
-    },
-  },
   vision: {
     describeImage: async (req: unknown) => {
       const parsed = parseRequest('vision:describeImage', req);
       return ipcRenderer.invoke('vision:describeImage', parsed);
-    },
-  },
-  workflow: {
-    approveGate: async (req: unknown) => {
-      const parsed = parseRequest('workflow:approveGate', req);
-      return ipcRenderer.invoke('workflow:approveGate', parsed);
-    },
-    cancel: async (req: unknown) => {
-      const parsed = parseRequest('workflow:cancel', req);
-      return ipcRenderer.invoke('workflow:cancel', parsed);
-    },
-    get: async (req: unknown) => {
-      const parsed = parseRequest('workflow:get', req);
-      return ipcRenderer.invoke('workflow:get', parsed);
-    },
-    getFinalExport: async (req: unknown) => {
-      const parsed = parseRequest('workflow:getFinalExport', req);
-      return ipcRenderer.invoke('workflow:getFinalExport', parsed);
-    },
-    getPendingApproval: async (req: unknown) => {
-      const parsed = parseRequest('workflow:getPendingApproval', req);
-      return ipcRenderer.invoke('workflow:getPendingApproval', parsed);
-    },
-    getStages: async (req: unknown) => {
-      const parsed = parseRequest('workflow:getStages', req);
-      return ipcRenderer.invoke('workflow:getStages', parsed);
-    },
-    getTasks: async (req: unknown) => {
-      const parsed = parseRequest('workflow:getTasks', req);
-      return ipcRenderer.invoke('workflow:getTasks', parsed);
-    },
-    getVisualAuditions: async (req: unknown) => {
-      const parsed = parseRequest('workflow:getVisualAuditions', req);
-      return ipcRenderer.invoke('workflow:getVisualAuditions', parsed);
-    },
-    list: async (req: unknown) => {
-      const parsed = parseRequest('workflow:list', req);
-      return ipcRenderer.invoke('workflow:list', parsed);
-    },
-    listPendingDecisions: async (req: unknown) => {
-      const parsed = parseRequest('workflow:listPendingDecisions', req);
-      return ipcRenderer.invoke('workflow:listPendingDecisions', parsed);
-    },
-    pause: async (req: unknown) => {
-      const parsed = parseRequest('workflow:pause', req);
-      return ipcRenderer.invoke('workflow:pause', parsed);
-    },
-    rejectGate: async (req: unknown) => {
-      const parsed = parseRequest('workflow:rejectGate', req);
-      return ipcRenderer.invoke('workflow:rejectGate', parsed);
-    },
-    requestChanges: async (req: unknown) => {
-      const parsed = parseRequest('workflow:requestChanges', req);
-      return ipcRenderer.invoke('workflow:requestChanges', parsed);
-    },
-    resume: async (req: unknown) => {
-      const parsed = parseRequest('workflow:resume', req);
-      return ipcRenderer.invoke('workflow:resume', parsed);
-    },
-    retryStage: async (req: unknown) => {
-      const parsed = parseRequest('workflow:retryStage', req);
-      return ipcRenderer.invoke('workflow:retryStage', parsed);
-    },
-    retryTask: async (req: unknown) => {
-      const parsed = parseRequest('workflow:retryTask', req);
-      return ipcRenderer.invoke('workflow:retryTask', parsed);
-    },
-    retryWorkflow: async (req: unknown) => {
-      const parsed = parseRequest('workflow:retryWorkflow', req);
-      return ipcRenderer.invoke('workflow:retryWorkflow', parsed);
-    },
-    selectVisualCandidate: async (req: unknown) => {
-      const parsed = parseRequest('workflow:selectVisualCandidate', req);
-      return ipcRenderer.invoke('workflow:selectVisualCandidate', parsed);
-    },
-    start: async (req: unknown) => {
-      const parsed = parseRequest('workflow:start', req);
-      return ipcRenderer.invoke('workflow:start', parsed);
     },
   },
 });

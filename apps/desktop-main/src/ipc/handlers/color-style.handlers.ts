@@ -1,7 +1,7 @@
 import type { IpcMain } from 'electron';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import type { CAS } from '@lucid-fin/storage';
-import type { WorkflowEngine } from '@lucid-fin/application';
+import type { TaskExecutionEngine } from '@lucid-fin/application';
 import type { ColorStyle, ExposureProfile, ColorSwatch, GradientDef } from '@lucid-fin/contracts';
 import { safeHandle } from '../ipc-error-handler.js';
 
@@ -75,7 +75,7 @@ export function registerColorStyleHandlers(
   ipcMain: IpcMain,
   db: SqliteIndex,
   _cas: CAS,
-  workflowEngine: WorkflowEngine,
+  taskExecutionEngine: TaskExecutionEngine,
 ): void {
   safeHandle(ipcMain, 'colorStyle:list', () => {
     return db.repos.colorStyles.list();
@@ -109,8 +109,8 @@ export function registerColorStyleHandlers(
 
       const asset = db.repos.assets.findByHash(args.assetHash);
       if (!asset) throw new Error(`Asset not found in DB: ${args.assetHash}`);
-      const workflowRunId = workflowEngine.start({
-        workflowType: 'style.extract',
+      const taskListId = taskExecutionEngine.start({
+        taskListType: 'style.extract',
         entityType: 'asset',
         entityId: asset.hash,
         triggerSource: 'colorStyle:extract',
@@ -123,7 +123,7 @@ export function registerColorStyleHandlers(
         },
       });
 
-      return { workflowRunId };
+      return { taskListId };
     },
   );
 }

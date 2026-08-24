@@ -21,7 +21,7 @@
  *   the run counter.
  */
 
-import type { CommanderError } from './error-code.js';
+import type { CommanderErrorCode } from './error-code.js';
 import type { ToolRef } from './tool-ref.js';
 
 /**
@@ -35,9 +35,7 @@ export type PhaseNoteCode =
   | 'tool_skipped_dedup'
   | 'compacted'
   | 'prompt_loaded'
-  | 'max_steps_warning'
-  | 'force_ask_user'
-  | 'intent_reclassified';
+  | 'max_steps_warning';
 
 export const PHASE_NOTE_CODES = [
   'llm_retry',
@@ -45,8 +43,6 @@ export const PHASE_NOTE_CODES = [
   'compacted',
   'prompt_loaded',
   'max_steps_warning',
-  'force_ask_user',
-  'intent_reclassified',
 ] as const satisfies readonly PhaseNoteCode[];
 
 // Drift guard — matches the error-code pattern.
@@ -66,6 +62,67 @@ export interface TimelineExitDecisionMeta {
   blocker?: string;
 }
 
+export interface RunResourceBudget {
+  maxTokens?: number;
+  maxToolCalls?: number;
+  maxWallTimeMs?: number;
+  maxCostUsd?: number;
+}
+
+export type ResourceAmount =
+  | { knowledge: 'known'; value: number }
+  | { knowledge: 'estimated'; value: number }
+  | { knowledge: 'unknown' };
+
+export type ResourceRemaining =
+  | { state: 'unlimited' }
+  | { state: 'known'; value: number }
+  | { state: 'estimated'; value: number }
+  | { state: 'unknown' };
+
+export interface RunResourceUsage {
+  tokens: ResourceAmount;
+  toolCalls: number;
+  wallTimeMs: number;
+  costUsd: ResourceAmount;
+}
+
+export interface RunResourceRemainder {
+  tokens: ResourceRemaining;
+  toolCalls: ResourceRemaining;
+  wallTimeMs: ResourceRemaining;
+  costUsd: ResourceRemaining;
+}
+
+export interface RunResourceClock {
+  state: 'active' | 'waiting_user' | 'paused' | 'stopped';
+  activeMs: number;
+  changedAt: number;
+}
+
+export type CommanderWorkType = 'agent' | 'subagent' | 'tool_program';
+
+export type RunBlocker =
+  | {
+      kind: 'resource_budget';
+      metric: 'tokens' | 'tool_calls' | 'wall_time' | 'cost';
+      reason: 'exhausted' | 'unavailable';
+    }
+  | {
+      kind: 'safety_limit';
+      limit: 'context_window' | 'provider_limit' | 'recovery_required';
+    };
+
+export type ResourceStateCause =
+  | { kind: 'initialized' }
+  | { kind: 'reserved'; operationId: string; source: 'model' | 'tool' }
+  | { kind: 'settled'; operationId: string; source: 'model' | 'tool' }
+  | { kind: 'wait_started' }
+  | { kind: 'wait_ended' }
+  | { kind: 'pause_started' }
+  | { kind: 'pause_ended' }
+  | { kind: 'boundary'; blocker: RunBlocker };
+
 interface EventBase {
   runId: string;
   step: number;
@@ -76,13 +133,50 @@ interface EventBase {
 export interface RunStartEvent extends EventBase {
   kind: 'run_start';
   intent: string;
+  resourceBudget: RunResourceBudget;
+  workType: CommanderWorkType;
+  parentRunId?: string;
+  retryOfRunId?: string;
+  displayName?: string;
+  objective?: string;
+  continuationOfRunId?: string;
 }
 
-export interface RunEndEvent extends EventBase {
-  kind: 'run_end';
-  status: 'completed' | 'failed' | 'cancelled' | 'max_steps';
-  exitDecision?: TimelineExitDecisionMeta;
+export interface RunPausedEvent extends EventBase {
+  kind: 'run_paused';
 }
+
+export interface RunResumedEvent extends EventBase {
+  kind: 'run_resumed';
+}
+
+export interface RunCapabilityCatalogEntry {
+  name: string;
+  description: string;
+  tier: 1 | 2 | 3 | 4;
+  tags: string[];
+  contexts: string[];
+  inputSchemaHash: string;
+  /** Absent on catalog events written before output contracts were introduced. */
+  outputSchemaHash?: string;
+}
+
+export interface CatalogFrozenEvent extends EventBase {
+  kind: 'catalog_frozen';
+  catalogHash: string;
+  tools: RunCapabilityCatalogEntry[];
+}
+
+export type RunEndEvent = EventBase & {
+  kind: 'run_end';
+  exitDecision?: TimelineExitDecisionMeta;
+} & (
+    | { status: 'blocked'; blocker: RunBlocker }
+    | {
+        status: 'completed' | 'failed' | 'cancelled' | 'max_steps';
+        blocker?: never;
+      }
+  );
 
 export interface UserMessageEvent extends EventBase {
   kind: 'user_message';
@@ -95,25 +189,144 @@ export interface AssistantTextEvent extends EventBase {
   isDelta: boolean;
 }
 
-export interface ThinkingEvent extends EventBase {
-  kind: 'thinking';
-  content: string;
-  isDelta: boolean;
+export interface PublicProgressEvent extends EventBase {
+  kind: 'public_progress';
+  operationId: string;
+  status: 'running' | 'completed' | 'failed';
+  summary?: string;
+}
+
+export interface ResourceUsageEvent extends EventBase {
+  kind: 'resource_usage';
+  operationId: string;
+  source: 'model';
+  promptTokens?: number;
+  completionTokens?: number;
+  reasoningTokens?: number;
+}
+
+export interface ResourceStateEvent extends EventBase {
+  kind: 'resource_state';
+  schemaVersion: 1;
+  cause: ResourceStateCause;
+  usage: RunResourceUsage;
+  remaining: RunResourceRemainder;
+  clock: RunResourceClock;
+}
+
+export type PublicToolDetailValue = string | number | boolean | null;
+
+export interface PublicToolDetails {
+  [key: string]: PublicToolDetailValue;
+}
+
+export interface PublicChecklistArtifact {
+  kind: 'checklist';
+  id: string;
+  label?: string;
+  items: Array<{
+    id: string;
+    label: string;
+    status: 'pending' | 'in_progress' | 'done';
+  }>;
+}
+
+export interface PublicAssetArtifact {
+  kind: 'asset';
+  id: string;
+  label?: string;
+  contentHash?: string;
+  mediaType?: 'image' | 'video' | 'audio' | 'document';
+}
+
+export interface PublicCanvasNodeArtifact {
+  kind: 'canvas_node';
+  id: string;
+  label?: string;
+  assetHash?: string;
+}
+
+export type PublicToolArtifact =
+  | PublicChecklistArtifact
+  | PublicAssetArtifact
+  | PublicCanvasNodeArtifact;
+
+export type ContextAuthority =
+  | 'commander_run'
+  | 'canvas'
+  | 'canvas_node'
+  | 'asset_entry'
+  | 'character'
+  | 'equipment'
+  | 'location'
+  | 'script'
+  | 'preset'
+  | 'shot_template'
+  | 'snapshot'
+  | 'color_style'
+  | 'run_checklist'
+  | 'task_list'
+  | 'prompt_assembly'
+  | 'cas';
+
+export type ContextFactRelation =
+  | 'run_scope'
+  | 'selected_input'
+  | 'attachment'
+  | 'bound_input'
+  | 'retry_source'
+  | 'read'
+  | 'created'
+  | 'updated'
+  | 'deleted'
+  | 'produced';
+
+export type PublicContextFact =
+  | {
+      kind: 'authority_ref';
+      authority: ContextAuthority;
+      relation: ContextFactRelation;
+      id: string;
+      scopeId?: string;
+      revision?: number;
+      contentHash?: string;
+    }
+  | {
+      kind: 'value';
+      key: string;
+      value: string | number | boolean | null;
+    };
+
+export type ContextFactSource =
+  | { kind: 'run_input' }
+  | { kind: 'tool_result'; toolCallId: string; toolResultSeq: number };
+
+export interface ContextFactEvent extends EventBase {
+  kind: 'context_fact';
+  schemaVersion: 1;
+  source: ContextFactSource;
+  completeness: 'complete' | 'unavailable';
+  facts: PublicContextFact[];
 }
 
 export interface ToolCallEvent extends EventBase {
   kind: 'tool_call';
   toolCallId: string;
   toolRef: ToolRef;
-  args: Record<string, unknown>;
+  status: 'started';
+  summary?: string;
+  details?: PublicToolDetails;
 }
 
 export interface ToolResultEvent extends EventBase {
   kind: 'tool_result';
   toolCallId: string;
-  result?: unknown;
-  error?: CommanderError;
-  durationMs: number;
+  status: 'succeeded' | 'failed' | 'skipped';
+  summary?: string;
+  details?: PublicToolDetails;
+  artifacts?: PublicToolArtifact[];
+  errorCode?: CommanderErrorCode;
+  durationMs?: number;
   /** Set only by dedup short-circuit (Phase G). */
   skipped?: true;
   /** Set by orphan-cleanup (Phase F) or dedup (Phase G). */
@@ -125,7 +338,9 @@ export interface ToolConfirmPromptEvent extends EventBase {
   toolCallId: string;
   toolRef: ToolRef;
   tier: number;
-  args: Record<string, unknown>;
+  status: 'awaiting_confirmation';
+  summary?: string;
+  details?: PublicToolDetails;
 }
 
 export interface UserConfirmationEvent extends EventBase {
@@ -138,7 +353,12 @@ export interface QuestionPromptEvent extends EventBase {
   kind: 'question_prompt';
   questionId: string;
   prompt: string;
-  options?: { id: string; label: string; description?: string }[];
+  options?: {
+    id: string;
+    label: string;
+    description?: string;
+    previewAssetHash?: string;
+  }[];
   allowFreeText: boolean;
 }
 
@@ -165,10 +385,16 @@ export interface CancelledEvent extends EventBase {
 
 export type TimelineEvent =
   | RunStartEvent
+  | RunPausedEvent
+  | RunResumedEvent
+  | CatalogFrozenEvent
   | RunEndEvent
   | UserMessageEvent
   | AssistantTextEvent
-  | ThinkingEvent
+  | PublicProgressEvent
+  | ResourceUsageEvent
+  | ResourceStateEvent
+  | ContextFactEvent
   | ToolCallEvent
   | ToolResultEvent
   | ToolConfirmPromptEvent
@@ -193,10 +419,16 @@ export function assertNever(x: never): never {
 export function _exhaustiveTimelineKinds(e: TimelineEvent): TimelineEventKind {
   switch (e.kind) {
     case 'run_start':
+    case 'run_paused':
+    case 'run_resumed':
+    case 'catalog_frozen':
     case 'run_end':
     case 'user_message':
     case 'assistant_text':
-    case 'thinking':
+    case 'public_progress':
+    case 'resource_usage':
+    case 'resource_state':
+    case 'context_fact':
     case 'tool_call':
     case 'tool_result':
     case 'tool_confirm_prompt':

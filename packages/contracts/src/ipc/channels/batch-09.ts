@@ -2,53 +2,40 @@
  * Pure type shapes for Batch 9 — commander:*.
  *
  * Covers:
- *  - 8 invoke handlers from
+ *  - Commander run lifecycle and tool-control invoke handlers from
  *    `apps/desktop-main/src/ipc/handlers/commander.handlers.ts`
- *    (`commander:chat`) and `commander-meta.handlers.ts`
+ *    (`commander:start`, run lookup/hydration) and `commander-meta.handlers.ts`
  *    (`commander:cancel`, `commander:inject-message`,
- *    `commander:tool:decision`, `commander:tool:answer`,
- *    `commander:compact`, `commander:tool-list`, `commander:tool-search`).
- *  - 5 push channels emitted from `commander-emit.ts` and
+ *    `commander:tool:decision`, `commander:tool:answer`, `commander:compact`).
+ *  - 4 push channels emitted from `commander-emit.ts` and
  *    `commander-tool-deps.ts`
  *    (`commander:stream`, `commander:canvas:dispatch`,
- *    `commander:entities:updated`, `commander:settings:dispatch`,
- *    `commander:undo:dispatch`).
+ *    `commander:entities:updated`, `commander:settings:dispatch`).
  *
- * Batch 9 also closes Phase B-2 ("commander:chat/stream alignment"):
- *   - `CommanderChatRequest` carries every field the handler accepts.
+ * Commander start returns a persisted run ACK; subsequent progress arrives
+ * exclusively through the run-keyed event stream.
  *   - `CommanderStreamPayload` wraps a `TimelineEvent` in a v2
  *     `WireEnvelope` and is the only shape that rides `commander:stream`.
  */
 
-// `HistoryEntry` mirrors the type from `@lucid-fin/application`
-// (`packages/application/src/agent/context-manager.ts`). The contracts package
-// must not import from application (dependency direction is app → contracts),
-// so the shape is duplicated here and kept in sync manually. A compile-time
-// assertion linking the two is tracked for a future phase.
-export type HistoryEntry =
-  | {
-      role: 'user' | 'assistant';
-      content: string;
-      reasoning?: string;
-      toolCalls?: Array<{
-        id: string;
-        name: string;
-        arguments: Record<string, unknown>;
-        thoughtSignature?: string;
-      }>;
-    }
-  | { role: 'tool'; content: string; toolCallId: string };
-
-// Re-export the canonical LLM provider runtime config so commander:chat
+// Re-export the canonical LLM provider runtime config so commander:start
 // consumers can import the full provider shape from the channel barrel.
 export type { LLMProviderRuntimeConfig } from '../../llm-provider.js';
 import type { LLMProviderRuntimeConfig } from '../../llm-provider.js';
-import type { TimelineEvent } from '../../agent/timeline-event.js';
+import type {
+  PublicContextFact,
+  PublicToolArtifact,
+  PublicToolDetails,
+  RunResourceBudget,
+  TimelineEvent,
+  CommanderWorkType,
+} from '../../agent/timeline-event.js';
+import type { CommanderErrorCode } from '../../agent/error-code.js';
 import type { WireEnvelope } from '../../agent/wire-version.js';
 
 export type CommanderQualityGateBehavior = 'warn-only' | 'auto-expand' | 'block-generation';
 
-export type CommanderWorkflowGuidePhase =
+export type CommanderTaskListGuidePhase =
   | 'unbound'
   | 'production_plan_pending'
   | 'production_plan_revision'
@@ -57,12 +44,12 @@ export type CommanderWorkflowGuidePhase =
   | 'preproduction'
   | 'media_generation'
   | 'assembly'
-  | 'final_export_preparation'
-  | 'final_export_pending'
-  | 'final_export_approved'
+  | 'delivery_preparation'
+  | 'delivery_pending'
+  | 'delivery_approved'
   | 'blocked';
 
-export type CommanderPromptGuideRetention = 'turn' | 'workflow' | 'discovery';
+export type CommanderPromptGuideRetention = 'turn' | 'task_list' | 'discovery';
 
 /** Shared hard limits for guide transport, storage, and context injection. */
 export const COMMANDER_GUIDE_LIMITS = {
@@ -70,8 +57,8 @@ export const COMMANDER_GUIDE_LIMITS = {
   maxCatalogChars: 300_000,
   maxContentChars: 48_000,
   maxPromptTemplateChars: 48_000,
-  maxWorkflowSkillChars: 8_000,
-  maxWorkflowGuideChars: 12_000,
+  maxTaskSkillChars: 8_000,
+  maxTaskListGuideChars: 12_000,
   maxUserGuideChars: 12_000,
   maxProcessPromptChars: 12_000,
   maxAutoInjectItems: 8,
@@ -92,7 +79,7 @@ export interface CommanderPromptGuide {
   autoInjectContent?: string;
   priority?: number;
   retention?: CommanderPromptGuideRetention;
-  phases?: CommanderWorkflowGuidePhase[];
+  phases?: CommanderTaskListGuidePhase[];
 }
 
 export interface CommanderProcessBehaviorSettings {
@@ -100,34 +87,168 @@ export interface CommanderProcessBehaviorSettings {
   requireStylePlateBeforeRefImage?: boolean;
 }
 
-// ── commander:chat (invoke) ──────────────────────────────────
-export interface CommanderChatRequest {
-  canvasId: string;
-  sessionId?: string;
-  message: string;
-  history: HistoryEntry[];
-  selectedNodeIds: string[];
+export type CommanderAttachmentRole = 'reference';
+
+/** A logical Asset library entry attached to this Commander turn. */
+export interface CommanderAttachmentInput {
+  assetEntryId: string;
+  role: CommanderAttachmentRole;
+}
+
+/** Immutable attachment lineage persisted with the accepted run. */
+export interface CommanderRunAttachment {
+  ordinal: number;
+  contentHash: string;
+  role: CommanderAttachmentRole;
+  originalName: string;
+  mimeType: string;
+}
+
+/** Typed user or host intent accepted by Commander. Host intents are never
+ * projected as user-authored chat messages. */
+export type CommanderRunIntent =
+  | { kind: 'user_message'; message: string }
+  | {
+      kind: 'media_prompt_assembly';
+      taskListId: string;
+      promptAssemblyId: string;
+      nodeId: string;
+      label: string;
+    };
+
+// ── commander:start (invoke) ─────────────────────────────────
+export interface CommanderStartRequest {
+  defaultCanvasId?: string;
+  authorizedCanvasIds: string[];
+  sessionId: string;
+  intent: CommanderRunIntent;
+  selectedNodes: Array<{ canvasId: string; nodeId: string }>;
+  attachments?: CommanderAttachmentInput[];
   promptGuides?: CommanderPromptGuide[];
   customLLMProvider?: LLMProviderRuntimeConfig;
   permissionMode?: 'danger' | 'auto' | 'normal' | 'strict';
   locale?: string;
-  maxSteps?: number;
+  resourceBudget?: RunResourceBudget;
+  continuationOfRunId?: string;
   temperature?: number;
-  maxTokens?: number;
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
   defaultProviders?: Record<string, string>;
   processSettings?: CommanderProcessBehaviorSettings;
+  workType?: CommanderWorkType;
+  parentRunId?: string;
+  retryOfRunId?: string;
+  displayName?: string;
+  objective?: string;
 }
-export type CommanderChatResponse = void;
+export interface CommanderStartResponse {
+  runId: string;
+  sessionId: string;
+  acceptedAt: number;
+}
+
+export type CommanderRunStatus =
+  | 'accepted'
+  | 'running'
+  | 'paused'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'blocked'
+  | 'max_steps';
+
+export interface CommanderRunRecord {
+  id: string;
+  sessionId: string;
+  defaultCanvasId?: string;
+  authorizedCanvasIds: string[];
+  intent: string;
+  workType: CommanderWorkType;
+  parentRunId?: string;
+  retryOfRunId?: string;
+  displayName?: string;
+  objective?: string;
+  status: CommanderRunStatus;
+  acceptedAt: number;
+  startedAt?: number;
+  completedAt?: number;
+  lastSeq: number;
+  errorText?: string;
+  attachments: CommanderRunAttachment[];
+}
+
+export type PublicContextItem =
+  | {
+      kind: 'user_input';
+      runId: string;
+      seq: number;
+      content: string;
+    }
+  | {
+      kind: 'run_context';
+      runId: string;
+      seq: number;
+      facts: PublicContextFact[];
+    }
+  | {
+      kind: 'assistant_text';
+      runId: string;
+      step: number;
+      content: string;
+    }
+  | {
+      kind: 'tool_observation';
+      runId: string;
+      toolCallId: string;
+      toolName: string;
+      status: 'completed' | 'failed';
+      summary?: string;
+      details?: PublicToolDetails;
+      artifacts?: PublicToolArtifact[];
+      contextFacts?: PublicContextFact[];
+    }
+  | {
+      kind: 'interaction';
+      runId: string;
+      seq: number;
+      interaction: 'question' | 'answer' | 'confirmation';
+      content?: string;
+    }
+  | {
+      kind: 'terminal_summary';
+      runId: string;
+      status: 'completed' | 'failed' | 'cancelled' | 'blocked' | 'max_steps';
+      summary?: string;
+      errorCode?: CommanderErrorCode;
+    };
+
+export interface CommanderContextCacheRun {
+  runId: string;
+  acceptedAt: number;
+  status: CommanderRunStatus;
+  throughSeq: number;
+  eventHash: string;
+  items: PublicContextItem[];
+}
+
+export interface CommanderContextCache {
+  kind: 'commander_context_cache';
+  version: 2;
+  projectorVersion: number;
+  sessionId: string;
+  runs: CommanderContextCacheRun[];
+  projectionHash: string;
+}
 
 // ── commander:cancel (invoke) ────────────────────────────────
 export interface CommanderCancelRequest {
-  canvasId: string;
+  runId: string;
 }
 export type CommanderCancelResponse = void;
 
 // ── commander:cancel-step (invoke) ───────────────────────────
 export interface CommanderCancelStepRequest {
-  canvasId: string;
+  runId: string;
 }
 export interface CommanderCancelStepResponse {
   /** `true` if a double-tap within 2s escalated this step-cancel to a full run cancel. */
@@ -136,62 +257,52 @@ export interface CommanderCancelStepResponse {
 
 // ── commander:inject-message (invoke) ────────────────────────
 export interface CommanderInjectMessageRequest {
-  canvasId: string;
+  runId: string;
   message: string;
 }
 export type CommanderInjectMessageResponse = void;
 
 // ── commander:tool:decision (invoke) ─────────────────────────
 export interface CommanderToolDecisionRequest {
-  canvasId: string;
+  runId: string;
+  sessionId: string;
   toolCallId: string;
   approved: boolean;
 }
-export type CommanderToolDecisionResponse = void;
+
+export type CommanderToolActionResponse =
+  | {
+      accepted: true;
+      delivery: 'active_run' | 'task_list_continuation';
+      taskListId?: string;
+    }
+  | {
+      accepted: false;
+      code: 'stale_run' | 'not_pending' | 'no_active_session' | 'already_resolved';
+    };
+
+export type CommanderToolDecisionResponse = CommanderToolActionResponse;
 
 // ── commander:tool:answer (invoke) ───────────────────────────
 export interface CommanderToolAnswerRequest {
-  canvasId: string;
+  runId: string;
+  sessionId: string;
   toolCallId: string;
   answer: string;
 }
-export type CommanderToolAnswerResponse = void;
+export type CommanderToolAnswerResponse = CommanderToolActionResponse;
 
 // ── commander:compact (invoke) ───────────────────────────────
 // Handler returns the orchestrator compact stats, plus a silent no-op result
 // when the session has already ended (same shape, all zeros).
 export interface CommanderCompactRequest {
-  canvasId: string;
+  runId: string;
 }
 export interface CommanderCompactResponse {
   freedChars: number;
   messageCount: number;
   toolCount: number;
 }
-
-// ── commander:tool-list (invoke) ─────────────────────────────
-// Handler maps the live tool registry into a lean descriptor list.
-// `tags` and `tier` are optional — older tools in the registry don't set them.
-export interface CommanderToolDescriptor {
-  name: string;
-  description: string;
-  tags?: string[];
-  tier?: number;
-}
-export type CommanderToolListRequest = Record<string, never>;
-export type CommanderToolListResponse = CommanderToolDescriptor[];
-
-// ── commander:tool-search (invoke) ───────────────────────────
-// Handler returns the same descriptor shape as tool-list, but filtered by the
-// case-insensitive query; only `name` and `description` are guaranteed to be
-// present on matches — `tags`/`tier` are stripped in the map step.
-export interface CommanderToolSearchRequest {
-  query?: string;
-}
-export type CommanderToolSearchResponse = Array<{
-  name: string;
-  description: string;
-}>;
 
 // ── commander:stream (push) — single source of truth (pure types) ──
 /**
@@ -201,45 +312,63 @@ export type CommanderToolSearchResponse = Array<{
  * `@lucid-fin/contracts-parse`'s batch-09.
  */
 
-/**
- * Serialisable intent, evidence, and decision shapes for the stream
- * wire. These mirror the in-process types in
- * `@lucid-fin/application/agent/exit-contract` by shape. Contracts
- * must not import application (reverse dependency), so we duplicate
- * the plain data and keep them in sync. Phase D+ introduces a
- * codegen/lint check to prevent drift.
- */
-export type CommanderIntentPayload =
-  { kind: 'informational' } | { kind: 'execution'; workflow?: string };
-
-export type CommanderEvidencePayload =
-  | { kind: 'guide_loaded'; guideId: string; at: number }
-  | { kind: 'ask_user_asked'; question: string; at: number }
-  | { kind: 'ask_user_answered'; answer: string; at: number }
-  | { kind: 'mutation_commit'; toolName: string; args: unknown; resultOk: boolean; at: number }
-  | { kind: 'validation_error'; toolName: string; errorText: string; at: number }
-  | { kind: 'guide_activated'; key: string; reason: string; at: number }
-  | { kind: 'generation_started'; nodeId: string; at: number }
-  | { kind: 'settings_write'; canvasId: string; keys: string[]; at: number }
-  | { kind: 'user_refused'; message: string; at: number }
-  | { kind: 'budget_exhausted'; metric: 'steps' | 'tokens'; at: number };
-
-export type CommanderBlockerPayload =
-  | { kind: 'missing_commit'; expected: string[]; lastTool?: string }
-  | { kind: 'ask_user_loop'; askCount: number; limit: number }
-  | { kind: 'empty_narration'; lastAssistantText: string };
-
-export type CommanderExitDecisionPayload =
-  | { outcome: 'satisfied'; contractId: string; evidenceSummary: string }
-  | { outcome: 'informational_answered'; reason: string }
-  | { outcome: 'blocked_waiting_user'; question: string }
-  | { outcome: 'refused'; reason: string }
-  | { outcome: 'budget_exhausted'; metric: 'steps' | 'tokens' }
-  | { outcome: 'unsatisfied'; contractId: string; blocker: CommanderBlockerPayload }
-  | { outcome: 'error'; message: string };
-
 /** v2 wire envelope payload for `commander:stream`. */
-export type CommanderStreamPayload = WireEnvelope<TimelineEvent>;
+export type CommanderStreamPayload = WireEnvelope<TimelineEvent> & { sessionId: string };
+
+export interface CommanderRunGetRequest {
+  runId: string;
+}
+export type CommanderRunGetResponse = CommanderRunRecord;
+
+export interface CommanderEventsHydrateRequest {
+  runId: string;
+  afterSeq: number;
+}
+export interface CommanderEventsHydrateResponse {
+  run: CommanderRunRecord;
+  events: TimelineEvent[];
+}
+
+export type CommanderRunControlAction =
+  | 'message'
+  | 'pause'
+  | 'resume'
+  | 'cancel'
+  | 'cancel_step'
+  | 'retry';
+
+export type CommanderRunControlRequest =
+  | { runId: string; action: 'message'; message: string }
+  | {
+      runId: string;
+      action: Exclude<CommanderRunControlAction, 'message'>;
+      message?: never;
+    };
+
+export type CommanderRunControlResponse =
+  | {
+      accepted: true;
+      action: CommanderRunControlAction;
+      runId: string;
+      affectedRunIds: string[];
+      retryRunId?: string;
+    }
+  | {
+      accepted: false;
+      action: CommanderRunControlAction;
+      runId: string;
+      affectedRunIds: string[];
+      code: 'run_not_found' | 'runtime_unavailable' | 'invalid_state';
+    };
+
+export interface CommanderRunTreeRequest {
+  sessionId: string;
+}
+
+export interface CommanderRunTreeResponse {
+  sessionId: string;
+  runs: CommanderRunRecord[];
+}
 
 // ── commander:canvas:dispatch (push) ─────────────────────────
 // Emitted from `commander-emit.ts:200` when a mutating tool completes.
@@ -264,9 +393,4 @@ export interface CommanderEntitiesUpdatedPayload {
 export interface CommanderSettingsDispatchPayload {
   action: string;
   payload?: unknown;
-}
-
-// ── commander:undo:dispatch (push) ───────────────────────────
-export interface CommanderUndoDispatchPayload {
-  action: 'undo' | 'redo';
 }

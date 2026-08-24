@@ -13,7 +13,7 @@ describe('contract-registry', () => {
   it('registers all Phase C contracts on load', () => {
     const ids = contractRegistry.ids();
     expect(ids).toEqual(
-      expect.arrayContaining(['info-answer', 'mutation-execution', 'workflow-execution']),
+      expect.arrayContaining(['info-answer', 'mutation-execution', 'task-list-execution']),
     );
     expect(ids).toHaveLength(3);
   });
@@ -64,17 +64,17 @@ describe('contract-registry', () => {
     expect(() => contractRegistry.setFallback('does-not-exist')).toThrow(/not registered/i);
   });
 
-  it('selects workflow-execution for execution intent with known workflow', () => {
-    const intent: RunIntent = { kind: 'execution', workflow: 'story-to-video' };
-    expect(contractRegistry.select(intent).id).toBe('workflow-execution');
+  it('selects task-list-execution for execution intent with known task list', () => {
+    const intent: RunIntent = { kind: 'execution', taskList: 'story-to-video' };
+    expect(contractRegistry.select(intent).id).toBe('task-list-execution');
   });
 
-  it('selects workflow-execution when workflow is unknown', () => {
-    const intent: RunIntent = { kind: 'execution', workflow: 'not-a-workflow' };
-    expect(contractRegistry.select(intent).id).toBe('workflow-execution');
+  it('selects task-list-execution when taskList is unknown', () => {
+    const intent: RunIntent = { kind: 'execution', taskList: 'not-a-taskList' };
+    expect(contractRegistry.select(intent).id).toBe('task-list-execution');
   });
 
-  it('selects mutation-execution when execution intent has no workflow', () => {
+  it('selects mutation-execution when execution intent has no task list', () => {
     const intent: RunIntent = { kind: 'execution' };
     expect(contractRegistry.select(intent).id).toBe('mutation-execution');
   });
@@ -83,10 +83,10 @@ describe('contract-registry', () => {
     expect(contractRegistry.select({ kind: 'informational' }).id).toBe('info-answer');
   });
 
-  it('selects workflow-execution for execution with workflow', () => {
-    const withWorkflow: RunIntent = { kind: 'execution', workflow: 'shot-list' };
-    const withoutWorkflow: RunIntent = { kind: 'execution' };
-    expect(contractRegistry.select(withWorkflow).id).toBe('workflow-execution');
-    expect(contractRegistry.select(withoutWorkflow).id).toBe('mutation-execution');
+  it('selects task-list-execution for execution with task list', () => {
+    const withTaskList: RunIntent = { kind: 'execution', taskList: 'shot-list' };
+    const withoutTaskList: RunIntent = { kind: 'execution' };
+    expect(contractRegistry.select(withTaskList).id).toBe('task-list-execution');
+    expect(contractRegistry.select(withoutTaskList).id).toBe('mutation-execution');
   });
 });

@@ -1,38 +1,13 @@
-import {
-  locationViewToSlot,
-  type Canvas,
-  type Location,
-  type LocationRefImageView,
-} from '@lucid-fin/contracts';
-import type { AgentTool } from '../tool-registry.js';
-import { createRefImageTools } from './ref-image-factory.js';
+import type { Location } from '@lucid-fin/contracts';
+import { NO_TOOL_RESOURCE, toolResultSchema, type ToolDefinition } from '../tool-registry.js';
+import { arraySchema, locationSchema, numberSchema, objectSchema } from './tool-runtime-schemas.js';
 import {
   extractSet,
   warnExtraKeys,
   requireString,
   requireSetString,
 } from './tool-result-helpers.js';
-import { buildLocationRefImagePrompt } from './location-prompt.js';
-
-function parseLocationView(raw: unknown): LocationRefImageView {
-  if (raw === undefined || raw === null) return { kind: 'bible' };
-  if (typeof raw !== 'object') {
-    throw new Error(
-      'view must be an object: { kind: "bible" | "fake-360" | "extra-angle", angle?: string }',
-    );
-  }
-  const obj = raw as Record<string, unknown>;
-  const kind = obj.kind;
-  if (kind === 'bible') return { kind: 'bible' };
-  if (kind === 'fake-360') return { kind: 'fake-360' };
-  if (kind === 'extra-angle') {
-    if (typeof obj.angle !== 'string' || obj.angle.trim().length === 0) {
-      throw new Error('view.angle is required when kind=extra-angle');
-    }
-    return { kind: 'extra-angle', angle: obj.angle.trim() };
-  }
-  throw new Error(`view.kind must be "bible", "fake-360", or "extra-angle" (got ${String(kind)})`);
-}
+import { authorityFact, contextProjector, records, resultRecord } from './context-replay.js';
 
 const VALID_LOCATION_TYPES = new Set<NonNullable<Location['type']>>([
   'interior',
@@ -51,20 +26,30 @@ export interface LocationToolDeps {
   listLocations: () => Promise<Location[]>;
   saveLocation: (location: Location) => Promise<void>;
   deleteLocation: (id: string) => Promise<void>;
-  generateImage?: (
-    prompt: string,
-    options?: { providerId?: string; width?: number; height?: number },
-  ) => Promise<{ assetHash: string }>;
-  getCanvas?: (canvasId: string) => Promise<Canvas>;
 }
 
-export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
-  const locationList: AgentTool = {
+export function createLocationTools(deps: LocationToolDeps): ToolDefinition[] {
+  const locationList: ToolDefinition = {
     name: 'location.list',
+    process: 'entity-management',
+    category: 'query',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description: 'List all locations in the current project.',
     tags: ['location', 'read', 'search'],
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(objectSchema({
+      total: numberSchema,
+      offset: numberSchema,
+      limit: numberSchema,
+      locations: arraySchema(locationSchema),
+    })),
+    projectPublicResult: contextProjector((result) =>
+      records(resultRecord(result)?.locations).map((location) =>
+        authorityFact('location', 'read', location.id),
+      ),
+    ),
+    inputSchema: {
       type: 'object',
       properties: {
         query: {
@@ -112,13 +97,21 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     },
   };
 
-  const locationCreate: AgentTool = {
+  const locationCreate: ToolDefinition = {
     name: 'location.create',
+    process: 'entity-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description:
-      'Create a new location in the current project. To update an existing location, use location.update instead. To generate a reference image, use entity.generateRefImage after creation.',
+      'Create a new location in the current project. To update an existing location, use location.update instead. Generate reference images as Canvas image nodes through canvas.generation, then attach an accepted result with entity.setRefImageFromNode.',
     tags: ['location', 'mutate'],
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(locationSchema),
+    projectPublicResult: contextProjector((result) => [
+      authorityFact('location', 'created', resultRecord(result)?.id),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'The location name.' },
@@ -207,13 +200,21 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     },
   };
 
-  const locationUpdate: AgentTool = {
+  const locationUpdate: ToolDefinition = {
     name: 'location.update',
+    process: 'entity-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description:
       'Update an existing location by ID. Wrap all fields you want to change inside "set": { ... }. Only fields present in "set" will be applied — omitted fields are left untouched. To create a new location, use location.create instead.',
     tags: ['location', 'mutate'],
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(locationSchema),
+    projectPublicResult: contextProjector((result, args) => [
+      authorityFact('location', 'updated', resultRecord(result)?.id ?? args.id),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         id: {
@@ -312,19 +313,27 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
           updatedAt: Date.now(),
         };
         await deps.saveLocation(updated);
-        return { success: true, data: updated, ...(warnings.length > 0 && { warnings }) };
+        return { success: true, data: { ...updated, ...(warnings.length > 0 && { warnings }) } };
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
   };
 
-  const locationDelete: AgentTool = {
+  const locationDelete: ToolDefinition = {
     name: 'location.delete',
+    process: 'entity-management',
+    category: 'mutation',
+    contextReplay: 'authority_reread',
+    resource: NO_TOOL_RESOURCE,
     description: 'Delete a location by ID.',
     tags: ['location', 'mutate'],
     tier: 3,
-    parameters: {
+    outputSchema: toolResultSchema(),
+    projectPublicResult: contextProjector((_result, args) => [
+      authorityFact('location', 'deleted', args.id),
+    ]),
+    inputSchema: {
       type: 'object',
       properties: {
         id: {
@@ -345,28 +354,5 @@ export function createLocationTools(deps: LocationToolDeps): AgentTool[] {
     },
   };
 
-  const locationRefImages = createRefImageTools<Location, LocationRefImageView>({
-    toolNamePrefix: 'location',
-    entityLabel: 'location',
-    tags: ['location', 'generation', 'mutate'],
-    description:
-      'Manage reference images for a location. ' +
-      'Default view kind "bible" produces ONE five-frame composite (wide establish + detail + atmosphere + two key angles). ' +
-      'Use view={kind:"fake-360"} for an 8-panel pseudo-panorama when you need full-perimeter coverage. ' +
-      'Use view={kind:"extra-angle", angle:"<free form>"} for custom perspectives. ' +
-      'Always pass canvasId so the canonical Canvas visual-style draft is compiled into the prompt.',
-    getEntity: async (id) => {
-      const locations = await deps.listLocations();
-      return locations.find((l) => l.id === id) ?? null;
-    },
-    saveEntity: deps.saveLocation,
-    generateImage: deps.generateImage,
-    getCanvas: deps.getCanvas,
-    parseView: parseLocationView,
-    buildPrompt: buildLocationRefImagePrompt,
-    viewToSlot: locationViewToSlot,
-    kindEnum: ['bible', 'fake-360', 'extra-angle'],
-  });
-
-  return [locationList, locationCreate, locationUpdate, locationDelete, ...locationRefImages];
+  return [locationList, locationCreate, locationUpdate, locationDelete];
 }

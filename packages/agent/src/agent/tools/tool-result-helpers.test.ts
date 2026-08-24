@@ -187,13 +187,13 @@ describe('tool-result-helpers', () => {
   describe('formatValidationError (04-19 fake-user-study fix)', () => {
     it('emits the canonical "<tool>: <param> <constraint>. You called it with: <args>." shape', () => {
       const msg = formatValidationError(
-        'workflow.manage',
+        'taskList.manage',
         'prompt',
         'is required and must be a non-empty string',
         {},
       );
       expect(msg).toBe(
-        'workflow.manage: "prompt" is required and must be a non-empty string. You called it with: {}.',
+        'taskList.manage: "prompt" is required and must be a non-empty string. You called it with: {}.',
       );
     });
 
@@ -214,7 +214,7 @@ describe('tool-result-helpers', () => {
 
     it('truncates args JSON at 400 chars to keep the error short', () => {
       const big = { prompt: 'x'.repeat(600) };
-      const msg = formatValidationError('workflow.manage', 'prompt', 'is required', big);
+      const msg = formatValidationError('taskList.manage', 'prompt', 'is required', big);
       expect(msg.length).toBeLessThan(600);
       expect(msg).toContain('...');
     });

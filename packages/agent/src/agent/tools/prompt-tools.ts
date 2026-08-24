@@ -1,5 +1,27 @@
-import type { AgentTool } from '../tool-registry.js';
+import { NO_TOOL_RESOURCE, toolResultSchema, type ToolDefinition } from '../tool-registry.js';
 import { ok, fail, requireString } from './tool-result-helpers.js';
+import {
+  arraySchema,
+  booleanSchema,
+  nullableSchema,
+  numberSchema,
+  objectSchema,
+  stringSchema,
+  unionSchema,
+} from './tool-runtime-schemas.js';
+
+const promptListEntrySchema = objectSchema({
+  code: stringSchema,
+  name: stringSchema,
+  type: stringSchema,
+  hasCustom: booleanSchema,
+});
+const promptDetailSchema = objectSchema({
+  code: stringSchema,
+  name: stringSchema,
+  defaultValue: stringSchema,
+  customValue: nullableSchema(stringSchema),
+});
 
 export interface PromptListEntry {
   code: string;
@@ -22,19 +44,34 @@ export interface PromptToolDeps {
   clearCustomPrompt: (code: string) => Promise<void>;
 }
 
-export function createPromptTools(deps: PromptToolDeps): AgentTool[] {
-  const get: AgentTool = {
+export function createPromptTools(deps: PromptToolDeps): ToolDefinition[] {
+  const get: ToolDefinition = {
     name: 'prompt.get',
+    process: 'prompt-template-management',
+    category: 'query',
+    contextReplay: 'status_only',
+    resource: NO_TOOL_RESOURCE,
     description:
       'Get prompt templates. If ids is provided, fetch specific prompt(s) by code. If ids is omitted, return a paginated list of all prompts.',
     tier: 1,
-    parameters: {
+    outputSchema: toolResultSchema(
+      unionSchema(
+        objectSchema({
+          total: numberSchema,
+          offset: numberSchema,
+          limit: numberSchema,
+          prompts: arraySchema(promptListEntrySchema),
+        }),
+        arraySchema(promptDetailSchema),
+      ),
+    ),
+    inputSchema: {
       type: 'object',
       properties: {
         ids: {
           type: 'array',
           items: { type: 'string', description: 'Prompt ID.' },
-          description: 'Prompt ID or array of prompt IDs to fetch. Omit to list all prompts.',
+          description: 'Prompt IDs to fetch in one call. Omit to list all prompts.',
         },
         offset: {
           type: 'number',
@@ -67,14 +104,6 @@ export function createPromptTools(deps: PromptToolDeps): AgentTool[] {
             prompts: prompts.slice(offset, offset + limit),
           });
         }
-        if (typeof rawIds === 'string') {
-          const id = rawIds.trim();
-          const prompt = await deps.getPrompt(id);
-          if (!prompt) {
-            throw new Error(`Prompt not found: ${id}`);
-          }
-          return ok(prompt);
-        }
         if (Array.isArray(rawIds)) {
           const results = [];
           for (const entry of rawIds) {
@@ -87,25 +116,31 @@ export function createPromptTools(deps: PromptToolDeps): AgentTool[] {
           }
           return ok(results);
         }
-        return fail('ids must be a string or array of strings');
+        return fail('ids must be an array of strings');
       } catch (error) {
         return fail(error);
       }
     },
   };
 
-  const setCustom: AgentTool = {
+  const setCustom: ToolDefinition = {
     name: 'prompt.setCustom',
+    process: 'prompt-template-management',
+    category: 'mutation',
+    contextReplay: 'status_only',
+    resource: NO_TOOL_RESOURCE,
     description:
       'Set or clear a custom override for a prompt template. If value is provided, set the custom override. If value is omitted or null, clear the override and restore the default.',
     tier: 2,
-    parameters: {
+    outputSchema: toolResultSchema(objectSchema({ code: stringSchema })),
+    inputSchema: {
       type: 'object',
       properties: {
         code: { type: 'string', description: 'Prompt template code.' },
         value: {
           type: 'string',
           description: 'Custom prompt value. Omit or set null to clear the override.',
+          nullable: true,
         },
       },
       required: ['code'],

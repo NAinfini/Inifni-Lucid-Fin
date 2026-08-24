@@ -657,8 +657,8 @@ export function SettingsUsageSection() {
         </div>
       </Section>
 
-      {/* Workflow & Misc */}
-      <Section title={tr('settings.usage.workflow', 'Workflow')}>
+      {/* Editing & output */}
+      <Section title={tr('settings.usage.editingAndOutput', 'Editing & Output')}>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           <StatCard label={tr('settings.usage.undos', 'Undos')} value={usage.undoCount} />
           <StatCard label={tr('settings.usage.redos', 'Redos')} value={usage.redoCount} />

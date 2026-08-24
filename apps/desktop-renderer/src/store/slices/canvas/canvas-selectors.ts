@@ -24,6 +24,7 @@ export const selectCanvasMetadataList = createSelector(
       id: c.id,
       name: c.name,
       updatedAt: c.updatedAt,
+      ...(c.archivedAt === undefined ? {} : { archivedAt: c.archivedAt }),
       nodeCount: c.nodes.length,
       edgeCount: c.edges.length,
     })),

@@ -2,7 +2,7 @@ import type { CompletionContract } from '../types.js';
 import { contractRegistry } from '../contract-registry.js';
 
 /**
- * Generic execution contract for runs without a recognized workflow.
+ * Generic execution contract for runs without a recognized task list.
  * Satisfied by any single successful mutation commit.
  */
 export const mutationExecutionContract: CompletionContract = {

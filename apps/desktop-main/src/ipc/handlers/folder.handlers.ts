@@ -1,12 +1,7 @@
 import type { IpcMain } from 'electron';
 import type { SqliteIndex } from '@lucid-fin/storage';
 import type { FolderKind } from '@lucid-fin/contracts';
-import {
-  parseCharacterId,
-  parseEquipmentId,
-  parseLocationId,
-  parseAssetHash,
-} from '@lucid-fin/contracts-parse';
+import { parseCharacterId, parseEquipmentId, parseLocationId } from '@lucid-fin/contracts-parse';
 
 /**
  * Folder IPC handlers — one registration per kind via the shared
@@ -15,7 +10,7 @@ import {
  *   folder.character:list / create / rename / move / delete
  *   folder.equipment:... / folder.location:... / folder.asset:...
  *
- * `<entity>:setFolder` moves a single entity into (or out of) a folder. The
+ * `<entity>:setFolder` moves entities into (or out of) a folder. The
  * entity tables own the relation, so these channels live next to the folder
  * CRUD rather than on each entity handler file, keeping folder-feature code
  * colocated.
@@ -66,38 +61,40 @@ export function registerFolderHandlers(ipcMain: IpcMain, db: SqliteIndex): void 
 
   ipcMain.handle(
     'character:setFolder',
-    async (_e, args: { id: string; folderId: string | null }) => {
-      if (!args || typeof args.id !== 'string') throw new Error('id is required');
+    async (_e, args: { ids: string[]; folderId: string | null }) => {
+      if (!Array.isArray(args?.ids) || args.ids.length === 0) throw new Error('ids are required');
       const folderId =
         args.folderId === null || args.folderId === undefined ? null : String(args.folderId);
-      db.repos.entities.setCharacterFolder(parseCharacterId(args.id), folderId);
+      const movedIds = db.repos.entities.setCharacterFolder(
+        args.ids.map(parseCharacterId),
+        folderId,
+      );
+      return { movedIds };
     },
   );
 
   ipcMain.handle(
     'equipment:setFolder',
-    async (_e, args: { id: string; folderId: string | null }) => {
-      if (!args || typeof args.id !== 'string') throw new Error('id is required');
+    async (_e, args: { ids: string[]; folderId: string | null }) => {
+      if (!Array.isArray(args?.ids) || args.ids.length === 0) throw new Error('ids are required');
       const folderId =
         args.folderId === null || args.folderId === undefined ? null : String(args.folderId);
-      db.repos.entities.setEquipmentFolder(parseEquipmentId(args.id), folderId);
+      const movedIds = db.repos.entities.setEquipmentFolder(
+        args.ids.map(parseEquipmentId),
+        folderId,
+      );
+      return { movedIds };
     },
   );
 
   ipcMain.handle(
     'location:setFolder',
-    async (_e, args: { id: string; folderId: string | null }) => {
-      if (!args || typeof args.id !== 'string') throw new Error('id is required');
+    async (_e, args: { ids: string[]; folderId: string | null }) => {
+      if (!Array.isArray(args?.ids) || args.ids.length === 0) throw new Error('ids are required');
       const folderId =
         args.folderId === null || args.folderId === undefined ? null : String(args.folderId);
-      db.repos.entities.setLocationFolder(parseLocationId(args.id), folderId);
+      const movedIds = db.repos.entities.setLocationFolder(args.ids.map(parseLocationId), folderId);
+      return { movedIds };
     },
   );
-
-  ipcMain.handle('asset:setFolder', async (_e, args: { hash: string; folderId: string | null }) => {
-    if (!args || typeof args.hash !== 'string') throw new Error('hash is required');
-    const folderId =
-      args.folderId === null || args.folderId === undefined ? null : String(args.folderId);
-    db.repos.assets.setFolder(parseAssetHash(args.hash), folderId);
-  });
 }

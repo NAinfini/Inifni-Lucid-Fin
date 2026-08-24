@@ -1,5 +1,6 @@
 import type { PayloadAction } from '@reduxjs/toolkit';
 import {
+  normalizeReasoningEffort,
   normalizeLLMProviderRuntimeConfig,
   type LLMProviderAuthStyle,
   type LLMProviderProtocol,
@@ -65,10 +66,17 @@ export function setProviderProtocol(
     baseUrl: provider.baseUrl,
     model: provider.model,
     protocol: action.payload.protocol,
+    supportsModelOverride: provider.supportsModelOverride,
+    supportsReasoningEffort:
+      action.payload.protocol === provider.protocol ? provider.supportsReasoningEffort : undefined,
+    reasoningEffortsByModel: provider.reasoningEffortsByModel,
+    reasoningEffort: provider.reasoningEffort,
   });
 
   provider.protocol = runtime.protocol;
   provider.authStyle = runtime.authStyle;
+  provider.supportsModelOverride = runtime.supportsModelOverride;
+  provider.supportsReasoningEffort = runtime.supportsReasoningEffort;
 }
 
 export function setProviderHasKey(
@@ -101,6 +109,10 @@ export function commitProvider(
       model: string;
       protocol?: LLMProviderProtocol;
       authStyle?: LLMProviderAuthStyle;
+      supportsModelOverride?: boolean;
+      supportsReasoningEffort?: boolean;
+      reasoningEffortsByModel?: Record<string, string[]>;
+      reasoningEffort?: string;
       name?: string;
       contextWindow?: number;
     };
@@ -121,9 +133,23 @@ export function commitProvider(
       model: config.model,
       protocol: config.protocol,
       authStyle: config.authStyle,
+      supportsModelOverride: config.supportsModelOverride ?? provider.supportsModelOverride,
+      supportsReasoningEffort:
+        config.supportsReasoningEffort ??
+        (config.protocol === undefined || config.protocol === provider.protocol
+          ? provider.supportsReasoningEffort
+          : undefined),
+      reasoningEffortsByModel: config.reasoningEffortsByModel ?? provider.reasoningEffortsByModel,
+      reasoningEffort: config.reasoningEffort,
     });
     provider.protocol = runtime.protocol;
     provider.authStyle = runtime.authStyle;
+    provider.supportsModelOverride = runtime.supportsModelOverride;
+    provider.supportsReasoningEffort = runtime.supportsReasoningEffort;
+    provider.reasoningEffortsByModel = runtime.reasoningEffortsByModel;
+    provider.reasoningEffort = runtime.reasoningEffort;
+  } else {
+    provider.reasoningEffort = normalizeReasoningEffort(config.reasoningEffort);
   }
 
   if (config.name !== undefined && provider.isCustom) {
@@ -150,6 +176,10 @@ export function resetProviderToDefaults(
   provider.model = defaults.model;
   provider.protocol = defaults.protocol;
   provider.authStyle = defaults.authStyle;
+  provider.supportsModelOverride = defaults.supportsModelOverride;
+  provider.supportsReasoningEffort = defaults.supportsReasoningEffort;
+  provider.reasoningEffortsByModel = defaults.reasoningEffortsByModel;
+  provider.reasoningEffort = defaults.reasoningEffort;
 }
 
 export function addCustomProvider(
@@ -181,6 +211,8 @@ export function addCustomProvider(
     isCustom: true,
     protocol: runtime?.protocol,
     authStyle: runtime?.authStyle,
+    supportsModelOverride: runtime?.supportsModelOverride,
+    supportsReasoningEffort: runtime?.supportsReasoningEffort,
     ...(action.payload.group === 'llm' ? { contextWindow: 128_000 } : {}),
   });
 }

@@ -7,7 +7,9 @@
 
 ## Knowledge Base Reference
 
-**Before writing any preset prompt, you MUST read the relevant knowledge base document(s) below.** These contain the compiled prompt engineering techniques from 39 professional lessons and industry best practices. They are your source of truth for vocabulary, formulas, anti-patterns, and category-specific techniques.
+The knowledge-base documents below are available when their vocabulary, formulas, anti-patterns, or
+category-specific techniques would improve the current prompt. Load only the material that is useful
+for the request; this index is a reference, not a mandatory workflow.
 
 | Document                                                             | Read when writing presets for...                                                                               |
 | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
@@ -16,7 +18,7 @@
 | [03-lighting-and-atmosphere.md](./03-lighting-and-atmosphere.md)     | Lighting, Color, Environment presets                                                                           |
 | [04-motion-and-emotion.md](./04-motion-and-emotion.md)               | Motion, Emotion, Pacing, Transition presets                                                                    |
 | [05-style-and-aesthetics.md](./05-style-and-aesthetics.md)           | Style, Texture, Quality presets                                                                                |
-| [06-workflow-methods.md](./06-workflow-methods.md)                   | Reference when debugging/iterating on prompt quality                                                           |
+| [06-task-methods.md](./06-task-methods.md)                           | Reference when debugging/iterating on prompt quality                                                           |
 | [07-model-specific-adaptation.md](./07-model-specific-adaptation.md) | **ALL presets** — per-model prompt length limits, negative prompt syntax, i2v vs t2v differences, model quirks |
 | [08-audio-prompting.md](./08-audio-prompting.md)                     | Audio-capable model presets — sound design, dialogue, ambient, music, SFX prompting                            |
 
@@ -47,7 +49,7 @@ Each preset in Lucid Fin has:
 
 - `name`: Machine-readable ID (e.g., `zoom-in`, `golden-hour`, `sad`)
 - `description`: Short human-readable label shown in the UI
-- `prompt`: **The text you write** — this is sent directly to AI image/video models during generation
+- `prompt`: **The text you write** — a named creative source that Commander evaluates when it assembles the final provider prompt
 - `category`: One of 14 axes (camera, lens, composition, lighting, motion, pacing, transition, emotion, style, color, texture, environment, aspect-ratio, quality)
 - `params`: Parameter definitions with ranges
 - `defaults`: Default parameter values
@@ -60,7 +62,7 @@ For each preset, output:
 prompt: "<the prompt text>"
 ```
 
-The prompt text must be a **natural-language instruction** that an AI image/video model can interpret to produce the described effect. It will be concatenated with other preset prompts and the user's scene description to form the final generation prompt.
+The prompt text must be a **natural-language instruction** that an AI image/video model can interpret to produce the described effect. It is supplied to Commander as a separately identified preset source; Commander decides whether and how it belongs in the persisted final generation prompt.
 
 ---
 
@@ -295,33 +297,26 @@ Example: `"maximum rendering fidelity, fine detail preserved in textures and edg
 
 ---
 
-## Prompt Concatenation Context
+## Prompt Assembly Context
 
-In Lucid Fin, multiple preset prompts are **stacked** and concatenated with the user's scene description:
+In Lucid Fin, active preset prompts are distinct, hash-addressed sources supplied to Commander with the user's scene description:
 
 ```
-Final prompt = [User scene/narrative text]
-             + [Camera preset prompt]
-             + [Lens preset prompt]
-             + [Lighting preset prompt]
-             + [Motion preset prompt]
-             + [Emotion preset prompt]
-             + [Style preset prompt]
-             + [Color preset prompt]
-             + [Texture preset prompt]
-             + [Environment preset prompt]
-             + [Transition preset prompt] (for generation edges only)
-             + [Pacing preset prompt]
-             + [Aspect ratio preset prompt]
-             + [Quality preset prompt]
+Prompt Assembly input = [User scene/narrative text]
+                      + [Named preset sources]
+                      + [Task List and style authority]
+                      + [References, provider limits, and repair lineage]
+
+Commander output = [Persisted final prompt]
+                 + [Optional persisted negative prompt]
 ```
 
 Therefore each individual preset prompt must:
 
 1. **Be self-contained** — make sense without the others
 2. **Not conflict** — avoid overriding other preset domains (camera preset shouldn't specify lighting)
-3. **Be concise** — 1-3 sentences max; combined they form one large prompt
-4. **Be composable** — read naturally when concatenated with other presets
+3. **Be concise** — 1-3 sentences max so Commander can compare it against the task context
+4. **Be domain-scoped** — state the intended effect without silently taking over another preset's responsibility
 
 ---
 
@@ -378,11 +373,11 @@ Before finalizing any preset prompt, verify:
 - [ ] Uses **dynamic verbs** (not static adjectives)
 - [ ] Describes **physical process** (not abstract concept)
 - [ ] Stays within **its category domain** (camera prompt doesn't specify lighting)
-- [ ] Is **1-3 sentences** (concise enough to concatenate)
+- [ ] Is **1-3 sentences** (concise enough for Commander to evaluate)
 - [ ] Contains **no quality-stacking** (no `8K ultra-detailed hyper-realistic`)
 - [ ] Uses **sensory anchors** (concrete visual details)
 - [ ] For emotion presets: describes **environment/atmosphere, NOT facial expressions**
-- [ ] Reads naturally when **concatenated** with prompts from other categories
+- [ ] States only its own category's intent so Commander can resolve it with other sources
 - [ ] Written at **default parameter values** (mid-range intensity, medium speed)
 - [ ] **No conflicting instructions** within the prompt
 - [ ] **Prompt length appropriate** for target model's token budget (see [07-model-specific-adaptation.md](./07-model-specific-adaptation.md) for per-model limits)

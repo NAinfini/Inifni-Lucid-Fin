@@ -52,6 +52,7 @@ export interface InspectorGenerationBarProps {
   // Duration / FPS (video)
   durationOptions?: readonly number[];
   durationValue?: string | null;
+  customDurationValue?: string;
   onDurationChange?: ChangeEventHandler<HTMLSelectElement>;
   durationInputValue?: number;
   onDurationInputChange?: ChangeEventHandler<HTMLInputElement>;
@@ -64,11 +65,6 @@ export interface InspectorGenerationBarProps {
   onAudioChange?: (enabled: boolean) => void;
   audioLabel?: string;
   audioWarning?: string;
-  // Lip sync toggle (video nodes)
-  showLipSyncToggle?: boolean;
-  lipSyncEnabled?: boolean;
-  onLipSyncChange?: (enabled: boolean) => void;
-  lipSyncLabel?: string;
   // Quality selector (all video providers)
   showQualitySelector?: boolean;
   qualityOptions?: Array<{ value: string; label: string }>;
@@ -118,6 +114,7 @@ export function InspectorGenerationBar({
   onHeightChange,
   durationOptions,
   durationValue,
+  customDurationValue,
   onDurationChange,
   durationInputValue,
   onDurationInputChange,
@@ -129,10 +126,6 @@ export function InspectorGenerationBar({
   onAudioChange,
   audioLabel,
   audioWarning,
-  showLipSyncToggle,
-  lipSyncEnabled,
-  onLipSyncChange,
-  lipSyncLabel,
   showQualitySelector,
   qualityOptions,
   qualityValue,
@@ -244,7 +237,9 @@ export function InspectorGenerationBar({
           {/* Resolution */}
           {resolutionGroups && onResolutionChange && (
             <div className="flex items-center justify-between gap-1.5">
-              <span className="text-[10px] text-muted-foreground">{t('export.resolution')}</span>
+              <span className="text-[10px] text-muted-foreground">
+                {t('generation.resolution')}
+              </span>
               <select
                 value={resolutionValue ?? customResolutionValue ?? ''}
                 onChange={onResolutionChange}
@@ -290,7 +285,7 @@ export function InspectorGenerationBar({
             <div className="flex items-center justify-between gap-1.5">
               <span className="text-[10px] text-muted-foreground">{t('node.duration')}</span>
               <select
-                value={durationValue ?? customResolutionValue ?? ''}
+                value={durationValue ?? customDurationValue ?? ''}
                 onChange={onDurationChange}
                 className="w-20 rounded-md border border-border/60 bg-muted px-1.5 py-0.5 text-[10px] outline-none"
               >
@@ -299,12 +294,12 @@ export function InspectorGenerationBar({
                     {d}s
                   </option>
                 ))}
-                <option value={customResolutionValue ?? ''}>Custom</option>
+                <option value={customDurationValue ?? ''}>Custom</option>
               </select>
             </div>
           )}
           {nodeType === 'video' &&
-            durationValue === customResolutionValue &&
+            durationValue === customDurationValue &&
             onDurationInputChange && (
               <div className="flex items-center justify-end">
                 <input
@@ -321,7 +316,7 @@ export function InspectorGenerationBar({
           {/* FPS (video) */}
           {nodeType === 'video' && fpsOptions && onFpsChange && (
             <div className="flex items-center justify-between gap-1.5">
-              <span className="text-[10px] text-muted-foreground">{t('export.fps')}</span>
+              <span className="text-[10px] text-muted-foreground">{t('generation.fps')}</span>
               <select
                 value={String(fpsValue ?? fpsOptions[0])}
                 onChange={onFpsChange}
@@ -410,21 +405,6 @@ export function InspectorGenerationBar({
               {audioWarning && (
                 <span className="block text-[9px] text-yellow-500">{audioWarning}</span>
               )}
-            </div>
-          )}
-
-          {/* Lip sync toggle (video nodes) */}
-          {showLipSyncToggle && onLipSyncChange && (
-            <div className="space-y-0.5">
-              <label className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={lipSyncEnabled ?? false}
-                  onChange={(e) => onLipSyncChange(e.target.checked)}
-                  className="rounded border-border accent-primary"
-                />
-                {lipSyncLabel ?? 'Lip Sync'}
-              </label>
             </div>
           )}
 

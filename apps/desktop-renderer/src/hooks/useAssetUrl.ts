@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-// eslint-disable-next-line no-restricted-imports -- Phase C (LRUCache relocation to shared-utils) will fix this
-import { LRUCache } from '@lucid-fin/application/dist/lru-cache.js';
+import { LRUCache } from '@lucid-fin/shared-utils';
 
 const cache = new LRUCache<string, string>(5000);
 const failedKeys = new LRUCache<string, true>(2000);

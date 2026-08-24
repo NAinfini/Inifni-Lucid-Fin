@@ -18,7 +18,7 @@ function makeSkill(overrides: Partial<SkillDefinition> = {}): SkillDefinition {
     defaultContent: 'default',
     customContent: null,
     builtIn: true,
-    source: 'workflowSkill',
+    source: 'taskSkill',
     createdAt: 0,
     ...overrides,
   };
@@ -31,10 +31,10 @@ describe('skillDefinitions guide budgets', () => {
 
   it('rejects oversized edits and custom guides at the reducer boundary', () => {
     const initial: SkillDefinitionsState = { skills: [makeSkill()] };
-    const oversizedWorkflowSkill = 'x'.repeat(COMMANDER_GUIDE_LIMITS.maxWorkflowSkillChars + 1);
+    const oversizedTaskSkill = 'x'.repeat(COMMANDER_GUIDE_LIMITS.maxTaskSkillChars + 1);
     const afterEdit = skillDefinitionsSlice.reducer(
       initial,
-      setCustomContent({ id: 'guide-1', content: oversizedWorkflowSkill }),
+      setCustomContent({ id: 'guide-1', content: oversizedTaskSkill }),
     );
     expect(afterEdit.skills[0]?.customContent).toBeNull();
 
@@ -48,7 +48,7 @@ describe('skillDefinitions guide budgets', () => {
 
   it('ships short auto-injection content separately from the full guide', () => {
     const guide = makeSkill({
-      defaultContent: 'full workflow guide',
+      defaultContent: 'full task guide',
       autoInject: true,
       autoInjectContent: 'short runtime kernel',
     });
@@ -56,7 +56,7 @@ describe('skillDefinitions guide budgets', () => {
     expect(selectActiveSkills([guide])).toEqual([
       expect.objectContaining({
         id: 'guide-1',
-        content: 'full workflow guide',
+        content: 'full task guide',
         autoInject: true,
         autoInjectContent: 'short runtime kernel',
       }),
@@ -65,22 +65,32 @@ describe('skillDefinitions guide budgets', () => {
 
   it('does not send legacy oversized guide content to Commander', () => {
     const oversized = makeSkill({
-      defaultContent: 'x'.repeat(COMMANDER_GUIDE_LIMITS.maxWorkflowSkillChars + 1),
+      defaultContent: 'x'.repeat(COMMANDER_GUIDE_LIMITS.maxTaskSkillChars + 1),
     });
 
     expect(selectActiveSkills([oversized])).toEqual([]);
   });
 
-  it('keeps every bundled guide and automatic summary inside its source budget', () => {
+  it('keeps every bundled guide inside its source budget', () => {
     const skills = skillDefinitionsSlice.getInitialState().skills;
 
     expect(selectActiveSkills(skills)).toHaveLength(skills.length);
-    for (const skill of skills) {
-      if (skill.autoInjectContent) {
-        expect(skill.autoInjectContent.length).toBeLessThanOrEqual(
-          COMMANDER_GUIDE_LIMITS.maxAutoInjectCharsPerGuide,
-        );
-      }
-    }
+  });
+
+  it('keeps built-in workflow guides available on demand without auto-injecting them', () => {
+    const guides = selectActiveSkills(skillDefinitionsSlice.getInitialState().skills).filter((guide) =>
+      ['prompt-structure', 'task-guide-story-to-video', 'task-guide-style-plate'].includes(guide.id),
+    );
+
+    expect(guides).toHaveLength(3);
+    expect(guides).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'prompt-structure', content: expect.any(String) }),
+        expect.objectContaining({ id: 'task-guide-story-to-video', content: expect.any(String) }),
+        expect.objectContaining({ id: 'task-guide-style-plate', content: expect.any(String) }),
+      ]),
+    );
+    expect(guides.every((guide) => guide.autoInject === undefined)).toBe(true);
+    expect(guides.every((guide) => guide.autoInjectContent === undefined)).toBe(true);
   });
 });

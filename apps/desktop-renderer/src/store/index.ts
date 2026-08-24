@@ -1,11 +1,7 @@
 import { configureStore } from '@reduxjs/toolkit';
-import { seriesSlice } from './slices/series.js';
 import { charactersSlice } from './slices/characters.js';
 import { equipmentSlice } from './slices/equipment.js';
-import { storyboardSlice } from './slices/storyboard.js';
-import { audioSlice } from './slices/audio.js';
-import { jobsSlice } from './slices/jobs.js';
-import { workflowsSlice } from './slices/workflows.js';
+import { taskListsSlice } from './slices/task-lists.js';
 import { assetsSlice } from './slices/assets.js';
 import { uiSlice } from './slices/ui.js';
 import { settingsSlice } from './slices/settings.js';
@@ -22,16 +18,13 @@ import { listenerMiddleware } from './middleware/listener.js';
 import { ipcMiddleware } from './middleware/ipc.js';
 import { persistMiddleware } from './middleware/persist.js';
 import { undoMiddleware } from './middleware/undo.js';
+import { commanderSessionPersistenceMiddleware } from './middleware/commander-session-persistence.js';
 
 export const store = configureStore({
   reducer: {
-    series: seriesSlice.reducer,
     characters: charactersSlice.reducer,
     equipment: equipmentSlice.reducer,
-    storyboard: storyboardSlice.reducer,
-    audio: audioSlice.reducer,
-    jobs: jobsSlice.reducer,
-    workflows: workflowsSlice.reducer,
+    taskLists: taskListsSlice.reducer,
     assets: assetsSlice.reducer,
     ui: uiSlice.reducer,
     settings: settingsSlice.reducer,
@@ -48,7 +41,12 @@ export const store = configureStore({
   middleware: (getDefault) =>
     getDefault({ serializableCheck: false, immutableCheck: false })
       .prepend(listenerMiddleware.middleware)
-      .concat(ipcMiddleware, persistMiddleware, undoMiddleware),
+      .concat(
+        ipcMiddleware,
+        commanderSessionPersistenceMiddleware,
+        persistMiddleware,
+        undoMiddleware,
+      ),
 });
 
 export type RootState = ReturnType<typeof store.getState>;

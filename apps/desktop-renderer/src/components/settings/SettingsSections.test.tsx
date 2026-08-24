@@ -52,14 +52,40 @@ describe('settings extracted sections', () => {
     );
 
     expect(screen.getByRole('button', { current: 'page', name: 'Providers' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Guides' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Run Guides' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Appearance' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Storage' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Usage' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'About' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Canvas' })).toBeTruthy();
+    const advancedToggle = screen.getByRole('button', { name: 'Advanced' });
+    expect(advancedToggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('button', { name: 'Guides' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Run Guides' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Prompt Templates' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Workflows' })).toBeNull();
 
+    fireEvent.click(advancedToggle);
+    expect(advancedToggle.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Guides' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Run Guides' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Appearance' }));
 
     expect(onTabChange).toHaveBeenCalledWith('appearance' satisfies SettingsTab);
+  });
+
+  it('keeps the active advanced tab visible', () => {
+    const onTabChange = vi.fn();
+
+    render(
+      <Provider store={createMinimalStore()}>
+        <SettingsSidebarNav activeTab="guides" onTabChange={onTabChange} />
+      </Provider>,
+    );
+
+    expect(screen.getByRole('button', { name: 'Advanced' }).getAttribute('aria-expanded')).toBe(
+      'true',
+    );
+    expect(screen.getByRole('button', { current: 'page', name: 'Guides' })).toBeTruthy();
   });
 
   it('renders appearance controls and forwards theme and locale changes', () => {
@@ -104,21 +130,21 @@ describe('settings extracted sections', () => {
         createdAt: 0,
       },
       {
-        id: 'wf-video-clone',
-        name: getDefaultSkillName('wf-video-clone') ?? 'Video Clone → Remake',
-        category: 'workflow',
-        defaultContent: 'Built-in workflow content',
+        id: 'task-style-transfer',
+        name: getDefaultSkillName('task-style-transfer') ?? 'Style Transfer Across Shots',
+        category: 'task',
+        defaultContent: 'Built-in task content',
         customContent: null,
         builtIn: true,
-        source: 'workflowSkill',
+        source: 'taskSkill',
         createdAt: 0,
       },
       {
-        id: 'custom-wf-1',
-        name: 'Custom Workflow',
-        category: 'workflow',
+        id: 'custom-task-1',
+        name: 'Custom Task Guide',
+        category: 'task',
         defaultContent: '',
-        customContent: 'Existing workflow content',
+        customContent: 'Existing task-guide content',
         builtIn: false,
         source: 'user',
         createdAt: 1,
@@ -201,15 +227,15 @@ describe('settings extracted sections', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Template' }));
 
-    fireEvent.click(screen.getByText('Custom Workflow').closest('button')!);
-    fireEvent.change(screen.getByDisplayValue('Custom Workflow'), {
-      target: { value: 'Refined Workflow' },
+    fireEvent.click(screen.getByText('Custom Task Guide').closest('button')!);
+    fireEvent.change(screen.getByDisplayValue('Custom Task Guide'), {
+      target: { value: 'Refined Task Guide' },
     });
-    fireEvent.change(screen.getByDisplayValue('Existing workflow content'), {
-      target: { value: 'Updated workflow content' },
+    fireEvent.change(screen.getByDisplayValue('Existing task-guide content'), {
+      target: { value: 'Updated task-guide content' },
     });
     fireEvent.click(screen.getAllByRole('button', { name: 'Save' })[0]);
-    fireEvent.click(screen.getByText('Refined Workflow').closest('button')!);
+    fireEvent.click(screen.getByText('Refined Task Guide').closest('button')!);
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
     expect(onResetAllSkills).toHaveBeenCalledTimes(1);
@@ -225,12 +251,15 @@ describe('settings extracted sections', () => {
       category: 'skill',
       content: '# New Template\n\nWrite your prompt template here...',
     });
-    expect(onRenameSkill).toHaveBeenCalledWith({ id: 'custom-wf-1', name: 'Refined Workflow' });
-    expect(onSetSkillContent).toHaveBeenCalledWith({
-      id: 'custom-wf-1',
-      content: 'Updated workflow content',
+    expect(onRenameSkill).toHaveBeenCalledWith({
+      id: 'custom-task-1',
+      name: 'Refined Task Guide',
     });
-    expect(onRemoveSkill).toHaveBeenCalledWith('custom-wf-1');
+    expect(onSetSkillContent).toHaveBeenCalledWith({
+      id: 'custom-task-1',
+      content: 'Updated task-guide content',
+    });
+    expect(onRemoveSkill).toHaveBeenCalledWith('custom-task-1');
   });
 
   it('renders skill list in zh-CN locale', () => {
@@ -248,13 +277,13 @@ describe('settings extracted sections', () => {
         createdAt: 0,
       },
       {
-        id: 'wf-video-clone',
-        name: getDefaultSkillName('wf-video-clone') ?? 'Video Clone → Remake',
-        category: 'workflow',
-        defaultContent: 'Built-in workflow content',
+        id: 'task-style-transfer',
+        name: getDefaultSkillName('task-style-transfer') ?? 'Style Transfer Across Shots',
+        category: 'task',
+        defaultContent: 'Built-in task content',
         customContent: null,
         builtIn: true,
-        source: 'workflowSkill',
+        source: 'taskSkill',
         createdAt: 0,
       },
     ];
@@ -273,7 +302,7 @@ describe('settings extracted sections', () => {
 
     expect(screen.getByText('My Audio Template')).toBeTruthy();
     expect(screen.getAllByText(t('settings.category.audio')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(t('settings.category.workflow')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(t('settings.category.task')).length).toBeGreaterThan(0);
   });
 
   it('localizes every bundled guide and current run-guide metadata in zh-CN', () => {
@@ -297,17 +326,17 @@ describe('settings extracted sections', () => {
 
   it('shows guide source, load mode, and bounded content sizes', () => {
     setLocale('en-US');
-    const oversizedContent = 'x'.repeat(COMMANDER_GUIDE_LIMITS.maxWorkflowSkillChars + 1);
+    const oversizedContent = 'x'.repeat(COMMANDER_GUIDE_LIMITS.maxTaskSkillChars + 1);
     const onSetSkillContent = vi.fn();
     const skills: SkillDefinition[] = [
       {
-        id: 'oversized-workflow-skill',
-        name: 'Oversized Workflow Skill',
+        id: 'oversized-task-skill',
+        name: 'Oversized Task Skill',
         category: 'skill',
         defaultContent: oversizedContent,
         customContent: null,
         builtIn: true,
-        source: 'workflowSkill',
+        source: 'taskSkill',
         createdAt: 0,
         autoInject: true,
         autoInjectContent: 'bounded kernel',
@@ -328,12 +357,12 @@ describe('settings extracted sections', () => {
 
     expect(screen.getByText('Skill')).toBeTruthy();
     expect(
-      screen.getByText((_, element) => element?.textContent === 'Skill · Automatic summary'),
+      screen.getByText((_, element) => element?.textContent === 'Task skill · Automatic summary'),
     ).toBeTruthy();
-    fireEvent.click(screen.getByText('Oversized Workflow Skill').closest('button')!);
+    fireEvent.click(screen.getByText('Oversized Task Skill').closest('button')!);
     expect(screen.getByText('Automatic context summary')).toBeTruthy();
     expect(screen.getByRole('alert').textContent).toContain(
-      COMMANDER_GUIDE_LIMITS.maxWorkflowSkillChars.toLocaleString(),
+      COMMANDER_GUIDE_LIMITS.maxTaskSkillChars.toLocaleString(),
     );
     expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -390,15 +419,6 @@ describe('settings extracted sections', () => {
             createdAt: 1,
             updatedAt: 1,
           },
-          {
-            processKey: 'series-management',
-            name: 'Series Management',
-            description: 'Guidance for series and episode planning work.',
-            defaultValue: 'Default rules',
-            customValue: null,
-            createdAt: 1,
-            updatedAt: 1,
-          },
         ]),
         setCustom: vi.fn(async () => undefined),
         reset: vi.fn(async () => undefined),
@@ -413,15 +433,12 @@ describe('settings extracted sections', () => {
     // Expand all groups that contain our test prompts
     fireEvent.click(screen.getByText('Entities'));
     fireEvent.click(screen.getByText('Configuration'));
-    fireEvent.click(screen.getByText('Content'));
 
     expect(screen.getByText('Node Preset Tracks')).toBeTruthy();
     expect(screen.getByText('Provider Management')).toBeTruthy();
-    expect(screen.getByText('Series Management')).toBeTruthy();
-    expect(screen.getAllByText('Related tools')).toHaveLength(3);
+    expect(screen.getAllByText('Related tools')).toHaveLength(2);
     expect(screen.getByText('Preset Tracks')).toBeTruthy();
     expect(screen.getByText('Provider')).toBeTruthy();
-    expect(screen.getByText('Add Episode')).toBeTruthy();
     fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]!);
     fireEvent.change(screen.getByRole('textbox'), {
       target: { value: 'Custom image rules' },
@@ -512,10 +529,10 @@ describe('settings extracted sections', () => {
           'Triggered when canvas.generation is called. Reminds Commander to verify and expand thin prompts before committing to generation.',
       },
       {
-        processKey: 'story-workflow-phase',
-        name: 'Story Workflow Phase',
+        processKey: 'story-task-list-phase',
+        name: 'Story Task-list Phase',
         description:
-          'Triggered when workflow-orchestration is active. Reinforces phase-gate discipline for the story-to-video pipeline.',
+          'Triggered when task-list-orchestration is active. Reinforces phase-gate discipline for the story-to-video pipeline.',
       },
     ].map((prompt) => ({
       ...prompt,
@@ -572,7 +589,9 @@ describe('settings extracted sections', () => {
 
     expect(screen.getByText('Entity Reference Image Generation')).toBeTruthy();
     expect(screen.getAllByText('Related tools')).toHaveLength(1);
-    expect(screen.getByText('Generate Ref Image')).toBeTruthy();
+    expect(screen.getByText('Create Nodes')).toBeTruthy();
+    expect(screen.getByText('Configure Node')).toBeTruthy();
+    expect(screen.getByText('Set Ref Image from Node')).toBeTruthy();
     expect(screen.getByText('Set Ref Image')).toBeTruthy();
     expect(screen.getByText('Delete Ref Image')).toBeTruthy();
     expect(screen.getByText('Set Ref Image from Node')).toBeTruthy();

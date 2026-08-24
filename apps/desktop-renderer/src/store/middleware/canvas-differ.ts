@@ -1,29 +1,5 @@
-import type { Canvas, CanvasNode, CanvasEdge } from '@lucid-fin/contracts';
-
-/** Describes the type of mutation that produced part of a patch. */
-export type CanvasOperation =
-  | 'addNode'
-  | 'updateNode'
-  | 'removeNode'
-  | 'addEdge'
-  | 'updateEdge'
-  | 'removeEdge'
-  | 'renameCanvas';
-
-export interface CanvasPatch {
-  canvasId: string;
-  timestamp: number;
-  /** The set of high-level operations represented by this patch (for logging/debugging). */
-  operations: CanvasOperation[];
-  // Only included if changed
-  nameChange?: string;
-  addedNodes?: CanvasNode[];
-  removedNodeIds?: string[];
-  updatedNodes?: Array<{ id: string; changes: Record<string, unknown> }>;
-  addedEdges?: CanvasEdge[];
-  removedEdgeIds?: string[];
-  updatedEdges?: Array<{ id: string; edge: CanvasEdge }>;
-}
+import type { Canvas, CanvasEdge, CanvasNode, CanvasPatch } from '@lucid-fin/contracts';
+export type { CanvasPatch } from '@lucid-fin/contracts';
 
 export function diffCanvas(prev: Canvas | undefined, next: Canvas): CanvasPatch | null {
   if (!prev) return null; // Full save needed for new canvases

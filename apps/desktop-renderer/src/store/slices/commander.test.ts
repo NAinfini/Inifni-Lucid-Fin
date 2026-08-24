@@ -1,33 +1,54 @@
 import { describe, expect, it } from 'vitest';
+
 import {
-  addUserMessage,
   addInjectedMessage,
+  addUserMessage,
   appendFinalizedAssistantMessage,
   clearHistory,
   compactLocalContext,
   commanderSlice,
+  dequeueMessage,
+  editQueuedMessage,
+  enqueueMessage,
+  ensureActiveSession,
+  ensureSession,
   finishStreaming,
+  loadSessionsFromDB,
   loadSession,
   minimizeCommander,
   newSession,
-  resolveQuestion,
+  removeQueuedMessage,
   setCommanderOpen,
-  setPendingQuestion,
-  setProviderId,
+  setContextWindowTokens,
+  setMaxOutputTokens,
   setPosition,
+  setProviderId,
+  setRunResourceBudget,
   setSize,
   startStreaming,
   streamError,
-  switchCanvas,
   toggleCommander,
+  unassignSessionsFromCanvas,
   upsertFinalizedAssistantMessage,
   type CommanderMessage,
   type CommanderState,
 } from './commander.js';
 
+const SESSION_ID = 'session-1';
+
+function withSession(id = SESSION_ID, defaultCanvasId: string | null = null): CommanderState {
+  return commanderSlice.reducer(undefined, ensureActiveSession({ id, defaultCanvasId }));
+}
+
+function getSession(state: CommanderState, id = SESSION_ID) {
+  const session = state.sessions.find((candidate) => candidate.id === id);
+  if (!session) throw new Error(`Missing test session: ${id}`);
+  return session;
+}
+
 function makeFinalized(runId: string, content: string): CommanderMessage {
   return {
-    id: 'assistant-run-' + runId,
+    id: `assistant-run-${runId}`,
     role: 'assistant',
     content,
     runMeta: {
@@ -41,15 +62,125 @@ function makeFinalized(runId: string, content: string): CommanderMessage {
   };
 }
 
+function seedWithFinalized(): CommanderState {
+  let state = withSession();
+  state = commanderSlice.reducer(state, startStreaming(SESSION_ID));
+  state = commanderSlice.reducer(
+    state,
+    appendFinalizedAssistantMessage({
+      sessionId: SESSION_ID,
+      message: makeFinalized('r-1', 'x'),
+      runId: 'r-1',
+    }),
+  );
+  expect(getSession(state).runtime.finalizedRunIds).toEqual(['r-1']);
+  return state;
+}
+
 describe('commander slice', () => {
-  it('never rewrites the durable transcript when local context compaction is requested', () => {
-    let state = commanderSlice.reducer(undefined, addUserMessage('a'.repeat(500_000)));
-    state = commanderSlice.reducer(state, addUserMessage('b'.repeat(500_000)));
-    const before = state.messages.map((message) => ({ ...message }));
+  it('moves every chat from a permanently deleted Canvas to Unassigned', () => {
+    let state = withSession('session-a', 'canvas-a');
+    state = commanderSlice.reducer(
+      state,
+      ensureSession({ id: 'session-b', defaultCanvasId: 'canvas-a' }),
+    );
+    state = commanderSlice.reducer(
+      state,
+      ensureSession({ id: 'session-c', defaultCanvasId: 'canvas-b' }),
+    );
+
+    state = commanderSlice.reducer(state, unassignSessionsFromCanvas('canvas-a'));
+
+    expect(getSession(state, 'session-a').defaultCanvasId).toBeNull();
+    expect(getSession(state, 'session-b').defaultCanvasId).toBeNull();
+    expect(getSession(state, 'session-c').defaultCanvasId).toBe('canvas-b');
+  });
+
+  it('consumes a large per-session queue with amortized cursor advancement', () => {
+    const queued = Array.from({ length: 10_000 }, (_, index) => ({
+      id: `queue-${index}`,
+      content: `message-${index}`,
+    }));
+    let state = withSession();
+    state = {
+      ...state,
+      sessions: state.sessions.map((session) =>
+        session.id === SESSION_ID
+          ? { ...session, runtime: { ...session.runtime, messageQueue: queued } }
+          : session,
+      ),
+    };
+
+    for (let index = 0; index < 64; index += 1) {
+      state = commanderSlice.reducer(state, dequeueMessage(SESSION_ID));
+    }
+
+    let runtime = getSession(state).runtime;
+    expect(runtime.messageQueueCursor).toBe(64);
+    expect(runtime.messageQueue).toHaveLength(10_000);
+    expect(runtime.messageQueue[runtime.messageQueueCursor]?.content).toBe('message-64');
+
+    state = commanderSlice.reducer(
+      state,
+      editQueuedMessage({ sessionId: SESSION_ID, index: 0, content: 'edited-message-64' }),
+    );
+    state = commanderSlice.reducer(state, removeQueuedMessage({ sessionId: SESSION_ID, index: 1 }));
+    runtime = getSession(state).runtime;
+    expect(
+      runtime.messageQueue
+        .slice(runtime.messageQueueCursor, runtime.messageQueueCursor + 2)
+        .map((item) => item.content),
+    ).toEqual(['edited-message-64', 'message-66']);
+
+    state = commanderSlice.reducer(
+      state,
+      enqueueMessage({ sessionId: SESSION_ID, content: 'message-10000' }),
+    );
+    expect(getSession(state).runtime.messageQueue.at(-1)?.content).toBe('message-10000');
+  });
+
+  it('keeps the context window and output limits independent', () => {
+    let state = commanderSlice.reducer(undefined, setContextWindowTokens(1_000_000));
+    state = commanderSlice.reducer(state, setMaxOutputTokens(2_048));
+
+    expect(state.contextWindowTokens).toBe(200_000);
+    expect(state.maxOutputTokens).toBe(2_048);
+  });
+
+  it('stores optional per-run resource limits and preserves explicit zeroes', () => {
+    const state = commanderSlice.reducer(
+      undefined,
+      setRunResourceBudget({
+        maxTokens: 120_000,
+        maxToolCalls: 0,
+        maxWallTimeMs: 15 * 60_000,
+        maxCostUsd: 0,
+      }),
+    );
+
+    expect(state.resourceBudget).toEqual({
+      maxTokens: 120_000,
+      maxToolCalls: 0,
+      maxWallTimeMs: 15 * 60_000,
+      maxCostUsd: 0,
+    });
+  });
+
+  it('never rewrites a session transcript for local context compaction', () => {
+    let state = withSession();
+    state = commanderSlice.reducer(
+      state,
+      addUserMessage({ sessionId: SESSION_ID, content: 'a'.repeat(500_000) }),
+    );
+    state = commanderSlice.reducer(
+      state,
+      addUserMessage({ sessionId: SESSION_ID, content: 'b'.repeat(500_000) }),
+    );
+    const before = getSession(state).messages.map((message) => ({ ...message }));
 
     const compacted = commanderSlice.reducer(state, compactLocalContext());
 
-    expect(compacted.messages).toEqual(before);
+    expect(getSession(compacted).messages).toEqual(before);
   });
 
   it('toggleCommander and setCommanderOpen update open state', () => {
@@ -60,204 +191,193 @@ describe('commander slice', () => {
     expect(state.open).toBe(false);
   });
 
-  it('addUserMessage appends a user turn and forces the panel open', () => {
-    let state = commanderSlice.reducer(undefined, toggleCommander());
+  it('adds a user turn to only its session and restores the panel', () => {
+    let state = withSession();
+    state = commanderSlice.reducer(state, toggleCommander());
     state = commanderSlice.reducer(state, minimizeCommander());
-    state = commanderSlice.reducer(state, addUserMessage('hi'));
+    state = commanderSlice.reducer(state, addUserMessage({ sessionId: SESSION_ID, content: 'hi' }));
+
     expect(state.open).toBe(true);
     expect(state.minimized).toBe(false);
-    expect(state.messages).toHaveLength(1);
-    expect(state.messages[0]).toMatchObject({ role: 'user', content: 'hi' });
+    expect(getSession(state).messages).toEqual([
+      expect.objectContaining({ role: 'user', content: 'hi' }),
+    ]);
   });
 
-  it('startStreaming forces open and unminimized', () => {
-    let state = commanderSlice.reducer(undefined, toggleCommander());
+  it('starts streaming for only the addressed session', () => {
+    let state = withSession();
     state = commanderSlice.reducer(state, minimizeCommander());
-    state = commanderSlice.reducer(state, startStreaming());
+    state = commanderSlice.reducer(state, startStreaming(SESSION_ID));
+
     expect(state.open).toBe(true);
     expect(state.minimized).toBe(false);
-    expect(state.phase.kind).not.toBe('idle');
+    expect(getSession(state).runtime.phase.kind).not.toBe('idle');
   });
 
-  describe('appendFinalizedAssistantMessage', () => {
-    it('pushes message and records runId in finalizedRunIds', () => {
-      let state = commanderSlice.reducer(undefined, startStreaming());
-      const msg = makeFinalized('run-1', 'done');
-      state = commanderSlice.reducer(
-        state,
-        appendFinalizedAssistantMessage({ message: msg, runId: 'run-1' }),
-      );
-      expect(state.messages).toHaveLength(1);
-      expect(state.messages[0].id).toBe('assistant-run-run-1');
-      expect(state.finalizedRunIds).toEqual(['run-1']);
-    });
+  it('deduplicates finalized assistant messages within one session', () => {
+    let state = withSession();
+    const first = makeFinalized('run-1', 'first');
+    state = commanderSlice.reducer(
+      state,
+      appendFinalizedAssistantMessage({ sessionId: SESSION_ID, message: first, runId: 'run-1' }),
+    );
+    state = commanderSlice.reducer(
+      state,
+      appendFinalizedAssistantMessage({
+        sessionId: SESSION_ID,
+        message: makeFinalized('run-1', 'second'),
+        runId: 'run-1',
+      }),
+    );
 
-    it('is a no-op when runId already in finalizedRunIds (dedup)', () => {
-      let state = commanderSlice.reducer(undefined, startStreaming());
-      const msg = makeFinalized('run-1', 'first');
-      state = commanderSlice.reducer(
-        state,
-        appendFinalizedAssistantMessage({ message: msg, runId: 'run-1' }),
-      );
-      const second = makeFinalized('run-1', 'second');
-      state = commanderSlice.reducer(
-        state,
-        appendFinalizedAssistantMessage({ message: second, runId: 'run-1' }),
-      );
-      expect(state.messages).toHaveLength(1);
-      expect(state.messages[0].content).toBe('first');
-    });
+    expect(getSession(state).messages).toEqual([first]);
+    expect(getSession(state).runtime.finalizedRunIds).toEqual(['run-1']);
   });
 
-  describe('upsertFinalizedAssistantMessage', () => {
-    it('replaces an existing message with matching id (preserves position)', () => {
-      let state = commanderSlice.reducer(undefined, addUserMessage('u1'));
-      const first = makeFinalized('run-1', 'first');
-      state = commanderSlice.reducer(
-        state,
-        appendFinalizedAssistantMessage({ message: first, runId: 'run-1' }),
-      );
-      state = commanderSlice.reducer(state, addUserMessage('u2'));
+  it('upserts a finalized message without changing transcript order', () => {
+    let state = withSession();
+    state = commanderSlice.reducer(state, addUserMessage({ sessionId: SESSION_ID, content: 'u1' }));
+    state = commanderSlice.reducer(
+      state,
+      appendFinalizedAssistantMessage({
+        sessionId: SESSION_ID,
+        message: makeFinalized('run-1', 'first'),
+        runId: 'run-1',
+      }),
+    );
+    state = commanderSlice.reducer(state, addUserMessage({ sessionId: SESSION_ID, content: 'u2' }));
+    state = commanderSlice.reducer(
+      state,
+      upsertFinalizedAssistantMessage({
+        sessionId: SESSION_ID,
+        message: makeFinalized('run-1', 'second'),
+        runId: 'run-1',
+      }),
+    );
 
-      const second = makeFinalized('run-1', 'second');
-      state = commanderSlice.reducer(
-        state,
-        upsertFinalizedAssistantMessage({ message: second, runId: 'run-1' }),
-      );
-
-      expect(state.messages).toHaveLength(3);
-      expect(state.messages[1].content).toBe('second');
-      expect(state.messages[2].content).toBe('u2');
-    });
-
-    it('appends if no existing message has the matching id', () => {
-      let state = commanderSlice.reducer(undefined, addUserMessage('u1'));
-      const msg = makeFinalized('run-42', 'late');
-      state = commanderSlice.reducer(
-        state,
-        upsertFinalizedAssistantMessage({ message: msg, runId: 'run-42' }),
-      );
-      expect(state.messages).toHaveLength(2);
-      expect(state.messages[1].id).toBe('assistant-run-run-42');
-      expect(state.finalizedRunIds).toContain('run-42');
-    });
+    expect(getSession(state).messages.map((message) => message.content)).toEqual([
+      'u1',
+      'second',
+      'u2',
+    ]);
   });
 
-  describe('finalizedRunIds lifecycle', () => {
-    function seedWithFinalized(): CommanderState {
-      let state = commanderSlice.reducer(undefined, startStreaming());
-      const msg = makeFinalized('r-1', 'x');
+  it('keeps an existing session runtime isolated when a new chat is created', () => {
+    const seeded = seedWithFinalized();
+    const state = commanderSlice.reducer(seeded, newSession(null));
+
+    expect(getSession(state).runtime.finalizedRunIds).toEqual(['r-1']);
+    const active = state.sessions.find((session) => session.id === state.activeSessionId);
+    expect(active?.id).not.toBe(SESSION_ID);
+    expect(active?.runtime.finalizedRunIds).toEqual([]);
+  });
+
+  it('never evicts active background sessions when enforcing the local history limit', () => {
+    let state = withSession('running-session');
+    state = commanderSlice.reducer(state, startStreaming('running-session'));
+    state = commanderSlice.reducer(
+      state,
+      ensureActiveSession({ id: 'foreground-session', defaultCanvasId: null }),
+    );
+
+    for (let index = 0; index < 60; index += 1) {
       state = commanderSlice.reducer(
         state,
-        appendFinalizedAssistantMessage({ message: msg, runId: 'r-1' }),
+        ensureSession({ id: `idle-${index}`, defaultCanvasId: null }),
       );
-      expect(state.finalizedRunIds).toEqual(['r-1']);
-      return state;
     }
 
-    it('is cleared by newSession', () => {
-      const state = commanderSlice.reducer(seedWithFinalized(), newSession());
-      expect(state.finalizedRunIds).toEqual([]);
-    });
+    expect(getSession(state, 'running-session').runtime.phase.kind).not.toBe('idle');
+    expect(state.activeSessionId).toBe('foreground-session');
+    expect(state.sessions).toHaveLength(50);
 
-    it('is cleared by clearHistory', () => {
-      const state = commanderSlice.reducer(seedWithFinalized(), clearHistory());
-      expect(state.finalizedRunIds).toEqual([]);
-    });
+    const dbSessions = Array.from({ length: 60 }, (_, index) => ({
+      ...getSession(state, 'idle-59'),
+      id: `db-${index}`,
+      title: `DB ${index}`,
+      createdAt: 100 + index,
+      updatedAt: 100 + index,
+    }));
+    state = commanderSlice.reducer(state, loadSessionsFromDB(dbSessions));
 
-    it('is cleared by loadSession', () => {
-      let state = seedWithFinalized();
-      // add a fake session to load
-      state = {
-        ...state,
-        sessions: [
-          {
-            id: 'sess-1',
-            canvasId: null,
-            title: 'x',
-            messages: [],
-            createdAt: 0,
-            updatedAt: 0,
-          },
-        ],
-      };
-      state = commanderSlice.reducer(state, loadSession({ id: 'sess-1' }));
-      expect(state.finalizedRunIds).toEqual([]);
-    });
-
-    it('is cleared by switchCanvas', () => {
-      const state = commanderSlice.reducer(seedWithFinalized(), switchCanvas('canvas-new'));
-      expect(state.finalizedRunIds).toEqual([]);
-    });
-
-    it('is cleared by restore', () => {
-      const seeded = seedWithFinalized();
-      // simulate an old persisted payload with stale transient fields
-      const payload = {
-        ...seeded,
-        finalizedRunIds: ['leftover'],
-        currentStreamContent: 'stale',
-        currentToolCalls: [],
-        currentSegments: [],
-      } as unknown as CommanderState;
-      const state = commanderSlice.reducer(seeded, {
-        type: 'commander/restore',
-        payload,
-      });
-      expect(state.finalizedRunIds).toEqual([]);
-      expect((state as unknown as Record<string, unknown>).currentStreamContent).toBeUndefined();
-    });
+    expect(getSession(state, 'running-session').runtime.phase.kind).not.toBe('idle');
+    expect(state.sessions).toHaveLength(50);
   });
 
-  describe('streamError', () => {
-    it('pushes a failed assistant message with minimal shape (D4)', () => {
-      let state = commanderSlice.reducer(undefined, addUserMessage('hello'));
-      state = commanderSlice.reducer(state, startStreaming());
-      state = commanderSlice.reducer(state, streamError('boom'));
+  it('clears only the addressed session history and runtime', () => {
+    const state = commanderSlice.reducer(seedWithFinalized(), clearHistory(SESSION_ID));
 
-      expect(state.error).toBe('boom');
-      expect(state.phase.kind).toBe('idle');
-      expect(state.messages).toHaveLength(2);
-      const errMsg = state.messages[1];
-      expect(errMsg.role).toBe('assistant');
-      expect(errMsg.content).toBe('boom');
-      expect(errMsg.runMeta?.status).toBe('failed');
-      // No segments / toolCalls on the minimal streamError message.
-      expect(errMsg.segments).toBeUndefined();
-      expect(errMsg.toolCalls).toBeUndefined();
-
-      state = commanderSlice.reducer(state, clearHistory());
-      expect(state.messages).toEqual([]);
-    });
-
-    it('commits pending injected messages before resetting transient state', () => {
-      let state = commanderSlice.reducer(undefined, addUserMessage('hello'));
-      state = commanderSlice.reducer(state, startStreaming());
-      state = commanderSlice.reducer(state, addInjectedMessage('mid'));
-      state = commanderSlice.reducer(state, streamError('boom'));
-      const userMsgs = state.messages.filter((m) => m.role === 'user');
-      expect(userMsgs).toHaveLength(2);
-      expect(userMsgs[1].content).toBe('mid');
-      expect(state.pendingInjectedMessages).toHaveLength(0);
-    });
+    expect(getSession(state).messages).toEqual([]);
+    expect(getSession(state).runtime.finalizedRunIds).toEqual([]);
   });
 
-  describe('finishStreaming', () => {
-    it('takes no payload and resets transient run state', () => {
-      let state = commanderSlice.reducer(undefined, startStreaming());
-      state = commanderSlice.reducer(state, finishStreaming());
-      expect(state.phase.kind).toBe('idle');
-      expect(state.currentRunStartedAt).toBeNull();
-    });
+  it('selecting a different chat does not reset the previous chat runtime', () => {
+    let state = seedWithFinalized();
+    state = commanderSlice.reducer(
+      state,
+      ensureActiveSession({ id: 'session-2', defaultCanvasId: 'canvas-2' }),
+    );
+    state = commanderSlice.reducer(state, loadSession({ id: 'session-2' }));
 
-    it('commits pending injected messages', () => {
-      let state = commanderSlice.reducer(undefined, startStreaming());
-      state = commanderSlice.reducer(state, addInjectedMessage('inject-1'));
-      state = commanderSlice.reducer(state, finishStreaming());
-      expect(state.messages).toHaveLength(1);
-      expect(state.messages[0]).toMatchObject({ role: 'user', content: 'inject-1' });
-      expect(state.pendingInjectedMessages).toHaveLength(0);
-    });
+    expect(state.activeSessionId).toBe('session-2');
+    expect(getSession(state).runtime.finalizedRunIds).toEqual(['r-1']);
+  });
+
+  it('keeps a complete local transcript when its SQLite summary has the same timestamp', () => {
+    let state = withSession();
+    state = commanderSlice.reducer(
+      state,
+      addUserMessage({ sessionId: SESSION_ID, content: 'kept locally' }),
+    );
+    const local = getSession(state);
+    state = commanderSlice.reducer(
+      state,
+      loadSessionsFromDB([{ ...local, messages: [], messageCount: local.messageCount }]),
+    );
+
+    expect(getSession(state).messages.map((message) => message.content)).toEqual(['kept locally']);
+  });
+
+  it('records a stream error and pending injected messages in the owning session', () => {
+    let state = withSession();
+    state = commanderSlice.reducer(
+      state,
+      addUserMessage({ sessionId: SESSION_ID, content: 'hello' }),
+    );
+    state = commanderSlice.reducer(state, startStreaming(SESSION_ID));
+    state = commanderSlice.reducer(
+      state,
+      addInjectedMessage({ sessionId: SESSION_ID, content: 'mid' }),
+    );
+    state = commanderSlice.reducer(state, streamError({ sessionId: SESSION_ID, error: 'boom' }));
+
+    const session = getSession(state);
+    expect(session.runtime.error).toBe('boom');
+    expect(session.runtime.phase.kind).toBe('idle');
+    expect(session.messages.map((message) => [message.role, message.content])).toEqual([
+      ['user', 'hello'],
+      ['assistant', 'boom'],
+      ['user', 'mid'],
+    ]);
+    expect(session.messages[1]?.runMeta?.status).toBe('failed');
+    expect(session.runtime.pendingInjectedMessages).toEqual([]);
+  });
+
+  it('finishes only one session and commits its injected messages', () => {
+    let state = withSession();
+    state = commanderSlice.reducer(state, startStreaming(SESSION_ID));
+    state = commanderSlice.reducer(
+      state,
+      addInjectedMessage({ sessionId: SESSION_ID, content: 'inject-1' }),
+    );
+    state = commanderSlice.reducer(state, finishStreaming(SESSION_ID));
+
+    const session = getSession(state);
+    expect(session.runtime.phase.kind).toBe('idle');
+    expect(session.runtime.currentRunStartedAt).toBeNull();
+    expect(session.messages).toEqual([
+      expect.objectContaining({ role: 'user', content: 'inject-1' }),
+    ]);
   });
 
   it('setPosition and setSize update panel geometry', () => {
@@ -272,41 +392,14 @@ describe('commander slice', () => {
     expect(state.providerId).toBe('claude');
   });
 
-  it('resolveQuestion stores structured question history before the user answer', () => {
-    let state = commanderSlice.reducer(
-      undefined,
-      setPendingQuestion({
-        toolCallId: 'q-1',
-        question: 'Which one?',
-        options: [
-          { label: 'A', description: 'first' },
-          { label: 'B', description: 'second' },
-        ],
-        allowFreeText: true,
-      }),
-    );
-    state = commanderSlice.reducer(state, resolveQuestion({ answer: 'A' }));
-    expect(state.messages).toHaveLength(2);
-    expect(state.messages[0].role).toBe('assistant');
-    expect(state.messages[0].questionMeta).toEqual({
-      question: 'Which one?',
-      options: [
-        { label: 'A', description: 'first' },
-        { label: 'B', description: 'second' },
-      ],
-    });
-    expect(state.messages[1]).toMatchObject({ role: 'user', content: 'A' });
-    expect(state.pendingQuestion).toBeNull();
-  });
-
   describe('toggleCommander state machine', () => {
-    it('closed → opens', () => {
+    it('opens a closed panel', () => {
       const state = commanderSlice.reducer(undefined, toggleCommander());
       expect(state.open).toBe(true);
       expect(state.minimized).toBe(false);
     });
 
-    it('open minimized → closes (not restores)', () => {
+    it('closes an open minimized panel', () => {
       let state = commanderSlice.reducer(undefined, toggleCommander());
       state = commanderSlice.reducer(state, minimizeCommander());
       state = commanderSlice.reducer(state, toggleCommander());

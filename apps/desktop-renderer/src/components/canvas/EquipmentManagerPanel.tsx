@@ -7,8 +7,9 @@ import { enqueueToast } from '../../store/slices/toast.js';
 import {
   setEquipment,
   addEquipment,
+  addEquipmentBatch,
   updateEquipment,
-  removeEquipment,
+  removeEquipmentBatch,
   selectEquipment,
   setLoading,
   setEquipmentRefImage,
@@ -19,7 +20,7 @@ import {
   removeFolder,
   setCurrentFolder,
   setFoldersLoading,
-  moveItemToFolder,
+  moveItemsToFolder,
 } from '../../store/slices/equipment.js';
 import { getAPI } from '../../utils/api.js';
 import type { Equipment, EquipmentType, ReferenceImage } from '@lucid-fin/contracts';
@@ -90,7 +91,8 @@ export function EquipmentManagerPanel() {
     unsavedChangesKey: 'equipmentManager.unsavedChanges',
   });
 
-  const selectedEquip = useMemo(() => items.find((e) => e.id === selectedId), [items, selectedId]);
+  const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+  const selectedEquip = selectedId ? itemsById.get(selectedId) : undefined;
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const folderApi = useEntityFolders({
@@ -184,49 +186,50 @@ export function EquipmentManagerPanel() {
 
   const handleMoveIdsToFolder = useCallback(
     async (ids: string[], folderId: string | null) => {
+      if (ids.length === 0) return;
       const api = getAPI();
       if (!api?.equipment) return;
-      for (const id of ids) {
-        try {
-          await api.equipment.setFolder(id, folderId);
-          dispatch(moveItemToFolder({ id, folderId }));
-        } catch (reason) {
-          reportError(reason, 'handleMoveIdsToFolder');
-        }
+      try {
+        const { movedIds } = await api.equipment.setFolder(ids, folderId);
+        dispatch(moveItemsToFolder({ ids: movedIds, folderId }));
+      } catch (reason) {
+        reportError(reason, 'handleMoveIdsToFolder');
+      }
+    },
+    [dispatch, reportError],
+  );
+
+  const handleCopyIds = useCallback(
+    async (ids: string[], targetFolderId: string | null) => {
+      if (ids.length === 0) return;
+      const api = getAPI();
+      if (!api?.equipment) return;
+      try {
+        const { created } = await api.equipment.copy(ids, targetFolderId);
+        dispatch(addEquipmentBatch(created));
+      } catch (reason) {
+        reportError(reason, 'handleCopyIds');
       }
     },
     [dispatch, reportError],
   );
 
   const handlePaste = useCallback(
-    (payload: { mode: 'copy' | 'cut'; items: Equipment[] }) => {
+    async (payload: { mode: 'copy' | 'cut'; items: Equipment[] }) => {
       const folderId = folderApi.currentFolderId;
       if (payload.mode === 'cut') {
-        void handleMoveIdsToFolder(
+        await handleMoveIdsToFolder(
           payload.items.map((it) => it.id),
           folderId,
         );
       } else {
-        const api = getAPI();
-        if (!api?.equipment) return;
-        void (async () => {
-          for (const original of payload.items) {
-            try {
-              const { id: _id, ...rest } = original;
-              const saved = (await api.equipment.save({
-                ...rest,
-                name: `${original.name} ${t('action.copySuffix')}`,
-                folderId,
-              } as Record<string, unknown>)) as Equipment;
-              dispatch(addEquipment(saved));
-            } catch (reason) {
-              reportError(reason, 'handlePasteCopy');
-            }
-          }
-        })();
+        await handleCopyIds(
+          payload.items.map((item) => item.id),
+          folderId,
+        );
       }
     },
-    [folderApi.currentFolderId, handleMoveIdsToFolder, dispatch, reportError, t],
+    [folderApi.currentFolderId, handleCopyIds, handleMoveIdsToFolder],
   );
 
   const saveDraft = useCallback(async () => {
@@ -259,7 +262,7 @@ export function EquipmentManagerPanel() {
   const handleDeleteIds = useCallback(
     async (ids: string[]) => {
       if (ids.length === 0) return;
-      const names = ids.map((id) => items.find((e) => e.id === id)?.name || id).join(', ');
+      const names = ids.map((id) => itemsById.get(id)?.name ?? id).join(', ');
       const ok = await confirm({
         title: t('equipmentManager.deleteConfirm').replace('{name}', names),
         destructive: true,
@@ -269,18 +272,19 @@ export function EquipmentManagerPanel() {
       if (!ok) return;
       setError(null);
       const api = getAPI();
-      for (const id of ids) {
-        try {
-          if (api?.equipment) await api.equipment.delete(id);
-          dispatch(removeEquipment(id));
-          dispatch(removeEntityRefsFromAllCanvases({ entityType: 'equipment', entityId: id }));
-          if (selectedId === id) setDrawerOpen(false);
-        } catch (reason) {
-          reportError(reason, 'handleDeleteIds');
-        }
+      if (!api?.equipment) return;
+      try {
+        const { deletedIds } = await api.equipment.delete(ids);
+        dispatch(removeEquipmentBatch(deletedIds));
+        if (selectedId && deletedIds.includes(selectedId)) setDrawerOpen(false);
+        dispatch(
+          removeEntityRefsFromAllCanvases({ entityType: 'equipment', entityIds: deletedIds }),
+        );
+      } catch (reason) {
+        reportError(reason, 'handleDeleteIds');
       }
     },
-    [confirm, dispatch, items, reportError, selectedId, setError, t],
+    [confirm, dispatch, itemsById, reportError, selectedId, setError, t],
   );
 
   const handleRefImageUpload = useCallback(
@@ -290,7 +294,7 @@ export function EquipmentManagerPanel() {
       try {
         const api = getAPI();
         if (!api) return;
-        const asset = (await api.asset.pickFile('image')) as { hash: string } | null;
+        const asset = await api.assetEntry.pickFile('image');
         if (!asset) return;
         const refImage = (await api.equipment.setRefImage(
           selectedEquip.id,
@@ -435,6 +439,7 @@ export function EquipmentManagerPanel() {
           onCreateItem={() => void createNewEquipment()}
           onOpenItem={(e) => void handleOpenItem(e)}
           onDeleteItems={(ids) => void handleDeleteIds(ids)}
+          onDuplicateItems={(ids) => void handleCopyIds(ids, folderApi.currentFolderId)}
           compact={drawerShown}
           renderThumbnail={(e) => (
             <ListThumb
@@ -470,7 +475,7 @@ export function EquipmentManagerPanel() {
             paste: clipboard.paste,
             cutIds,
           }}
-          onPaste={handlePaste}
+          onPaste={(payload) => void handlePaste(payload)}
           header={
             <div className="flex items-center gap-2">
               <Package className="h-3.5 w-3.5 text-primary" />
@@ -480,7 +485,6 @@ export function EquipmentManagerPanel() {
           newItemLabel={t('equipmentManager.newEquipment')}
           activeItemId={drawerOpen ? (selectedId ?? null) : null}
           loading={loading}
-          showSearchControls={false}
           emptyLabel={t('equipmentManager.noResults')}
         />
       </div>
