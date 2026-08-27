@@ -131,7 +131,7 @@ python3 -m pip install \
   "$LF_DOWNLOADS/meson-$LF_MESON_VERSION-py3-none-any.whl"
 
 lf_download \
-  "https://download.savannah.gnu.org/releases/freetype/freetype-$LF_FREETYPE_VERSION.tar.xz" \
+  "https://download-mirror.savannah.gnu.org/releases/freetype/freetype-$LF_FREETYPE_VERSION.tar.xz" \
   "$LF_FREETYPE_SHA256" \
   "freetype-$LF_FREETYPE_VERSION.tar.xz"
 lf_download \
@@ -345,7 +345,7 @@ cp "$0" "$LF_STAGING/provenance/build-ffmpeg-macos-lgpl.sh"
 
 {
   echo "FFmpeg source: https://ffmpeg.org/releases/ffmpeg-$LF_FFMPEG_VERSION.tar.xz"
-  echo "FreeType source: https://download.savannah.gnu.org/releases/freetype/freetype-$LF_FREETYPE_VERSION.tar.xz"
+  echo "FreeType source: https://download-mirror.savannah.gnu.org/releases/freetype/freetype-$LF_FREETYPE_VERSION.tar.xz"
   echo "FriBidi source: https://github.com/fribidi/fribidi/releases/download/v$LF_FRIBIDI_VERSION/fribidi-$LF_FRIBIDI_VERSION.tar.xz"
   echo "HarfBuzz source: https://github.com/harfbuzz/harfbuzz/releases/download/$LF_HARFBUZZ_VERSION/harfbuzz-$LF_HARFBUZZ_VERSION.tar.xz"
   echo "libass source: https://github.com/libass/libass/releases/download/$LF_LIBASS_VERSION/libass-$LF_LIBASS_VERSION.tar.xz"

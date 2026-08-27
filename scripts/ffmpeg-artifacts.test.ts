@@ -392,6 +392,17 @@ describe('macOS source-build downloads', () => {
     );
   });
 
+  it('uses the verified Savannah mirror for the FreeType source and provenance', async () => {
+    const script = await readFile(join(import.meta.dirname, 'build-ffmpeg-macos-lgpl.sh'), 'utf8');
+    const source =
+      'https://download-mirror.savannah.gnu.org/releases/freetype/freetype-$LF_FREETYPE_VERSION.tar.xz';
+
+    expect(script.split(source)).toHaveLength(3);
+    expect(script).not.toContain(
+      'https://download.savannah.gnu.org/releases/freetype/freetype-$LF_FREETYPE_VERSION.tar.xz',
+    );
+  });
+
   it('normalizes TMPDIR before deriving relocatable dependency paths', async () => {
     const script = await readFile(join(import.meta.dirname, 'build-ffmpeg-macos-lgpl.sh'), 'utf8');
     const tempRoot = script.indexOf(`LF_TEMP_ROOT="\${TMPDIR:-/tmp}"`);

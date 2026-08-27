@@ -4,6 +4,15 @@
 
 ---
 
+## 0.0.12 — 2026-08-27
+
+### Fixed
+
+- Routed the pinned FreeType source archive through Savannah's official mirror after the primary endpoint returned persistent HTTP 502 responses during macOS release builds.
+- Declared Codex platform binaries as direct optional dependencies so pnpm production packaging includes the native executable for each target architecture.
+
+---
+
 ## 0.0.11 — 2026-08-27
 
 ### Fixed

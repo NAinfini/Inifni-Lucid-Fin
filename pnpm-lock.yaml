@@ -144,6 +144,25 @@ importers:
       typescript:
         specifier: 6.0.2
         version: 6.0.2
+    optionalDependencies:
+      '@openai/codex-darwin-arm64':
+        specifier: npm:@openai/codex@0.145.0-darwin-arm64
+        version: '@openai/codex@0.145.0-darwin-arm64'
+      '@openai/codex-darwin-x64':
+        specifier: npm:@openai/codex@0.145.0-darwin-x64
+        version: '@openai/codex@0.145.0-darwin-x64'
+      '@openai/codex-linux-arm64':
+        specifier: npm:@openai/codex@0.145.0-linux-arm64
+        version: '@openai/codex@0.145.0-linux-arm64'
+      '@openai/codex-linux-x64':
+        specifier: npm:@openai/codex@0.145.0-linux-x64
+        version: '@openai/codex@0.145.0-linux-x64'
+      '@openai/codex-win32-arm64':
+        specifier: npm:@openai/codex@0.145.0-win32-arm64
+        version: '@openai/codex@0.145.0-win32-arm64'
+      '@openai/codex-win32-x64':
+        specifier: npm:@openai/codex@0.145.0-win32-x64
+        version: '@openai/codex@0.145.0-win32-x64'
 
   apps/desktop-renderer:
     dependencies:
