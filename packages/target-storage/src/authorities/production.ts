@@ -4,7 +4,6 @@ import {
   ProductionMutateDefinition,
   ProductionQueryDefinition,
   ProductionCitationFieldSchema,
-  ProductionObjectSchema,
   ProductionObjectTypeSchema,
   ProductionRefSchema,
   ProtectedMutationPlannedIdsSchema,
@@ -251,6 +250,16 @@ type ProductionField = Extract<
 >;
 type ProductionMutationAction = ProductionToolMutationInput['action'];
 type ProductionMutationMode = Extract<ProductionToolMutationInput, { action: 'relate' }>['mode'];
+type ProductionMutationIdKind =
+  'production' | 'production_relation' | 'production_fact_source' | 'project_event';
+type ProductionMutationIdRole =
+  | 'production_object'
+  | 'containment_relation'
+  | 'object_event'
+  | 'parent_event'
+  | 'relation'
+  | 'source_event'
+  | 'fact_source';
 
 interface ProductionRelationRecord {
   readonly id: string;
@@ -390,8 +399,8 @@ function productionMutationVariant(
 function productionMutationId(
   dispatchOperationIdValue: string,
   variant: ProductionMutationPlannedIds['variant'],
-  prefix: 'production' | 'production_relation' | 'production_fact_source' | 'project_event',
-  role: string,
+  prefix: ProductionMutationIdKind,
+  role: ProductionMutationIdRole,
 ): string {
   const dispatchOperationId = parseCanonical(EntityIdSchema, dispatchOperationIdValue);
   return `${prefix}.${hashCanonical({
@@ -401,6 +410,61 @@ function productionMutationId(
     variant,
     role,
   })}`;
+}
+
+export function productionMutationIdsForVariant(
+  variant: ProductionMutationPlannedIds['variant'],
+  hasCreateParent: boolean,
+  createId: (kind: ProductionMutationIdKind, role: ProductionMutationIdRole) => string,
+): ProductionMutationPlannedIds {
+  const next = (kind: ProductionMutationIdKind, role: ProductionMutationIdRole) =>
+    parseCanonical(EntityIdSchema, createId(kind, role));
+  const ids =
+    variant === 'production_create'
+      ? {
+          tool: ProductionMutateDefinition.id,
+          variant,
+          productionObjectId: next('production', 'production_object'),
+          containmentRelationId: hasCreateParent
+            ? next('production_relation', 'containment_relation')
+            : null,
+          objectEventId: next('project_event', 'object_event'),
+          parentEventId: hasCreateParent ? next('project_event', 'parent_event') : null,
+        }
+      : variant === 'production_update' ||
+          variant === 'production_archive' ||
+          variant === 'production_restore'
+        ? {
+            tool: ProductionMutateDefinition.id,
+            variant,
+            objectEventId: next('project_event', 'object_event'),
+          }
+        : variant === 'production_relate_link'
+          ? {
+              tool: ProductionMutateDefinition.id,
+              variant,
+              relationId: next('production_relation', 'relation'),
+              sourceEventId: next('project_event', 'source_event'),
+            }
+          : variant === 'production_relate_unlink'
+            ? {
+                tool: ProductionMutateDefinition.id,
+                variant,
+                sourceEventId: next('project_event', 'source_event'),
+              }
+            : variant === 'production_reorder'
+              ? {
+                  tool: ProductionMutateDefinition.id,
+                  variant,
+                  parentEventId: next('project_event', 'parent_event'),
+                }
+              : {
+                  tool: ProductionMutateDefinition.id,
+                  variant,
+                  factSourceId: next('production_fact_source', 'fact_source'),
+                  objectEventId: next('project_event', 'object_event'),
+                };
+  return parseCanonical(ProtectedMutationPlannedIdsSchema, ids) as ProductionMutationPlannedIds;
 }
 
 export function plannedProductionMutationIds(
@@ -423,104 +487,9 @@ export function plannedProductionMutationIds(
   const relationMode = input?.action === 'relate' ? input.mode : mode;
   const hasCreateParent = input?.action === 'create' && input.parentRef !== null;
   const variant = productionMutationVariant(action, relationMode);
-  const ids =
-    variant === 'production_create'
-      ? {
-          tool: ProductionMutateDefinition.id,
-          variant,
-          productionObjectId: productionMutationId(
-            dispatchOperationId,
-            variant,
-            'production',
-            'production_object',
-          ),
-          containmentRelationId: hasCreateParent
-            ? productionMutationId(
-                dispatchOperationId,
-                variant,
-                'production_relation',
-                'containment_relation',
-              )
-            : null,
-          objectEventId: productionMutationId(
-            dispatchOperationId,
-            variant,
-            'project_event',
-            'object_event',
-          ),
-          parentEventId: hasCreateParent
-            ? productionMutationId(dispatchOperationId, variant, 'project_event', 'parent_event')
-            : null,
-        }
-      : variant === 'production_update' ||
-          variant === 'production_archive' ||
-          variant === 'production_restore'
-        ? {
-            tool: ProductionMutateDefinition.id,
-            variant,
-            objectEventId: productionMutationId(
-              dispatchOperationId,
-              variant,
-              'project_event',
-              'object_event',
-            ),
-          }
-        : variant === 'production_relate_link'
-          ? {
-              tool: ProductionMutateDefinition.id,
-              variant,
-              relationId: productionMutationId(
-                dispatchOperationId,
-                variant,
-                'production_relation',
-                'relation',
-              ),
-              sourceEventId: productionMutationId(
-                dispatchOperationId,
-                variant,
-                'project_event',
-                'source_event',
-              ),
-            }
-          : variant === 'production_relate_unlink'
-            ? {
-                tool: ProductionMutateDefinition.id,
-                variant,
-                sourceEventId: productionMutationId(
-                  dispatchOperationId,
-                  variant,
-                  'project_event',
-                  'source_event',
-                ),
-              }
-            : variant === 'production_reorder'
-              ? {
-                  tool: ProductionMutateDefinition.id,
-                  variant,
-                  parentEventId: productionMutationId(
-                    dispatchOperationId,
-                    variant,
-                    'project_event',
-                    'parent_event',
-                  ),
-                }
-              : {
-                  tool: ProductionMutateDefinition.id,
-                  variant,
-                  factSourceId: productionMutationId(
-                    dispatchOperationId,
-                    variant,
-                    'production_fact_source',
-                    'fact_source',
-                  ),
-                  objectEventId: productionMutationId(
-                    dispatchOperationId,
-                    variant,
-                    'project_event',
-                    'object_event',
-                  ),
-                };
-  return parseCanonical(ProtectedMutationPlannedIdsSchema, ids) as ProductionMutationPlannedIds;
+  return productionMutationIdsForVariant(variant, hasCreateParent, (kind, role) =>
+    productionMutationId(dispatchOperationId, variant, kind, role),
+  );
 }
 
 function generatedProductionMutationIds(
@@ -531,46 +500,11 @@ function generatedProductionMutationIds(
     input.action,
     input.action === 'relate' ? input.mode : undefined,
   );
-  const createParentRef = input.action === 'create' ? input.parentRef : null;
-  const next = (
-    kind: 'production' | 'production_relation' | 'production_fact_source' | 'project_event',
-  ) => parseCanonical(EntityIdSchema, environment.createId(kind));
-  const ids =
-    variant === 'production_create'
-      ? {
-          tool: ProductionMutateDefinition.id,
-          variant,
-          productionObjectId: next('production'),
-          containmentRelationId: createParentRef === null ? null : next('production_relation'),
-          objectEventId: next('project_event'),
-          parentEventId: createParentRef === null ? null : next('project_event'),
-        }
-      : variant === 'production_update' ||
-          variant === 'production_archive' ||
-          variant === 'production_restore'
-        ? { tool: ProductionMutateDefinition.id, variant, objectEventId: next('project_event') }
-        : variant === 'production_relate_link'
-          ? {
-              tool: ProductionMutateDefinition.id,
-              variant,
-              relationId: next('production_relation'),
-              sourceEventId: next('project_event'),
-            }
-          : variant === 'production_relate_unlink'
-            ? { tool: ProductionMutateDefinition.id, variant, sourceEventId: next('project_event') }
-            : variant === 'production_reorder'
-              ? {
-                  tool: ProductionMutateDefinition.id,
-                  variant,
-                  parentEventId: next('project_event'),
-                }
-              : {
-                  tool: ProductionMutateDefinition.id,
-                  variant,
-                  factSourceId: next('production_fact_source'),
-                  objectEventId: next('project_event'),
-                };
-  return parseCanonical(ProtectedMutationPlannedIdsSchema, ids) as ProductionMutationPlannedIds;
+  return productionMutationIdsForVariant(
+    variant,
+    input.action === 'create' && input.parentRef !== null,
+    (kind) => environment.createId(kind),
+  );
 }
 
 function exactProductionMutationIds(
@@ -1774,69 +1708,20 @@ export function primaryProductionMutationEventId(
   return committed.primaryEventId;
 }
 
-function legacyProductionMutationIds(
+function wireProductionMutationIds(
   environment: TargetStorageEnvironment,
-  action: 'create' | 'update' | 'cite',
-  hasParent = false,
+  variant: Extract<
+    ProductionMutationPlannedIds['variant'],
+    'production_create' | 'production_update' | 'production_cite'
+  >,
+  hasCreateParent = false,
 ): ProductionMutationPlannedIds {
-  const input =
-    action === 'create'
-      ? ({
-          action,
-          expectedProjectRevision: 0,
-          parentRef: hasParent
-            ? {
-                authority: 'production',
-                id: 'production.parent',
-                revision: 0,
-                contentHash: '0'.repeat(64),
-              }
-            : null,
-          order: hasParent ? 0 : null,
-          value: {
-            objectType: 'story',
-            content: { title: 'placeholder', premise: 'placeholder', synopsis: 'placeholder' },
-          },
-        } as ProductionToolMutationInput)
-      : action === 'update'
-        ? ({
-            action,
-            ref: {
-              authority: 'production',
-              id: 'production.placeholder',
-              revision: 0,
-              contentHash: '0'.repeat(64),
-            },
-            expectedRevision: 0,
-            expectedContentHash: '0'.repeat(64),
-            value: {
-              objectType: 'story',
-              content: { title: 'placeholder', premise: 'placeholder', synopsis: 'placeholder' },
-            },
-          } as ProductionToolMutationInput)
-        : ({
-            action,
-            ref: {
-              authority: 'production',
-              id: 'production.placeholder',
-              revision: 0,
-              contentHash: '0'.repeat(64),
-            },
-            expectedRevision: 0,
-            expectedContentHash: '0'.repeat(64),
-            field: 'title',
-            sourceRef: {
-              authority: 'production',
-              id: 'production.source',
-              revision: 0,
-              contentHash: '0'.repeat(64),
-            },
-            relation: 'supports',
-          } as ProductionToolMutationInput);
-  return generatedProductionMutationIds(environment, input);
+  return productionMutationIdsForVariant(variant, hasCreateParent, (kind) =>
+    environment.createId(kind),
+  );
 }
 
-function planLegacyProductionMutationInTransaction(
+function planWireProductionMutationInTransaction(
   database: DatabaseSync,
   environment: TargetStorageEnvironment,
   request: Request<'production.apply'>,
@@ -1846,7 +1731,7 @@ function planLegacyProductionMutationInTransaction(
     const containment = request.input.relations.filter(({ relation }) => relation === 'contains');
     if (containment.length > 1) {
       throw invalidProductionMutation(
-        'Legacy Production create accepts at most one containment parent',
+        'Production wire create accepts at most one containment parent',
       );
     }
     const parentRelation = containment[0] ?? null;
@@ -1859,7 +1744,7 @@ function planLegacyProductionMutationInTransaction(
             contentHash: loadProductionObject(database, parentRelation.targetId).contentHash,
           });
     if (parent !== null && parent.type !== parentRelation!.targetType) {
-      throw invalidProductionMutation('Legacy Production containment parent type does not match');
+      throw invalidProductionMutation('Production wire containment parent type does not match');
     }
     return planCreateMutation(
       database,
@@ -1871,7 +1756,7 @@ function planLegacyProductionMutationInTransaction(
       parentRelation?.ordinal ?? null,
       request.input.relations.filter(({ relation }) => relation !== 'contains'),
       occurredAt,
-      legacyProductionMutationIds(environment, 'create', parent !== null),
+      wireProductionMutationIds(environment, 'production_create', parent !== null),
       null,
     );
   }
@@ -1887,13 +1772,13 @@ function planLegacyProductionMutationInTransaction(
       relation: request.input.relation,
     });
     if (parsed.action !== 'cite')
-      throw corruptProductionMutation('Legacy Production citation changed');
+      throw corruptProductionMutation('Production wire citation changed');
     return planCitationMutation(
       database,
       request.input.projectId,
       parsed,
       occurredAt,
-      legacyProductionMutationIds(environment, 'cite'),
+      wireProductionMutationIds(environment, 'production_cite'),
     );
   }
   const before = requireProductionRef(database, request.input.projectId, request.input.ref);
@@ -1925,9 +1810,9 @@ function planLegacyProductionMutationInTransaction(
     ...(relationsChanged ? ['relations'] : []),
     ...(lifecycleChanged ? ['lifecycle'] : []),
   ];
-  const ids = legacyProductionMutationIds(environment, 'update');
+  const ids = wireProductionMutationIds(environment, 'production_update');
   if (ids.variant !== 'production_update') {
-    throw corruptProductionMutation('Legacy Production replacement planned IDs changed');
+    throw corruptProductionMutation('Production wire replacement planned IDs changed');
   }
   if (changedPaths.length === 0) {
     return plannedProductionMutation({
@@ -1986,12 +1871,7 @@ function applyProduction(
     context,
     now,
     () => {
-      const planned = planLegacyProductionMutationInTransaction(
-        database,
-        environment,
-        request,
-        now,
-      );
+      const planned = planWireProductionMutationInTransaction(database, environment, request, now);
       const committed = commitPlannedProductionMutationInTransaction(
         database,
         environment,

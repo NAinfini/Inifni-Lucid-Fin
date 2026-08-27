@@ -138,7 +138,16 @@ export function createProjectSearchReadModel(store: TargetStore): ProjectSearchR
              FROM project_search_fts
              JOIN project_search_documents AS document
                ON document.search_document_id = project_search_fts.rowid
-             WHERE project_search_fts MATCH ? AND document.project_id = ?${kindClause}${stateClause}
+             WHERE project_search_fts MATCH ? AND document.project_id = ?
+               AND (
+                 document.source_kind <> 'message'
+                 OR EXISTS (
+                   SELECT 1
+                   FROM messages AS message
+                   WHERE message.id = document.source_id
+                     AND message.originating_imported_run_id IS NULL
+                 )
+               )${kindClause}${stateClause}
            )
            SELECT * FROM ranked${cursorClause}
            ORDER BY rank, search_document_id

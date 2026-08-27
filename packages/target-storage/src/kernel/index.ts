@@ -21,6 +21,7 @@ export { createTargetDataAccess } from './data-access.js';
 export type { TargetDataAccess, TargetDataAccessOptions } from './data-access.js';
 export { createFilesystemMediaCas } from '../internal/filesystem-media-cas.js';
 export type {
+  MediaCasByteRange,
   MediaCas,
   MediaCasExpectedObject,
   MediaCasPutResult,
@@ -28,6 +29,7 @@ export type {
   MediaImportDescriptor,
   ResolvedMediaImportCapability,
 } from './media-cas.js';
+export { assertMediaCasByteRange, openVerifiedMediaCasRange } from './media-cas.js';
 export type {
   MediaInspectionAdapter,
   MediaInspectionEvidence,
@@ -104,6 +106,7 @@ export type {
   LocalDeliveryExporterAdapter,
   LocalDeliveryExportOutput,
   LocalDeliveryExportRequest,
+  ResolveDeliveryDestinationGrantRequest,
   ResolvedDeliveryDestinationGrant,
 } from './local-delivery-exporter.js';
 export type {
@@ -111,6 +114,7 @@ export type {
   ProjectToolGetInput,
   ProjectToolGetSuccess,
 } from '../authorities/projects.js';
+export type { PluginPackagesAuthority, TrustedPluginCatalogPort } from '../authorities/plugins.js';
 export type { ConversationAuthority } from '../authorities/conversations.js';
 export {
   MessageSendAcceptanceSeedSchema,
@@ -229,7 +233,12 @@ export type {
   CompactionStageResult,
   CompactionStartInput,
 } from '../authorities/compactions.js';
-export type { OperationsAuthority } from '../authorities/operations.js';
+export type {
+  OperationCancellationPage,
+  OperationCancellationPageInput,
+  OperationsAuthority,
+  PendingOperationCancellation,
+} from '../authorities/operations.js';
 export type {
   GenerationAuthority,
   QuoteGenerationInput,
@@ -286,6 +295,12 @@ export type {
   ChildDelegationResult,
 } from '../internal/child-run-delegation.js';
 export type { ProjectHistoryReadModel } from '../read-models/history.js';
+export {
+  createTargetMediaPreviewSourceResolver,
+  type TargetMediaPreviewSource,
+  type TargetMediaPreviewSourceResolver,
+} from '../read-models/media-preview.js';
+export type { ProjectCapabilitiesReadModel } from '../read-models/project-capabilities.js';
 export type {
   ProjectSearchQueryInput,
   ProjectSearchReadHit,

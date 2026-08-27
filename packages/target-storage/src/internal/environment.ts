@@ -26,6 +26,7 @@ export type TargetGeneratedIdKind =
   | 'project_event'
   | 'project_media_ref'
   | 'project_search_document'
+  | 'plugin_audit_event'
   | 'production'
   | 'production_fact_source'
   | 'production_relation'

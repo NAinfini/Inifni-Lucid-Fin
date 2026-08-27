@@ -5,15 +5,16 @@ import { join } from 'node:path';
 import {
   AgentSpawnDefinition,
   CapabilityCatalogSnapshotV1Schema,
+  CanonicalModelRequestV1Schema,
   ContextManifestSchema,
   PROVIDER_CONTINUATION_UNAVAILABLE,
-  RunInboxMessageSchema,
   RunSchema,
   TaskManageDefinition,
   assertCapabilityCatalogLineage,
   assertRunContextManifest,
   canonicalJson,
   parseCanonical,
+  type CanonicalModelRequestV1,
   type Run,
 } from '@lucid-fin/target-contracts';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -24,6 +25,7 @@ import { createTargetDataAccess } from '../kernel/data-access.js';
 import type { MediaCas, MediaImportCapabilityResolver } from '../kernel/media-cas.js';
 import { createTargetStore, openTargetStore, type TargetStore } from '../kernel/store.js';
 import type { MessageSendAcceptanceSeed } from './conversations.js';
+import type { HarnessActivationSnapshot } from './harness-runtime.js';
 
 const NOW = '2026-08-15T12:00:00.000Z';
 const PRIVATE_RECOVERY_KEY = new Uint8Array(32).fill(0x41);
@@ -53,6 +55,11 @@ const budget = {
   maxOutputTokens: 20_000,
 };
 const formatPolicy = { aspectRatio: '16:9' as const, customDimensions: null, frameRate: 24 };
+const modelQuote = {
+  inputTokens: { state: 'known' as const, value: 120 },
+  outputTokens: { state: 'known' as const, value: 24 },
+  cost: { state: 'known' as const, value: '0.5', currency: 'USD' },
+};
 const followupSeed: MessageSendAcceptanceSeed = {
   model: { providerId: 'provider.openai', model: 'gpt-5.6', reasoningStrength: 'high' },
   locale: 'en-US',
@@ -162,6 +169,7 @@ async function harness(withSelectedProjectContext = false) {
               },
             ]
           : [],
+        exportDestinationGrant: null,
         supersedesMessageId: null,
       },
     },
@@ -291,6 +299,7 @@ function followupRequest(run: Run, requestId = 'request.run.followup') {
       expectedRevision: run.revision,
       text: 'Keep the reflections cyan and preserve the reference framing.',
       selectedContext: [],
+      exportDestinationGrant: null,
     },
   };
 }
@@ -365,6 +374,56 @@ function manageTasks(
   return fixture.data.taskLists.manage(runId, input, { commandId, context: hostContext });
 }
 
+function modelRequestFor(
+  snapshot: HarnessActivationSnapshot,
+  modelAttemptId: string,
+): CanonicalModelRequestV1 {
+  return CanonicalModelRequestV1Schema.parse({
+    version: 1,
+    runId: snapshot.run.id,
+    modelAttemptId,
+    activationId: snapshot.activationId,
+    activationNumber: snapshot.activation.activationNumber,
+    attemptNumber: snapshot.modelAttempts.length + 1,
+    provider: snapshot.run.model,
+    contextManifest: { id: snapshot.manifest.id, hash: snapshot.run.contextManifestHash },
+    capabilityCatalog: {
+      id: snapshot.run.capabilityCatalogSnapshotId,
+      hash: snapshot.run.capabilityCatalogHash,
+    },
+    runRevision: snapshot.run.revision,
+    runContentHash: snapshot.run.contentHash,
+    eventHead: snapshot.run.publicEventHead,
+    compactionView:
+      snapshot.compactionView === null
+        ? null
+        : {
+            id: snapshot.compactionView.id,
+            hash: snapshot.compactionView.derivedViewHash,
+            summary: snapshot.compactionView.summary,
+          },
+    facts: snapshot.facts,
+    capabilityIndex: snapshot.catalog.capabilityIndex,
+    skillIndex: snapshot.catalog.skills.map(
+      ({ skillId, name, description, version, contentHash, provenance, trust }) => ({
+        id: skillId,
+        name,
+        description,
+        version,
+        contentHash,
+        provenance,
+        trust,
+      }),
+    ),
+    materializedTools: [],
+    locale: snapshot.manifest.locale,
+    timeZone: snapshot.manifest.timeZone,
+    limits: { maxInputTokens: 2_000, maxOutputTokens: 500 },
+    reasoningStrength: snapshot.run.model.reasoningStrength,
+    systemPromptVersion: 'commander-minimal-v1',
+  });
+}
+
 describe('Runs authority', () => {
   it('appends a follow-up Message and Inbox entry atomically, advances the Run once, and replays exactly', async () => {
     const fixture = await harness();
@@ -378,7 +437,28 @@ describe('Runs authority', () => {
           input: { runId: fixture.run.id },
         }).result,
       ).toEqual(fixture.run);
-      const request = followupRequest(fixture.run);
+      const baseRequest = followupRequest(fixture.run);
+      const exportDestinationGrant = {
+        destination: {
+          kind: 'user_selected_file' as const,
+          grantId: 'grant.followup-export.1',
+          grantHash: 'e'.repeat(64),
+          displayLabel: 'followup-review.mp4',
+          projectId: fixture.project.id,
+          deliveryPlan: {
+            authority: 'delivery' as const,
+            id: 'delivery.followup-export.1',
+            revision: 0,
+            contentHash: 'd'.repeat(64),
+          },
+          allowedExtensions: ['mp4' as const],
+        },
+        expiresAt: '2026-08-16T13:00:00.000Z',
+      };
+      const request = {
+        ...baseRequest,
+        input: { ...baseRequest.input, exportDestinationGrant },
+      };
       const beforeReceipts = (
         fixture.database.prepare('SELECT COUNT(*) AS count FROM wire_command_receipts').get() as {
           count: number;
@@ -391,6 +471,7 @@ describe('Runs authority', () => {
         actor: 'user',
         state: 'queued',
         selectedContext: [],
+        exportDestinationGrant,
       });
       const after = fixture.data.runs.get({
         wireVersion: 1,
@@ -559,13 +640,39 @@ describe('Runs authority', () => {
         },
         hostContext,
       );
+      const firstBase = followupRequest(terminal, 'request.run.followup.rollover.first');
+      const rolloverGrant = {
+        destination: {
+          kind: 'user_selected_file' as const,
+          grantId: 'grant.rollover-export.1',
+          grantHash: 'f'.repeat(64),
+          displayLabel: 'rollover-review.mp4',
+          projectId: fixture.project.id,
+          deliveryPlan: {
+            authority: 'delivery' as const,
+            id: 'delivery.rollover-export.1',
+            revision: 0,
+            contentHash: 'd'.repeat(64),
+          },
+          allowedExtensions: ['mp4' as const],
+        },
+        expiresAt: '2026-08-16T13:00:00.000Z',
+      };
       const first = fixture.data.runs.sendFollowup(
-        followupRequest(terminal, 'request.run.followup.rollover.first'),
+        {
+          ...firstBase,
+          input: { ...firstBase.input, exportDestinationGrant: rolloverGrant },
+        },
         context,
         followupSeed,
       );
       const rollover = currentRun(fixture, first.result.runId, 'rollover-first');
-      expect(first.result).toMatchObject({ runId: rollover.id, sequence: 1, state: 'queued' });
+      expect(first.result).toMatchObject({
+        runId: rollover.id,
+        sequence: 1,
+        state: 'queued',
+        exportDestinationGrant: rolloverGrant,
+      });
       expect(rollover).toMatchObject({
         rootRunId: rollover.id,
         parentRunId: null,
@@ -1343,7 +1450,7 @@ describe('Runs authority', () => {
       expect(noOp).toEqual({ taskList: created.taskList, changedTaskIds: [] });
       expect(currentRun(fixture, fixture.run.id, 'after-task-noop').revision).toBe(1);
 
-      const renamed = manageTasks(
+      manageTasks(
         fixture,
         fixture.run.id,
         TaskManageDefinition.parseInput({
@@ -1353,7 +1460,7 @@ describe('Runs authority', () => {
           publicSummary: 'Renamed the working list.',
         }),
         'command.tasks.rename',
-      ).taskList!;
+      );
       const addedResult = manageTasks(
         fixture,
         fixture.run.id,
@@ -1491,7 +1598,7 @@ describe('Runs authority', () => {
     }
   }, 10_000);
 
-  it('controls pause, resume, and cancel atomically with Activation and TaskList closure', async () => {
+  it('keeps an active Activation durable across pause and resume, then cancels it atomically with its TaskList', async () => {
     const fixture = await harness();
     try {
       makeRunning(fixture, fixture.run);
@@ -1540,9 +1647,9 @@ describe('Runs authority', () => {
       expect(paused.result).toMatchObject({ revision: 4, status: 'paused' });
       expect(fixture.data.runs.control(pauseRequest, hostContext)).toEqual(paused);
       expect(fixture.data.runs.listActivations(fixture.run.id)[0]).toMatchObject({
-        state: 'ended',
-        eventEndSequence: 4,
-        endReason: 'paused',
+        state: 'active',
+        eventEndSequence: null,
+        endReason: null,
       });
       expect(fixture.data.taskLists.get(fixture.run.id)).toMatchObject({
         state: 'active',
@@ -1565,7 +1672,9 @@ describe('Runs authority', () => {
         hostContext,
       );
       expect(resumed.result).toMatchObject({ revision: 5, status: 'running' });
-      expect(fixture.data.runs.listActivations(fixture.run.id)).toHaveLength(1);
+      expect(fixture.data.runs.listActivations(fixture.run.id)).toEqual([
+        expect.objectContaining({ state: 'active', activationNumber: 1 }),
+      ]);
 
       const terminalSummary = '用户取消：保留已完成工作。';
       const cancelRequest = {
@@ -1675,6 +1784,276 @@ describe('Runs authority', () => {
       );
     } finally {
       rollback.store.close();
+    }
+  }, 15_000);
+
+  it('settles an aborted running Model Attempt and releases its reservation before a paused Activation resumes', async () => {
+    const fixture = await harness();
+    try {
+      const running = startRunningActivation(fixture, 'command.control.attempt');
+      const delivered = fixture.data.runs.listInbox(running.id)[0];
+      if (delivered === undefined) throw new Error('Expected a delivered Run Inbox message');
+      fixture.data.runs.transitionInbox(
+        {
+          runId: running.id,
+          expectedRevision: running.revision,
+          inboxMessageId: delivered.id,
+          sequence: delivered.sequence,
+          action: 'consume',
+          commandId: 'command.control.attempt.consume',
+        },
+        hostContext,
+      );
+      const initial = fixture.data.harness.loadActivation(running.id, 1);
+      const prepared = fixture.data.harness.prepareModelBoundary(
+        {
+          request: modelRequestFor(initial, 'model-attempt.control.pause.1'),
+          quote: modelQuote,
+          commandId: 'command.control.attempt.prepare',
+        },
+        hostContext,
+      );
+      if (prepared.kind !== 'prepared') throw new Error('Expected a prepared Model Attempt');
+      const attempt = prepared.commit.value;
+      fixture.data.harness.markModelAttemptRunning(
+        {
+          attemptId: attempt.id,
+          requestHash: attempt.requestHash,
+          commandId: 'command.control.attempt.running',
+        },
+        hostContext,
+      );
+      const beforePause = currentRun(fixture, running.id, 'control-attempt-before-pause');
+
+      const paused = fixture.data.runs.control(
+        {
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.run.control.attempt.pause',
+          method: 'run.control',
+          input: {
+            runId: running.id,
+            expectedRevision: beforePause.revision,
+            action: 'pause',
+            expectedStatus: 'running',
+          },
+        },
+        context,
+      );
+      expect(paused.result.status).toBe('paused');
+      const pausedSnapshot = fixture.data.harness.loadActivation(running.id, 1);
+      expect(pausedSnapshot.activation.state).toBe('active');
+      expect(pausedSnapshot.recoveryRequired).toBe(false);
+      expect(pausedSnapshot.modelAttempts).toEqual([
+        expect.objectContaining({
+          id: attempt.id,
+          state: 'cancelled',
+          usage: {
+            inputTokens: { state: 'estimated', value: 120 },
+            outputTokens: { state: 'estimated', value: 24 },
+            cost: { state: 'estimated', value: '0.5', currency: 'USD' },
+          },
+          response: expect.objectContaining({
+            events: expect.arrayContaining([
+              expect.objectContaining({
+                type: 'model_failed',
+                typedCode: 'cancelled',
+                providerState: 'unknown',
+              }),
+            ]),
+          }),
+        }),
+      ]);
+      expect(
+        fixture.database
+          .prepare(
+            `SELECT COUNT(*) AS count
+             FROM run_resource_entries AS reservation
+             WHERE reservation.model_attempt_id = ? AND reservation.phase = 'reserved'
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM run_resource_entries AS released
+                 WHERE released.phase = 'released' AND released.reservation_entry_id = reservation.id
+               )`,
+          )
+          .get(attempt.id),
+      ).toEqual({ count: 0 });
+
+      const resumed = fixture.data.runs.control(
+        {
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.run.control.attempt.resume',
+          method: 'run.control',
+          input: {
+            runId: running.id,
+            expectedRevision: paused.result.revision,
+            action: 'resume',
+            expectedStatus: 'paused',
+          },
+        },
+        context,
+      );
+      const resumedSnapshot = fixture.data.harness.loadActivation(running.id, 1);
+      expect(resumed.result.status).toBe('running');
+      expect(resumedSnapshot.activation.state).toBe('active');
+      expect(resumedSnapshot.recoveryRequired).toBe(false);
+      expect(
+        fixture.data.harness.prepareModelBoundary(
+          {
+            request: modelRequestFor(resumedSnapshot, 'model-attempt.control.pause.2'),
+            quote: modelQuote,
+            commandId: 'command.control.attempt.resume.prepare',
+          },
+          hostContext,
+        ).kind,
+      ).toBe('prepared');
+    } finally {
+      fixture.store.close();
+    }
+  }, 15_000);
+
+  it('pauses active descendants, blocks accepted descendants, and cancels the selected Run subtree', async () => {
+    const fixture = await harness();
+    try {
+      let parent = startRunningActivation(fixture, 'command.control.subtree.parent');
+      const acceptedChildResult = fixture.data.runs.spawnChild(
+        spawnChildInput(parent, [], 'command.control.subtree.accepted-child.spawn'),
+        hostContext,
+      );
+      parent = currentRun(fixture, fixture.run.id, 'control-subtree-parent-after-accepted-child');
+      const childResult = fixture.data.runs.spawnChild(
+        spawnChildInput(parent, [], 'command.control.subtree.child.spawn'),
+        hostContext,
+      );
+      const childContext = {
+        actor: 'commander' as const,
+        causation: { kind: 'run' as const, runId: childResult.child.childRunId },
+        correlationId: 'correlation.control.subtree.child',
+      };
+      let child = currentRun(
+        fixture,
+        childResult.child.childRunId,
+        'control-subtree-child-accepted',
+      );
+      const childInbox = fixture.data.runs.listInbox(child.id)[0];
+      if (childInbox === undefined) throw new Error('Expected child Inbox');
+      fixture.data.runs.transitionInbox(
+        {
+          runId: child.id,
+          expectedRevision: child.revision,
+          inboxMessageId: childInbox.id,
+          sequence: childInbox.sequence,
+          action: 'deliver',
+          commandId: 'command.control.subtree.child.deliver',
+        },
+        childContext,
+      );
+      child = currentRun(fixture, child.id, 'control-subtree-child-delivered');
+      fixture.data.runs.startActivation(
+        {
+          runId: child.id,
+          expectedRevision: child.revision,
+          commandId: 'command.control.subtree.child.activate',
+        },
+        childContext,
+      );
+      child = currentRun(fixture, child.id, 'control-subtree-child-running');
+      parent = currentRun(fixture, fixture.run.id, 'control-subtree-parent-running');
+      expect([parent.status, child.status]).toEqual(['running', 'running']);
+
+      const paused = fixture.data.runs.control(
+        {
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.run.control.subtree.pause',
+          method: 'run.control',
+          input: {
+            runId: parent.id,
+            expectedRevision: parent.revision,
+            action: 'pause',
+            expectedStatus: 'running',
+          },
+        },
+        context,
+      );
+      expect(paused.result.status).toBe('paused');
+      expect(currentRun(fixture, child.id, 'control-subtree-child-paused').status).toBe('paused');
+      const acceptedChild = currentRun(
+        fixture,
+        acceptedChildResult.child.childRunId,
+        'control-subtree-accepted-child-paused',
+      );
+      expect(acceptedChild.status).toBe('accepted');
+      expect(fixture.data.runs.isSchedulingAllowed(acceptedChild.id)).toBe(false);
+      expect(() =>
+        fixture.data.runs.startActivation(
+          {
+            runId: acceptedChild.id,
+            expectedRevision: acceptedChild.revision,
+            commandId: 'command.control.subtree.accepted-child.blocked-start',
+          },
+          {
+            actor: 'commander',
+            causation: { kind: 'run', runId: acceptedChild.id },
+            correlationId: 'correlation.control.subtree.accepted-child',
+          },
+        ),
+      ).toThrowError(expect.objectContaining({ code: 'INVALID_REQUEST' }));
+      expect(fixture.data.runs.listActivations(parent.id)[0]).toMatchObject({ state: 'active' });
+      expect(fixture.data.runs.listActivations(child.id)[0]).toMatchObject({ state: 'active' });
+
+      const resumed = fixture.data.runs.control(
+        {
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.run.control.subtree.resume',
+          method: 'run.control',
+          input: {
+            runId: parent.id,
+            expectedRevision: paused.result.revision,
+            action: 'resume',
+            expectedStatus: 'paused',
+          },
+        },
+        context,
+      );
+      expect(resumed.result.status).toBe('running');
+      expect(currentRun(fixture, child.id, 'control-subtree-child-resumed').status).toBe('running');
+      expect(
+        currentRun(fixture, acceptedChild.id, 'control-subtree-accepted-child-resumed').status,
+      ).toBe('accepted');
+      expect(fixture.data.runs.isSchedulingAllowed(acceptedChild.id)).toBe(true);
+
+      const cancelled = fixture.data.runs.control(
+        {
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.run.control.subtree.cancel',
+          method: 'run.control',
+          input: {
+            runId: parent.id,
+            expectedRevision: resumed.result.revision,
+            action: 'cancel',
+            expectedStatus: 'running',
+            terminalSummary: 'Cancel the entire active delegation subtree.',
+          },
+        },
+        context,
+      );
+      expect(cancelled.result.status).toBe('cancelled');
+      expect(currentRun(fixture, child.id, 'control-subtree-child-cancelled').status).toBe(
+        'cancelled',
+      );
+      expect(
+        currentRun(fixture, acceptedChild.id, 'control-subtree-accepted-child-cancelled').status,
+      ).toBe('cancelled');
+      expect(fixture.data.runs.listActivations(child.id)[0]).toMatchObject({
+        state: 'ended',
+        endReason: 'terminal',
+      });
+    } finally {
+      fixture.store.close();
     }
   }, 15_000);
 

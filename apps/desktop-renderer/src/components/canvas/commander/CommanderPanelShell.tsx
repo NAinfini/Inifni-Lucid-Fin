@@ -193,6 +193,8 @@ export function CommanderPanelShell() {
     () => selectCurrentTaskListForSession(sessionTaskLists, activeSessionId),
     [activeSessionId, sessionTaskLists],
   );
+  const currentTaskListId = currentTaskList?.id ?? null;
+  const currentTaskListUpdatedAt = currentTaskList?.updatedAt;
   const currentTaskListTasks = useSelector((state: RootState) =>
     currentTaskList ? state.taskLists.tasksByTaskListId[currentTaskList.id] : undefined,
   );
@@ -221,10 +223,10 @@ export function CommanderPanelShell() {
   }, [activeSessionId, dispatch]);
 
   useEffect(() => {
-    if (taskProgressActive && currentTaskList) {
-      dispatch(loadTaskListTasks(currentTaskList.id));
+    if (taskProgressActive && currentTaskListId) {
+      dispatch(loadTaskListTasks(currentTaskListId));
     }
-  }, [currentTaskList?.id, currentTaskList?.updatedAt, dispatch, taskProgressActive]);
+  }, [currentTaskListId, currentTaskListUpdatedAt, dispatch, taskProgressActive]);
 
   const movePanel = useCallback(
     (next: { x: number; y: number }, compact = false) => {

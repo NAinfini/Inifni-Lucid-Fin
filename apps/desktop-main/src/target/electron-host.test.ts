@@ -83,11 +83,19 @@ function ipcFixture(order: string[]) {
   };
 }
 
+function mediaPreviewProtocolFixture(order: string[]) {
+  return {
+    handle: vi.fn(() => order.push('media-protocol-install')),
+    unhandle: vi.fn(() => order.push('media-protocol-uninstall')),
+  };
+}
+
 describe('target Electron host', () => {
   it('creates and loads the renderer only after the complete target startup barrier', async () => {
     const setup = await dataFixture();
     const order: string[] = [];
     const ipcMain = ipcFixture(order);
+    const mediaPreviewProtocol = mediaPreviewProtocolFixture(order);
     const renderer = windowFixture(order);
     const runtime = {
       recoverAndReconcile: vi.fn(async () => {
@@ -119,6 +127,8 @@ describe('target Electron host', () => {
         onInternalError: vi.fn(),
       },
       ipcMain,
+      mediaPreviewProtocol,
+      isTrustedInvocation: () => true,
       createWindow: (preloadPath) => {
         order.push('window-create');
         expect(preloadPath).toMatch(/preload\.generated\.cjs$/u);
@@ -131,9 +141,11 @@ describe('target Electron host', () => {
 
     expect(order.indexOf('ready')).toBeLessThan(order.indexOf('window-create'));
     expect(order.indexOf('window-create')).toBeLessThan(order.indexOf('window-load'));
+    expect(order.indexOf('media-protocol-install')).toBeLessThan(order.indexOf('window-load'));
     await host.close();
     await host.close();
     expect(ipcMain.removeHandler).toHaveBeenCalledOnce();
+    expect(mediaPreviewProtocol.unhandle).toHaveBeenCalledOnce();
     expect(runtime.close).toHaveBeenCalledOnce();
     expect(renderer.window.destroy).toHaveBeenCalledOnce();
   });
@@ -158,6 +170,7 @@ describe('target Electron host', () => {
     const setup = await dataFixture();
     const order: string[] = [];
     const ipcMain = ipcFixture(order);
+    const mediaPreviewProtocol = mediaPreviewProtocolFixture(order);
     const renderer = windowFixture(order);
     const runtime = {
       recoverAndReconcile: async () => undefined,
@@ -179,6 +192,8 @@ describe('target Electron host', () => {
           onInternalError: vi.fn(),
         },
         ipcMain,
+        mediaPreviewProtocol,
+        isTrustedInvocation: () => true,
         createWindow: () => renderer.window,
         loadWindow: async () => {
           throw new Error('renderer load failed');
@@ -187,6 +202,7 @@ describe('target Electron host', () => {
     ).rejects.toThrow('renderer load failed');
 
     expect(renderer.window.destroy).toHaveBeenCalledOnce();
+    expect(mediaPreviewProtocol.unhandle).toHaveBeenCalledOnce();
     expect(ipcMain.removeHandler).toHaveBeenCalledOnce();
     expect(runtime.close).toHaveBeenCalledOnce();
   });

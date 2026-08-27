@@ -453,6 +453,7 @@ describe('I2-E0 TaskList and Wire contracts', () => {
           blocks: [{ type: 'text', text: 'Continue' }],
           attachments: [],
           selectedContext,
+          exportDestinationGrant: null,
           supersedesMessageId: null,
         },
       }).input,
@@ -468,6 +469,7 @@ describe('I2-E0 TaskList and Wire contracts', () => {
           expectedRevision: 2,
           text: 'Continue with the selected shot.',
           selectedContext,
+          exportDestinationGrant: null,
         },
       }).input,
     ).toMatchObject({ selectedContext });

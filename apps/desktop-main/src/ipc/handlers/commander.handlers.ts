@@ -25,7 +25,6 @@ import {
   type ToolProgramChildLifecycleRequest,
   type AgentPermissionMode,
   type AgentRecoveryState,
-  type RunResourceBudgetCheckpoint,
   type SubagentSpawnRequest,
   type SubagentToolHost,
   type SubagentToolHostFactory,
@@ -42,7 +41,6 @@ import {
   type CommanderStartRequest,
   type CommanderStartResponse,
   type AssetEntryId,
-  type ProviderProfile,
   type PublicContextFact,
   type PlanApprovalGateKey,
   type ResourceAmount,
@@ -316,7 +314,6 @@ export function registerCommanderHandlers(
     resolveRecoveryReady = resolve;
     rejectRecoveryReady = reject;
   });
-  let continuationController: CommanderTaskContinuationController | undefined;
 
   const readPendingGateRunBinding = (
     args: CommanderStartRequest,
@@ -1943,7 +1940,7 @@ export function registerCommanderHandlers(
     resolveProcessPrompt: deps.resolveProcessPrompt,
     gradeImage: createVisualPreviewGrader({ visualAnalyzer: deps.visualAnalyzer }),
   });
-  continuationController = createCommanderTaskContinuationController({
+  const continuationController = createCommanderTaskContinuationController({
     taskExecutionEngine: deps.taskExecutionEngine,
     db: deps.db,
     canvasStore: deps.canvasStore,

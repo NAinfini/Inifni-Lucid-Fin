@@ -124,6 +124,7 @@ async function harness() {
         blocks: [{ type: 'text', text: 'Inspect the accepted Run context.' }],
         attachments: [],
         selectedContext,
+        exportDestinationGrant: null,
         supersedesMessageId: null,
       },
     },

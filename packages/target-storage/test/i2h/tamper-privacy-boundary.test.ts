@@ -135,6 +135,7 @@ describe('I2-H3 tamper, privacy, and reopen boundary', () => {
             blocks: [{ type: 'text', text: 'Preserve canonical evidence through a restart.' }],
             attachments: [],
             selectedContext: [],
+            exportDestinationGrant: null,
             supersedesMessageId: null,
           },
         },

@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "incremental": false,
+    "sourceMap": false,
+    "outDir": "dist-target-rc",
+    "rootDir": "src"
+  },
+  "include": ["src/target/**/*.ts"],
+  "exclude": ["src/target/**/*.test.ts"],
+  "references": [
+    { "path": "../../packages/target-contracts" },
+    { "path": "../../packages/target-runtime" },
+    { "path": "../../packages/target-storage" }
+  ]
+}

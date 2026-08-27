@@ -97,6 +97,20 @@ describe('filesystem Media CAS', () => {
     await expect(missing.next()).rejects.toMatchObject({ code: 'CORRUPT_DATA' });
   });
 
+  it('opens an integrity-checked inclusive byte range without exposing its file path', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'lucid-fin-media-cas-range-'));
+    directories.push(root);
+    const cas = createFilesystemMediaCas(root);
+    const bytes = Buffer.from('0123456789');
+    const expected = { hash: sha256(bytes), byteLength: bytes.byteLength };
+    await cas.putVerified(expected, chunks(bytes));
+
+    expect(await collect(cas.openVerifiedRange!(expected, { start: 2, end: 6 }))).toEqual(
+      Buffer.from('23456'),
+    );
+    expect(() => cas.openVerifiedRange!(expected, { start: 6, end: 10 })).toThrow(RangeError);
+  });
+
   it('detects tail corruption before yielding the first chunk', async () => {
     const root = await mkdtemp(join(tmpdir(), 'lucid-fin-media-cas-tail-'));
     directories.push(root);
@@ -109,7 +123,9 @@ describe('filesystem Media CAS', () => {
     corrupted[corrupted.length - 1] ^= 1;
     await writeFile(path, corrupted);
 
-    const iterator = cas.openVerified(expected)[Symbol.asyncIterator]();
+    const iterator = cas.openVerifiedRange!(expected, { start: 0, end: 1023 })[
+      Symbol.asyncIterator
+    ]();
     await expect(iterator.next()).rejects.toMatchObject({ code: 'CORRUPT_DATA' });
   });
 

@@ -71,7 +71,6 @@ import {
   RunResourceBudgetController,
   type ResourceMeasurement,
   type ResourceQuote,
-  type ResourceStateSnapshot,
 } from './run-resource-budget.js';
 import type { CanonicalJsonValue } from './event-context-projector.js';
 
@@ -599,7 +598,8 @@ export class AgentOrchestrator {
     } else {
       this.contextManager.noteUserInput();
     }
-    let taskListToolPolicy = this.refreshPersistentContext(context);
+    this.refreshPersistentContext(context);
+    let taskListToolPolicy: TaskListToolPolicy | undefined;
     let systemPrompt = this.contextManager.buildSystemPrompt(context, 1);
 
     // Compute context budget from adapter's context window.
@@ -659,7 +659,7 @@ export class AgentOrchestrator {
     let steps = recoveryState
       ? Math.max(0, ...recoveryState.completedSteps)
       : 0;
-    let lastResult: OrchestratorCompletion = { content: '', toolCalls: [], finishReason: 'stop' };
+    let lastResult: OrchestratorCompletion;
     const runId = options?.runId ?? freshRunId();
     if (!runId.trim()) throw new Error('runId must not be empty');
     const resourceController = options?.resourceController ?? new RunResourceBudgetController(
@@ -1088,9 +1088,6 @@ export class AgentOrchestrator {
                   }
 
                   modelContext.view.push({ role: 'assistant', content: '', toolCalls: [tc] });
-                  let content: string;
-                  let success = false;
-
                   this.toolExecutor.opts.currentStep = steps;
                   const result = await this.toolExecutor.executeToolCalls(
                     [tc],
@@ -1103,10 +1100,10 @@ export class AgentOrchestrator {
                   if (result.blocked) throw new RunBudgetBlockedError(result.blocked);
                   if (result.cancelled) throw new Error('Commander tool execution was cancelled');
                   const toolMessage = this.latestToolResultMessage(modelContext.view, tc.id);
-                  content =
+                  const content =
                     toolMessage?.content ??
                     safeStringify({ success: false, error: 'Tool returned no result' });
-                  success = !content.includes('"success":false');
+                  const success = !content.includes('"success":false');
 
                   toolCallDeduplicator.register(toolRef, args, {
                     toolCallId: tc.id,
@@ -1541,7 +1538,6 @@ export class AgentOrchestrator {
             'model',
             measurementFromUsage(quote),
           );
-          operationSettled = true;
           wrappedEmit(settledState);
         }
         if (wallController?.signal.aborted && !this._cancelled && !isAborted()) {

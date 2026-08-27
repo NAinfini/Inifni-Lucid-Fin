@@ -3,9 +3,7 @@ import {
   type LegacyClassificationEntryInput,
 } from './classification-report.js';
 import type { LegacyClassificationRow } from './classification-subjects.js';
-
-const APP_SETTINGS_KEY = 'appSettings';
-const STYLE_GUIDE_KEY = 'styleGuide';
+import { LEGACY_PROJECT_SETTING_POLICIES } from './legacy-migration-policy.js';
 
 function compareEntries(
   left: LegacyClassificationEntryInput,
@@ -17,10 +15,9 @@ function compareEntries(
 }
 
 /**
- * Freezes the only two keys read from project_settings by the Legacy runtime.
- * The table is global KV state despite its name: appSettings has no frozen
- * Target owner yet, while the unbound style guide belongs only in the Legacy
- * export. Unknown keys stop cutover instead of being silently dropped.
+ * Applies the one frozen key-owner registry. The table is global KV state
+ * despite its name, so known values are retained offline and unknown keys
+ * stop cutover instead of being guessed into Project truth.
  */
 export function classifyLegacyProjectSettingRows(
   rows: readonly LegacyClassificationRow[],
@@ -33,28 +30,30 @@ export function classifyLegacyProjectSettingRows(
         );
       }
 
-      if (row.values.key === STYLE_GUIDE_KEY) {
+      const exactPolicy = LEGACY_PROJECT_SETTING_POLICIES.find(
+        (policy) => policy.key === row.values.key,
+      );
+      const policy = exactPolicy ?? LEGACY_PROJECT_SETTING_POLICIES.find(({ key }) => key === '*');
+      if (!policy) throw new Error('Legacy Project setting policy registry has no fallback');
+
+      if (policy.disposition === 'offline_legacy_export') {
         return {
           subject: row.subject,
           disposition: 'offline_legacy_export',
-          reasonCode: 'legacy_unbound_style_guide_offline_export',
+          reasonCode: policy.reasonCode,
           targetRefs: [],
           exportRef: `legacy-export/main/project_settings/${legacyClassificationSourceKey(row.subject)}`,
           blockerCode: null,
         };
       }
 
-      const blockerCode =
-        row.values.key === APP_SETTINGS_KEY
-          ? 'legacy_global_app_settings_target_unfrozen'
-          : 'unknown_legacy_project_setting_key';
       return {
         subject: row.subject,
         disposition: 'blocking_error',
-        reasonCode: blockerCode,
+        reasonCode: policy.reasonCode,
         targetRefs: [],
         exportRef: null,
-        blockerCode,
+        blockerCode: policy.reasonCode,
       };
     })
     .sort(compareEntries);

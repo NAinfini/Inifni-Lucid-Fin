@@ -48,7 +48,7 @@ function mediaReport(hashes: readonly string[]): LegacyMediaPreflightReport {
 }
 
 describe('Legacy Phase-1 classification gate', () => {
-  it('uses one Plan preflight conclusion for root rows and every valid content member', () => {
+  it('uses one missing-Project-owner conclusion for Plan rows and every valid content member', () => {
     const content = { Private: { value: 1 } };
     const contentHash = hashCanonical(content);
     const manifestHash = digest('Private manifest');
@@ -184,7 +184,7 @@ describe('Legacy Phase-1 classification gate', () => {
     expect(
       first.rootRows.classification.entries.every(
         ({ blockerCode, targetRefs, exportRef }) =>
-          blockerCode === 'legacy_plan_target_mapping_unfrozen' &&
+          blockerCode === 'legacy_imported_history_project_owner_unresolved' &&
           targetRefs.length === 0 &&
           exportRef === null,
       ),
@@ -192,7 +192,7 @@ describe('Legacy Phase-1 classification gate', () => {
     expect(
       first.embeddedJson.classification.entries.every(
         ({ blockerCode, targetRefs, exportRef }) =>
-          blockerCode === 'legacy_plan_target_mapping_unfrozen' &&
+          blockerCode === 'legacy_imported_history_project_owner_unresolved' &&
           targetRefs.length === 0 &&
           exportRef === null,
       ),
@@ -358,8 +358,8 @@ describe('Legacy Phase-1 classification gate', () => {
       rootRows: { ok: true },
       embeddedJson: {
         classification: {
-          counts: { subjectCount: 6, classifiedCount: 4 },
-          blockers: [{ kind: 'unclassified_subject' }, { kind: 'unclassified_subject' }],
+          counts: { subjectCount: 6, classifiedCount: 5 },
+          blockers: [{ kind: 'unclassified_subject' }],
           ok: false,
         },
         ok: false,
@@ -400,10 +400,59 @@ describe('Legacy Phase-1 classification gate', () => {
       },
     });
 
-    expect(remainingPaths).toEqual([['characterRefs', 0, 'loadoutId'], ['prompt']]);
+    expect(remainingPaths).toEqual([['prompt']]);
     expect(complete.ok).toBe(true);
     expect(complete.sourceFingerprint).toBe(complete.ownership.sourceFingerprint);
     expect(JSON.stringify(complete)).not.toContain('Private prompt');
+  });
+
+  it('keeps non-selected Canvas annotation candidates offline', () => {
+    const main = database(`
+      CREATE TABLE canvases (archived_at INTEGER, id TEXT);
+      CREATE TABLE canvas_nodes (canvas_id TEXT, data_json TEXT, id TEXT, type TEXT);
+      INSERT INTO canvases VALUES (NULL, 'project.1');
+    `);
+    main
+      .prepare('INSERT INTO canvas_nodes VALUES (?, ?, ?, ?)')
+      .run(
+        'project.1',
+        JSON.stringify({ text: ' private whitespace ', content: 'Canonical content' }),
+        'node.1',
+        'text',
+      );
+    const prompts = database('PRAGMA user_version = 1;');
+    const expected: LegacySourceExpectedSchemas = {
+      main: {
+        tables: [
+          { name: 'canvases', kind: 'table', columns: ['archived_at', 'id'] },
+          {
+            name: 'canvas_nodes',
+            kind: 'table',
+            columns: ['canvas_id', 'data_json', 'id', 'type'],
+          },
+        ],
+      },
+      prompts: { tables: [] },
+    };
+    const report = classifyLegacyPhaseOne({ main, prompts }, expected, mediaReport([]), {
+      embeddedJson: {
+        sources: [{ database: 'main', table: 'canvas_nodes', columns: ['data_json'] }],
+      },
+    });
+
+    expect(
+      report.embeddedJson.classification.entries.filter(
+        ({ reasonCode }) => reasonCode === 'legacy_canvas_annotation_source_offline_export',
+      ),
+    ).toHaveLength(1);
+    expect(
+      report.embeddedJson.classification.entries.filter(
+        ({ reasonCode }) => reasonCode === 'legacy_canvas_annotation_text_materialized',
+      ),
+    ).toHaveLength(1);
+    expect(report.ok).toBe(true);
+    expect(JSON.stringify(report)).not.toContain('private whitespace');
+    expect(JSON.stringify(report)).not.toContain('Canonical content');
   });
 
   it('binds valid asset tag members to the frozen GlobalMediaAsset identity', () => {
@@ -580,7 +629,7 @@ describe('Legacy Phase-1 classification gate', () => {
     expect(JSON.stringify(report)).not.toContain('Private tag');
   });
 
-  it('blocks a structurally valid Canvas viewport until coordinate conversion is frozen', () => {
+  it('preserves a valid Legacy Canvas viewport as evidence before resetting the target view', () => {
     const main = database(`
       CREATE TABLE canvases (archived_at INTEGER, id TEXT, viewport TEXT);
       INSERT INTO canvases VALUES (NULL, 'project.viewport', '{"x":12.5,"y":-4,"zoom":2}');
@@ -612,20 +661,23 @@ describe('Legacy Phase-1 classification gate', () => {
           counts: {
             subjectCount: 4,
             classifiedCount: 4,
-            byDisposition: { blocking_error: 4 },
+            targetRefCount: 8,
+            byDisposition: { immutable_provenance_history: 4 },
           },
-          ok: false,
+          ok: true,
         },
-        ok: false,
+        ok: true,
       },
-      ok: false,
+      ok: true,
     });
     expect(
       report.embeddedJson.classification.entries.every(
         ({ reasonCode, blockerCode, targetRefs }) =>
-          reasonCode === 'legacy_canvas_viewport_coordinate_mapping_unfrozen' &&
-          blockerCode === 'unresolved_canvas_viewport_coordinate_mapping' &&
-          targetRefs.length === 0,
+          reasonCode === 'legacy_canvas_viewport_preserved_target_view_reset' &&
+          blockerCode === null &&
+          targetRefs.length === 2 &&
+          targetRefs.some(({ authority }) => authority === 'canvas') &&
+          targetRefs.some(({ authority }) => authority === 'imported_history_record'),
       ),
     ).toBe(true);
   });
@@ -1168,7 +1220,7 @@ describe('Legacy Phase-1 classification gate', () => {
     expect(JSON.stringify(report)).not.toContain('#010203');
   });
 
-  it('propagates blocked Legacy Run events while invalid payload JSON stays authoritative', () => {
+  it('propagates missing Project ownership for Legacy Run events while invalid JSON stays authoritative', () => {
     const main = database(`
       CREATE TABLE commander_events (
         emitted_at INTEGER,
@@ -1255,7 +1307,7 @@ describe('Legacy Phase-1 classification gate', () => {
     });
     expect(
       report.embeddedJson.classification.entries.filter(
-        ({ blockerCode }) => blockerCode === 'legacy_commander_event_unmappable',
+        ({ blockerCode }) => blockerCode === 'legacy_imported_history_project_owner_unresolved',
       ),
     ).toHaveLength(3);
     expect(report.embeddedJson.classification.blockers).toEqual(
@@ -1270,7 +1322,7 @@ describe('Legacy Phase-1 classification gate', () => {
     expect(JSON.stringify(report)).not.toContain('Private recovery');
   });
 
-  it('propagates blocked Legacy Task events while invalid payload JSON stays authoritative', () => {
+  it('propagates missing Project ownership for Legacy Task events while invalid JSON stays authoritative', () => {
     const main = database(`
       CREATE TABLE task_events (
         actor TEXT,
@@ -1357,7 +1409,7 @@ describe('Legacy Phase-1 classification gate', () => {
     });
     expect(
       report.embeddedJson.classification.entries.filter(
-        ({ blockerCode }) => blockerCode === 'legacy_task_event_run_owner_unresolved',
+        ({ blockerCode }) => blockerCode === 'legacy_imported_history_project_owner_unresolved',
       ),
     ).toHaveLength(3);
     expect(report.embeddedJson.classification.blockers).toEqual(
@@ -1371,7 +1423,7 @@ describe('Legacy Phase-1 classification gate', () => {
     expect(JSON.stringify(report)).not.toContain('Private task event');
   });
 
-  it('propagates blocked Legacy Task decision options while invalid JSON stays authoritative', () => {
+  it('propagates missing Project ownership for Task decisions while invalid JSON stays authoritative', () => {
     const main = database(`
       CREATE TABLE task_decisions (
         allow_free_text INTEGER,
@@ -1494,7 +1546,7 @@ describe('Legacy Phase-1 classification gate', () => {
     });
     expect(
       report.embeddedJson.classification.entries.filter(
-        ({ blockerCode }) => blockerCode === 'legacy_task_decision_interaction_identity_unresolved',
+        ({ blockerCode }) => blockerCode === 'legacy_imported_history_project_owner_unresolved',
       ),
     ).toHaveLength(4);
     expect(report.embeddedJson.classification.blockers).toEqual(
@@ -1560,12 +1612,13 @@ describe('Legacy Phase-1 classification gate', () => {
     expect(report.embeddedJson.classification.counts.classifiedCount).toBe(
       report.embeddedJson.classification.counts.subjectCount,
     );
-    expect(report.embeddedJson.classification.counts.byDisposition.blocking_error).toBe(
-      report.embeddedJson.classification.counts.subjectCount,
-    );
+    expect(report.embeddedJson.classification.counts.byDisposition).toMatchObject({
+      blocking_error: 1,
+      offline_legacy_export: report.embeddedJson.classification.counts.subjectCount - 1,
+    });
     expect(
       report.embeddedJson.classification.entries.filter(
-        ({ blockerCode }) => blockerCode === 'legacy_delivery_target_identity_unresolved',
+        ({ reasonCode }) => reasonCode === 'legacy_delivery_sequence_offline_export',
       ),
     ).toHaveLength(report.embeddedJson.classification.counts.subjectCount - 1);
     expect(report.embeddedJson.classification.blockers).toEqual(
@@ -1579,7 +1632,7 @@ describe('Legacy Phase-1 classification gate', () => {
     expect(JSON.stringify(report)).not.toContain('Private shot');
   });
 
-  it('keeps removed Task dependency members offline while preserving the TaskList owner', () => {
+  it('imports Task dependency members with the read-only Task history owner', () => {
     const main = database(`
       CREATE TABLE canvases (id TEXT);
       CREATE TABLE task_lists (entity_id TEXT, entity_type TEXT, id TEXT, metadata_json TEXT);
@@ -1637,8 +1690,8 @@ describe('Legacy Phase-1 classification gate', () => {
         counts: {
           subjectCount: 2,
           classifiedCount: 2,
-          targetRefCount: 0,
-          byDisposition: { offline_legacy_export: 2 },
+          targetRefCount: 2,
+          byDisposition: { immutable_provenance_history: 2 },
         },
         blockers: [],
         ok: true,
@@ -1647,7 +1700,11 @@ describe('Legacy Phase-1 classification gate', () => {
     });
     expect(
       report.embeddedJson.classification.entries.every(
-        ({ reasonCode }) => reasonCode === 'legacy_task_dependency_embedded_offline_export',
+        ({ reasonCode, targetRefs }) =>
+          reasonCode === 'legacy_imported_history_embedded_evidence' &&
+          targetRefs.length === 1 &&
+          targetRefs[0]?.authority === 'imported_task_item_history' &&
+          targetRefs[0]?.id === 'task.1',
       ),
     ).toBe(true);
     expect(JSON.stringify(report)).not.toContain('Private prerequisite');
@@ -1704,7 +1761,7 @@ describe('Legacy Phase-1 classification gate', () => {
           counts: {
             subjectCount: 3,
             classifiedCount: 3,
-            byDisposition: { offline_legacy_export: 1, blocking_error: 2 },
+            byDisposition: { offline_legacy_export: 2, blocking_error: 1 },
           },
           ok: false,
         },
@@ -1715,7 +1772,7 @@ describe('Legacy Phase-1 classification gate', () => {
           counts: {
             subjectCount: 9,
             classifiedCount: 9,
-            byDisposition: { offline_legacy_export: 4, blocking_error: 5 },
+            byDisposition: { offline_legacy_export: 7, blocking_error: 2 },
           },
           ok: false,
         },
@@ -1727,20 +1784,18 @@ describe('Legacy Phase-1 classification gate', () => {
       report.embeddedJson.classification.entries.filter(
         ({ disposition }) => disposition === 'offline_legacy_export',
       ),
-    ).toHaveLength(4);
+    ).toHaveLength(7);
     expect(
       new Set(
         report.embeddedJson.classification.entries
           .filter(({ disposition }) => disposition === 'blocking_error')
           .map(({ blockerCode }) => blockerCode),
       ),
-    ).toEqual(
-      new Set(['legacy_global_app_settings_target_unfrozen', 'unknown_legacy_project_setting_key']),
-    );
+    ).toEqual(new Set(['unknown_legacy_project_setting_key']));
     expect(JSON.stringify(report)).not.toContain('Private');
   });
 
-  it('keeps locally valid Task attempt evidence blocked until complete Target lineage is frozen', () => {
+  it('keeps locally valid Task attempt evidence blocked until Project ownership is proven', () => {
     const assetHash = digest('Task evidence asset');
     const main = database(`
       CREATE TABLE asset_contents (hash TEXT PRIMARY KEY, type TEXT NOT NULL);
@@ -1992,12 +2047,7 @@ describe('Legacy Phase-1 classification gate', () => {
     expect(first.embeddedJson.classification.counts.byDisposition).toMatchObject({
       blocking_error: first.embeddedJson.classification.counts.subjectCount,
     });
-    const expectedBlockerCodes = new Set([
-      'legacy_prompt_assembly_target_mapping_unfrozen',
-      'legacy_task_artifact_target_mapping_unfrozen',
-      'legacy_task_attempt_target_mapping_unfrozen',
-      'legacy_task_evaluation_target_mapping_unfrozen',
-    ]);
+    const expectedBlockerCodes = new Set(['legacy_imported_history_project_owner_unresolved']);
     expect(
       new Set(first.rootRows.classification.entries.map(({ blockerCode }) => blockerCode)),
     ).toEqual(expectedBlockerCodes);

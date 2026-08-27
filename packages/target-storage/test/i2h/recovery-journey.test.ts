@@ -422,6 +422,7 @@ describe('I2-H2 cold recovery composition journey', () => {
             blocks: [{ type: 'text', text: 'Recover this film run exactly once.' }],
             attachments: [],
             selectedContext: [{ ref: productionRef(story), role: 'target' }],
+            exportDestinationGrant: null,
             supersedesMessageId: null,
           },
         },
@@ -455,7 +456,11 @@ describe('I2-H2 cold recovery composition journey', () => {
       };
       const spawned = data.runs.spawnChild(spawnRequest, systemContext(root.id));
       root = getRun(data, root.id, 'root.after-spawn');
-      let child = activate(data, getRun(data, spawned.child.childRunId, 'child.accepted'), 'child');
+      const child = activate(
+        data,
+        getRun(data, spawned.child.childRunId, 'child.accepted'),
+        'child',
+      );
 
       const taskCreated = data.taskLists.manage(
         child.id,

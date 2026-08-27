@@ -6,6 +6,7 @@ import {
 } from './capability-catalog.js';
 import { canonicalJson, parseCanonical, strictObject } from './canonical.js';
 import { MessageAttachmentSchema, MessageBlockSchema } from './conversation.js';
+import { ScopedDeliveryDestinationIntentSchema } from './delivery.js';
 import { AttemptStateSchema, AttemptTerminalStateSchema } from './operation.js';
 import {
   CountAmountSchema,
@@ -209,6 +210,14 @@ const MessageModelFactSchema = strictObject({
   blocks: z.array(MessageBlockSchema).min(1).max(1_000),
   attachments: z.array(MessageAttachmentSchema).max(100),
 });
+const DeliveryDestinationModelFactSchema = strictObject({
+  type: z.literal('delivery_destination'),
+  eventSequence: SequenceSchema,
+  inboxMessageId: EntityIdSchema,
+  destination: ScopedDeliveryDestinationIntentSchema,
+  expiresAt: IsoTimestampSchema,
+  grantBindingHash: Sha256Schema,
+});
 const ToolCallModelFactSchema = strictObject({
   type: z.literal('tool_call'),
   eventSequence: SequenceSchema,
@@ -237,6 +246,7 @@ const ParentDirectionModelFactSchema = strictObject({
 });
 export const CanonicalModelFactV1Schema = z.union([
   MessageModelFactSchema,
+  DeliveryDestinationModelFactSchema,
   ToolCallModelFactSchema,
   ToolResultModelFactSchema,
   ParentDirectionModelFactSchema,

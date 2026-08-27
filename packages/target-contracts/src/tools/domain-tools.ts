@@ -9,7 +9,6 @@ import {
 } from '../canvas.js';
 import { strictObject } from '../canonical.js';
 import {
-  GlobalMediaAssetSchema,
   MediaDeriveInputSchema,
   MediaDeriveSuccessSchema,
   MediaKindSchema,

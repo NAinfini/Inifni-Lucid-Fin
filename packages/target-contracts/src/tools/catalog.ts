@@ -249,14 +249,14 @@ const ProgramChildCallViewSchema = strictObject({
   outcome: GenericToolOutcomeSchema,
   outcomeHash: Sha256Schema,
 }).superRefine((call, context) => {
-    if (call.outcome.status !== call.outcomeStatus) {
-      context.addIssue({
-        code: 'custom',
-        path: ['outcomeStatus'],
-        message: 'Tool Program child outcome status must match its canonical outcome',
-      });
-    }
-  });
+  if (call.outcome.status !== call.outcomeStatus) {
+    context.addIssue({
+      code: 'custom',
+      path: ['outcomeStatus'],
+      message: 'Tool Program child outcome status must match its canonical outcome',
+    });
+  }
+});
 const ProgramStepViewSchema = strictObject({
   stepId: EntityIdSchema,
   operation: z.enum(['call', 'map', 'batch', 'filter', 'sort', 'validate', 'take']),

@@ -504,6 +504,43 @@ describe('I2-G0 Choice, protection, and confirmation contracts', () => {
     ).toBe(true);
   });
 
+  it('limits delivery export confirmation to its immutable public preview', () => {
+    const frozen = manifest();
+    const target = {
+      kind: 'delivery_export' as const,
+      manifest: {
+        authority: 'delivery_manifest' as const,
+        id: frozen.id,
+        revision: frozen.revision,
+        contentHash: frozen.contentHash,
+      },
+      formatIntent: frozen.formatIntent,
+      itemCount: frozen.items.length,
+      destination: { kind: 'user_selected_file' as const, displayLabel: 'harbor-final.mp4' },
+      overwriteExisting: false,
+      cost: { state: 'known' as const, value: '0' as const, currency: 'USD' as const },
+    };
+    expect(ConfirmationTargetSchema.parse(target)).toEqual(target);
+    expect(
+      ConfirmationTargetSchema.safeParse({
+        ...target,
+        destination: { ...target.destination, grantId: 'grant.secret' },
+      }).success,
+    ).toBe(false);
+    expect(
+      ConfirmationTargetSchema.safeParse({
+        ...target,
+        destination: { ...target.destination, displayLabel: 'C:\\private\\harbor-final.mp4' },
+      }).success,
+    ).toBe(false);
+    expect(
+      ConfirmationTargetSchema.safeParse({
+        ...target,
+        cost: { ...target.cost, value: '1' },
+      }).success,
+    ).toBe(false);
+  });
+
   it('binds Skill registration confirmation to one Project and one reviewed Project Skill', () => {
     const target = {
       kind: 'skill_registration' as const,

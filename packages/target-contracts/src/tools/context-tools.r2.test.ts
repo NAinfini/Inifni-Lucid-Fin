@@ -104,7 +104,8 @@ describe('Project capabilities view', () => {
   const capabilities = {
     section: 'capabilities',
     revision: 1,
-    providers: [],
+    contentHash: HASH_A,
+    defaultProviderProfileId: null,
     enabledSkills: [{ id: 'skill.continuity', version: '1.0.0' }],
   } as const;
 

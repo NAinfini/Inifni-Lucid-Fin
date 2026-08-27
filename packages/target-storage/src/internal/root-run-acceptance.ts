@@ -16,6 +16,7 @@ import {
   type CapabilityCatalogSnapshotV1,
   type ContextManifest,
   type EventHead,
+  type Chat,
   type Message,
   type Run,
   type RunInboxMessage,
@@ -141,6 +142,7 @@ export interface RootRunAcceptanceInput {
   readonly blocks: Message['blocks'];
   readonly attachments: Message['attachments'];
   readonly selectedContext: ContextManifest['selectedContext'];
+  readonly exportDestinationGrant: RunInboxMessage['exportDestinationGrant'];
   readonly supersedesMessageId: string | null;
   readonly idempotencyKey: string;
 }
@@ -148,6 +150,7 @@ export interface RootRunAcceptanceInput {
 export interface RootRunAcceptanceResult {
   readonly projectId: string;
   readonly message: AcceptedUserMessage;
+  readonly chat: Chat;
   readonly run: Run;
   readonly inbox: RunInboxMessage;
 }
@@ -180,6 +183,7 @@ export function parseMessageSendAcceptanceSeed(
 function success(
   request: MessageSendRequest,
   message: MessageSendSuccess['result']['message'],
+  chat: MessageSendSuccess['result']['chat'],
   run: Run,
 ): MessageSendSuccess {
   return parseCanonical(WireSuccessV1Schema, {
@@ -187,7 +191,7 @@ function success(
     kind: 'success',
     requestId: request.requestId,
     method: request.method,
-    result: { message, acceptedRun: run },
+    result: { message, chat, acceptedRun: run },
   }) as MessageSendSuccess;
 }
 
@@ -422,6 +426,7 @@ function acceptRootRunInTransactionCore(
   if (message.role !== 'user') {
     throw new TargetStorageError('CORRUPT_DATA', 'Root acceptance appended a non-user Message');
   }
+  const updatedChat = loadChat(database, chat.id);
   const acceptedSource = {
     kind: 'message' as const,
     messageId: message.id,
@@ -492,6 +497,7 @@ function acceptRootRunInTransactionCore(
     actor: 'user',
     source: acceptedSource,
     selectedContext: input.selectedContext,
+    exportDestinationGrant: input.exportDestinationGrant,
     contentHash: message.contentHash,
     state: 'queued',
     createdAt: acceptedAt,
@@ -506,7 +512,7 @@ function acceptRootRunInTransactionCore(
 
   insertAcceptedRunSnapshot(database, run, manifest, capabilityCatalog);
   insertRunInboxMessage(database, inbox);
-  return { projectId: project.id, message, run, inbox };
+  return { projectId: project.id, message, chat: updatedChat, run, inbox };
 }
 
 export function acceptRootRunInTransaction(
@@ -551,6 +557,7 @@ function executeAcceptance(
           blocks: request.input.blocks,
           attachments: request.input.attachments,
           selectedContext: request.input.selectedContext,
+          exportDestinationGrant: request.input.exportDestinationGrant,
           supersedesMessageId: request.input.supersedesMessageId,
           idempotencyKey: request.requestId,
         },
@@ -560,7 +567,7 @@ function executeAcceptance(
       );
       return {
         projectId: accepted.projectId,
-        response: success(request, accepted.message, accepted.run),
+        response: success(request, accepted.message, accepted.chat, accepted.run),
       };
     },
     seedInput,
@@ -701,6 +708,7 @@ function replayCrashRetry(
   database: DatabaseSync,
   source: Run,
   sourceSnapshots: ReturnType<typeof loadRunSnapshots>,
+  sourceInbox: RunInboxMessage,
   objective: ReturnType<typeof loadMessage>,
   retrySeedHash: string,
 ): CrashRetryAcceptanceResult | null {
@@ -740,6 +748,8 @@ function replayCrashRetry(
     inbox.actor !== 'user' ||
     canonicalJson(inbox.source) !== canonicalJson(source.acceptedSource) ||
     canonicalJson(inbox.selectedContext) !== canonicalJson(manifest.selectedContext) ||
+    canonicalJson(inbox.exportDestinationGrant) !==
+      canonicalJson(sourceInbox.exportDestinationGrant) ||
     inbox.contentHash !== source.acceptedSource.contentHash ||
     inbox.createdAt !== retryRun.acceptedAt ||
     objective.role !== 'user' ||
@@ -776,8 +786,24 @@ export function acceptCrashRetryRootRun(
       }),
     );
     const sourceSnapshots = loadRunSnapshots(database, source);
+    const sourceInbox = listRunInbox(database, source.id)[0];
+    if (
+      sourceInbox === undefined ||
+      sourceInbox.sequence !== 1 ||
+      sourceInbox.actor !== 'user' ||
+      canonicalJson(sourceInbox.source) !== canonicalJson(acceptedSource)
+    ) {
+      throw new TargetStorageError('CORRUPT_DATA', `Run ${source.id} source Inbox is invalid`);
+    }
     const message = loadMessage(database, acceptedSource.messageId);
-    const replay = replayCrashRetry(database, source, sourceSnapshots, message, retrySeedHash);
+    const replay = replayCrashRetry(
+      database,
+      source,
+      sourceSnapshots,
+      sourceInbox,
+      message,
+      retrySeedHash,
+    );
     if (replay !== null) return replay;
 
     const chat = loadChat(database, source.chatId);
@@ -887,6 +913,7 @@ export function acceptCrashRetryRootRun(
       actor: 'user',
       source: acceptedSource,
       selectedContext: manifest.selectedContext,
+      exportDestinationGrant: sourceInbox.exportDestinationGrant,
       contentHash: acceptedSource.contentHash,
       state: 'queued',
       createdAt: acceptedAt,

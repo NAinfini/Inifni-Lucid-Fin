@@ -3,7 +3,6 @@ import {
   canonicalJson,
   generationPromptAssemblyHashInput,
   type DeliveryRef,
-  type DomainObjectRef,
   type GenerationSpec,
 } from '@lucid-fin/target-contracts';
 import {
@@ -37,15 +36,6 @@ function productionRef(object: { id: string; revision: number; contentHash: stri
     authority: 'production' as const,
     id: object.id,
     revision: object.revision,
-    contentHash: object.contentHash,
-  };
-}
-
-function resultRef(object: { id: string; revision: number; contentHash: string }) {
-  return {
-    authority: 'generated_result' as const,
-    id: object.id,
-    revision: 0 as const,
     contentHash: object.contentHash,
   };
 }
@@ -333,6 +323,7 @@ describe('I2-H1 full film composition journey', () => {
               role: 'target' as const,
             },
           ],
+          exportDestinationGrant: null,
           supersedesMessageId: null,
         },
       };
@@ -798,7 +789,12 @@ describe('I2-H1 full film composition journey', () => {
         },
         overwriteExisting: false,
       };
-      const confirmationId = seedApprovedExportConfirmation(activeStore, run.id, exportRequest);
+      const confirmationId = seedApprovedExportConfirmation(
+        activeStore,
+        run.id,
+        manifest,
+        exportRequest,
+      );
       const exportInput = {
         runId: run.id,
         commandId: 'command.i2h.delivery.export',

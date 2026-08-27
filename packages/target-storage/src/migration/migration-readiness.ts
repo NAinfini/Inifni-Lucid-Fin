@@ -9,6 +9,9 @@ import type { LegacyPhaseOneClassificationReport } from './phase-one-classificat
 export type LegacyMigrationReadinessBlocker =
   | { readonly kind: 'source_snapshot_mismatch' }
   | { readonly kind: 'preflight_blocked'; readonly findingCount: number }
+  | { readonly kind: 'run_history_preflight_blocked'; readonly findingCount: number }
+  | { readonly kind: 'task_history_preflight_blocked'; readonly findingCount: number }
+  | { readonly kind: 'conversation_preflight_blocked'; readonly findingCount: number }
   | { readonly kind: 'root_classification_blocked'; readonly findingCount: number }
   | { readonly kind: 'embedded_json_classification_blocked'; readonly findingCount: number };
 
@@ -71,6 +74,24 @@ export function buildLegacyMigrationReadinessReport(
     blockers.push({
       kind: 'root_classification_blocked',
       findingCount: phaseOne.rootRows.classification.blockers.length,
+    });
+  }
+  if (phaseOne.rootRows.runHistory?.ok === false) {
+    blockers.push({
+      kind: 'run_history_preflight_blocked',
+      findingCount: phaseOne.rootRows.runHistory.blockers.length,
+    });
+  }
+  if (phaseOne.rootRows.taskHistory?.ok === false) {
+    blockers.push({
+      kind: 'task_history_preflight_blocked',
+      findingCount: phaseOne.rootRows.taskHistory.blockers.length,
+    });
+  }
+  if (phaseOne.embeddedJson.conversationPreflight?.ok === false) {
+    blockers.push({
+      kind: 'conversation_preflight_blocked',
+      findingCount: phaseOne.embeddedJson.conversationPreflight.blockers.length,
     });
   }
   if (!phaseOne.embeddedJson.ok) {

@@ -6,7 +6,6 @@ import {
   DeliveryManifestSchema,
   canonicalJson,
   deliveryManifestContentHashInput,
-  type DeliveryDestinationIntent,
 } from '@lucid-fin/target-contracts';
 import { describe, expect, it } from 'vitest';
 import {
@@ -19,11 +18,13 @@ import { operationRefForOwner } from '../internal/operation-owner-records.js';
 import { createTargetDataAccess } from '../kernel/data-access.js';
 import {
   assertDeliveryExportModelBoundary,
+  deliveryExportConfirmationTargetFor,
   deliveryExportSuccessForDispatch,
 } from './delivery-operations.js';
 import type {
   DeliveryDestinationGrantResolver,
   LocalDeliveryExporterAdapter,
+  ResolveDeliveryDestinationGrantRequest,
 } from '../kernel/local-delivery-exporter.js';
 import type { LocalReviewRendererAdapter } from '../kernel/local-review-renderer.js';
 import type { MediaCas, MediaImportCapabilityResolver } from '../kernel/media-cas.js';
@@ -102,11 +103,12 @@ class MemoryCas implements MediaCas {
   }
 
   openVerified(expected: { hash: string; byteLength: number }) {
-    const cas = this;
+    const objects = this.objects;
+    const verify = (value: { hash: string; byteLength: number }) => this.verify(value);
     return {
       async *[Symbol.asyncIterator]() {
-        await cas.verify(expected);
-        yield Uint8Array.from(cas.objects.get(expected.hash)!);
+        await verify(expected);
+        yield Uint8Array.from(objects.get(expected.hash)!);
       },
     };
   }
@@ -179,15 +181,17 @@ class FakeExporter implements LocalDeliveryExporterAdapter {
 }
 
 class FakeDestinationResolver implements DeliveryDestinationGrantResolver {
-  readonly calls: DeliveryDestinationIntent[] = [];
+  readonly calls: ResolveDeliveryDestinationGrantRequest[] = [];
   onCall: (() => void) | undefined;
   tamper = false;
 
-  async resolve(descriptor: DeliveryDestinationIntent) {
-    this.calls.push(descriptor);
+  async resolve(request: ResolveDeliveryDestinationGrantRequest) {
+    this.calls.push(request);
     this.onCall?.();
     return {
-      descriptor: this.tamper ? { ...descriptor, displayLabel: 'different.mp4' } : descriptor,
+      descriptor: this.tamper
+        ? { ...request.descriptor, displayLabel: 'different.mp4' }
+        : request.descriptor,
       writableGrant: { secret: SECRET },
     };
   }
@@ -297,6 +301,7 @@ async function harness() {
         blocks: [{ type: 'text', text: 'Render and export this cut.' }],
         attachments: [],
         selectedContext: [],
+        exportDestinationGrant: null,
         supersedesMessageId: null,
       },
     },
@@ -462,7 +467,7 @@ function approveExport(
       confirmationId,
       fixture.run.id,
       interactionId,
-      canonicalJson({ kind: 'domain_object', ref: request.manifest }),
+      canonicalJson(deliveryExportConfirmationTargetFor(fixture.manifest, request)),
       key.inputHash,
       objectiveMessageId,
       NOW,
@@ -683,6 +688,15 @@ describe('I2-G3a local Delivery operations', () => {
         }),
       ).toBe(beforeTerminalReplay);
       expect(fixture.destinationGrants.calls).toHaveLength(1);
+      expect(fixture.destinationGrants.calls[0]).toEqual({
+        descriptor: request.destination,
+        projectId: fixture.project.id,
+        chatId: fixture.run.chatId,
+        runId: fixture.run.id,
+        deliveryPlan: fixture.plan,
+        requiredExtension: 'mp4',
+        operationFingerprint: preparedDispatch.key.fingerprint,
+      });
       expect(fixture.deliveryExporter.calls).toHaveLength(1);
       const publicAndStored = canonicalJson({
         completed,

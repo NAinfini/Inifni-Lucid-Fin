@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "incremental": false,
+    "noEmit": true
+  },
+  "include": ["src/target-entry.tsx", "src/target/**/*.ts", "src/target/**/*.tsx"],
+  "exclude": ["src/target/**/*.test.ts", "src/target/**/*.test.tsx", "src/target/test-fixture.ts"],
+  "references": [{ "path": "../../packages/target-contracts" }]
+}

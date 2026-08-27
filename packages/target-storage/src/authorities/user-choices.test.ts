@@ -316,6 +316,7 @@ async function harness() {
         blocks: [{ type: 'text', text: 'Generate candidates.' }],
         attachments: [],
         selectedContext: [],
+        exportDestinationGrant: null,
         supersedesMessageId: null,
       },
     },
@@ -1259,6 +1260,13 @@ describe('I2-G1 UserChoice and Production protection authority', () => {
           },
         ],
       });
+      expect(fixture.data.production.get(fixture.shot.id).currentChoices).toEqual([
+        {
+          authority: 'user_choice',
+          id: selected.result.id,
+          choiceHash: selected.result.choiceHash,
+        },
+      ]);
 
       for (const action of ['reject', 'refine', 'use_as_reference'] as const) {
         const request = decisionRequest(
@@ -1280,6 +1288,13 @@ describe('I2-G1 UserChoice and Production protection authority', () => {
           result: refOf(secondResult),
           value: { state: 'selected', feedback: 'Use this take.' },
           currentChoiceId: switched.id,
+        },
+      ]);
+      expect(fixture.data.production.get(fixture.shot.id).currentChoices).toEqual([
+        {
+          authority: 'user_choice',
+          id: switched.id,
+          choiceHash: switched.choiceHash,
         },
       ]);
       expect(
@@ -1453,6 +1468,7 @@ describe('I2-G1 UserChoice and Production protection authority', () => {
       expect(fixture.data.production.get(fixture.shot.id).object).toMatchObject({
         resultDecisions: [],
       });
+      expect(fixture.data.production.get(fixture.shot.id).currentChoices).toEqual([]);
       expect(undone.result).toMatchObject({
         choice: { kind: 'undo', targetChoiceId: selected.id },
         supersedesChoiceIds: [selected.id],

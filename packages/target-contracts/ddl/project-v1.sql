@@ -96,6 +96,59 @@ CREATE TABLE skill_enablements (
   FOREIGN KEY (skill_id, skill_version) REFERENCES skills(id, version) ON DELETE RESTRICT
 ) STRICT;
 
+CREATE TABLE plugin_packages (
+  package_id TEXT NOT NULL,
+  package_version TEXT NOT NULL CHECK (length(package_version) BETWEEN 1 AND 80),
+  name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 240),
+  description TEXT NOT NULL CHECK (length(description) BETWEEN 1 AND 4000),
+  manifest_v1_json TEXT NOT NULL CHECK (json_valid(manifest_v1_json) AND json_type(manifest_v1_json) = 'object'),
+  manifest_hash TEXT NOT NULL CHECK (length(manifest_hash) = 64 AND manifest_hash NOT GLOB '*[^0-9a-f]*'),
+  registered_at TEXT NOT NULL,
+  PRIMARY KEY (package_id, package_version),
+  UNIQUE (package_id, package_version, manifest_hash)
+) STRICT;
+
+CREATE TABLE plugin_package_skills (
+  package_id TEXT NOT NULL,
+  package_version TEXT NOT NULL CHECK (length(package_version) BETWEEN 1 AND 80),
+  skill_id TEXT NOT NULL,
+  skill_version TEXT NOT NULL CHECK (length(skill_version) BETWEEN 1 AND 80),
+  ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+  PRIMARY KEY (package_id, package_version, skill_id, skill_version),
+  UNIQUE (package_id, package_version, ordinal),
+  FOREIGN KEY (package_id, package_version) REFERENCES plugin_packages(package_id, package_version) ON DELETE RESTRICT,
+  FOREIGN KEY (skill_id, skill_version) REFERENCES skills(id, version) ON DELETE RESTRICT
+) STRICT;
+
+CREATE TABLE plugin_installations (
+  package_id TEXT PRIMARY KEY,
+  package_version TEXT NOT NULL CHECK (length(package_version) BETWEEN 1 AND 80),
+  manifest_hash TEXT NOT NULL CHECK (length(manifest_hash) = 64 AND manifest_hash NOT GLOB '*[^0-9a-f]*'),
+  state TEXT NOT NULL CHECK (state IN ('installed', 'removed')),
+  revision INTEGER NOT NULL CHECK (revision >= 0),
+  installed_at TEXT NOT NULL,
+  removed_at TEXT,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (package_id, package_version, manifest_hash)
+    REFERENCES plugin_packages(package_id, package_version, manifest_hash) ON DELETE RESTRICT,
+  CHECK ((state = 'removed') = (removed_at IS NOT NULL))
+) STRICT;
+
+CREATE TABLE plugin_audit_events (
+  sequence INTEGER PRIMARY KEY CHECK (sequence > 0),
+  id TEXT NOT NULL UNIQUE,
+  package_id TEXT NOT NULL,
+  package_version TEXT NOT NULL CHECK (length(package_version) BETWEEN 1 AND 80),
+  manifest_hash TEXT NOT NULL CHECK (length(manifest_hash) = 64 AND manifest_hash NOT GLOB '*[^0-9a-f]*'),
+  action TEXT NOT NULL CHECK (action IN ('installed', 'removed')),
+  installation_revision INTEGER NOT NULL CHECK (installation_revision >= 0),
+  previous_event_hash TEXT CHECK (previous_event_hash IS NULL OR (length(previous_event_hash) = 64 AND previous_event_hash NOT GLOB '*[^0-9a-f]*')),
+  event_hash TEXT NOT NULL UNIQUE CHECK (length(event_hash) = 64 AND event_hash NOT GLOB '*[^0-9a-f]*'),
+  occurred_at TEXT NOT NULL,
+  FOREIGN KEY (package_id, package_version, manifest_hash)
+    REFERENCES plugin_packages(package_id, package_version, manifest_hash) ON DELETE RESTRICT
+) STRICT;
+
 CREATE TABLE media_blobs (
   hash TEXT PRIMARY KEY CHECK (length(hash) = 64 AND hash NOT GLOB '*[^0-9a-f]*'),
   byte_length INTEGER NOT NULL CHECK (byte_length >= 0),
@@ -355,6 +408,7 @@ CREATE TABLE messages (
   role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
   status TEXT NOT NULL CHECK (status IN ('accepted', 'completed', 'interrupted')),
   originating_run_id TEXT UNIQUE REFERENCES runs(id) ON DELETE RESTRICT,
+  originating_imported_run_id TEXT UNIQUE REFERENCES imported_run_history(id) ON DELETE RESTRICT,
   content_hash TEXT NOT NULL CHECK (length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*'),
   supersedes_message_id TEXT REFERENCES messages(id) ON DELETE RESTRICT,
   created_at TEXT NOT NULL,
@@ -362,9 +416,12 @@ CREATE TABLE messages (
   UNIQUE (chat_id, id),
   FOREIGN KEY (project_id, chat_id) REFERENCES chats(project_id, id) ON DELETE RESTRICT,
   CHECK (
-    (role = 'user' AND status = 'accepted' AND originating_run_id IS NULL)
+    (role = 'user' AND status = 'accepted' AND originating_run_id IS NULL AND originating_imported_run_id IS NULL)
     OR
-    (role = 'assistant' AND status IN ('completed', 'interrupted') AND originating_run_id IS NOT NULL)
+    (
+      role = 'assistant' AND status IN ('completed', 'interrupted')
+      AND ((originating_run_id IS NOT NULL) <> (originating_imported_run_id IS NOT NULL))
+    )
   )
 ) STRICT;
 
@@ -517,10 +574,13 @@ CREATE TABLE run_inbox_messages (
   actor TEXT NOT NULL CHECK (actor IN ('user', 'commander')),
   source_v1_json TEXT NOT NULL CHECK (json_valid(source_v1_json) AND json_type(source_v1_json) = 'object'),
   selected_context_v1_json TEXT NOT NULL CHECK (json_valid(selected_context_v1_json) AND json_type(selected_context_v1_json) = 'array'),
+  export_destination_grant_v1_json TEXT CHECK (export_destination_grant_v1_json IS NULL OR (json_valid(export_destination_grant_v1_json) AND json_type(export_destination_grant_v1_json) = 'object')),
+  export_destination_grant_hash TEXT CHECK (export_destination_grant_hash IS NULL OR (length(export_destination_grant_hash) = 64 AND export_destination_grant_hash NOT GLOB '*[^0-9a-f]*')),
   content_hash TEXT NOT NULL CHECK (length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*'),
   state TEXT NOT NULL CHECK (state IN ('queued', 'delivered', 'consumed', 'cancelled')),
   created_at TEXT NOT NULL,
-  UNIQUE (run_id, sequence)
+  UNIQUE (run_id, sequence),
+  CHECK ((export_destination_grant_v1_json IS NULL) = (export_destination_grant_hash IS NULL))
 ) STRICT;
 
 CREATE TABLE run_activations (
@@ -1100,6 +1160,7 @@ CREATE TABLE delivery_exports (
   destination_grant_id TEXT NOT NULL CHECK (length(destination_grant_id) BETWEEN 1 AND 160),
   destination_grant_hash TEXT NOT NULL CHECK (length(destination_grant_hash) = 64 AND destination_grant_hash NOT GLOB '*[^0-9a-f]*'),
   destination_display_label TEXT NOT NULL CHECK (length(destination_display_label) BETWEEN 1 AND 512 AND instr(destination_display_label, '/') = 0 AND instr(destination_display_label, char(92)) = 0),
+  destination_v1_json TEXT NOT NULL CHECK (json_valid(destination_v1_json) AND json_type(destination_v1_json) = 'object'),
   overwrite_existing INTEGER NOT NULL CHECK (overwrite_existing IN (0, 1)),
   state TEXT NOT NULL CHECK (state IN ('prepared', 'running', 'submitted', 'unknown', 'succeeded', 'failed', 'cancelled')),
   request_hash TEXT NOT NULL CHECK (length(request_hash) = 64 AND request_hash NOT GLOB '*[^0-9a-f]*'),
@@ -1223,6 +1284,263 @@ CREATE TABLE project_search_documents (
   )
 ) STRICT;
 
+CREATE TABLE imported_history_batches (
+  id TEXT PRIMARY KEY,
+  source_schema_id TEXT NOT NULL CHECK (length(source_schema_id) BETWEEN 1 AND 160),
+  source_snapshot_hash TEXT NOT NULL CHECK (length(source_snapshot_hash) = 64 AND source_snapshot_hash NOT GLOB '*[^0-9a-f]*'),
+  classification_hash TEXT NOT NULL CHECK (length(classification_hash) = 64 AND classification_hash NOT GLOB '*[^0-9a-f]*'),
+  plan_hash TEXT NOT NULL CHECK (length(plan_hash) = 64 AND plan_hash NOT GLOB '*[^0-9a-f]*'),
+  offline_evidence_manifest_hash TEXT CHECK (offline_evidence_manifest_hash IS NULL OR (length(offline_evidence_manifest_hash) = 64 AND offline_evidence_manifest_hash NOT GLOB '*[^0-9a-f]*')),
+  reconciliation_hash TEXT NOT NULL CHECK (length(reconciliation_hash) = 64 AND reconciliation_hash NOT GLOB '*[^0-9a-f]*'),
+  created_at TEXT NOT NULL,
+  UNIQUE (source_schema_id, source_snapshot_hash, classification_hash, plan_hash)
+) STRICT;
+
+CREATE TABLE imported_run_history (
+  id TEXT PRIMARY KEY,
+  batch_id TEXT NOT NULL REFERENCES imported_history_batches(id) ON DELETE RESTRICT,
+  legacy_run_id TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  chat_id TEXT,
+  legacy_session_id TEXT,
+  root_run_id TEXT NOT NULL,
+  parent_run_id TEXT,
+  retry_of_run_id TEXT,
+  work_type TEXT NOT NULL CHECK (work_type IN ('agent', 'subagent', 'tool_program')),
+  display_name TEXT CHECK (display_name IS NULL OR length(display_name) BETWEEN 1 AND 240),
+  intent TEXT NOT NULL CHECK (length(intent) BETWEEN 1 AND 20000),
+  objective TEXT CHECK (objective IS NULL OR length(objective) BETWEEN 1 AND 100000),
+  status TEXT NOT NULL CHECK (status IN ('accepted', 'running', 'paused', 'completed', 'failed', 'cancelled', 'blocked', 'max_steps')),
+  accepted_at TEXT NOT NULL,
+  started_at TEXT,
+  finished_at TEXT,
+  last_sequence INTEGER CHECK (last_sequence IS NULL OR last_sequence >= 0),
+  source_payload_v1_json TEXT NOT NULL CHECK (json_valid(source_payload_v1_json)),
+  source_payload_hash TEXT NOT NULL CHECK (length(source_payload_hash) = 64 AND source_payload_hash NOT GLOB '*[^0-9a-f]*'),
+  created_at TEXT NOT NULL,
+  UNIQUE (batch_id, legacy_run_id),
+  UNIQUE (batch_id, id),
+  UNIQUE (project_id, id),
+  UNIQUE (batch_id, project_id, id),
+  FOREIGN KEY (project_id, chat_id) REFERENCES chats(project_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (batch_id, project_id, root_run_id)
+    REFERENCES imported_run_history(batch_id, project_id, id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (batch_id, project_id, parent_run_id)
+    REFERENCES imported_run_history(batch_id, project_id, id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+  FOREIGN KEY (batch_id, project_id, retry_of_run_id)
+    REFERENCES imported_run_history(batch_id, project_id, id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+  CHECK (parent_run_id IS NULL OR parent_run_id <> id),
+  CHECK (retry_of_run_id IS NULL OR retry_of_run_id <> id)
+) STRICT;
+
+CREATE TABLE imported_run_event_history (
+  id TEXT NOT NULL UNIQUE,
+  batch_id TEXT NOT NULL REFERENCES imported_history_batches(id) ON DELETE RESTRICT,
+  run_id TEXT NOT NULL,
+  sequence INTEGER NOT NULL CHECK (sequence >= 0),
+  event_kind TEXT NOT NULL CHECK (length(event_kind) BETWEEN 1 AND 4000),
+  step INTEGER NOT NULL CHECK (step >= 0),
+  occurred_at TEXT NOT NULL,
+  public_payload_v1_json TEXT NOT NULL CHECK (json_valid(public_payload_v1_json)),
+  public_payload_hash TEXT NOT NULL CHECK (length(public_payload_hash) = 64 AND public_payload_hash NOT GLOB '*[^0-9a-f]*'),
+  private_payload_present INTEGER NOT NULL CHECK (private_payload_present IN (0, 1)),
+  private_payload_hash TEXT CHECK (private_payload_hash IS NULL OR (length(private_payload_hash) = 64 AND private_payload_hash NOT GLOB '*[^0-9a-f]*')),
+  offline_evidence_id TEXT,
+  previous_event_hash TEXT CHECK (previous_event_hash IS NULL OR (length(previous_event_hash) = 64 AND previous_event_hash NOT GLOB '*[^0-9a-f]*')),
+  event_hash TEXT NOT NULL CHECK (length(event_hash) = 64 AND event_hash NOT GLOB '*[^0-9a-f]*'),
+  PRIMARY KEY (run_id, sequence),
+  UNIQUE (run_id, event_hash),
+  FOREIGN KEY (batch_id, run_id)
+    REFERENCES imported_run_history(batch_id, id) ON DELETE RESTRICT,
+  CHECK (
+    (private_payload_present = 0 AND private_payload_hash IS NULL AND offline_evidence_id IS NULL)
+    OR
+    (private_payload_present = 1 AND private_payload_hash IS NOT NULL AND offline_evidence_id IS NOT NULL)
+  )
+) STRICT;
+
+CREATE TABLE imported_run_scope_history (
+  batch_id TEXT NOT NULL REFERENCES imported_history_batches(id) ON DELETE RESTRICT,
+  run_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+  scope_kind TEXT NOT NULL CHECK (length(scope_kind) BETWEEN 1 AND 4000),
+  payload_v1_json TEXT NOT NULL CHECK (json_valid(payload_v1_json)),
+  payload_hash TEXT NOT NULL CHECK (length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*'),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (run_id, ordinal),
+  FOREIGN KEY (batch_id, run_id)
+    REFERENCES imported_run_history(batch_id, id) ON DELETE RESTRICT
+) STRICT;
+
+CREATE TABLE imported_run_attachment_history (
+  batch_id TEXT NOT NULL REFERENCES imported_history_batches(id) ON DELETE RESTRICT,
+  run_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+  project_media_ref_id TEXT NOT NULL REFERENCES project_media_refs(id) ON DELETE RESTRICT,
+  global_asset_id TEXT NOT NULL REFERENCES global_media_assets(id) ON DELETE RESTRICT,
+  blob_hash TEXT NOT NULL REFERENCES media_blobs(hash) ON DELETE RESTRICT,
+  role TEXT NOT NULL CHECK (role IN ('reference', 'input', 'attachment', 'output')),
+  source_payload_hash TEXT NOT NULL CHECK (length(source_payload_hash) = 64 AND source_payload_hash NOT GLOB '*[^0-9a-f]*'),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (run_id, ordinal),
+  FOREIGN KEY (batch_id, run_id)
+    REFERENCES imported_run_history(batch_id, id) ON DELETE RESTRICT
+) STRICT;
+
+CREATE TABLE imported_task_list_history (
+  id TEXT PRIMARY KEY,
+  batch_id TEXT NOT NULL REFERENCES imported_history_batches(id) ON DELETE RESTRICT,
+  legacy_task_list_id TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  chat_id TEXT,
+  imported_run_id TEXT,
+  task_list_type TEXT NOT NULL CHECK (length(task_list_type) BETWEEN 1 AND 4000),
+  trigger_source TEXT NOT NULL CHECK (length(trigger_source) BETWEEN 1 AND 4000),
+  status TEXT NOT NULL CHECK (length(status) BETWEEN 1 AND 4000),
+  summary TEXT NOT NULL CHECK (length(summary) <= 20000),
+  source_payload_v1_json TEXT NOT NULL CHECK (json_valid(source_payload_v1_json)),
+  source_payload_hash TEXT NOT NULL CHECK (length(source_payload_hash) = 64 AND source_payload_hash NOT GLOB '*[^0-9a-f]*'),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completed_at TEXT,
+  UNIQUE (batch_id, legacy_task_list_id),
+  UNIQUE (batch_id, project_id, id),
+  UNIQUE (project_id, id),
+  FOREIGN KEY (project_id, chat_id) REFERENCES chats(project_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (batch_id, project_id, imported_run_id)
+    REFERENCES imported_run_history(batch_id, project_id, id) ON DELETE RESTRICT
+) STRICT;
+
+CREATE TABLE imported_task_item_history (
+  id TEXT PRIMARY KEY,
+  batch_id TEXT NOT NULL REFERENCES imported_history_batches(id) ON DELETE RESTRICT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  task_list_id TEXT NOT NULL,
+  legacy_task_id TEXT NOT NULL,
+  parent_item_id TEXT,
+  phase_key TEXT NOT NULL CHECK (length(phase_key) BETWEEN 1 AND 4000),
+  phase_name TEXT NOT NULL CHECK (length(phase_name) BETWEEN 1 AND 4000),
+  phase_order INTEGER NOT NULL CHECK (phase_order >= 0),
+  task_key TEXT NOT NULL CHECK (length(task_key) BETWEEN 1 AND 4000),
+  title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 4000),
+  task_kind TEXT NOT NULL CHECK (length(task_kind) BETWEEN 1 AND 4000),
+  status TEXT NOT NULL CHECK (length(status) BETWEEN 1 AND 4000),
+  source_payload_v1_json TEXT NOT NULL CHECK (json_valid(source_payload_v1_json)),
+  source_payload_hash TEXT NOT NULL CHECK (length(source_payload_hash) = 64 AND source_payload_hash NOT GLOB '*[^0-9a-f]*'),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (task_list_id, legacy_task_id),
+  UNIQUE (task_list_id, id),
+  UNIQUE (batch_id, project_id, id),
+  UNIQUE (project_id, id),
+  FOREIGN KEY (batch_id, project_id, task_list_id)
+    REFERENCES imported_task_list_history(batch_id, project_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (task_list_id, parent_item_id)
+    REFERENCES imported_task_item_history(task_list_id, id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+  CHECK (parent_item_id IS NULL OR parent_item_id <> id)
+) STRICT;
+
+CREATE TABLE imported_history_records (
+  id TEXT PRIMARY KEY,
+  batch_id TEXT NOT NULL REFERENCES imported_history_batches(id) ON DELETE RESTRICT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  schema_id TEXT NOT NULL CHECK (schema_id IN (
+    'legacy.task_dependency.v1', 'legacy.task_artifact.v1', 'legacy.task_attempt.v1',
+    'legacy.task_event.v1', 'legacy.task_decision.v1', 'legacy.task_evaluation.v1',
+    'legacy.plan_document.v1', 'legacy.plan_approval.v1', 'legacy.prompt_assembly.v1',
+    'legacy.delivery_intent.v1', 'legacy.generation_metadata.v1', 'legacy.unmigrated_payload.v1'
+  )),
+  source_record_id TEXT NOT NULL,
+  owner_kind TEXT NOT NULL CHECK (owner_kind IN (
+    'project', 'chat', 'imported_run', 'imported_task_list', 'imported_task_item',
+    'production', 'project_media_ref'
+  )),
+  owner_project_id TEXT REFERENCES projects(id) ON DELETE RESTRICT,
+  owner_chat_id TEXT,
+  owner_imported_run_id TEXT,
+  owner_imported_task_list_id TEXT,
+  owner_imported_task_item_id TEXT,
+  owner_production_object_id TEXT,
+  owner_project_media_ref_id TEXT REFERENCES project_media_refs(id) ON DELETE RESTRICT,
+  parent_record_id TEXT,
+  sequence INTEGER CHECK (sequence IS NULL OR sequence >= 0),
+  occurred_at TEXT,
+  public_payload_v1_json TEXT NOT NULL CHECK (json_valid(public_payload_v1_json)),
+  public_payload_hash TEXT NOT NULL CHECK (length(public_payload_hash) = 64 AND public_payload_hash NOT GLOB '*[^0-9a-f]*'),
+  private_payload_present INTEGER NOT NULL CHECK (private_payload_present IN (0, 1)),
+  private_payload_hash TEXT CHECK (private_payload_hash IS NULL OR (length(private_payload_hash) = 64 AND private_payload_hash NOT GLOB '*[^0-9a-f]*')),
+  offline_evidence_id TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (batch_id, schema_id, source_record_id),
+  UNIQUE (batch_id, project_id, id),
+  FOREIGN KEY (project_id, owner_chat_id) REFERENCES chats(project_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (batch_id, project_id, owner_imported_run_id)
+    REFERENCES imported_run_history(batch_id, project_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (batch_id, project_id, owner_imported_task_list_id)
+    REFERENCES imported_task_list_history(batch_id, project_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (batch_id, project_id, owner_imported_task_item_id)
+    REFERENCES imported_task_item_history(batch_id, project_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (project_id, owner_production_object_id) REFERENCES production_objects(project_id, id) ON DELETE RESTRICT,
+  FOREIGN KEY (batch_id, project_id, parent_record_id)
+    REFERENCES imported_history_records(batch_id, project_id, id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+  CHECK (parent_record_id IS NULL OR parent_record_id <> id),
+  CHECK (
+    (owner_kind = 'project' AND owner_project_id = project_id AND owner_chat_id IS NULL AND owner_imported_run_id IS NULL AND owner_imported_task_list_id IS NULL AND owner_imported_task_item_id IS NULL AND owner_production_object_id IS NULL AND owner_project_media_ref_id IS NULL)
+    OR
+    (owner_kind = 'chat' AND owner_project_id IS NULL AND owner_chat_id IS NOT NULL AND owner_imported_run_id IS NULL AND owner_imported_task_list_id IS NULL AND owner_imported_task_item_id IS NULL AND owner_production_object_id IS NULL AND owner_project_media_ref_id IS NULL)
+    OR
+    (owner_kind = 'imported_run' AND owner_project_id IS NULL AND owner_chat_id IS NULL AND owner_imported_run_id IS NOT NULL AND owner_imported_task_list_id IS NULL AND owner_imported_task_item_id IS NULL AND owner_production_object_id IS NULL AND owner_project_media_ref_id IS NULL)
+    OR
+    (owner_kind = 'imported_task_list' AND owner_project_id IS NULL AND owner_chat_id IS NULL AND owner_imported_run_id IS NULL AND owner_imported_task_list_id IS NOT NULL AND owner_imported_task_item_id IS NULL AND owner_production_object_id IS NULL AND owner_project_media_ref_id IS NULL)
+    OR
+    (owner_kind = 'imported_task_item' AND owner_project_id IS NULL AND owner_chat_id IS NULL AND owner_imported_run_id IS NULL AND owner_imported_task_list_id IS NULL AND owner_imported_task_item_id IS NOT NULL AND owner_production_object_id IS NULL AND owner_project_media_ref_id IS NULL)
+    OR
+    (owner_kind = 'production' AND owner_project_id IS NULL AND owner_chat_id IS NULL AND owner_imported_run_id IS NULL AND owner_imported_task_list_id IS NULL AND owner_imported_task_item_id IS NULL AND owner_production_object_id IS NOT NULL AND owner_project_media_ref_id IS NULL)
+    OR
+    (owner_kind = 'project_media_ref' AND owner_project_id IS NULL AND owner_chat_id IS NULL AND owner_imported_run_id IS NULL AND owner_imported_task_list_id IS NULL AND owner_imported_task_item_id IS NULL AND owner_production_object_id IS NULL AND owner_project_media_ref_id IS NOT NULL)
+  ),
+  CHECK (
+    (private_payload_present = 0 AND private_payload_hash IS NULL AND offline_evidence_id IS NULL)
+    OR
+    (private_payload_present = 1 AND private_payload_hash IS NOT NULL AND offline_evidence_id IS NOT NULL)
+  )
+) STRICT;
+
+CREATE TABLE production_collections (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  revision INTEGER NOT NULL CHECK (revision >= 0),
+  content_hash TEXT NOT NULL CHECK (length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*'),
+  parent_collection_id TEXT,
+  clone_of_collection_id TEXT REFERENCES production_collections(id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+  source_collection_id TEXT NOT NULL CHECK (length(source_collection_id) BETWEEN 1 AND 240),
+  import_batch_id TEXT NOT NULL REFERENCES imported_history_batches(id) ON DELETE RESTRICT,
+  source_payload_hash TEXT NOT NULL CHECK (length(source_payload_hash) = 64 AND source_payload_hash NOT GLOB '*[^0-9a-f]*'),
+  name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 240),
+  sort_order INTEGER NOT NULL CHECK (sort_order BETWEEN -9007199254740991 AND 9007199254740991),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (project_id, id),
+  UNIQUE (id, import_batch_id),
+  UNIQUE (project_id, source_collection_id),
+  FOREIGN KEY (project_id, parent_collection_id) REFERENCES production_collections(project_id, id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+  CHECK (parent_collection_id IS NULL OR parent_collection_id <> id),
+  CHECK (clone_of_collection_id IS NULL OR clone_of_collection_id <> id)
+) STRICT;
+
+CREATE TABLE production_collection_members (
+  collection_id TEXT NOT NULL,
+  production_object_id TEXT NOT NULL REFERENCES production_objects(id) ON DELETE RESTRICT,
+  ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+  import_batch_id TEXT NOT NULL REFERENCES imported_history_batches(id) ON DELETE RESTRICT,
+  source_payload_hash TEXT NOT NULL CHECK (length(source_payload_hash) = 64 AND source_payload_hash NOT GLOB '*[^0-9a-f]*'),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (collection_id, production_object_id),
+  UNIQUE (collection_id, ordinal),
+  FOREIGN KEY (collection_id, import_batch_id)
+    REFERENCES production_collections(id, import_batch_id) ON DELETE RESTRICT
+) STRICT;
+
 CREATE VIRTUAL TABLE project_search_fts USING fts5(
   search_text,
   content = 'project_search_documents',
@@ -1233,6 +1551,9 @@ CREATE VIRTUAL TABLE project_search_fts USING fts5(
 CREATE INDEX idx_provider_profiles_status ON provider_profiles(status);
 CREATE INDEX idx_skills_project ON skills(project_id, id, version) WHERE project_id IS NOT NULL;
 CREATE INDEX idx_skill_enablements_project ON skill_enablements(project_id, enabled);
+CREATE INDEX idx_plugin_package_skills_skill ON plugin_package_skills(skill_id, skill_version);
+CREATE INDEX idx_plugin_installations_state ON plugin_installations(state, package_id);
+CREATE INDEX idx_plugin_audit_events_package ON plugin_audit_events(package_id, package_version, sequence);
 CREATE INDEX idx_global_media_assets_blob ON global_media_assets(blob_hash);
 CREATE INDEX idx_global_media_folders_parent_order_name ON global_media_folders(parent_id, sort_order, name, id);
 CREATE INDEX idx_project_media_refs_project ON project_media_refs(project_id, updated_at);
@@ -1295,6 +1616,265 @@ CREATE INDEX idx_project_events_subject ON project_events(project_id, subject_au
 CREATE INDEX idx_project_memory_versions_project ON project_memory_versions(project_id, history_watermark);
 CREATE INDEX idx_project_memory_items_version ON project_memory_items(memory_version_id, state);
 CREATE INDEX idx_project_search_documents_project ON project_search_documents(project_id, source_kind);
+CREATE INDEX idx_imported_history_batches_source ON imported_history_batches(source_schema_id, source_snapshot_hash);
+CREATE INDEX idx_imported_runs_project_accepted ON imported_run_history(project_id, accepted_at, id);
+CREATE INDEX idx_imported_run_events_run_sequence ON imported_run_event_history(run_id, sequence);
+CREATE INDEX idx_imported_task_lists_project_updated ON imported_task_list_history(project_id, updated_at, id);
+CREATE INDEX idx_imported_task_items_list_order ON imported_task_item_history(task_list_id, phase_order, id);
+CREATE INDEX idx_imported_history_records_project_occurred ON imported_history_records(project_id, occurred_at, id);
+CREATE INDEX idx_production_collections_parent_order ON production_collections(project_id, parent_collection_id, sort_order, id);
+CREATE INDEX idx_production_collection_members_object ON production_collection_members(production_object_id, collection_id);
+
+CREATE TRIGGER validate_imported_run_attachment_insert
+BEFORE INSERT ON imported_run_attachment_history
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM imported_run_history AS run
+  JOIN project_media_refs AS project_media
+    ON project_media.id = NEW.project_media_ref_id
+   AND project_media.project_id = run.project_id
+  JOIN global_media_assets AS asset
+    ON asset.id = NEW.global_asset_id
+   AND asset.blob_hash = NEW.blob_hash
+  WHERE run.id = NEW.run_id
+    AND project_media.global_asset_id = asset.id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Imported Run attachment media references do not belong to the Run Project');
+END;
+
+CREATE TRIGGER validate_imported_run_attachment_update
+BEFORE UPDATE OF run_id, project_media_ref_id, global_asset_id, blob_hash
+ON imported_run_attachment_history
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM imported_run_history AS run
+  JOIN project_media_refs AS project_media
+    ON project_media.id = NEW.project_media_ref_id
+   AND project_media.project_id = run.project_id
+  JOIN global_media_assets AS asset
+    ON asset.id = NEW.global_asset_id
+   AND asset.blob_hash = NEW.blob_hash
+  WHERE run.id = NEW.run_id
+    AND project_media.global_asset_id = asset.id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Imported Run attachment media references do not belong to the Run Project');
+END;
+
+CREATE TRIGGER validate_imported_history_record_project_media_insert
+BEFORE INSERT ON imported_history_records
+WHEN NEW.owner_kind = 'project_media_ref' AND NOT EXISTS (
+  SELECT 1
+  FROM project_media_refs
+  WHERE id = NEW.owner_project_media_ref_id
+    AND project_id = NEW.project_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Imported History Record Project Media owner belongs to another Project');
+END;
+
+CREATE TRIGGER validate_imported_history_record_project_media_update
+BEFORE UPDATE OF owner_kind, owner_project_media_ref_id, project_id
+ON imported_history_records
+WHEN NEW.owner_kind = 'project_media_ref' AND NOT EXISTS (
+  SELECT 1
+  FROM project_media_refs
+  WHERE id = NEW.owner_project_media_ref_id
+    AND project_id = NEW.project_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Imported History Record Project Media owner belongs to another Project');
+END;
+
+CREATE TRIGGER validate_production_collection_member_insert
+BEFORE INSERT ON production_collection_members
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM production_collections AS collection
+  JOIN production_objects AS object
+    ON object.id = NEW.production_object_id
+   AND object.project_id = collection.project_id
+  WHERE collection.id = NEW.collection_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Production Collection member belongs to another Project');
+END;
+
+CREATE TRIGGER validate_production_collection_member_update
+BEFORE UPDATE OF collection_id, production_object_id
+ON production_collection_members
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM production_collections AS collection
+  JOIN production_objects AS object
+    ON object.id = NEW.production_object_id
+   AND object.project_id = collection.project_id
+  WHERE collection.id = NEW.collection_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Production Collection member belongs to another Project');
+END;
+
+CREATE TRIGGER prevent_imported_run_parent_cycle_insert
+BEFORE INSERT ON imported_run_history
+WHEN NEW.parent_run_id IS NOT NULL
+BEGIN
+  WITH RECURSIVE ancestors(id) AS (
+    SELECT NEW.parent_run_id
+    UNION ALL
+    SELECT run.parent_run_id
+    FROM imported_run_history AS run
+    JOIN ancestors ON run.id = ancestors.id
+    WHERE run.parent_run_id IS NOT NULL
+  )
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM ancestors WHERE id = NEW.id)
+    THEN RAISE(ABORT, 'Imported Run parent lineage cannot cycle') END;
+END;
+
+CREATE TRIGGER prevent_imported_run_parent_cycle_update
+BEFORE UPDATE OF parent_run_id ON imported_run_history
+WHEN NEW.parent_run_id IS NOT NULL
+BEGIN
+  WITH RECURSIVE ancestors(id) AS (
+    SELECT NEW.parent_run_id
+    UNION ALL
+    SELECT run.parent_run_id
+    FROM imported_run_history AS run
+    JOIN ancestors ON run.id = ancestors.id
+    WHERE run.parent_run_id IS NOT NULL
+  )
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM ancestors WHERE id = NEW.id)
+    THEN RAISE(ABORT, 'Imported Run parent lineage cannot cycle') END;
+END;
+
+CREATE TRIGGER prevent_imported_run_retry_cycle_insert
+BEFORE INSERT ON imported_run_history
+WHEN NEW.retry_of_run_id IS NOT NULL
+BEGIN
+  WITH RECURSIVE ancestors(id) AS (
+    SELECT NEW.retry_of_run_id
+    UNION ALL
+    SELECT run.retry_of_run_id
+    FROM imported_run_history AS run
+    JOIN ancestors ON run.id = ancestors.id
+    WHERE run.retry_of_run_id IS NOT NULL
+  )
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM ancestors WHERE id = NEW.id)
+    THEN RAISE(ABORT, 'Imported Run retry lineage cannot cycle') END;
+END;
+
+CREATE TRIGGER prevent_imported_run_retry_cycle_update
+BEFORE UPDATE OF retry_of_run_id ON imported_run_history
+WHEN NEW.retry_of_run_id IS NOT NULL
+BEGIN
+  WITH RECURSIVE ancestors(id) AS (
+    SELECT NEW.retry_of_run_id
+    UNION ALL
+    SELECT run.retry_of_run_id
+    FROM imported_run_history AS run
+    JOIN ancestors ON run.id = ancestors.id
+    WHERE run.retry_of_run_id IS NOT NULL
+  )
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM ancestors WHERE id = NEW.id)
+    THEN RAISE(ABORT, 'Imported Run retry lineage cannot cycle') END;
+END;
+
+CREATE TRIGGER prevent_imported_task_item_parent_cycle_insert
+BEFORE INSERT ON imported_task_item_history
+WHEN NEW.parent_item_id IS NOT NULL
+BEGIN
+  WITH RECURSIVE ancestors(id) AS (
+    SELECT NEW.parent_item_id
+    UNION ALL
+    SELECT item.parent_item_id
+    FROM imported_task_item_history AS item
+    JOIN ancestors ON item.id = ancestors.id
+    WHERE item.parent_item_id IS NOT NULL
+  )
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM ancestors WHERE id = NEW.id)
+    THEN RAISE(ABORT, 'Imported Task item lineage cannot cycle') END;
+END;
+
+CREATE TRIGGER prevent_imported_task_item_parent_cycle_update
+BEFORE UPDATE OF parent_item_id ON imported_task_item_history
+WHEN NEW.parent_item_id IS NOT NULL
+BEGIN
+  WITH RECURSIVE ancestors(id) AS (
+    SELECT NEW.parent_item_id
+    UNION ALL
+    SELECT item.parent_item_id
+    FROM imported_task_item_history AS item
+    JOIN ancestors ON item.id = ancestors.id
+    WHERE item.parent_item_id IS NOT NULL
+  )
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM ancestors WHERE id = NEW.id)
+    THEN RAISE(ABORT, 'Imported Task item lineage cannot cycle') END;
+END;
+
+CREATE TRIGGER prevent_imported_history_record_parent_cycle_insert
+BEFORE INSERT ON imported_history_records
+WHEN NEW.parent_record_id IS NOT NULL
+BEGIN
+  WITH RECURSIVE ancestors(id) AS (
+    SELECT NEW.parent_record_id
+    UNION ALL
+    SELECT record.parent_record_id
+    FROM imported_history_records AS record
+    JOIN ancestors ON record.id = ancestors.id
+    WHERE record.parent_record_id IS NOT NULL
+  )
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM ancestors WHERE id = NEW.id)
+    THEN RAISE(ABORT, 'Imported History Record lineage cannot cycle') END;
+END;
+
+CREATE TRIGGER prevent_imported_history_record_parent_cycle_update
+BEFORE UPDATE OF parent_record_id ON imported_history_records
+WHEN NEW.parent_record_id IS NOT NULL
+BEGIN
+  WITH RECURSIVE ancestors(id) AS (
+    SELECT NEW.parent_record_id
+    UNION ALL
+    SELECT record.parent_record_id
+    FROM imported_history_records AS record
+    JOIN ancestors ON record.id = ancestors.id
+    WHERE record.parent_record_id IS NOT NULL
+  )
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM ancestors WHERE id = NEW.id)
+    THEN RAISE(ABORT, 'Imported History Record lineage cannot cycle') END;
+END;
+
+CREATE TRIGGER prevent_production_collection_parent_cycle_insert
+BEFORE INSERT ON production_collections
+WHEN NEW.parent_collection_id IS NOT NULL
+BEGIN
+  WITH RECURSIVE ancestors(id) AS (
+    SELECT NEW.parent_collection_id
+    UNION ALL
+    SELECT collection.parent_collection_id
+    FROM production_collections AS collection
+    JOIN ancestors ON collection.id = ancestors.id
+    WHERE collection.parent_collection_id IS NOT NULL
+  )
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM ancestors WHERE id = NEW.id)
+    THEN RAISE(ABORT, 'Production Collection hierarchy cannot cycle') END;
+END;
+
+CREATE TRIGGER prevent_production_collection_parent_cycle_update
+BEFORE UPDATE OF parent_collection_id ON production_collections
+WHEN NEW.parent_collection_id IS NOT NULL
+BEGIN
+  WITH RECURSIVE ancestors(id) AS (
+    SELECT NEW.parent_collection_id
+    UNION ALL
+    SELECT collection.parent_collection_id
+    FROM production_collections AS collection
+    JOIN ancestors ON collection.id = ancestors.id
+    WHERE collection.parent_collection_id IS NOT NULL
+  )
+  SELECT CASE WHEN EXISTS (SELECT 1 FROM ancestors WHERE id = NEW.id)
+    THEN RAISE(ABORT, 'Production Collection hierarchy cannot cycle') END;
+END;
 
 CREATE TRIGGER prevent_skill_update
 BEFORE UPDATE ON skills
@@ -1317,6 +1897,24 @@ WHEN NEW.enabled = 1 AND NOT EXISTS (
       SELECT 1 FROM skill_quarantines AS quarantine
       WHERE quarantine.skill_id = selected.id AND quarantine.skill_version = selected.version
     )
+    AND (
+      NOT EXISTS (
+        SELECT 1
+        FROM plugin_package_skills AS plugin_skill
+        WHERE plugin_skill.skill_id = selected.id
+          AND plugin_skill.skill_version = selected.version
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM plugin_package_skills AS plugin_skill
+        JOIN plugin_installations AS installation
+          ON installation.package_id = plugin_skill.package_id
+         AND installation.package_version = plugin_skill.package_version
+         AND installation.state = 'installed'
+        WHERE plugin_skill.skill_id = selected.id
+          AND plugin_skill.skill_version = selected.version
+      )
+    )
 )
 BEGIN
   SELECT RAISE(ABORT, 'Skill is not eligible for this Project');
@@ -1336,6 +1934,24 @@ WHEN NEW.enabled = 1 AND NOT EXISTS (
     AND NOT EXISTS (
       SELECT 1 FROM skill_quarantines AS quarantine
       WHERE quarantine.skill_id = selected.id AND quarantine.skill_version = selected.version
+    )
+    AND (
+      NOT EXISTS (
+        SELECT 1
+        FROM plugin_package_skills AS plugin_skill
+        WHERE plugin_skill.skill_id = selected.id
+          AND plugin_skill.skill_version = selected.version
+      )
+      OR EXISTS (
+        SELECT 1
+        FROM plugin_package_skills AS plugin_skill
+        JOIN plugin_installations AS installation
+          ON installation.package_id = plugin_skill.package_id
+         AND installation.package_version = plugin_skill.package_version
+         AND installation.state = 'installed'
+        WHERE plugin_skill.skill_id = selected.id
+          AND plugin_skill.skill_version = selected.version
+      )
     )
 )
 BEGIN

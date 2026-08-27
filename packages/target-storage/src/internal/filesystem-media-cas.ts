@@ -7,7 +7,13 @@ import {
   parseCanonical,
   strictObject,
 } from '@lucid-fin/target-contracts';
-import type { MediaCas, MediaCasExpectedObject, MediaCasPutResult } from '../kernel/media-cas.js';
+import {
+  assertMediaCasByteRange,
+  type MediaCas,
+  type MediaCasByteRange,
+  type MediaCasExpectedObject,
+  type MediaCasPutResult,
+} from '../kernel/media-cas.js';
 import { TargetStorageError } from '../kernel/errors.js';
 
 const ExpectedObjectSchema = strictObject({
@@ -65,6 +71,51 @@ function assertActual(
       `Media CAS object ${expected.hash} does not match its expected bytes`,
     );
   }
+}
+
+function openVerifiedFileRange(
+  rootPath: string,
+  expected: MediaCasExpectedObject,
+  range: MediaCasByteRange | null,
+): AsyncIterable<Uint8Array> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      let handle: FileHandle;
+      try {
+        handle = await open(finalPath(rootPath, expected.hash), 'r');
+      } catch {
+        throw new TargetStorageError(
+          'CORRUPT_DATA',
+          `Media CAS object ${expected.hash} is missing or unreadable`,
+        );
+      }
+      try {
+        assertActual(expected, await inspectOpenFile(handle));
+        const start = range?.start ?? 0;
+        const end = range?.end ?? expected.byteLength - 1;
+        const buffer = Buffer.allocUnsafe(64 * 1024);
+        let offset = start;
+        while (offset <= end) {
+          const { bytesRead } = await handle.read(
+            buffer,
+            0,
+            Math.min(buffer.byteLength, end - offset + 1),
+            offset,
+          );
+          if (bytesRead === 0) {
+            throw new TargetStorageError(
+              'CORRUPT_DATA',
+              `Media CAS object ${expected.hash} changed while reading`,
+            );
+          }
+          offset += bytesRead;
+          yield Uint8Array.from(buffer.subarray(0, bytesRead));
+        }
+      } finally {
+        await handle.close();
+      }
+    },
+  };
 }
 
 export function createFilesystemMediaCas(rootPathInput: string): MediaCas {
@@ -169,42 +220,13 @@ export function createFilesystemMediaCas(rootPathInput: string): MediaCas {
 
     openVerified(expectedInput) {
       const expected = expectedObject(expectedInput);
-      return {
-        async *[Symbol.asyncIterator]() {
-          let handle: FileHandle;
-          try {
-            handle = await open(finalPath(rootPath, expected.hash), 'r');
-          } catch {
-            throw new TargetStorageError(
-              'CORRUPT_DATA',
-              `Media CAS object ${expected.hash} is missing or unreadable`,
-            );
-          }
-          try {
-            assertActual(expected, await inspectOpenFile(handle));
-            const buffer = Buffer.allocUnsafe(64 * 1024);
-            let offset = 0;
-            while (offset < expected.byteLength) {
-              const { bytesRead } = await handle.read(
-                buffer,
-                0,
-                Math.min(buffer.byteLength, expected.byteLength - offset),
-                offset,
-              );
-              if (bytesRead === 0) {
-                throw new TargetStorageError(
-                  'CORRUPT_DATA',
-                  `Media CAS object ${expected.hash} changed while reading`,
-                );
-              }
-              offset += bytesRead;
-              yield Uint8Array.from(buffer.subarray(0, bytesRead));
-            }
-          } finally {
-            await handle.close();
-          }
-        },
-      };
+      return openVerifiedFileRange(rootPath, expected, null);
+    },
+
+    openVerifiedRange(expectedInput, rangeInput) {
+      const expected = expectedObject(expectedInput);
+      const range = assertMediaCasByteRange(expected, rangeInput);
+      return openVerifiedFileRange(rootPath, expected, range);
     },
   };
   return Object.freeze(cas);

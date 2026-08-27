@@ -3,6 +3,7 @@ import {
   ProductionFactSourceSchema,
   ProductionObjectSchema,
   ShotResultDecisionValueSchema,
+  UserChoiceRefSchema,
   canonicalJson,
   parseCanonical,
   type CausationRef,
@@ -195,6 +196,40 @@ function resultDecisionsFor(
   });
 }
 
+function currentChoicesFor(
+  database: DatabaseSync,
+  object: ProductionObject,
+): ProductionObjectViewV1['currentChoices'] {
+  if (object.type !== 'shot') return [];
+  const rows = database
+    .prepare(
+      `SELECT decision.current_choice_id, choice.choice_hash
+       FROM production_result_decisions AS decision
+       JOIN user_choices AS choice ON choice.id = decision.current_choice_id
+       WHERE decision.shot_id = ?
+       ORDER BY decision.generated_result_id`,
+    )
+    .all(object.id) as unknown as Array<{ current_choice_id: string; choice_hash: string }>;
+  if (
+    rows.length !== object.resultDecisions.length ||
+    rows.some(
+      (row, index) => row.current_choice_id !== object.resultDecisions[index]?.currentChoiceId,
+    )
+  ) {
+    throw new TargetStorageError(
+      'CORRUPT_DATA',
+      `Shot decision Choice refs for ${object.id} do not match its current decisions`,
+    );
+  }
+  return rows.map((row) =>
+    parseCanonical(UserChoiceRefSchema, {
+      authority: 'user_choice',
+      id: row.current_choice_id,
+      choiceHash: row.choice_hash,
+    }),
+  );
+}
+
 export function factSourcesFor(
   database: DatabaseSync,
   productionObjectId: string,
@@ -280,9 +315,11 @@ export function loadProductionView(
   productionObjectId: string,
   includeFactSources = true,
 ): ProductionObjectViewV1 {
+  const object = loadProductionObject(database, productionObjectId);
   return {
-    object: loadProductionObject(database, productionObjectId),
+    object,
     factSources: includeFactSources ? factSourcesFor(database, productionObjectId) : [],
+    currentChoices: currentChoicesFor(database, object),
   };
 }
 

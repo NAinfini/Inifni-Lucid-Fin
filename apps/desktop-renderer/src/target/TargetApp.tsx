@@ -1,13 +1,14 @@
 import React, { useMemo } from 'react';
 import { Clapperboard } from 'lucide-react';
-import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import type { TargetDesktopApiV1 } from '@lucid-fin/target-contracts';
 import { createTargetRequestId } from './api.js';
 import type { TargetLocale } from './copy.js';
 import { TargetEnvironmentProvider } from './environment.js';
+import { GlobalMediaPage } from './GlobalMediaPage.js';
 import { ProjectHome } from './ProjectHome.js';
 import { ProjectShell } from './ProjectShell.js';
-import { TARGET_WORKSPACES, type TargetWorkspace } from './shared-selection.js';
+import { isTargetWorkspace } from './shared-selection.js';
 import './target.css';
 
 export interface TargetAppProps {
@@ -16,20 +17,27 @@ export interface TargetAppProps {
   readonly locale?: TargetLocale;
 }
 
-function isWorkspace(value: string | undefined): value is TargetWorkspace {
-  return value !== undefined && TARGET_WORKSPACES.some((workspace) => workspace === value);
-}
-
 function ProjectRoute() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { projectId, workspace } = useParams();
   if (projectId === undefined) return <Navigate to="/projects" replace />;
-  const resolvedWorkspace = isWorkspace(workspace) ? workspace : 'overview';
+  if (!isTargetWorkspace(workspace)) {
+    return (
+      <Navigate
+        to={`/projects/${projectId}/overview${location.search}`}
+        replace
+      />
+    );
+  }
   return (
     <ProjectShell
+      key={projectId}
       projectId={projectId}
-      workspace={resolvedWorkspace}
-      onWorkspaceChange={(next) => navigate(`/projects/${projectId}/${next}`)}
+      workspace={workspace}
+      onWorkspaceChange={(next) =>
+        navigate({ pathname: `/projects/${projectId}/${next}`, search: location.search })
+      }
       onBack={() => navigate('/projects')}
     />
   );
@@ -63,6 +71,8 @@ export function TargetApp({
           <Routes>
             <Route path="/" element={<Navigate to="/projects" replace />} />
             <Route path="/projects" element={<ProjectHome />} />
+            <Route path="/media" element={<GlobalMediaPage />} />
+            <Route path="/projects/:projectId" element={<ProjectRoute />} />
             <Route path="/projects/:projectId/:workspace" element={<ProjectRoute />} />
             <Route path="*" element={<Navigate to="/projects" replace />} />
           </Routes>

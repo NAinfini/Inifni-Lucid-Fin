@@ -167,7 +167,7 @@ describe('Legacy Skill disposable target SQLite rehearsal', () => {
         builtIn: 287,
         dynamic: 6,
         total: 293,
-        quarantined: 41,
+        quarantined: 43,
       });
       expect(first.entries.every(({ registration }) => registration === 'inserted')).toBe(true);
       expect(JSON.stringify(first)).not.toContain('Private');

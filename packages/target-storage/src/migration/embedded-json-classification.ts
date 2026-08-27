@@ -19,6 +19,23 @@ import {
 } from './classification-subjects.js';
 import type { LegacySourceDatabases, LegacySourceExpectedSchemas } from './source-preflight.js';
 import type { LegacyProjectOwnershipGraphReport } from './project-ownership-graph.js';
+import {
+  legacyCanvasEvidenceTarget,
+  legacyImportedEmbeddedEntry,
+} from './legacy-migration-policy.js';
+import {
+  preflightLegacyConversation,
+  type LegacyAssistantMessageOrigin,
+  type LegacyConversationPreflightReport,
+} from './conversation-preflight.js';
+import {
+  LEGACY_CANVAS_NODE_MEDIA_COVERAGE,
+  legacyCanvasNodeMediaHashes,
+} from './canvas-node-media-preflight.js';
+import {
+  LEGACY_CANVAS_NODE_ANNOTATION_KEYS,
+  legacyCanvasNodeAnnotationSource,
+} from './canvas-node-annotation-policy.js';
 
 const SOURCE_NAME_PATTERN = /^[a-z][a-z0-9_]*$/;
 const MAX_LEGACY_COMMANDER_SESSION_MESSAGES = 200;
@@ -183,6 +200,8 @@ export interface LegacyEmbeddedJsonMember {
   readonly table: string;
   readonly column: string;
   readonly rowSubject: LegacyClassificationRow['subject'];
+  /** Read-only source-row context; classifiers must not persist or report it. */
+  readonly rowValues: LegacyClassificationRow['values'];
   readonly subject: LegacyClassificationSubject;
   readonly memberPath: readonly (string | number)[];
   readonly value: unknown;
@@ -447,6 +466,7 @@ function enumerateDocument(
       table: row.table,
       column,
       rowSubject: row.subject,
+      rowValues: row.values,
       subject: member.subject,
       memberPath: member.memberPath,
       value: member.value,
@@ -566,6 +586,7 @@ export interface LegacyEmbeddedJsonClassificationReport {
   readonly schema: 'lucid-fin.legacy-embedded-json-classification/v1';
   readonly scope: 'embedded_json_members';
   readonly inventory: LegacyEmbeddedJsonSubjectInventory;
+  readonly conversationPreflight: LegacyConversationPreflightReport | null;
   readonly classification: ReturnType<typeof buildLegacyClassificationReport>;
   readonly fingerprint: string;
   readonly ok: boolean;
@@ -586,19 +607,13 @@ function offlineEmbeddedEntry(
     subject.database === 'main' &&
     subject.table === 'commander_sessions' &&
     (subject.path === '$.context_graph_json' || subject.path.startsWith('$.context_graph_json#'));
-  const isDiscardedTaskDependencyGraph =
-    subject.database === 'main' &&
-    subject.table === 'tasks' &&
-    (subject.path === '$.dependency_ids_json' || subject.path.startsWith('$.dependency_ids_json#'));
-  if (!isSnapshotData && !isDiscardedContextGraph && !isDiscardedTaskDependencyGraph) return null;
+  if (!isSnapshotData && !isDiscardedContextGraph) return null;
   return {
     subject,
     disposition: 'offline_legacy_export',
     reasonCode: isSnapshotData
       ? 'legacy_snapshot_embedded_offline_backup'
-      : isDiscardedContextGraph
-        ? 'legacy_context_graph_offline_rebuild'
-        : 'legacy_task_dependency_embedded_offline_export',
+      : 'legacy_context_graph_offline_rebuild',
     targetRefs: [],
     exportRef: `legacy-export/${subject.database}/${subject.table}/${legacyClassificationSourceKey(subject)}`,
     blockerCode: null,
@@ -720,9 +735,221 @@ function ownershipEmbeddedEntries(
         exportRef: null,
         blockerCode: null,
       });
+      continue;
+    }
+
+    const canvasRefs = uniqueTargetRefs(
+      assignment.targetRefs.filter(({ authority }) => authority === 'canvas'),
+    );
+    if (isAuditedCanvasMediaMember(member) && canvasRefs.length > 0) {
+      entries.push({
+        subject: member.subject,
+        disposition: 'migrated_current_state',
+        reasonCode: 'legacy_canvas_media_reference_materialized',
+        targetRefs: canvasRefs,
+        exportRef: null,
+        blockerCode: null,
+      });
+      continue;
+    }
+    if (isCanvasLoadoutMember(member)) {
+      entries.push(
+        offlineMemberEntry(member.subject, 'legacy_canvas_loadout_detail_offline_export'),
+      );
+      continue;
+    }
+    if (
+      member.memberPath.length === 1 &&
+      typeof member.memberPath[0] === 'string' &&
+      LEGACY_CANVAS_NODE_ANNOTATION_KEYS.includes(
+        member.memberPath[0] as (typeof LEGACY_CANVAS_NODE_ANNOTATION_KEYS)[number],
+      ) &&
+      canvasRefs.length > 0
+    ) {
+      const nodeKind = member.rowValues.type;
+      const rawData = member.rowValues.data_json;
+      let data: Record<string, unknown> | null = null;
+      if (typeof rawData === 'string') {
+        try {
+          const parsed = JSON.parse(rawData) as unknown;
+          if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+            data = parsed as Record<string, unknown>;
+          }
+        } catch {
+          // Invalid documents are already classified by the embedded JSON scanner.
+        }
+      }
+      const selected = data === null ? null : legacyCanvasNodeAnnotationSource(data);
+      const hasPlacementTarget =
+        data !== null &&
+        typeof nodeKind === 'string' &&
+        (legacyCanvasNodeMediaHashes(nodeKind, data).length > 0 ||
+          ownership.claims.some(
+            (claim) =>
+              (claim.kind === 'node_entity_ref' ||
+                claim.kind === 'node_generation_history_entity_ref' ||
+                claim.kind === 'character_loadout_equipment') &&
+              claim.evidenceRefs.some(({ sourceKey }) => sourceKey === rowSourceKey),
+          ));
+      if (hasPlacementTarget || selected?.key !== member.memberPath[0]) {
+        entries.push(
+          offlineMemberEntry(member.subject, 'legacy_canvas_annotation_source_offline_export'),
+        );
+        continue;
+      }
+      entries.push({
+        subject: member.subject,
+        disposition: 'migrated_current_state',
+        reasonCode: 'legacy_canvas_annotation_text_materialized',
+        targetRefs: canvasRefs,
+        exportRef: null,
+        blockerCode: null,
+      });
     }
   }
   return entries;
+}
+
+function offlineMemberEntry(
+  subject: LegacyClassificationSubject,
+  reasonCode: string,
+): LegacyClassificationEntryInput {
+  return {
+    subject,
+    disposition: 'offline_legacy_export',
+    reasonCode,
+    targetRefs: [],
+    exportRef: `legacy-export/${subject.database}/${subject.table}/${legacyClassificationSourceKey(subject)}`,
+    blockerCode: null,
+  };
+}
+
+function canvasMediaPatternSegments(path: string): readonly (string | '*')[] {
+  const segments: Array<string | '*'> = [];
+  const matcher = /\.([A-Za-z][A-Za-z0-9_]*)|\[\*\]/g;
+  for (const match of path.matchAll(matcher)) segments.push(match[1] ?? '*');
+  return segments;
+}
+
+function memberIsPatternPrefix(
+  memberPath: readonly (string | number)[],
+  patternPath: string,
+): boolean {
+  const pattern = canvasMediaPatternSegments(patternPath);
+  if (memberPath.length > pattern.length) return false;
+  return memberPath.every((segment, index) => pattern[index] === '*' || pattern[index] === segment);
+}
+
+function isAuditedCanvasMediaMember(member: LegacyEmbeddedJsonMember): boolean {
+  const nodeKind = member.rowValues.type;
+  if (typeof nodeKind !== 'string') return false;
+  const coverage = LEGACY_CANVAS_NODE_MEDIA_COVERAGE.byNodeKind.find(
+    (candidate) => candidate.nodeKind === nodeKind,
+  );
+  return (
+    coverage?.paths.some(({ path }) => memberIsPatternPrefix(member.memberPath, path)) ?? false
+  );
+}
+
+function isCanvasLoadoutMember(member: LegacyEmbeddedJsonMember): boolean {
+  return member.memberPath.at(-1) === 'loadoutId' && member.memberPath.includes('characterRefs');
+}
+
+const CURRENT_PRODUCTION_EMBEDDED_COLUMNS = new Set([
+  'body',
+  'distinct_traits',
+  'face',
+  'hair',
+  'reference_images',
+  'tags',
+  'vocal_traits',
+  'atmosphere_keywords',
+  'dominant_colors',
+  'key_features',
+]);
+
+const OFFLINE_PRODUCTION_EMBEDDED_COLUMNS = new Set(['costumes', 'loadouts', 'parsed_scenes']);
+
+function classifyProductionEmbeddedMembers(
+  members: readonly LegacyEmbeddedJsonMember[],
+  rootClassification: LegacyClassificationReport | undefined,
+): readonly LegacyClassificationEntryInput[] {
+  if (!rootClassification) return [];
+  const rootEntries = new Map(
+    rootClassification.entries.map((entry) => [entry.sourceKey, entry] as const),
+  );
+  return members.flatMap((member): readonly LegacyClassificationEntryInput[] => {
+    if (
+      member.database !== 'main' ||
+      !['characters', 'equipment', 'locations', 'scripts'].includes(member.table)
+    ) {
+      return [];
+    }
+    if (
+      !CURRENT_PRODUCTION_EMBEDDED_COLUMNS.has(member.column) &&
+      !OFFLINE_PRODUCTION_EMBEDDED_COLUMNS.has(member.column)
+    ) {
+      return [];
+    }
+    const rootEntry = rootEntries.get(legacyClassificationSourceKey(member.rowSubject));
+    if (!rootEntry) return [];
+    if (rootEntry.disposition === 'blocking_error') {
+      const blockerCode = rootEntry.blockerCode ?? 'legacy_production_embedded_owner_unresolved';
+      return [
+        {
+          subject: member.subject,
+          disposition: 'blocking_error',
+          reasonCode: 'legacy_production_embedded_owner_blocked',
+          targetRefs: [],
+          exportRef: null,
+          blockerCode,
+        },
+      ];
+    }
+    if (
+      rootEntry.disposition === 'offline_legacy_export' ||
+      OFFLINE_PRODUCTION_EMBEDDED_COLUMNS.has(member.column)
+    ) {
+      return [
+        offlineMemberEntry(
+          member.subject,
+          rootEntry.disposition === 'offline_legacy_export'
+            ? 'legacy_unlinked_production_embedded_offline_export'
+            : 'legacy_unmodeled_production_embedded_offline_export',
+        ),
+      ];
+    }
+    const targetRefs = rootEntry.targetRefs
+      .filter(({ authority }) => authority === 'production')
+      .map(({ authority, id, projectId, cloneOf }): LegacyClassificationTargetRefInput => ({
+        authority,
+        id,
+        projectId,
+        ...(cloneOf === null ? {} : { cloneOf }),
+      }));
+    if (targetRefs.length === 0) {
+      return [
+        {
+          subject: member.subject,
+          disposition: 'blocking_error',
+          reasonCode: 'legacy_production_embedded_target_unresolved',
+          targetRefs: [],
+          exportRef: null,
+          blockerCode: 'legacy_production_embedded_target_unresolved',
+        },
+      ];
+    }
+    return [
+      {
+        subject: member.subject,
+        disposition: 'migrated_current_state',
+        reasonCode: 'legacy_production_embedded_current_state',
+        targetRefs,
+        exportRef: null,
+        blockerCode: null,
+      },
+    ];
+  });
 }
 
 function classifyGlobalMediaAssetTagMembers(
@@ -911,14 +1138,24 @@ function classifyCanvasViewportMembers(
       continue;
     }
 
+    const canvasTarget = targetRefs[0]!;
+    const canvasTargetInput: LegacyClassificationTargetRefInput = {
+      authority: canvasTarget.authority,
+      id: canvasTarget.id,
+      projectId: canvasTarget.projectId,
+    };
+    const evidenceTarget = legacyCanvasEvidenceTarget(
+      rootMember.rowSubject,
+      canvasTarget.projectId!,
+    );
     entries.push(
       ...document.map(({ subject }): LegacyClassificationEntryInput => ({
         subject,
-        disposition: 'blocking_error',
-        reasonCode: 'legacy_canvas_viewport_coordinate_mapping_unfrozen',
-        targetRefs: [],
+        disposition: 'immutable_provenance_history',
+        reasonCode: 'legacy_canvas_viewport_preserved_target_view_reset',
+        targetRefs: [canvasTargetInput, evidenceTarget],
         exportRef: null,
-        blockerCode: 'unresolved_canvas_viewport_coordinate_mapping',
+        blockerCode: null,
       })),
     );
   }
@@ -1303,9 +1540,10 @@ function classifyLegacyColorStyleMembers(
 interface LegacyCommanderSessionPublicMessage {
   readonly id: string;
   readonly sequence: number;
-  readonly role: 'user';
-  readonly status: 'accepted';
+  readonly role: 'user' | 'assistant';
+  readonly status: 'accepted' | 'completed' | 'interrupted';
   readonly originatingRunId: null;
+  readonly originatingImportedRunId: string | null;
   readonly blocks: readonly [{ readonly type: 'text'; readonly text: string }];
   readonly attachments: readonly [];
   readonly supersedesMessageId: null;
@@ -1315,7 +1553,7 @@ interface LegacyCommanderSessionPublicMessage {
 type LegacyCommanderSessionMessageTranscript =
   | Readonly<{
       kind: 'valid';
-      hasAssistantMessage: boolean;
+      hasUnresolvedAssistantMessage: boolean;
       hasUnmappedUserMessageFields: boolean;
       publicMessages: readonly LegacyCommanderSessionPublicMessage[];
     }>
@@ -1324,12 +1562,14 @@ type LegacyCommanderSessionMessageTranscript =
 
 function classifyLegacyCommanderSessionMessageTranscript(
   value: unknown,
+  sessionId: string,
+  assistantOrigins: ReadonlyMap<string, LegacyAssistantMessageOrigin>,
 ): LegacyCommanderSessionMessageTranscript {
   if (!Array.isArray(value) || value.length > MAX_LEGACY_COMMANDER_SESSION_MESSAGES) {
     return { kind: 'invalid_core' };
   }
   const ids = new Set<string>();
-  let hasAssistantMessage = false;
+  let hasUnresolvedAssistantMessage = false;
   let hasUnmappedUserMessageFields = false;
   const publicMessages: LegacyCommanderSessionPublicMessage[] = [];
   for (const [index, candidate] of value.entries()) {
@@ -1351,18 +1591,36 @@ function classifyLegacyCommanderSessionMessageTranscript(
     }
     if (ids.has(message.id)) return { kind: 'duplicate_id' };
     ids.add(message.id);
-    hasAssistantMessage ||= message.role === 'assistant';
     if (message.role === 'user') {
-      hasUnmappedUserMessageFields ||=
-        Object.keys(message).some(
-          (field) => field !== 'id' && field !== 'role' && field !== 'content' && field !== 'timestamp',
-        );
+      hasUnmappedUserMessageFields ||= Object.keys(message).some(
+        (field) =>
+          field !== 'id' && field !== 'role' && field !== 'content' && field !== 'timestamp',
+      );
       publicMessages.push({
         id: message.id,
         sequence: index + 1,
         role: 'user',
         status: 'accepted',
         originatingRunId: null,
+        originatingImportedRunId: null,
+        blocks: [{ type: 'text', text: message.content }],
+        attachments: [],
+        supersedesMessageId: null,
+        createdAt,
+      });
+    } else {
+      const origin = assistantOrigins.get(`${sessionId}\u0000${message.id}`);
+      if (!origin) {
+        hasUnresolvedAssistantMessage = true;
+        continue;
+      }
+      publicMessages.push({
+        id: message.id,
+        sequence: index + 1,
+        role: 'assistant',
+        status: origin.status,
+        originatingRunId: null,
+        originatingImportedRunId: origin.runId,
         blocks: [{ type: 'text', text: message.content }],
         attachments: [],
         supersedesMessageId: null,
@@ -1370,7 +1628,12 @@ function classifyLegacyCommanderSessionMessageTranscript(
       });
     }
   }
-  return { kind: 'valid', hasAssistantMessage, hasUnmappedUserMessageFields, publicMessages };
+  return {
+    kind: 'valid',
+    hasUnresolvedAssistantMessage,
+    hasUnmappedUserMessageFields,
+    publicMessages,
+  };
 }
 
 function commanderSessionMessageBlockingEntries(
@@ -1437,6 +1700,7 @@ function classifyLegacyCommanderSessionMessageMembers(
   members: readonly LegacyEmbeddedJsonMember[],
   rootClassification: LegacyClassificationReport | undefined,
   ownership: LegacyProjectOwnershipGraphReport | undefined,
+  conversationPreflight: LegacyConversationPreflightReport | null,
 ): readonly LegacyClassificationEntryInput[] {
   const rootEntries = new Map(
     (rootClassification?.entries ?? []).map((entry) => [entry.sourceKey, entry] as const),
@@ -1445,6 +1709,11 @@ function classifyLegacyCommanderSessionMessageMembers(
     (ownership?.assignments ?? []).map((assignment) => [assignment.sourceKey, assignment] as const),
   );
   const documents = new Map<string, LegacyEmbeddedJsonMember[]>();
+  const assistantOrigins = new Map(
+    (conversationPreflight?.assistantOrigins ?? []).map(
+      (origin) => [`${origin.sessionId}\u0000${origin.messageId}`, origin] as const,
+    ),
+  );
   for (const member of members) {
     if (
       member.database !== 'main' ||
@@ -1486,7 +1755,14 @@ function classifyLegacyCommanderSessionMessageMembers(
     const rootMember = document.find(({ memberPath }) => memberPath.length === 0);
     if (!rootMember)
       throw new Error('Legacy Commander session message document has no root member');
-    const transcript = classifyLegacyCommanderSessionMessageTranscript(rootMember.value);
+    const sessionId = ownershipAssignment?.targetRefs.find(
+      ({ authority }) => authority === 'chat',
+    )?.id;
+    const transcript = classifyLegacyCommanderSessionMessageTranscript(
+      rootMember.value,
+      sessionId ?? '',
+      assistantOrigins,
+    );
     if (transcript.kind === 'invalid_core') {
       entries.push(
         ...commanderSessionMessageBlockingEntries(
@@ -1507,7 +1783,7 @@ function classifyLegacyCommanderSessionMessageMembers(
       );
       continue;
     }
-    if (transcript.hasAssistantMessage) {
+    if (transcript.hasUnresolvedAssistantMessage) {
       entries.push(
         ...commanderSessionMessageBlockingEntries(
           document,
@@ -1625,6 +1901,21 @@ function classifyRootBoundBlockingMembers(
     }
     const rootEntry = rootEntries.get(legacyClassificationSourceKey(member.rowSubject));
     if (!rootEntry) return [];
+    const importedTargets = rootEntry.targetRefs
+      .filter(({ authority }) => authority.startsWith('imported_'))
+      .map(({ authority, id, projectId, cloneOf }): LegacyClassificationTargetRefInput => ({
+        authority,
+        id,
+        projectId,
+        ...(cloneOf === null ? {} : { cloneOf }),
+      }));
+    if (
+      rootEntry.disposition === 'immutable_provenance_history' &&
+      importedTargets.length === rootEntry.targetRefs.length &&
+      importedTargets.length > 0
+    ) {
+      return [legacyImportedEmbeddedEntry(member.subject, importedTargets)];
+    }
     return [
       {
         subject: member.subject,
@@ -1641,6 +1932,89 @@ function classifyRootBoundBlockingMembers(
   });
 }
 
+function classifyRootBoundOfflineMembers(
+  members: readonly LegacyEmbeddedJsonMember[],
+  rootClassification: LegacyClassificationReport | undefined,
+  policy: Readonly<{
+    table: string;
+    columns: readonly string[];
+    reasonCode: string;
+    blockedReasonCode: string;
+  }>,
+): readonly LegacyClassificationEntryInput[] {
+  if (!rootClassification) return [];
+  const rootEntries = new Map(
+    rootClassification.entries.map((entry) => [entry.sourceKey, entry] as const),
+  );
+  return members.flatMap((member): readonly LegacyClassificationEntryInput[] => {
+    if (
+      member.database !== 'main' ||
+      member.table !== policy.table ||
+      !policy.columns.includes(member.column)
+    ) {
+      return [];
+    }
+    const rootEntry = rootEntries.get(legacyClassificationSourceKey(member.rowSubject));
+    if (!rootEntry) return [];
+    if (rootEntry.disposition === 'blocking_error') {
+      const blockerCode = rootEntry.blockerCode ?? policy.blockedReasonCode;
+      return [
+        {
+          subject: member.subject,
+          disposition: 'blocking_error',
+          reasonCode: policy.blockedReasonCode,
+          targetRefs: [],
+          exportRef: null,
+          blockerCode,
+        },
+      ];
+    }
+    return [offlineMemberEntry(member.subject, policy.reasonCode)];
+  });
+}
+
+function classifyImportedTaskContainerMembers(
+  members: readonly LegacyEmbeddedJsonMember[],
+  rootClassification: LegacyClassificationReport | undefined,
+): readonly LegacyClassificationEntryInput[] {
+  if (!rootClassification) return [];
+  const rootEntries = new Map(
+    rootClassification.entries.map((entry) => [entry.sourceKey, entry] as const),
+  );
+  return members.flatMap((member): readonly LegacyClassificationEntryInput[] => {
+    if (member.database !== 'main' || (member.table !== 'task_lists' && member.table !== 'tasks')) {
+      return [];
+    }
+    const rootEntry = rootEntries.get(legacyClassificationSourceKey(member.rowSubject));
+    if (!rootEntry) return [];
+    if (rootEntry.disposition === 'blocking_error') {
+      const blockerCode =
+        rootEntry.blockerCode ?? 'legacy_imported_history_project_owner_unresolved';
+      return [
+        {
+          subject: member.subject,
+          disposition: 'blocking_error',
+          reasonCode: 'legacy_imported_task_history_owner_blocked',
+          targetRefs: [],
+          exportRef: null,
+          blockerCode,
+        },
+      ];
+    }
+    const targetRefs = rootEntry.targetRefs.map(
+      ({ authority, id, projectId, cloneOf }): LegacyClassificationTargetRefInput => ({
+        authority,
+        id,
+        projectId,
+        ...(cloneOf === null ? {} : { cloneOf }),
+      }),
+    );
+    return rootEntry.disposition === 'immutable_provenance_history' && targetRefs.length > 0
+      ? [legacyImportedEmbeddedEntry(member.subject, targetRefs)]
+      : [];
+  });
+}
+
 /**
  * Builds the independent embedded-member report. Invalid documents and
  * explicitly frozen column policies receive blocking dispositions; other
@@ -1653,6 +2027,11 @@ export function classifyLegacyEmbeddedJsonMembers(
 ): LegacyEmbeddedJsonClassificationReport {
   const members: LegacyEmbeddedJsonMember[] = [];
   const sources = options.sources ?? LEGACY_EMBEDDED_JSON_SOURCES;
+  const conversationPreflight = expected.main.tables.some(
+    ({ name, columns }) => name === 'commander_sessions' && columns.includes('messages'),
+  )
+    ? preflightLegacyConversation(databases.main)
+    : null;
   const inventory =
     options.classifyMembers ||
     options.ownership ||
@@ -1720,6 +2099,13 @@ export function classifyLegacyEmbeddedJsonMembers(
   const ownershipSourceKeys = new Set(
     ownershipEntries.map(({ subject }) => legacyClassificationSourceKey(subject)),
   );
+  const productionEmbeddedEntries = classifyProductionEmbeddedMembers(
+    members,
+    options.rootClassification,
+  ).filter(({ subject }) => !invalidSourceKeys.has(legacyClassificationSourceKey(subject)));
+  const productionEmbeddedSourceKeys = new Set(
+    productionEmbeddedEntries.map(({ subject }) => legacyClassificationSourceKey(subject)),
+  );
   const globalMediaAssetTagEntries = classifyGlobalMediaAssetTagMembers(
     members,
     options.rootClassification,
@@ -1765,9 +2151,17 @@ export function classifyLegacyEmbeddedJsonMembers(
     members,
     options.rootClassification,
     options.ownership,
+    conversationPreflight,
   ).filter(({ subject }) => !invalidSourceKeys.has(legacyClassificationSourceKey(subject)));
   const commanderSessionMessageSourceKeys = new Set(
     commanderSessionMessageEntries.map(({ subject }) => legacyClassificationSourceKey(subject)),
+  );
+  const importedTaskContainerEntries = classifyImportedTaskContainerMembers(
+    members,
+    options.rootClassification,
+  ).filter(({ subject }) => !invalidSourceKeys.has(legacyClassificationSourceKey(subject)));
+  const importedTaskContainerSourceKeys = new Set(
+    importedTaskContainerEntries.map(({ subject }) => legacyClassificationSourceKey(subject)),
   );
   const promptAssemblyEntries = classifyRootBoundBlockingMembers(
     members,
@@ -1881,15 +2275,14 @@ export function classifyLegacyEmbeddedJsonMembers(
   const taskEvaluationSourceKeys = new Set(
     taskEvaluationEntries.map(({ subject }) => legacyClassificationSourceKey(subject)),
   );
-  const deliverySequenceEntries = classifyRootBoundBlockingMembers(
+  const deliverySequenceEntries = classifyRootBoundOfflineMembers(
     members,
     options.rootClassification,
     {
       table: 'canvases',
       columns: ['delivery_sequence_json'],
+      reasonCode: 'legacy_delivery_sequence_offline_export',
       blockedReasonCode: 'legacy_delivery_sequence_owner_blocked',
-      unresolvedReasonCode: 'legacy_delivery_target_identity_unresolved',
-      unresolvedBlockerCode: 'legacy_delivery_target_identity_unresolved',
     },
   ).filter(({ subject }) => !invalidSourceKeys.has(legacyClassificationSourceKey(subject)));
   const deliverySequenceSourceKeys = new Set(
@@ -1916,6 +2309,7 @@ export function classifyLegacyEmbeddedJsonMembers(
       ...invalidEntries,
       ...offlineEntries,
       ...ownershipEntries,
+      ...productionEmbeddedEntries,
       ...globalMediaAssetTagEntries,
       ...canvasViewportEntries,
       ...canvasNoteEntries,
@@ -1923,6 +2317,7 @@ export function classifyLegacyEmbeddedJsonMembers(
       ...projectSettingEntries,
       ...colorStyleEntries,
       ...commanderSessionMessageEntries,
+      ...importedTaskContainerEntries,
       ...promptAssemblyEntries,
       ...commanderEventEntries,
       ...taskEventEntries,
@@ -1938,6 +2333,7 @@ export function classifyLegacyEmbeddedJsonMembers(
             !invalidSourceKeys.has(legacyClassificationSourceKey(subject)) &&
             !offlineSourceKeys.has(legacyClassificationSourceKey(subject)) &&
             !ownershipSourceKeys.has(legacyClassificationSourceKey(subject)) &&
+            !productionEmbeddedSourceKeys.has(legacyClassificationSourceKey(subject)) &&
             !globalMediaAssetTagSourceKeys.has(legacyClassificationSourceKey(subject)) &&
             !canvasViewportSourceKeys.has(legacyClassificationSourceKey(subject)) &&
             !canvasNoteSourceKeys.has(legacyClassificationSourceKey(subject)) &&
@@ -1945,6 +2341,7 @@ export function classifyLegacyEmbeddedJsonMembers(
             !projectSettingSourceKeys.has(legacyClassificationSourceKey(subject)) &&
             !colorStyleSourceKeys.has(legacyClassificationSourceKey(subject)) &&
             !commanderSessionMessageSourceKeys.has(legacyClassificationSourceKey(subject)) &&
+            !importedTaskContainerSourceKeys.has(legacyClassificationSourceKey(subject)) &&
             !promptAssemblySourceKeys.has(legacyClassificationSourceKey(subject)) &&
             !commanderEventSourceKeys.has(legacyClassificationSourceKey(subject)) &&
             !taskEventSourceKeys.has(legacyClassificationSourceKey(subject)) &&
@@ -1962,6 +2359,7 @@ export function classifyLegacyEmbeddedJsonMembers(
     schema: 'lucid-fin.legacy-embedded-json-classification/v1' as const,
     scope: 'embedded_json_members' as const,
     inventory,
+    conversationPreflight,
     classification,
   };
   return {
@@ -1970,8 +2368,9 @@ export function classifyLegacyEmbeddedJsonMembers(
       schema: withoutFingerprint.schema,
       scope: withoutFingerprint.scope,
       inventoryFingerprint: inventory.fingerprint,
+      conversationPreflightFingerprint: conversationPreflight?.fingerprint ?? null,
       classificationReportHash: classification.reportHash,
     }),
-    ok: classification.ok,
+    ok: classification.ok && (conversationPreflight?.ok ?? true),
   };
 }

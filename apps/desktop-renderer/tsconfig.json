@@ -9,7 +9,10 @@
     "outDir": "dist",
     "rootDir": "src",
     "paths": {
-      "@lucid-fin/target-contracts": ["../../packages/target-contracts/src/index.ts"]
+      "@lucid-fin/target-contracts": ["../../packages/target-contracts/src/index.ts"],
+      "@lucid-fin/target-contracts/canonical-json": [
+        "../../packages/target-contracts/src/canonical-json.ts"
+      ]
     },
     "types": ["vite/client"]
   },

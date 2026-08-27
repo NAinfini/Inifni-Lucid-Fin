@@ -24,6 +24,7 @@ import {
   planLegacySkillMigration,
   type LegacySkillMigrationBundleV1,
 } from './migrate-legacy-skills.js';
+import { validateCanonicalLegacySkillMigrationPlan } from './rehearse-legacy-migration.js';
 
 function rendererExport(payload: unknown) {
   const rawJson = canonicalJson(payload);
@@ -213,6 +214,43 @@ function classificationRows(bundle: LegacySkillMigrationBundleV1): LegacyClassif
 }
 
 describe('legacy Skill migration', () => {
+  it('binds a rehearsal plan to the canonical built-in pack and exact source bundle', async () => {
+    const empty = await emptyBundle();
+    const bundle = sealBundle({
+      ...empty,
+      rendererExport: rendererExport({
+        builtInCustoms: {},
+        builtInNames: {},
+        customSkills: [
+          {
+            id: 'renderer.custom.rehearsal',
+            name: 'Rehearsal custom Skill',
+            category: 'user',
+            customContent: 'User-authored content remains quarantined.',
+            source: 'user',
+            createdAt: 1,
+          },
+        ],
+      }),
+    });
+    const plan = await planLegacySkillMigration(bundle);
+    await expect(
+      validateCanonicalLegacySkillMigrationPlan({ skillBundle: bundle, skillPlan: plan }),
+    ).resolves.toEqual(plan);
+
+    const { planHash: _planHash, ...withoutHash } = plan;
+    const changedWithoutHash = { ...withoutHash, documents: plan.documents.slice(0, -1) };
+    const changed = {
+      ...changedWithoutHash,
+      planHash: createHash('sha256')
+        .update(canonicalJson(changedWithoutHash), 'utf8')
+        .digest('hex'),
+    };
+    await expect(
+      validateCanonicalLegacySkillMigrationPlan({ skillBundle: bundle, skillPlan: changed }),
+    ).rejects.toThrow('Legacy Skill migration plan does not match its canonical source bundle');
+  });
+
   it('composes nullable legacy rows and renderer storage without losing structured data', () => {
     const directory = mkdtempSync(join(process.cwd(), '.tmp-legacy-skills-'));
     const legacyPath = join(directory, 'presets.sqlite');
@@ -333,7 +371,7 @@ describe('legacy Skill migration', () => {
       builtIn: 287,
       dynamic: 0,
       total: 287,
-      quarantined: 35,
+      quarantined: 37,
     });
     expect(
       Object.fromEntries(
@@ -593,7 +631,7 @@ describe('legacy Skill migration', () => {
       expectedReportHash: dryRun.reportHash,
     });
     expect(first.counts).toMatchObject({ builtIn: 287, dynamic: 10, total: 297 });
-    expect(first.counts.quarantined).toBe(45);
+    expect(first.counts.quarantined).toBe(47);
     expect(first.entries.every(({ registration }) => registration === 'inserted')).toBe(true);
     expect(second.entries.every(({ registration }) => registration === 'unchanged')).toBe(true);
     expect(first.sourceFingerprint).toBe(second.sourceFingerprint);

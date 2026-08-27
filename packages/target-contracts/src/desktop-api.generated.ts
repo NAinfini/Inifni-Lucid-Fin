@@ -64,6 +64,12 @@ export interface TargetDesktopDeliveryApiV1 {
   ): Promise<TargetDesktopResponseV1<'delivery.query'>>;
 }
 
+export interface TargetDesktopHistoryApiV1 {
+  query(
+    request: TargetDesktopCallV1<'history.query'>,
+  ): Promise<TargetDesktopResponseV1<'history.query'>>;
+}
+
 export interface TargetDesktopInteractionApiV1 {
   answer(
     request: TargetDesktopCallV1<'interaction.answer'>,
@@ -92,6 +98,9 @@ export interface TargetDesktopMediaApiV1 {
   projectList(
     request: TargetDesktopCallV1<'media.project.list'>,
   ): Promise<TargetDesktopResponseV1<'media.project.list'>>;
+  previewIssue(
+    request: TargetDesktopCallV1<'media.preview.issue'>,
+  ): Promise<TargetDesktopResponseV1<'media.preview.issue'>>;
 }
 
 export interface TargetDesktopMessageApiV1 {
@@ -127,6 +136,15 @@ export interface TargetDesktopOverviewApiV1 {
   ): Promise<TargetDesktopResponseV1<'overview.get'>>;
 }
 
+export interface TargetDesktopPluginApiV1 {
+  apply(
+    request: TargetDesktopCallV1<'plugin.apply'>,
+  ): Promise<TargetDesktopResponseV1<'plugin.apply'>>;
+  query(
+    request: TargetDesktopCallV1<'plugin.query'>,
+  ): Promise<TargetDesktopResponseV1<'plugin.query'>>;
+}
+
 export interface TargetDesktopProductionApiV1 {
   apply(
     request: TargetDesktopCallV1<'production.apply'>,
@@ -137,6 +155,9 @@ export interface TargetDesktopProductionApiV1 {
 }
 
 export interface TargetDesktopProjectApiV1 {
+  capabilitiesGet(
+    request: TargetDesktopCallV1<'project.capabilities.get'>,
+  ): Promise<TargetDesktopResponseV1<'project.capabilities.get'>>;
   create(
     request: TargetDesktopCallV1<'project.create'>,
   ): Promise<TargetDesktopResponseV1<'project.create'>>;
@@ -153,6 +174,12 @@ export interface TargetDesktopProjectApiV1 {
   update(
     request: TargetDesktopCallV1<'project.update'>,
   ): Promise<TargetDesktopResponseV1<'project.update'>>;
+}
+
+export interface TargetDesktopResultApiV1 {
+  query(
+    request: TargetDesktopCallV1<'result.query'>,
+  ): Promise<TargetDesktopResponseV1<'result.query'>>;
 }
 
 export interface TargetDesktopRunApiV1 {
@@ -175,13 +202,16 @@ export interface TargetDesktopApiV1 {
   readonly confirmation: TargetDesktopConfirmationApiV1;
   readonly decision: TargetDesktopDecisionApiV1;
   readonly delivery: TargetDesktopDeliveryApiV1;
+  readonly history: TargetDesktopHistoryApiV1;
   readonly interaction: TargetDesktopInteractionApiV1;
   readonly media: TargetDesktopMediaApiV1;
   readonly message: TargetDesktopMessageApiV1;
   readonly operation: TargetDesktopOperationApiV1;
   readonly os: TargetDesktopOsApiV1;
   readonly overview: TargetDesktopOverviewApiV1;
+  readonly plugin: TargetDesktopPluginApiV1;
   readonly production: TargetDesktopProductionApiV1;
   readonly project: TargetDesktopProjectApiV1;
+  readonly result: TargetDesktopResultApiV1;
   readonly run: TargetDesktopRunApiV1;
 }

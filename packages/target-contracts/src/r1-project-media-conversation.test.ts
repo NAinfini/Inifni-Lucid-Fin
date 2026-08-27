@@ -171,6 +171,7 @@ describe('R1 Project, Media, and Conversation authority contracts', () => {
       role: 'user',
       status: 'accepted',
       originatingRunId: null,
+      originatingImportedRunId: null,
       blocks: [{ type: 'text', text: 'Create a moonlit harbor sequence.' }],
       attachments: [],
       supersedesMessageId: null,
@@ -184,6 +185,7 @@ describe('R1 Project, Media, and Conversation authority contracts', () => {
       role: 'assistant',
       status: 'completed',
       originatingRunId: 'run.1',
+      originatingImportedRunId: null,
     } as const;
 
     expect(MessageSchema.parse(userMessage)).toEqual(userMessage);
@@ -198,6 +200,17 @@ describe('R1 Project, Media, and Conversation authority contracts', () => {
     expect(MessageSchema.safeParse({ ...assistantMessage, originatingRunId: null }).success).toBe(
       false,
     );
+    expect(
+      MessageSchema.safeParse({
+        ...assistantMessage,
+        originatingRunId: null,
+        originatingImportedRunId: 'imported-run.1',
+      }).success,
+    ).toBe(true);
+    expect(
+      MessageSchema.safeParse({ ...assistantMessage, originatingImportedRunId: 'imported-run.1' })
+        .success,
+    ).toBe(false);
     expect(MessageSchema.safeParse({ ...assistantMessage, status: 'accepted' }).success).toBe(
       false,
     );

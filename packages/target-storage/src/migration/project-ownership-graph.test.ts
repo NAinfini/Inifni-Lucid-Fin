@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { hashCanonical } from '../internal/hashes.js';
 import { legacyClassificationSourceKey } from './classification-report.js';
 import type { LegacyClassificationRow } from './classification-subjects.js';
+import { legacyProductionCollectionId } from './legacy-migration-policy.js';
 import {
   LEGACY_IMPORTED_CHAT_PROJECT_POLICY_V1,
   resolveLegacyProjectOwnership,
@@ -83,6 +84,7 @@ describe('Legacy Project ownership graph', () => {
         canvas_id: 'canvas.1',
         type: 'image',
         data_json: JSON.stringify({
+          assetHash: digest('node-image-media'),
           prompt: 'Private prompt',
           characterRefs: [{ characterId: 'character.shared', loadoutId: 'loadout.default' }],
           equipmentRefs: [{ equipmentId: 'equipment.direct' }],
@@ -120,6 +122,7 @@ describe('Legacy Project ownership graph', () => {
         canvas_id: 'canvas.2',
         type: 'video',
         data_json: JSON.stringify({
+          assetHash: digest('node-video-media'),
           characterRefs: [{ characterId: 'character.shared', loadoutId: 'loadout.default' }],
         }),
       }),
@@ -270,7 +273,7 @@ describe('Legacy Project ownership graph', () => {
     expect(JSON.stringify(first)).not.toContain('Private');
   });
 
-  it('blocks referenced folder components and dangling entity links without losing evidence', () => {
+  it('maps referenced folder components to Production Collections and blocks dangling links', () => {
     const report = resolveLegacyProjectOwnership(SOURCE_FINGERPRINT, [
       row('canvases', 'canvas.1', { id: 'canvas.1', archived_at: null }),
       row('characters', 'character.foldered', {
@@ -316,23 +319,212 @@ describe('Legacy Project ownership graph', () => {
     });
     for (const id of ['character-folder.root', 'character-folder.child']) {
       expect(assignment(report, 'character_folders', id)).toMatchObject({
-        disposition: 'blocking_error',
-        blockerCode: 'unresolved_legacy_production_collection_target',
-        targetRefs: [],
+        disposition: 'single_project',
+        blockerCode: null,
+        projectIds: ['canvas.1'],
+        targetRefs: [
+          {
+            authority: 'production_collection',
+            id: legacyProductionCollectionId('character_folders', id, 'canvas.1'),
+            projectId: 'canvas.1',
+          },
+        ],
       });
     }
-    const characterSourceKey = ownershipSourceKey('characters', 'character.foldered');
     expect(
-      report.blockers
-        .filter(
-          ({ blockerCode }) => blockerCode === 'unresolved_legacy_production_collection_target',
-        )
-        .map(({ evidenceSourceKey, evidencePath }) => ({ evidenceSourceKey, evidencePath })),
-    ).toEqual([
-      { evidenceSourceKey: characterSourceKey, evidencePath: '$.folder_id' },
-      { evidenceSourceKey: characterSourceKey, evidencePath: '$.folder_id' },
-    ]);
+      report.blockers.filter(
+        ({ blockerCode }) => blockerCode === 'unresolved_legacy_production_collection_target',
+      ),
+    ).toEqual([]);
+    expect(report.claims.filter(({ kind }) => kind === 'production_folder_member')).toHaveLength(2);
     expect(JSON.stringify(report)).not.toContain('Private');
+  });
+
+  it('gives same-named folders from different Legacy tables distinct Collection identities', () => {
+    const report = resolveLegacyProjectOwnership(SOURCE_FINGERPRINT, [
+      row('canvases', 'canvas.1', { id: 'canvas.1', archived_at: null }),
+      row('character_folders', 'folder.shared', {
+        id: 'folder.shared',
+        parent_id: null,
+        name: 'Characters',
+      }),
+      row('equipment_folders', 'folder.shared', {
+        id: 'folder.shared',
+        parent_id: null,
+        name: 'Equipment',
+      }),
+      row('characters', 'character.1', {
+        id: 'character.1',
+        default_loadout_id: '',
+        folder_id: 'folder.shared',
+        loadouts: '[]',
+      }),
+      row('equipment', 'equipment.1', { id: 'equipment.1', folder_id: 'folder.shared' }),
+      row('canvas_nodes', 'node.1', {
+        id: 'node.1',
+        canvas_id: 'canvas.1',
+        type: 'image',
+        data_json: JSON.stringify({
+          assetHash: digest('folder-cross-table-media'),
+          characterRefs: [{ characterId: 'character.1', loadoutId: '' }],
+          equipmentRefs: [{ equipmentId: 'equipment.1' }],
+        }),
+      }),
+    ]);
+
+    expect(report.ok).toBe(true);
+    const characterTarget = assignment(report, 'character_folders', 'folder.shared').targetRefs[0];
+    const equipmentTarget = assignment(report, 'equipment_folders', 'folder.shared').targetRefs[0];
+    expect(characterTarget?.id).toBe(
+      legacyProductionCollectionId('character_folders', 'folder.shared', 'canvas.1'),
+    );
+    expect(equipmentTarget?.id).toBe(
+      legacyProductionCollectionId('equipment_folders', 'folder.shared', 'canvas.1'),
+    );
+    expect(characterTarget?.id).not.toBe(equipmentTarget?.id);
+  });
+
+  it('blocks Canvas geometry and custom dimensions that Target cannot represent', () => {
+    const report = resolveLegacyProjectOwnership(SOURCE_FINGERPRINT, [
+      row('canvases', 'canvas.custom', {
+        id: 'canvas.custom',
+        archived_at: null,
+        aspect_ratio: 'custom',
+        default_width: null,
+        default_height: 1080n,
+      }),
+      row('canvases', 'canvas.geometry', {
+        id: 'canvas.geometry',
+        archived_at: null,
+        aspect_ratio: '16:9',
+        default_width: null,
+        default_height: null,
+      }),
+      row('canvas_nodes', 'node.invalid-size', {
+        id: 'node.invalid-size',
+        canvas_id: 'canvas.geometry',
+        type: 'text',
+        position_x: 0,
+        position_y: 0,
+        width: null,
+        height: 100,
+        data_json: '{}',
+      }),
+    ]);
+
+    expect(assignment(report, 'canvases', 'canvas.custom')).toMatchObject({
+      disposition: 'blocking_error',
+      blockerCode: 'invalid_legacy_canvas_custom_dimensions',
+    });
+    expect(assignment(report, 'canvas_nodes', 'node.invalid-size')).toMatchObject({
+      disposition: 'blocking_error',
+      blockerCode: 'invalid_legacy_canvas_node_size',
+    });
+  });
+
+  it('blocks Canvas, Chat, placement, and edge scalars outside Target contracts', () => {
+    const report = resolveLegacyProjectOwnership(SOURCE_FINGERPRINT, [
+      row('canvases', 'canvas.long-name', {
+        id: 'canvas.long-name',
+        name: 'N'.repeat(241),
+        archived_at: null,
+      }),
+      row('canvases', 'canvas.valid', {
+        id: 'canvas.valid',
+        name: 'Valid Canvas',
+        archived_at: null,
+      }),
+      row('commander_sessions', 'session.long-title', {
+        id: 'session.long-title',
+        title: 'T'.repeat(241),
+      }),
+      row('canvas_nodes', 'node.invalid-z', {
+        id: 'node.invalid-z',
+        canvas_id: 'canvas.valid',
+        type: 'text',
+        position_x: 0,
+        position_y: 0,
+        width: 100,
+        height: 100,
+        z_index: 1.5,
+        data_json: '{}',
+      }),
+      row('canvas_nodes', 'node.source', {
+        id: 'node.source',
+        canvas_id: 'canvas.valid',
+        type: 'text',
+        position_x: 0,
+        position_y: 0,
+        width: 100,
+        height: 100,
+        z_index: 0,
+        data_json: '{}',
+      }),
+      row('canvas_nodes', 'node.target', {
+        id: 'node.target',
+        canvas_id: 'canvas.valid',
+        type: 'text',
+        position_x: 100,
+        position_y: 0,
+        width: 100,
+        height: 100,
+        z_index: 1,
+        data_json: '{}',
+      }),
+      row('canvas_edges', 'edge.long-label', {
+        id: 'edge.long-label',
+        canvas_id: 'canvas.valid',
+        source: 'node.source',
+        target: 'node.target',
+        label: 'L'.repeat(241),
+      }),
+    ]);
+
+    expect(assignment(report, 'canvases', 'canvas.long-name')).toMatchObject({
+      disposition: 'blocking_error',
+      blockerCode: 'legacy_canvas_project_target_contract_incompatible',
+    });
+    expect(assignment(report, 'commander_sessions', 'session.long-title')).toMatchObject({
+      disposition: 'blocking_error',
+      blockerCode: 'legacy_chat_target_contract_incompatible',
+    });
+    expect(assignment(report, 'canvas_nodes', 'node.invalid-z')).toMatchObject({
+      disposition: 'blocking_error',
+      blockerCode: 'invalid_legacy_canvas_node_z_index',
+    });
+    expect(assignment(report, 'canvas_edges', 'edge.long-label')).toMatchObject({
+      disposition: 'blocking_error',
+      blockerCode: 'legacy_canvas_edge_target_contract_incompatible',
+    });
+  });
+
+  it('blocks Production content that exceeds Target name and trait limits', () => {
+    const character = (id: string, name: string, tags: readonly string[]) =>
+      row('characters', id, {
+        id,
+        name,
+        tags: JSON.stringify(tags),
+        distinct_traits: '[]',
+        loadouts: '[]',
+        default_loadout_id: '',
+        folder_id: null,
+      });
+    const report = resolveLegacyProjectOwnership(SOURCE_FINGERPRINT, [
+      character('character.long-name', 'N'.repeat(241), []),
+      character(
+        'character.too-many-traits',
+        'Many traits',
+        Array.from({ length: 101 }, (_, index) => `trait-${index}`),
+      ),
+      character('character.long-trait', 'Long trait', ['T'.repeat(1_001)]),
+    ]);
+
+    for (const id of ['character.long-name', 'character.too-many-traits', 'character.long-trait']) {
+      expect(assignment(report, 'characters', id)).toMatchObject({
+        disposition: 'blocking_error',
+        blockerCode: 'legacy_production_target_contract_incompatible',
+      });
+    }
   });
 
   it('blocks a referenced folder component even when the referring entity identity is invalid', () => {
@@ -752,6 +944,7 @@ describe('Legacy Project ownership graph', () => {
         canvas_id: 'canvas.1',
         type: 'image',
         data_json: JSON.stringify({
+          assetHash: digest('dependency-node-media'),
           characterRefs: [{ characterId: 'character.1', loadoutId: '' }],
         }),
       }),
@@ -798,7 +991,9 @@ describe('Legacy Project ownership graph', () => {
     expect(assignment(report, 'tasks', 'task.1')).toMatchObject({
       projectIds: ['canvas.1'],
       disposition: 'single_project',
-      targetRefs: [{ authority: 'task_list', id: 'task-list.canvas', projectId: 'canvas.1' }],
+      targetRefs: [
+        { authority: 'imported_task_item_history', id: 'task.1', projectId: 'canvas.1' },
+      ],
       blockerCode: null,
     });
     expect(assignment(report, 'task_lists', 'task-list.conflict')).toMatchObject({
@@ -826,6 +1021,7 @@ describe('Legacy Project ownership graph', () => {
         canvas_id: 'canvas.1',
         type: 'image',
         data_json: JSON.stringify({
+          assetHash: digest('dependency-node-media'),
           characterRefs: [{ characterId: 'character.1', loadoutId: '' }],
           equipmentRefs: [{ equipmentId: 'equipment.same' }],
         }),

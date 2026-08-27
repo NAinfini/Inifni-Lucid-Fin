@@ -80,12 +80,22 @@ export const UserMessageSchema = strictObject({
   role: z.literal('user'),
   status: z.literal('accepted'),
   originatingRunId: z.null(),
+  originatingImportedRunId: z.null(),
 });
 export const AssistantMessageSchema = strictObject({
   ...MessageBaseShape,
   role: z.literal('assistant'),
   status: z.enum(['completed', 'interrupted']),
-  originatingRunId: EntityIdSchema,
+  originatingRunId: EntityIdSchema.nullable(),
+  originatingImportedRunId: EntityIdSchema.nullable(),
+}).superRefine((message, context) => {
+  if ((message.originatingRunId === null) === (message.originatingImportedRunId === null)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['originatingRunId'],
+      message: 'Assistant Message must have exactly one live or imported Run origin',
+    });
+  }
 });
 export const MessageSchema = z.union([UserMessageSchema, AssistantMessageSchema]);
 export const ConversationSchema = z.union([ChatSchema, MessageSchema]);

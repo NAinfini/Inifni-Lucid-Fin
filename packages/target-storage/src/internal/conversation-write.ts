@@ -27,6 +27,7 @@ const AppendMessageInputSchema = z.union([
     role: z.literal('user'),
     status: z.literal('accepted'),
     originatingRunId: z.null(),
+    originatingImportedRunId: z.null().default(null),
     blocks: z.array(MessageBlockSchema).min(1).max(1_000),
     attachments: z.array(MessageAttachmentSchema).max(100),
     supersedesMessageId: EntityIdSchema.nullable(),
@@ -37,6 +38,18 @@ const AppendMessageInputSchema = z.union([
     role: z.literal('assistant'),
     status: z.enum(['completed', 'interrupted']),
     originatingRunId: EntityIdSchema,
+    originatingImportedRunId: z.null().default(null),
+    blocks: z.array(MessageBlockSchema).min(1).max(1_000),
+    attachments: z.array(MessageAttachmentSchema).max(100),
+    supersedesMessageId: EntityIdSchema.nullable(),
+    idempotencyKey: EntityIdSchema,
+  }),
+  strictObject({
+    chatId: EntityIdSchema,
+    role: z.literal('assistant'),
+    status: z.enum(['completed', 'interrupted']),
+    originatingRunId: z.null().default(null),
+    originatingImportedRunId: EntityIdSchema,
     blocks: z.array(MessageBlockSchema).min(1).max(1_000),
     attachments: z.array(MessageAttachmentSchema).max(100),
     supersedesMessageId: EntityIdSchema.nullable(),
@@ -44,7 +57,8 @@ const AppendMessageInputSchema = z.union([
   }),
 ]);
 
-export type AppendMessageInTransactionInput = z.output<typeof AppendMessageInputSchema>;
+export type AppendMessageInTransactionInput = z.input<typeof AppendMessageInputSchema>;
+type ParsedAppendMessageInTransactionInput = z.output<typeof AppendMessageInputSchema>;
 
 const AppendMessageIdentitySchema = strictObject({
   messageId: EntityIdSchema,
@@ -57,7 +71,7 @@ export type AppendMessageInTransactionIdentity = z.output<typeof AppendMessageId
 
 export interface AppendMessageInTransactionResult {
   readonly message: Message;
-  readonly eventId: string;
+  readonly eventId: string | null;
 }
 
 interface ChatRow {
@@ -83,6 +97,7 @@ interface MessageRow {
   role: Message['role'];
   status: Message['status'];
   originating_run_id: string | null;
+  originating_imported_run_id: string | null;
   content_hash: string;
   supersedes_message_id: string | null;
   created_at: string;
@@ -196,6 +211,7 @@ function messageFromRow(database: DatabaseSync, row: MessageRow): Message {
     role: row.role,
     status: row.status,
     originatingRunId: row.originating_run_id,
+    originatingImportedRunId: row.originating_imported_run_id,
     blocks,
     attachments: attachmentsForMessage(database, row.id),
     supersedesMessageId: row.supersedes_message_id,
@@ -300,7 +316,7 @@ function validateProjectObjectBlock(
 function validateMessageReferences(
   database: DatabaseSync,
   projectId: string,
-  input: AppendMessageInTransactionInput,
+  input: ParsedAppendMessageInTransactionInput,
 ): void {
   for (const attachment of input.attachments) {
     validateMediaSnapshot(
@@ -340,7 +356,7 @@ function validateMessageReferences(
 function validateSupersedes(
   database: DatabaseSync,
   projectId: string,
-  input: AppendMessageInTransactionInput,
+  input: ParsedAppendMessageInTransactionInput,
 ): void {
   if (input.supersedesMessageId === null) return;
   const superseded = database
@@ -363,17 +379,38 @@ function validateSupersedes(
 function validateOriginatingRun(
   database: DatabaseSync,
   projectId: string,
-  input: AppendMessageInTransactionInput,
+  input: ParsedAppendMessageInTransactionInput,
 ): void {
   if (input.role === 'user') return;
-  const run = database
-    .prepare('SELECT project_id, chat_id FROM runs WHERE id = ?')
-    .get(input.originatingRunId) as unknown as { project_id: string; chat_id: string } | undefined;
-  if (run === undefined) throw notFound('Originating Run', input.originatingRunId);
-  if (run.project_id !== projectId || run.chat_id !== input.chatId) {
+  if (input.originatingRunId !== null) {
+    const run = database
+      .prepare('SELECT project_id, chat_id FROM runs WHERE id = ?')
+      .get(input.originatingRunId) as unknown as
+      { project_id: string; chat_id: string } | undefined;
+    if (run === undefined) throw notFound('Originating Run', input.originatingRunId);
+    if (run.project_id !== projectId || run.chat_id !== input.chatId) {
+      throw new TargetStorageError(
+        'INVALID_REQUEST',
+        `Originating Run ${input.originatingRunId} belongs to another Chat or Project`,
+      );
+    }
+    return;
+  }
+  const importedRunId = input.originatingImportedRunId;
+  if (importedRunId === null) {
     throw new TargetStorageError(
       'INVALID_REQUEST',
-      `Originating Run ${input.originatingRunId} belongs to another Chat or Project`,
+      'Assistant Message must have exactly one Run origin',
+    );
+  }
+  const importedRun = database
+    .prepare('SELECT project_id, chat_id FROM imported_run_history WHERE id = ?')
+    .get(importedRunId) as unknown as { project_id: string; chat_id: string | null } | undefined;
+  if (importedRun === undefined) throw notFound('Originating imported Run', importedRunId);
+  if (importedRun.project_id !== projectId || importedRun.chat_id !== input.chatId) {
+    throw new TargetStorageError(
+      'INVALID_REQUEST',
+      `Originating imported Run ${importedRunId} belongs to another Chat or Project`,
     );
   }
 }
@@ -414,6 +451,7 @@ export function appendMessageInTransaction(
     role: input.role,
     status: input.status,
     originatingRunId: input.originatingRunId,
+    originatingImportedRunId: input.originatingImportedRunId,
     blocks: input.blocks,
     attachments: input.attachments,
     supersedesMessageId: input.supersedesMessageId,
@@ -430,8 +468,8 @@ export function appendMessageInTransaction(
     .prepare(
       `INSERT INTO messages (
          id, project_id, chat_id, sequence, role, status, originating_run_id,
-         content_hash, supersedes_message_id, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         originating_imported_run_id, content_hash, supersedes_message_id, created_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       message.id,
@@ -441,6 +479,7 @@ export function appendMessageInTransaction(
       message.role,
       message.status,
       message.originatingRunId,
+      message.originatingImportedRunId,
       message.contentHash,
       message.supersedesMessageId,
       message.createdAt,
@@ -498,41 +537,46 @@ export function appendMessageInTransaction(
     throw new TargetStorageError('REVISION_CONFLICT', `Chat ${chat.id} changed concurrently`);
   }
 
-  const event = appendProjectEvent(database, {
-    eventId: identity.eventId,
-    projectId: message.projectId,
-    occurredAt: message.createdAt,
-    actor: context.actor,
-    subject: { authority: 'message', id: message.id },
-    causation: context.causation,
-    correlationId: context.correlationId,
-    idempotencyKey: input.idempotencyKey,
-    payload: {
-      type: 'message_appended',
-      messageId: message.id,
-      chatId: message.chatId,
-      sequence: message.sequence,
-      contentHash: message.contentHash,
-    },
-  });
-  upsertProjectSearchDocument(
-    database,
-    environment,
-    message.projectId,
-    {
-      kind: 'message',
-      messageId: message.id,
-      chatId: message.chatId,
-      sequence: message.sequence,
-      contentHash: message.contentHash,
-    },
-    'current',
-    message.blocks
-      .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
-      .map((block) => block.text)
-      .join('\n'),
-    message.createdAt,
-    identity.searchDocumentId,
-  );
-  return { message, eventId: event.id };
+  const event =
+    message.originatingImportedRunId === null
+      ? appendProjectEvent(database, {
+          eventId: identity.eventId,
+          projectId: message.projectId,
+          occurredAt: message.createdAt,
+          actor: context.actor,
+          subject: { authority: 'message', id: message.id },
+          causation: context.causation,
+          correlationId: context.correlationId,
+          idempotencyKey: input.idempotencyKey,
+          payload: {
+            type: 'message_appended',
+            messageId: message.id,
+            chatId: message.chatId,
+            sequence: message.sequence,
+            contentHash: message.contentHash,
+          },
+        })
+      : null;
+  if (message.originatingImportedRunId === null) {
+    upsertProjectSearchDocument(
+      database,
+      environment,
+      message.projectId,
+      {
+        kind: 'message',
+        messageId: message.id,
+        chatId: message.chatId,
+        sequence: message.sequence,
+        contentHash: message.contentHash,
+      },
+      'current',
+      message.blocks
+        .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
+        .map((block) => block.text)
+        .join('\n'),
+      message.createdAt,
+      identity.searchDocumentId,
+    );
+  }
+  return { message, eventId: event?.id ?? null };
 }

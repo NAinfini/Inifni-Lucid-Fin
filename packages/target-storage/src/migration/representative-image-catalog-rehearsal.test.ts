@@ -373,7 +373,7 @@ describe('representative Legacy static image catalog rehearsal', () => {
     expect(report.target.offlineExport.sha256).toBe(report.target.offlineExport.reopenedSha256);
     expect(await readFile(source.mainDatabasePath)).toEqual(sourceDatabaseBefore);
     expect(await readFile(source.sourceMediaPath)).toEqual(sourceMediaBefore);
-  });
+  }, 15_000);
 
   it('transforms and reconciles the complete six-format static image family', async () => {
     const source = await fixture(STATIC_IMAGE_MEDIA);

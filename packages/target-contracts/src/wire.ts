@@ -8,6 +8,7 @@ import {
   CanvasTargetSchema,
   CanvasViewportSchema,
 } from './canvas.js';
+import { SkillProvenanceSchema, SkillTrustSchema } from './capability-catalog.js';
 import {
   ChatSchema,
   MessageAttachmentSchema,
@@ -22,6 +23,8 @@ import {
   UserChoiceSchema,
 } from './decision.js';
 import {
+  DeliveryAllowedExtensionsSchema,
+  DeliveryDestinationGrantV1Schema,
   DeliveryManifestSchema,
   DeliveryMutationCommandSchema,
   DeliveryPlanSchema,
@@ -43,6 +46,7 @@ import {
   OperationRefSchema,
 } from './operation.js';
 import {
+  ArtifactRefSchema,
   CountSchema,
   DomainObjectRefSchema,
   EntityIdSchema,
@@ -50,6 +54,7 @@ import {
   PermissionModeSchema,
   ResourceBudgetSchema,
   RevisionSchema,
+  SafeLeafDisplayLabelSchema,
   SequenceSchema,
   Sha256Schema,
   UserChoiceRefSchema,
@@ -63,10 +68,23 @@ import {
   ProductionTypedContentSchema,
 } from './production.js';
 import {
+  PluginPackageApplyInputV1Schema,
+  PluginPackageApplyOutputV1Schema,
+  PluginPackageIdentityV1Schema,
+  PluginPackageQueryInputV1Schema,
+  PluginPackageQueryOutputV1Schema,
+} from './plugin.js';
+import {
+  GeneratedResultRefSchema,
+  ResultQueryInputSchema,
+  ResultQuerySuccessSchema,
+} from './generation.js';
+import {
   ProductionMutationActionSchema,
   ProductionMutationReceiptSchema,
 } from './tools/domain-tools.js';
 import { MAX_MUTATION_BATCH } from './tools/common.js';
+import { HistoryQueryDefinition } from './tools/context-tools.js';
 import {
   ProjectEnabledSkillsSchema,
   ProjectFormatPolicySchema,
@@ -137,12 +155,41 @@ export const OverviewV1Schema = strictObject({
   }),
 });
 
+export const ProjectCapabilityProviderSummaryV1Schema = strictObject({
+  id: EntityIdSchema,
+  displayName: z.string().trim().min(1).max(240),
+  providerKind: z.string().trim().min(1).max(80),
+  model: z.string().trim().min(1).max(200),
+  status: z.enum(['ready', 'unavailable', 'disabled']),
+  revision: RevisionSchema,
+});
+export const ProjectCapabilitySkillEligibilityV1Schema = z.enum(['available', 'quarantined']);
+export const ProjectCapabilitySkillIndexV1Schema = strictObject({
+  id: EntityIdSchema,
+  name: z.string().trim().min(1).max(240),
+  description: z.string().trim().min(1).max(4_000),
+  version: z.string().trim().min(1).max(80),
+  contentHash: Sha256Schema,
+  provenance: SkillProvenanceSchema,
+  trust: SkillTrustSchema,
+  eligibility: ProjectCapabilitySkillEligibilityV1Schema,
+  quarantineReason: z.string().trim().min(1).max(4_000).nullable(),
+  pluginPackage: PluginPackageIdentityV1Schema.nullable(),
+});
+export const ProjectCapabilitiesV1Schema = strictObject({
+  projectId: EntityIdSchema,
+  providers: z.array(ProjectCapabilityProviderSummaryV1Schema).max(500),
+  skills: z.array(ProjectCapabilitySkillIndexV1Schema).max(500),
+});
+export type ProjectCapabilitiesV1 = z.output<typeof ProjectCapabilitiesV1Schema>;
+
 const ProjectCreateInputV1Schema = strictObject({
   name: z.string().trim().min(1).max(240),
   permissionMode: PermissionModeSchema,
   budget: ResourceBudgetSchema,
   formatPolicy: ProjectFormatPolicySchema,
 });
+const ProjectCapabilitiesGetInputV1Schema = strictObject({ projectId: EntityIdSchema });
 const ProjectUpdateInputV1Schema = strictObject({
   projectId: EntityIdSchema,
   expectedRevision: RevisionSchema,
@@ -172,15 +219,22 @@ const MediaPickerConstraintsV1Schema = strictObject({
   multiple: z.boolean(),
 });
 const ExportPickerConstraintsV1Schema = strictObject({
+  chatId: EntityIdSchema,
+  projectId: EntityIdSchema,
+  deliveryPlan: DeliveryRefSchema,
   destination: z.enum(['file', 'folder']),
   suggestedFileName: z.string().trim().min(1).max(240).nullable(),
-  allowedExtensions: z.array(z.string().regex(/^[A-Za-z0-9]{1,12}$/)).max(20),
+  allowedExtensions: DeliveryAllowedExtensionsSchema,
 });
 export const CapabilityGrantV1Schema = strictObject({
   capabilityToken: OpaqueCapabilityTokenV1Schema,
-  displayLabel: z.string().trim().min(1).max(512),
+  displayLabel: SafeLeafDisplayLabelSchema,
   expiresAt: IsoTimestampSchema,
 });
+export const ExportPickerResultV1Schema = z.union([
+  strictObject({ state: z.literal('selected'), grant: DeliveryDestinationGrantV1Schema }),
+  strictObject({ state: z.literal('cancelled') }),
+]);
 
 const GlobalMediaListInputV1Schema = strictObject({
   kinds: z.array(MediaKindSchema).max(4),
@@ -232,10 +286,25 @@ const MessageSendInputV1Schema = strictObject({
   attachments: z.array(MessageAttachmentSchema).max(100),
   selectedContext: z.array(SelectedContextRefSchema).max(1_000),
   supersedesMessageId: EntityIdSchema.nullable(),
+  exportDestinationGrant: DeliveryDestinationGrantV1Schema.nullable(),
 });
 const MessageSendOutputV1Schema = strictObject({
   message: UserMessageSchema,
+  chat: ChatSchema,
   acceptedRun: RunSchema,
+}).superRefine(({ message, chat, acceptedRun }, context) => {
+  if (
+    chat.id !== message.chatId ||
+    chat.id !== acceptedRun.chatId ||
+    chat.projectId !== message.projectId ||
+    chat.projectId !== acceptedRun.projectId
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['chat'],
+      message: 'Accepted Message, Chat, and Run must belong to the same Chat and Project',
+    });
+  }
 });
 
 const CanvasPlaceCommandV1Schema = strictObject({
@@ -365,6 +434,49 @@ const ProjectMediaDetachOutputV1Schema = ProjectMediaMutationReceiptV1Schema.ref
   { message: 'Detached Project Media must identify its previous revision' },
 );
 
+const ProjectMediaPreviewRefV1Schema = strictObject({
+  authority: z.literal('project_media_ref'),
+  id: EntityIdSchema,
+  revision: RevisionSchema,
+  contentHash: Sha256Schema,
+});
+const PreviewableArtifactV1Schema = ArtifactRefSchema.refine(
+  (artifact) => artifact.kind === 'image' || artifact.kind === 'video' || artifact.kind === 'audio',
+  { message: 'Media Preview artifacts must be image, video, or audio' },
+);
+export const MediaPreviewSourceV1Schema = z.union([
+  strictObject({
+    kind: z.literal('project_media_ref'),
+    ref: ProjectMediaPreviewRefV1Schema,
+  }),
+  strictObject({
+    kind: z.literal('generated_result'),
+    result: GeneratedResultRefSchema,
+    artifact: PreviewableArtifactV1Schema,
+  }),
+]);
+export type MediaPreviewSourceV1 = z.output<typeof MediaPreviewSourceV1Schema>;
+export const MediaPreviewIssueInputV1Schema = strictObject({
+  projectId: EntityIdSchema,
+  source: MediaPreviewSourceV1Schema,
+});
+export type MediaPreviewIssueInputV1 = z.output<typeof MediaPreviewIssueInputV1Schema>;
+export const MediaPreviewCapabilityUrlV1Schema = z
+  .string()
+  .max(512)
+  .regex(/^lucid-target-media:\/\/preview\/cap_[A-Za-z0-9_-]+$/u);
+export const MediaPreviewKindV1Schema = z.enum(['image', 'video', 'audio']);
+export const MediaPreviewMimeTypeV1Schema = z
+  .string()
+  .regex(/^(?:image|video|audio)\/[a-z0-9!#$&^_.+-]+$/u);
+export const MediaPreviewCapabilityGrantV1Schema = strictObject({
+  url: MediaPreviewCapabilityUrlV1Schema,
+  expiresAt: IsoTimestampSchema,
+  kind: MediaPreviewKindV1Schema,
+  mimeType: MediaPreviewMimeTypeV1Schema,
+});
+export type MediaPreviewCapabilityGrantV1 = z.output<typeof MediaPreviewCapabilityGrantV1Schema>;
+
 const ProductionQueryInputV1Schema = strictObject({
   projectId: EntityIdSchema,
   ids: z.array(EntityIdSchema).max(500),
@@ -424,6 +536,18 @@ const DeliveryApplyOutputV1Schema = strictObject({
   choice: UserChoiceSchema,
 });
 
+export const HistoryQueryOrderV1Schema = z.enum(['chronological', 'reverse_chronological']);
+export type HistoryQueryOrderV1 = z.output<typeof HistoryQueryOrderV1Schema>;
+const HistoryQueryInputV1Schema = strictObject({
+  projectId: EntityIdSchema,
+  query: HistoryQueryDefinition.inputSchema,
+  order: HistoryQueryOrderV1Schema,
+});
+const ResultQueryInputV1Schema = strictObject({
+  projectId: EntityIdSchema,
+  query: ResultQueryInputSchema,
+});
+
 const RunEventsListInputV1Schema = strictObject({
   runId: EntityIdSchema,
   afterSequence: SequenceSchema.nullable(),
@@ -462,6 +586,7 @@ const RunSendFollowupInputV1Schema = strictObject({
   expectedRevision: RevisionSchema,
   text: z.string().trim().min(1).max(200_000),
   selectedContext: z.array(SelectedContextRefSchema).max(1_000),
+  exportDestinationGrant: DeliveryDestinationGrantV1Schema.nullable(),
 });
 
 const InteractionAnswerInputV1Schema = strictObject({
@@ -566,6 +691,7 @@ export const PUBLIC_WIRE_METHODS_V1 = Object.freeze({
   'decision.record': wireMethod(DecisionRecordCommandSchema, UserChoiceSchema),
   'delivery.apply': wireMethod(DeliveryMutationCommandSchema, DeliveryApplyOutputV1Schema),
   'delivery.query': wireMethod(DeliveryQueryInputV1Schema, DeliveryQueryOutputV1Schema),
+  'history.query': wireMethod(HistoryQueryInputV1Schema, HistoryQueryDefinition.successSchema),
   'interaction.answer': wireMethod(InteractionAnswerInputV1Schema, InteractionAnswerOutputV1Schema),
   'media.global.import': wireMethod(GlobalMediaImportInputV1Schema, GlobalMediaAssetViewV1Schema),
   'media.global.list': wireMethod(
@@ -586,17 +712,27 @@ export const PUBLIC_WIRE_METHODS_V1 = Object.freeze({
   ),
   'media.project.link': wireMethod(ProjectMediaLinkInputSchema, ProjectMediaLinkSuccessSchema),
   'media.project.list': wireMethod(ProjectMediaListInputV1Schema, pageOf(ProjectMediaRefSchema)),
+  'media.preview.issue': wireMethod(
+    MediaPreviewIssueInputV1Schema,
+    MediaPreviewCapabilityGrantV1Schema,
+  ),
   'message.list': wireMethod(MessageListInputV1Schema, pageOf(MessageSchema)),
   'message.send': wireMethod(MessageSendInputV1Schema, MessageSendOutputV1Schema),
   'operation.cancel': wireMethod(OperationCancelInputSchema, OperationCancelOutputSchema),
   'operation.get': wireMethod(OperationGetInputSchema, OperationGetOutputSchema),
-  'os.export.pick': wireMethod(ExportPickerConstraintsV1Schema, CapabilityGrantV1Schema),
+  'os.export.pick': wireMethod(ExportPickerConstraintsV1Schema, ExportPickerResultV1Schema),
   'os.media.pick': wireMethod(MediaPickerConstraintsV1Schema, CapabilityGrantV1Schema),
   'overview.get': wireMethod(strictObject({ projectId: EntityIdSchema }), OverviewV1Schema),
+  'plugin.apply': wireMethod(PluginPackageApplyInputV1Schema, PluginPackageApplyOutputV1Schema),
+  'plugin.query': wireMethod(PluginPackageQueryInputV1Schema, PluginPackageQueryOutputV1Schema),
   'production.apply': wireMethod(ProductionApplyInputV1Schema, ProductionObjectViewV1Schema),
   'production.query': wireMethod(
     ProductionQueryInputV1Schema,
     pageOf(ProductionObjectViewV1Schema),
+  ),
+  'project.capabilities.get': wireMethod(
+    ProjectCapabilitiesGetInputV1Schema,
+    ProjectCapabilitiesV1Schema,
   ),
   'project.create': wireMethod(ProjectCreateInputV1Schema, ProjectCreateOutputV1Schema),
   'project.get': wireMethod(strictObject({ projectId: EntityIdSchema }), ProjectSchema),
@@ -607,6 +743,7 @@ export const PUBLIC_WIRE_METHODS_V1 = Object.freeze({
   ),
   'project.settings.update': wireMethod(ProjectSettingsUpdateInputV1Schema, ProjectSettingsSchema),
   'project.update': wireMethod(ProjectUpdateInputV1Schema, ProjectSchema),
+  'result.query': wireMethod(ResultQueryInputV1Schema, ResultQuerySuccessSchema),
   'run.control': wireMethod(RunControlInputV1Schema, RunSchema),
   'run.events.list': wireMethod(RunEventsListInputV1Schema, pageOf(PublicRunEventSchema)),
   'run.get': wireMethod(strictObject({ runId: EntityIdSchema }), RunSchema),

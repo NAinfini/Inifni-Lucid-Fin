@@ -534,10 +534,7 @@ function assertToolProgramBindings(
   const frozenTools = catalog.tools.filter(
     ({ id, version }) => id === row.tool_id && version === row.tool_version,
   );
-  const definition = executableToolDefinition(
-    row.tool_id,
-    row.tool_version,
-  ) as unknown as
+  const definition = executableToolDefinition(row.tool_id, row.tool_version) as unknown as
     | {
         readonly version: string;
         readonly parseInput: (input: unknown) => unknown;
@@ -896,19 +893,6 @@ function recoverChildObjective(
     throw invalid(`Tool Program child Run ${run.id} cannot materialize a model objective`);
   }
   assertChildObjectiveBindings(database, run, payload);
-  return payload;
-}
-
-function recoverToolProgram(
-  database: DatabaseSync,
-  codecValue: PrivateRecoveryCodec | undefined,
-  run: Run,
-): ToolProgramRecoveryPayloadV1 {
-  const payload = recoverPrivateChildPayload(database, codecValue, run);
-  if (payload.kind !== 'tool_program') {
-    throw invalid(`Model child Run ${run.id} cannot materialize a Tool Program`);
-  }
-  assertToolProgramBindings(database, run, payload);
   return payload;
 }
 

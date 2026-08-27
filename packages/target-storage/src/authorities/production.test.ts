@@ -11,6 +11,7 @@ import {
   commitPlannedProductionMutationInTransaction,
   planProductionMutationInTransaction,
   plannedProductionMutationIds,
+  productionMutationIdsForVariant,
 } from './production.js';
 
 const NOW = '2026-08-15T12:00:00.000Z';
@@ -315,6 +316,47 @@ function expectPlanFailureWithoutWrites(
 }
 
 describe('Production authority', () => {
+  it('allocates generated IDs from concrete wire variants without a mutation payload', () => {
+    const calls: Array<[string, string]> = [];
+    const nextId = (kind: string, role: string) => {
+      calls.push([kind, role]);
+      return `${kind}.${calls.length}`;
+    };
+
+    const created = productionMutationIdsForVariant('production_create', true, nextId);
+    const updated = productionMutationIdsForVariant('production_update', false, nextId);
+    const cited = productionMutationIdsForVariant('production_cite', false, nextId);
+
+    expect(created).toEqual({
+      tool: 'production.mutate',
+      variant: 'production_create',
+      productionObjectId: 'production.1',
+      containmentRelationId: 'production_relation.2',
+      objectEventId: 'project_event.3',
+      parentEventId: 'project_event.4',
+    });
+    expect(updated).toEqual({
+      tool: 'production.mutate',
+      variant: 'production_update',
+      objectEventId: 'project_event.5',
+    });
+    expect(cited).toEqual({
+      tool: 'production.mutate',
+      variant: 'production_cite',
+      factSourceId: 'production_fact_source.6',
+      objectEventId: 'project_event.7',
+    });
+    expect(calls).toEqual([
+      ['production', 'production_object'],
+      ['production_relation', 'containment_relation'],
+      ['project_event', 'object_event'],
+      ['project_event', 'parent_event'],
+      ['project_event', 'object_event'],
+      ['production_fact_source', 'fact_source'],
+      ['project_event', 'object_event'],
+    ]);
+  });
+
   it('plans and commits deterministic Production tool creation receipts', async () => {
     const { store, database, environment, project } = await harness();
     try {

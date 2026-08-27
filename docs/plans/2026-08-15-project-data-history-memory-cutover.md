@@ -189,6 +189,29 @@ The target TaskList does not retain fixed production phases, plan gates, approva
 host-authored dependency graph. Optional child items and Subagent links exist only to explain work the
 current Run actually chose to perform.
 
+#### Imported Legacy execution history
+
+Legacy `commander_runs`, `commander_events`, `task_lists`, tasks, plans, approvals, attempts,
+artifacts, decisions, evaluations, and prompt assemblies do not satisfy the required target Run,
+Context Manifest, capability catalog, Provider, permission, budget, inbox, activation, or TaskList
+ownership contracts. Migration therefore preserves them in a separate immutable imported-history
+ledger. It retains original IDs, ordering, parent/retry lineage, public payload hashes, timestamps,
+and typed evidence without creating a live target Run, TaskList, Provider attempt, UserChoice, or
+CapabilityCatalogSnapshot.
+
+Imported history is non-schedulable and read only. The Run Coordinator, Dispatcher, recovery,
+Context Manifest builder, model-visible History, search, Memory, and tool catalog never read it.
+Desktop History may display a bounded projection explicitly labelled `historical`, `readOnly`, and,
+when restricted private evidence was exported offline, `evidenceUnavailable`. A canonical assistant
+Message may cite either one exact live Run or one exact imported Run, never both; migration blocks
+rather than guessing when the Legacy transcript cannot prove that origin.
+
+Production folder state is owned by `ProductionCollection` and ordered collection membership.
+Cross-Project source entities and folders use the same deterministic clone policy as Production
+objects; unowned records are exported offline. Legacy viewport translation values remain source
+evidence and the target Canvas opens with its documented default view because the old ReactFlow
+translation is not a target center coordinate.
+
 The immutable `ContextManifest` contains:
 
 - Project, Chat, and exact user Message IDs.

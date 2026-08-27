@@ -821,6 +821,15 @@ function dispatchFromRow(database: DatabaseSync, row: DispatchRow): OperationDis
       throw corrupt(`Dispatch Operation ${row.id} outcome is invalid`, cause);
     }
   }
+  if (
+    outcome !== null &&
+    ((guardOutcome === 'confirmation_required' && outcome.status !== 'permission_required') ||
+      (guardOutcome === 'denied' && outcome.status !== 'permission_denied') ||
+      (guardOutcome === 'allowed' &&
+        (outcome.status === 'permission_required' || outcome.status === 'permission_denied')))
+  ) {
+    throw corrupt(`Dispatch Operation ${row.id} guard and outcome do not match`);
+  }
   return Object.freeze({
     id: row.id,
     key,
@@ -1506,7 +1515,7 @@ export function bindRuntimeDispatchConfirmation(
   let deliveryExportBinding = false;
   if (
     dispatch.key.toolId === DeliveryExportDefinition.id &&
-    confirmation.target.kind === 'domain_object'
+    confirmation.target.kind === 'delivery_export'
   ) {
     let exportInput: ReturnType<typeof DeliveryExportDefinition.parseInput>;
     try {
@@ -1517,7 +1526,10 @@ export function bindRuntimeDispatchConfirmation(
       throw corrupt(`delivery.export Dispatch ${dispatch.id} input is invalid`, cause);
     }
     deliveryExportBinding =
-      canonicalJson(confirmation.target.ref) === canonicalJson(exportInput.manifest);
+      canonicalJson(confirmation.target.manifest) === canonicalJson(exportInput.manifest) &&
+      confirmation.target.destination.kind === exportInput.destination.kind &&
+      confirmation.target.destination.displayLabel === exportInput.destination.displayLabel &&
+      confirmation.target.overwriteExisting === exportInput.overwriteExisting;
   }
   if (!protectedMutationBinding && !deliveryExportBinding) {
     throw invalid(`Run Confirmation ${confirmation.id} does not bind exact Dispatch semantics`);

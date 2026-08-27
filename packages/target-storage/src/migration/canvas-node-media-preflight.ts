@@ -77,6 +77,44 @@ export const LEGACY_CANVAS_NODE_MEDIA_COVERAGE = {
   ],
 } as const;
 
+function jsonPathSegments(path: string): readonly (string | '*')[] {
+  const segments: Array<string | '*'> = [];
+  for (const match of path.matchAll(/\.([A-Za-z][A-Za-z0-9_]*)|\[\*\]/g)) {
+    segments.push(match[1] ?? '*');
+  }
+  return segments;
+}
+
+function valuesAtPath(value: unknown, segments: readonly (string | '*')[]): readonly unknown[] {
+  if (segments.length === 0) return [value];
+  const [head, ...tail] = segments;
+  if (head === '*') {
+    return Array.isArray(value) ? value.flatMap((item) => valuesAtPath(item, tail)) : [];
+  }
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? valuesAtPath((value as Record<string, unknown>)[head!], tail)
+    : [];
+}
+
+/** Extracts only hashes covered by the audited node-kind path registry. */
+export function legacyCanvasNodeMediaHashes(nodeKind: unknown, value: unknown): readonly string[] {
+  if (typeof nodeKind !== 'string') return [];
+  const coverage = LEGACY_CANVAS_NODE_MEDIA_COVERAGE.byNodeKind.find(
+    (candidate) => candidate.nodeKind === nodeKind,
+  );
+  if (!coverage) return [];
+  return [
+    ...new Set(
+      coverage.paths.flatMap(({ path }) =>
+        valuesAtPath(value, jsonPathSegments(path)).filter(
+          (candidate): candidate is string =>
+            typeof candidate === 'string' && SHA256_PATTERN.test(candidate),
+        ),
+      ),
+    ),
+  ].sort();
+}
+
 export type LegacyCanvasNodeMediaPreflightBlocker =
   | {
       readonly kind: 'unsupported_canvas_node_type';

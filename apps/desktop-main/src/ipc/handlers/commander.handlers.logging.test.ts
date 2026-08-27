@@ -1461,7 +1461,6 @@ describe('Commander run IPC boundary', () => {
         resourceController: controller,
         permissionMode: 'normal',
       });
-      let parentRunId = options.runId as string;
       for (let depth = 1; depth <= 4; depth++) {
         const result = await host.spawn({
           displayName: `Depth ${depth}`,
@@ -1469,7 +1468,7 @@ describe('Commander run IPC boundary', () => {
           instructions: `Perform depth ${depth}.`,
         }, `tool:${depth}:0:spawn`);
         expect(result.success).toBe(true);
-        parentRunId = String((result.data as Record<string, unknown>).runId);
+        const parentRunId = String((result.data as Record<string, unknown>).runId);
         controller = controller.createLease.mock.results.at(-1)!.value;
         const childFactory = (createAgentOrchestratorForRun.mock.calls[depth]?.[0] as {
           options: {

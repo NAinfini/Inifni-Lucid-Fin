@@ -196,7 +196,9 @@ async function main(): Promise<void> {
   if (process.argv.includes('--write')) {
     const registrations = await findRegistrations(repoRoot, 'apps/desktop-main/src');
     const output = [
-      '# Raw ipcMain.handle registrations that still need typed registrar migration.',
+      '# Reviewed raw ipcMain.handle registration baseline.',
+      '# Includes intentional typed boundaries and Legacy sites that still need migration.',
+      '# This inventory detects additions; it does not claim Legacy migration completion.',
       '# Format: <repo-relative path> :: <channel literal or reviewed dynamic expression>',
       '# Generated with: pnpm exec tsx scripts/check-ipc-migration-allowlist.ts --write',
       '',
@@ -220,20 +222,20 @@ async function main(): Promise<void> {
 
   if (result.ok) {
     console.log(
-      `check-ipc-migration-allowlist: OK - ${result.registrations.length} raw ipcMain.handle registrations are allowlisted.`,
+      `check-ipc-migration-allowlist: OK - ${result.registrations.length} raw ipcMain.handle registrations match the reviewed baseline.`,
     );
     return;
   }
 
   if (result.unapproved.length > 0) {
-    console.error('Unapproved raw ipcMain.handle registrations:');
+    console.error('Raw ipcMain.handle registrations missing from the reviewed baseline:');
     for (const item of result.unapproved) {
       console.error(`- ${item.entry} (line ${item.line})`);
     }
   }
 
   if (result.staleAllowlistEntries.length > 0) {
-    console.error('Stale IPC migration allowlist entries:');
+    console.error('Stale reviewed IPC registration baseline entries:');
     for (const entry of result.staleAllowlistEntries) {
       console.error(`- ${entry}`);
     }

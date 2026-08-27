@@ -130,10 +130,6 @@ const capabilityCatalogSnapshotWithoutHashV1Shape = {
   capabilityIndex: z.array(CapabilityIndexEntrySchema).max(EXACT_TOOL_IDS.length),
 } as const;
 
-const CapabilityCatalogSnapshotWithoutHashV1Schema = strictObject(
-  capabilityCatalogSnapshotWithoutHashV1Shape,
-);
-
 export const CapabilityCatalogSnapshotV1Schema = strictObject({
   catalogHash: Sha256Schema,
   ...capabilityCatalogSnapshotWithoutHashV1Shape,
@@ -247,7 +243,7 @@ export function capabilityIndexDigestInput(
 }
 
 export function capabilityCatalogHashInput(
-  snapshot: z.input<typeof CapabilityCatalogSnapshotWithoutHashV1Schema>,
+  snapshot: Omit<z.input<typeof CapabilityCatalogSnapshotV1Schema>, 'catalogHash'>,
 ): string {
   return canonicalJson(snapshot);
 }

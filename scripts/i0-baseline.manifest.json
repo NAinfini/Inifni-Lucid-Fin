@@ -15,7 +15,7 @@
     },
     {
       "path": "docs/plans/2026-08-15-project-data-history-memory-cutover.md",
-      "sha256": "fc34f3872e36be3527c68d8d827a651513afe270a8738b0316e4f734a938c710"
+      "sha256": "760b891a4edeb089363400e0555b29fd4418502fd281629eed5e694d68b9fee2"
     },
     {
       "path": "docs/plans/2026-08-15-commander-runtime-tool-surface.md",
@@ -27,7 +27,7 @@
     },
     {
       "path": "docs/plans/2026-08-15-project-first-implementation-program.md",
-      "sha256": "61528887832adc725824da9f393ee77e6388a67e9589dec2b6c8929e98aaa749"
+      "sha256": "731fff16c7d44c10e43f3d97c19cff41af4c4242d54f6fc4f8577a14c9cb7c39"
     }
   ],
   "inventoryHashes": {

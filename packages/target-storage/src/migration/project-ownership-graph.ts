@@ -4,12 +4,19 @@ import {
   type LegacyClassificationTargetRefInput,
 } from './classification-report.js';
 import type { LegacyClassificationRow } from './classification-subjects.js';
+import {
+  legacyImportedRootTargetRefs,
+  legacyProductionCollectionId,
+} from './legacy-migration-policy.js';
+import { legacyCanvasNodeMediaHashes } from './canvas-node-media-preflight.js';
+import { buildLegacyProductionTypedContent } from './legacy-production-content.js';
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const ENTITY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,159}$/;
 const NODE_KINDS = new Set(['image', 'video', 'audio', 'text', 'backdrop']);
 const ROOT_ENTITY_NODE_KINDS = new Set(['image', 'video']);
 const HISTORY_ENTITY_NODE_KINDS = new Set(['image', 'video', 'audio']);
+const LEGACY_CANVAS_ASPECT_RATIOS = new Set(['16:9', '9:16', '1:1', '4:3', 'custom']);
 
 /**
  * The only synthetic state permitted when an unassigned Legacy Chat is
@@ -78,6 +85,7 @@ export type LegacyProjectOwnershipClaimKind =
   | 'node_entity_ref'
   | 'node_generation_history_entity_ref'
   | 'character_loadout_equipment'
+  | 'production_folder_member'
   | 'session_default_canvas'
   | 'run_default_canvas'
   | 'run_canvas_scope'
@@ -221,6 +229,42 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 function validEntityId(value: unknown): value is string {
   return typeof value === 'string' && ENTITY_ID_PATTERN.test(value);
+}
+
+function validFiniteNumber(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function validSafeInteger(value: unknown): boolean {
+  return (
+    (typeof value === 'number' && Number.isSafeInteger(value)) ||
+    (typeof value === 'bigint' &&
+      value >= BigInt(Number.MIN_SAFE_INTEGER) &&
+      value <= BigInt(Number.MAX_SAFE_INTEGER))
+  );
+}
+
+function validRequiredTargetText(value: unknown, maximum: number): boolean {
+  return typeof value === 'string' && value.trim().length > 0 && value.trim().length <= maximum;
+}
+
+function validOptionalTargetText(value: unknown, maximum: number): boolean {
+  return (
+    value === null ||
+    value === undefined ||
+    (typeof value === 'string' && value.trim().length <= maximum)
+  );
+}
+
+function validPositiveDimension(value: unknown, maximum?: number): boolean {
+  const number =
+    typeof value === 'bigint' && value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : value;
+  return (
+    typeof number === 'number' &&
+    Number.isSafeInteger(number) &&
+    number > 0 &&
+    (maximum === undefined || number <= maximum)
+  );
 }
 
 function stateIdentityColumn(table: LegacyProjectOwnershipTable): string | null {
@@ -384,6 +428,26 @@ function targetRefsForEntity(
     })}`,
     projectId,
     cloneOf: sourceId,
+  }));
+}
+
+function targetRefsForCollection(
+  state: SourceState,
+  projectIds: readonly string[],
+): readonly LegacyClassificationTargetRefInput[] {
+  if (
+    state.id === null ||
+    projectIds.length === 0 ||
+    !PRODUCTION_FOLDER_TABLE_SET.has(state.table as ProductionFolderTable)
+  ) {
+    return [];
+  }
+  const sourceId = state.id;
+  return projectIds.map((projectId) => ({
+    authority: 'production_collection',
+    id: legacyProductionCollectionId(state.table as ProductionFolderTable, sourceId, projectId),
+    projectId,
+    ...(projectIds.length > 1 ? { cloneOf: sourceId } : {}),
   }));
 }
 
@@ -589,6 +653,14 @@ export function resolveLegacyProjectOwnership(
     ['locations', locations],
     ['scripts', scripts],
   ]);
+  for (const session of sessions.values()) {
+    if (
+      Object.hasOwn(session.row.values, 'title') &&
+      !validRequiredTargetText(session.row.values.title, 240)
+    ) {
+      addBlocker(session, 'legacy_chat_target_contract_incompatible', session, '$.title');
+    }
+  }
   const productionIdentityGroups = new Map<string, SourceState[]>();
   for (const table of PRODUCTION_TABLES) {
     for (const state of productionMaps.get(table)?.values() ?? []) {
@@ -602,7 +674,26 @@ export function resolveLegacyProjectOwnership(
     if (group.length < 2) continue;
     for (const state of group) addBlocker(state, 'cross_type_legacy_production_id');
   }
+  for (const table of PRODUCTION_TABLES) {
+    for (const state of productionMaps.get(table)?.values() ?? []) {
+      const hasCompleteContent =
+        table === 'scripts'
+          ? Object.hasOwn(state.row.values, 'content')
+          : Object.hasOwn(state.row.values, 'name');
+      if (!hasCompleteContent) continue;
+      try {
+        buildLegacyProductionTypedContent(state.row, table);
+      } catch {
+        addBlocker(state, 'legacy_production_target_contract_incompatible', state, '$');
+      }
+    }
+  }
 
+  const productionFolderMemberships: Array<{
+    readonly entity: SourceState;
+    readonly folder: SourceState;
+    readonly component: readonly SourceState[];
+  }> = [];
   for (const { folderTable, entityTable } of PRODUCTION_FOLDER_SPECS) {
     const folders = productionFolderMaps.get(folderTable);
     if (!folders) throw new Error(`Missing Production folder map: ${folderTable}`);
@@ -716,15 +807,35 @@ export function resolveLegacyProjectOwnership(
         addBlocker(entity, 'missing_legacy_production_folder', entity, '$.folder_id');
         continue;
       }
-      for (const member of componentBySourceKey.get(folder.sourceKey) ?? [folder]) {
-        addBlocker(member, 'unresolved_legacy_production_collection_target', entity, '$.folder_id');
-      }
+      productionFolderMemberships.push({
+        entity,
+        folder,
+        component: componentBySourceKey.get(folder.sourceKey) ?? [folder],
+      });
     }
   }
 
   const canvasProjects: LegacyProjectOwnershipCanvasProject[] = [];
   for (const state of canvases.values()) {
     if (state.id === null) continue;
+    if (
+      Object.hasOwn(state.row.values, 'name') &&
+      !validRequiredTargetText(state.row.values.name, 240)
+    ) {
+      addBlocker(state, 'legacy_canvas_project_target_contract_incompatible', state, '$.name');
+    }
+    if (Object.hasOwn(state.row.values, 'aspect_ratio')) {
+      const aspectRatio = state.row.values.aspect_ratio;
+      if (typeof aspectRatio !== 'string' || !LEGACY_CANVAS_ASPECT_RATIOS.has(aspectRatio)) {
+        addBlocker(state, 'unsupported_legacy_canvas_aspect_ratio', state, '$.aspect_ratio');
+      } else if (
+        aspectRatio === 'custom' &&
+        (!validPositiveDimension(state.row.values.default_width, 16_384) ||
+          !validPositiveDimension(state.row.values.default_height, 16_384))
+      ) {
+        addBlocker(state, 'invalid_legacy_canvas_custom_dimensions', state, '$.default_width');
+      }
+    }
     const archivedAt = state.row.values.archived_at;
     if (
       archivedAt !== null &&
@@ -785,6 +896,25 @@ export function resolveLegacyProjectOwnership(
       '$.canvas_id',
     );
     if (canvas?.id) addClaim(node, canvas.id, 'canvas_parent', canvas, '$.id');
+    if (Object.hasOwn(node.row.values, 'position_x')) {
+      if (
+        !validFiniteNumber(node.row.values.position_x) ||
+        !validFiniteNumber(node.row.values.position_y)
+      ) {
+        addBlocker(node, 'invalid_legacy_canvas_node_position', node, '$.position_x');
+      }
+      if (
+        !validFiniteNumber(node.row.values.width) ||
+        !validFiniteNumber(node.row.values.height) ||
+        Number(node.row.values.width) <= 0 ||
+        Number(node.row.values.height) <= 0
+      ) {
+        addBlocker(node, 'invalid_legacy_canvas_node_size', node, '$.width');
+      }
+      if (Object.hasOwn(node.row.values, 'z_index') && !validSafeInteger(node.row.values.z_index)) {
+        addBlocker(node, 'invalid_legacy_canvas_node_z_index', node, '$.z_index');
+      }
+    }
     const nodeType = node.row.values.type;
     if (typeof nodeType !== 'string' || !NODE_KINDS.has(nodeType)) {
       addBlocker(node, 'unknown_legacy_canvas_node_kind', node, '$.type');
@@ -971,6 +1101,13 @@ export function resolveLegacyProjectOwnership(
         }
       }
     }
+    const distinctEntityTargets = new Set(provisional.map(({ target }) => target.sourceKey));
+    if (
+      distinctEntityTargets.size > 1 &&
+      legacyCanvasNodeMediaHashes(nodeType, data).length === 0
+    ) {
+      addBlocker(node, 'unrepresentable_legacy_canvas_multi_entity_binding', node, '$.data_json');
+    }
     if (node.blockerCodes.size === 0 && canvas?.id) {
       for (const evidence of provisional) {
         addClaim(
@@ -994,6 +1131,12 @@ export function resolveLegacyProjectOwnership(
       '$.canvas_id',
     );
     if (canvas?.id) addClaim(edge, canvas.id, 'canvas_parent', canvas, '$.id');
+    if (
+      Object.hasOwn(edge.row.values, 'label') &&
+      !validOptionalTargetText(edge.row.values.label, 240)
+    ) {
+      addBlocker(edge, 'legacy_canvas_edge_target_contract_incompatible', edge, '$.label');
+    }
     const sourceId = edge.row.values.source;
     const targetId = edge.row.values.target;
     const sourceIdIsValid = validEntityId(sourceId);
@@ -1429,6 +1572,29 @@ export function resolveLegacyProjectOwnership(
     addClaim(task, projects[0]!, 'task_list_parent', taskList, '$.id');
   }
 
+  for (const { entity, folder, component } of productionFolderMemberships) {
+    if (entity.blockerCodes.size > 0) {
+      for (const member of component) {
+        addBlocker(member, 'unresolved_legacy_production_collection_target', entity, '$.folder_id');
+      }
+      continue;
+    }
+    const projectIds = sortedProjects(entity);
+    if (projectIds.length === 0) continue;
+    const blockedFolder = component.find(({ blockerCodes }) => blockerCodes.size > 0);
+    if (blockedFolder !== undefined) {
+      addBlocker(entity, 'unmigratable_legacy_production_folder', blockedFolder, '$');
+      continue;
+    }
+    for (const projectId of projectIds) {
+      for (const member of component) {
+        addClaim(member, projectId, 'production_folder_member', entity, '$.folder_id', [
+          { sourceKey: folder.sourceKey, path: '$.id' },
+        ]);
+      }
+    }
+  }
+
   const dependencyEndpoint = (type: unknown, id: unknown): SourceState | null => {
     if (typeof type !== 'string' || !validEntityId(id)) return null;
     const table =
@@ -1502,11 +1668,13 @@ export function resolveLegacyProjectOwnership(
     if (PRODUCTION_TABLES.has(state.table as ProductionTable)) {
       return entityTargetRefs.get(state.sourceKey) ?? [];
     }
+    if (PRODUCTION_FOLDER_TABLE_SET.has(state.table as ProductionFolderTable)) {
+      return targetRefsForCollection(state, projectIds);
+    }
     if (projectIds.length !== 1) return [];
     const projectId = projectIds[0]!;
     if (state.table === 'commander_run_canvases') {
-      const runId = state.row.values.run_id;
-      return validEntityId(runId) ? [{ authority: 'run', id: runId, projectId }] : [];
+      return legacyImportedRootTargetRefs(state.row, projectId) ?? [];
     }
     if (state.id === null) return [];
     if (state.table === 'canvases') {
@@ -1516,7 +1684,8 @@ export function resolveLegacyProjectOwnership(
       ];
     }
     if (state.table === 'canvas_nodes' || state.table === 'canvas_edges') {
-      return [{ authority: 'canvas', id: state.id, projectId }];
+      const canvasId = state.row.values.canvas_id;
+      return validEntityId(canvasId) ? [{ authority: 'canvas', id: canvasId, projectId }] : [];
     }
     if (state.table === 'commander_sessions') {
       const imported = importedChatProjects.get(state.sourceKey) === projectId;
@@ -1530,16 +1699,13 @@ export function resolveLegacyProjectOwnership(
         : [{ authority: 'chat', id: state.id, projectId }];
     }
     if (state.table === 'commander_runs') {
-      return [{ authority: 'run', id: state.id, projectId }];
+      return [{ authority: 'imported_run_history', id: state.id, projectId }];
     }
     if (state.table === 'task_lists') {
-      return [{ authority: 'task_list', id: state.id, projectId }];
+      return [{ authority: 'imported_task_list_history', id: state.id, projectId }];
     }
     if (state.table === 'tasks') {
-      const taskListId = state.row.values.task_list_id;
-      return validEntityId(taskListId)
-        ? [{ authority: 'task_list', id: taskListId, projectId }]
-        : [];
+      return [{ authority: 'imported_task_item_history', id: state.id, projectId }];
     }
     return [];
   };
@@ -1584,7 +1750,9 @@ export function resolveLegacyProjectOwnership(
         projectIds,
         disposition: importedChat
           ? 'imported_chat_project'
-          : PRODUCTION_TABLES.has(state.table as ProductionTable) && projectIds.length > 1
+          : (PRODUCTION_TABLES.has(state.table as ProductionTable) ||
+                PRODUCTION_FOLDER_TABLE_SET.has(state.table as ProductionFolderTable)) &&
+              projectIds.length > 1
             ? 'cloned_per_project'
             : 'single_project',
         targetRefs: targetRefsForState(state),

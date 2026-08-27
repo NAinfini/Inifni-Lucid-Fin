@@ -25,7 +25,7 @@ describe('generated target preload', () => {
     invoke.mockResolvedValue({ kind: 'success' });
   });
 
-  it('exposes exactly the 39 canonical use cases through one invoke channel', async () => {
+  it('exposes exactly the 45 canonical use cases through one invoke channel', async () => {
     await import('./preload.generated.cjs');
     expect(exposeInMainWorld).toHaveBeenCalledOnce();
     expect(exposeInMainWorld.mock.calls[0]?.[0]).toBe(TARGET_DESKTOP_API_GLOBAL_V1);
@@ -35,6 +35,7 @@ describe('generated target preload', () => {
         .filter((method) => method !== 'onEventsAppended')
         .map((method) => `${namespace}.${method}`),
     );
+    expect(exposedUseCases).toHaveLength(45);
     expect(exposedUseCases).toHaveLength(Object.keys(PUBLIC_WIRE_METHODS_V1).length);
 
     const request = {

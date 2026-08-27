@@ -1,6 +1,86 @@
 # Lucid Fin Target Harness — Cross-PC Handoff and Goal Closure
 
-## Terminal status
+## 2026-08-26 authorized continuation result
+
+The historical 2026-08-24 handoff below was followed under continuation Goal/thread
+`01a0363b-7707-7811-8c47-776feec0d3e7` on branch
+`codex/target-harness-i6-handoff-2026-08-24` at
+`C:\Users\nainf\OneDrive\Documents\GitHub\Inifni-Lucid-Fin`.
+
+I6 and the disposable-only I7 scope are now complete. The I7 migration rehearsal covers all 39 source
+tables and representative media/Skill/settings/history data; fresh and migrated stores pass the same
+startup and target-native replay; the deterministic target-only RC is now v3; and the exhaustive
+Legacy deletion manifest is complete. The final continuation also closed the renderer, Electron trust,
+media, Delivery, browser-state evidence, and RC determinism gaps that existed in the original handoff.
+The 2026-08-26 continuation additionally completed the private export-destination grant boundary,
+terminal Run settlement/cancellation propagation, explicit workspace pagination, and the missing
+Overview generated-result decision surface. The final frontend/backend review then closed durable
+cancellation draining, abort propagation, observer isolation, media-preview capability stability,
+migration/seal cleanup error aggregation, repository lint debt, IPC baseline drift, and the missing
+browser E2E coverage. The structural Target/Harness implementation and deterministic RC candidate are
+complete within the authorized non-Gate scope. Current evidence:
+
+- [`2026-08-25-i7-completion-evidence.md`](./2026-08-25-i7-completion-evidence.md)
+- [`2026-08-25-i7-target-rc-deletion-manifest.md`](./2026-08-25-i7-target-rc-deletion-manifest.md)
+- [`2026-08-25-i8-approval-package.md`](./2026-08-25-i8-approval-package.md)
+
+Current Target state, superseding the historical counts below:
+
+- the generated desktop wire contains 45 invoke methods plus one push method, while the single
+  model-visible catalog remains exactly 40 tools;
+- Results decisions/undo, authoritative History, Canvas mutations, Media Candidates/Compare, and
+  Delivery operation/confirmation flows now use the canonical Target authorities and public wire;
+- Delivery export now carries a private, project/plan/extension-scoped, single-use destination grant
+  from the OS-picker boundary through Commander to storage. Grant expiry uses a monotonic clock,
+  close races and extension mismatches fail closed, and no destination path enters public wire or
+  persisted Target state. The real picker/write adapter remains Gate B work;
+- the trusted renderer WebContents/frame/URL gate, isolated Electron session, permission denial, CSP,
+  opaque verified-CAS media protocol, real Media/Compare previews, Delivery operation state, and the
+  separate interaction/confirmation IDs are implemented and covered by tests;
+- Legacy browser snapshot/seal v2 binds all ten keys and fails closed on `capture_error`; raw values
+  and the absolute profile path remain private, while public evidence is limited to per-value hashes,
+  irreversible identity fingerprints, canonical origin (`opaque:file` for file storage), timestamp,
+  and public fingerprints. The real trusted Chromium collector is intentionally still a Gate A
+  prerequisite;
+- frozen I6 dark tokens and responsive geometry were reverified in browser fixtures at 1440x900,
+  1100x800, 390x844, and 320x800. Overview now presents the exact recent generated Results with
+  direct decisions, including an exact-ID fetch when a recent Result falls beyond the first 100.
+  Twenty generated audit screenshots plus the interactive journeys were inspected; Overview, Media
+  Compare, Delivery, protected confirmation, keyboard focus, reduced motion, Chat lifecycle, and
+  horizontal-overflow checks passed with zero final console/page/request failures. The final
+  Playwright fixture suite additionally passed 11/11 browser journeys in 3.9 seconds, including
+  320px and 390px critical routes. Native Electron-shell validation remains Gate B;
+- the final consolidated Target suite passed 147 files and 1174/1174 tests in one serial run; all
+  eight Target TypeScript configurations passed; the subsequent lint-only closure passed 142/142
+  focused tests across eight files plus desktop-main, desktop-renderer, and agent TypeScript checks;
+  full-repository ESLint passed with zero errors and zero warnings; contract drift,
+  contract/preload generation, and the I0 baseline checks remained clean;
+- the raw Electron IPC guard now compares all 150 current registration sites against a generated,
+  reviewed repository baseline. Its direct CLI and repository integration test pass. The baseline
+  explicitly includes intentional typed boundaries and Legacy sites still pending disposal; it does
+  not claim that Legacy migration or Gate C deletion occurred;
+- three serial clean RC builds matched exactly: closure
+  `a22bac8ae94d2328cb6eb274b1a535e55f569d9a3405f50316dbe3170f15bce9`, input
+  `9bda767fcf35a51c7db7536aa16fdbbed8645f1269c8a819d1de33a398a461c9`, metadata
+  `f672fe3e398b1c05f67704bb5eedad7f6802ece7f58d495d5ad8b5b043c3c22b`, 187 emitted roots/files,
+  217 bound inputs, and 718 artifacts. Rolldown is bound to the isolated cwd and emitted text is
+  rejected if a random isolated-path marker leaks.
+
+I8 preparation is complete, but I8 itself has not started. No real database/media discovery or copy,
+official Electron switch, package/install, paid Provider call, Legacy/user-data deletion, commit, push,
+PR, merge, or release was performed. The next possible operation is Gate A, and it requires an exact
+approval naming the candidate/run, real paths, maintenance window, and permitted actions. A generic
+instruction to continue is not that approval.
+
+The remaining boundary is explicit: Gate A must first approve real-path discovery/copy and a reviewed
+trusted Chromium collector; Gate B must separately approve real production/native adapters, official
+Electron entries, installed-shell settings/locale/theme and native acceptance; Gate C must separately
+approve exact physical disposal. None is implied by this completed Goal.
+
+Everything below this notice records the original handoff state and is retained as history; its
+“not started” and “exact resume point” sections are superseded by the evidence above.
+
+## Historical terminal status
 
 - Handoff date: 2026-08-24.
 - Repository at handoff: `C:\Users\nainf\Github\Inifni-Lucid-Fin`.
@@ -210,14 +290,14 @@ Related integration changes:
 Implemented I6 behavior includes:
 
 - Project Home list and a creation chain of `project.create -> chat.create -> optional media import and
-  attach -> message.send`;
+attach -> message.send`;
 - stable Overview, Canvas, Media, Production, Delivery navigation over target projections;
 - one shared selection represented in the workspace, route/deep link, and Commander context;
 - a fixed Commander Dock and one Focus surface, with draft, attachment, route, selection, and transcript
   position held by the Project shell rather than duplicated domain stores;
 - project-level lazy Chat search;
 - reference attachment through `os.media.pick -> media.global.import -> project.get ->
-  media.project.attach`;
+media.project.attach`;
 - idle `message.send` and active `run.sendFollowup`, including accepted attachments/context;
 - public Run events, TaskList, questions, confirmations, progress, final summary, and Run controls;
 - EN/ZH target copy and responsive CSS based on the established dark professional video-tool design.
@@ -253,8 +333,8 @@ not as restored Preset/Template/Prompt managers.
 - Exact built-in pack: 287 records.
 - Source breakdown: 216 presets, 19 shot templates, 26 renderer Skills, 21 process prompts, and 5
   prompt templates.
-- Trust state: 252 `trusted`; 35 `unreviewed`.
-- All 35 unreviewed records receive quarantine rows and cannot be enabled automatically.
+- Trust state: 250 `trusted`; 37 `unreviewed`.
+- All 37 unreviewed records receive quarantine rows and cannot be enabled automatically.
 - Provisioning is atomic, manifest-bound, idempotent, and tested across repeated startup/cold reopen.
 - No Skill is silently enabled for a Project at startup.
 
@@ -395,7 +475,7 @@ Recommended receiving sequence:
    `git` inventory commands above. Do not replace it with a plain clone of `origin/main`.
 2. Read the local `AGENTS.md` and every authoritative document listed above.
 3. Confirm Node/pnpm versions. Dependency installation was not run during I6. `pnpm install
-   --frozen-lockfile` may require network access and explicit approval in the new environment.
+--frozen-lockfile` may require network access and explicit approval in the new environment.
 4. Keep all validation on synthetic/disposable stores. Confirm no command points at the user's app
    data, media root, credentials, or paid Provider.
 5. Re-establish the five package/renderer typechecks, then the narrow test set. Record exact exits and

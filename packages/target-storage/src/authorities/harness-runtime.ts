@@ -128,7 +128,6 @@ import {
   prepareToolProgramRuntimeDispatch,
   bindRuntimeDispatchConfirmation,
   bindRuntimeDispatchProjectEvent,
-  recordOperationOwnerTransitions,
   settleRuntimeDispatch,
   settleValidatedRuntimeDispatch,
   transitionRuntimeDispatchGuard,
@@ -136,6 +135,7 @@ import {
 } from '../internal/operation-dispatch.js';
 import {
   closeRunActivation,
+  loadActiveRunActivation,
   loadRunActivation,
   loadRunActivations,
 } from '../internal/run-activation-records.js';
@@ -168,7 +168,6 @@ import {
   loadDeliveryManifest,
   loadOperationOwnerRecord,
   operationPublicViewForOwner,
-  requestOperationOwnerCancellation,
 } from '../internal/operation-owner-records.js';
 import { loadRunSnapshots } from '../internal/run-snapshots.js';
 import { resolveRunMediaSource } from '../internal/media-source.js';
@@ -179,6 +178,11 @@ import {
   acceptCrashRetryRootRun,
   assertSelectedContext,
 } from '../internal/root-run-acceptance.js';
+import {
+  controlRunSubtreeInTransaction,
+  countUnknownRunControlOperations,
+  listRunControlSubtree,
+} from '../internal/run-control.js';
 import { TargetStorageError } from '../kernel/errors.js';
 import { requireCurrentDomainObject } from '../internal/domain-object-resolver.js';
 import type { PrivateRecoveryCodec } from '../kernel/private-recovery-codec.js';
@@ -230,6 +234,7 @@ import {
 } from '../internal/protected-mutations.js';
 import {
   assertDeliveryExportModelBoundary,
+  deliveryExportConfirmationTargetFor,
   deliveryExportSuccessForDispatch,
   prepareReviewCutInTransaction,
 } from './delivery-operations.js';
@@ -534,10 +539,7 @@ type ProtectedMutationTarget = Extract<
   z.output<typeof ConfirmationTargetSchema>,
   { readonly kind: 'protected_mutation' }
 >;
-type DomainObjectConfirmationTarget = Extract<
-  z.output<typeof ConfirmationTargetSchema>,
-  { readonly kind: 'domain_object' }
->;
+type DeliveryExportConfirmationTarget = ReturnType<typeof deliveryExportConfirmationTargetFor>;
 
 export interface SkillProposalRecord {
   readonly dispatch: OperationDispatchRecord;
@@ -669,7 +671,7 @@ export interface DeliveryExportBoundaryRecord {
   readonly parent: Run;
   readonly activation: RunActivation;
   readonly confirmationId: string;
-  readonly target: DomainObjectConfirmationTarget;
+  readonly target: DeliveryExportConfirmationTarget;
   readonly result: z.output<typeof DeliveryExportDefinition.successSchema> | null;
 }
 
@@ -906,6 +908,46 @@ function modelFacts(
   journal: readonly RunEvent[],
 ): CanonicalModelFactV1[] {
   const facts: CanonicalModelFactV1[] = [];
+  const inbox = listRunInbox(database, run.id);
+  for (const message of inbox) {
+    if (message.state !== 'consumed' || message.exportDestinationGrant === null) continue;
+    if (message.actor !== 'user' || message.source.kind !== 'message') {
+      throw corrupt(`Run Inbox ${message.id} export destination source is invalid`);
+    }
+    const source = message.source;
+    const consumedEvents = journal.filter((event) => {
+      if (event.visibility !== 'model_surface' || event.payloadState.state !== 'available') {
+        return false;
+      }
+      const payload = event.payloadState.payload;
+      return payload.type === 'inbox_consumed' && payload.inboxMessageId === message.id;
+    });
+    const messageRefs = journal.filter((event) => {
+      if (event.visibility !== 'model_surface' || event.payloadState.state !== 'available') {
+        return false;
+      }
+      const payload = event.payloadState.payload;
+      return payload.type === 'message_ref' && payload.messageId === source.messageId;
+    });
+    const matchingRefs = journal.filter((event) => {
+      if (event.visibility !== 'model_surface' || event.payloadState.state !== 'available') {
+        return false;
+      }
+      const payload = event.payloadState.payload;
+      return payload.type === 'delivery_destination_ref' && payload.inboxMessageId === message.id;
+    });
+    if (
+      consumedEvents.length !== 1 ||
+      messageRefs.length !== 1 ||
+      matchingRefs.length !== 1 ||
+      consumedEvents[0]!.sequence >= messageRefs[0]!.sequence ||
+      messageRefs[0]!.sequence >= matchingRefs[0]!.sequence
+    ) {
+      throw corrupt(
+        `Run Inbox ${message.id} export destination model-surface references are incomplete or out of order`,
+      );
+    }
+  }
   for (const event of journal) {
     if (event.visibility !== 'model_surface') continue;
     const payload = availablePayload(event);
@@ -978,6 +1020,32 @@ function modelFacts(
           messageHash: message.contentHash,
           blocks: message.blocks,
           attachments: message.attachments,
+        }),
+      );
+      continue;
+    }
+    if (payload.type === 'delivery_destination_ref') {
+      const sourceInbox = inbox.find(({ id }) => id === payload.inboxMessageId);
+      if (
+        sourceInbox === undefined ||
+        sourceInbox.state !== 'consumed' ||
+        sourceInbox.actor !== 'user' ||
+        sourceInbox.source.kind !== 'message' ||
+        sourceInbox.exportDestinationGrant === null ||
+        hashCanonical(sourceInbox.exportDestinationGrant) !== payload.grantBindingHash
+      ) {
+        throw corrupt(
+          `Run event ${event.eventId} Delivery destination reference does not match its Inbox authority`,
+        );
+      }
+      facts.push(
+        parseCanonical(CanonicalModelFactV1Schema, {
+          type: 'delivery_destination',
+          eventSequence: event.sequence,
+          inboxMessageId: sourceInbox.id,
+          destination: sourceInbox.exportDestinationGrant.destination,
+          expiresAt: sourceInbox.exportDestinationGrant.expiresAt,
+          grantBindingHash: payload.grantBindingHash,
         }),
       );
       continue;
@@ -2990,6 +3058,7 @@ function settleAgentSendBoundary(
         directionHash: send.durableInput.messageHash,
       },
       selectedContext,
+      exportDestinationGrant: null,
       contentHash: send.durableInput.messageHash,
       state: 'queued',
       createdAt: input.settledAt,
@@ -4099,17 +4168,12 @@ function agentCancelChildCommandId(
   return `agent-cancel.${hashCanonical({ childRunId, dispatchOperationId, phase })}`;
 }
 
-interface AgentCancelSubtreeEntry {
-  readonly run: Run;
-  readonly depth: number;
-}
-
-function agentCancelSubtree(
+function agentCancelTarget(
   database: DatabaseSync,
   parent: Run,
   childRunId: string,
   expectedRevision: number,
-): AgentCancelSubtreeEntry[] {
+): Run {
   const target = loadRun(database, childRunId);
   if (
     target.projectId !== parent.projectId ||
@@ -4127,104 +4191,15 @@ function agentCancelSubtree(
   if (RunTerminalStateSchema.safeParse(target.status).success) {
     throw invalid(`agent.cancel target Run ${target.id} is already terminal`);
   }
-  const rows = database
-    .prepare(
-      `WITH RECURSIVE subtree(id, depth) AS (
-         SELECT id, 0 FROM runs WHERE id = ?
-         UNION ALL
-         SELECT child.id, parent.depth + 1
-         FROM runs AS child
-         JOIN subtree AS parent ON child.parent_run_id = parent.id
-       )
-       SELECT subtree.id, subtree.depth
-       FROM subtree
-       JOIN runs AS run ON run.id = subtree.id
-       ORDER BY subtree.depth, run.accepted_at, subtree.id
-       LIMIT 101`,
+  const subtree = listRunControlSubtree(database, target);
+  if (
+    subtree.some(
+      ({ run }) => run.projectId !== parent.projectId || run.acceptedSource.kind !== 'parent_direction',
     )
-    .all(target.id) as unknown as Array<{ readonly id: string; readonly depth: number }>;
-  if (rows.length === 0 || rows[0]?.id !== target.id) {
-    throw corrupt(`agent.cancel target Run ${target.id} disappeared from its subtree`);
+  ) {
+    throw corrupt(`agent.cancel target Run ${target.id} has invalid descendant lineage`);
   }
-  if (rows.length > 100) {
-    throw invalid(`agent.cancel target Run ${target.id} subtree exceeds 100 Runs`);
-  }
-  return rows.map(({ id, depth }) => {
-    const run = loadRun(database, id);
-    if (run.projectId !== parent.projectId || run.acceptedSource.kind !== 'parent_direction') {
-      throw corrupt(`agent.cancel subtree Run ${run.id} has invalid lineage`);
-    }
-    return { run, depth };
-  });
-}
-
-function boundOperationsForRun(database: DatabaseSync, run: Run) {
-  const rows = database
-    .prepare(
-      `SELECT id FROM dispatch_operations
-       WHERE run_id = ? AND owner_authority IS NOT NULL
-       ORDER BY rowid`,
-    )
-    .all(run.id) as unknown as Array<{ readonly id: string }>;
-  return rows.map(({ id }) => {
-    const operation = loadBoundOperation(database, id);
-    if (
-      operation.dispatch.key.runId !== run.id ||
-      operation.dispatch.key.projectId !== run.projectId ||
-      operation.owner.runId !== run.id ||
-      operation.owner.projectId !== run.projectId
-    ) {
-      throw corrupt(`agent.cancel Operation ${operation.dispatch.id} is out of Run scope`);
-    }
-    return operation;
-  });
-}
-
-function requestRunOperationCancellations(
-  database: DatabaseSync,
-  environment: TargetStorageEnvironment,
-  run: Run,
-  parentDispatchOperationId: string,
-  occurredAt: string,
-  context: TargetCommandContext,
-): void {
-  const transitions = boundOperationsForRun(database, run).flatMap((operation) => {
-    if (
-      AttemptTerminalStateSchema.safeParse(operation.owner.view.state).success ||
-      operation.owner.view.cancelRequested
-    ) {
-      return [];
-    }
-    return [
-      {
-        dispatch: operation.dispatch,
-        before: operation.owner,
-        after: requestOperationOwnerCancellation(database, operation.owner),
-      },
-    ];
-  });
-  if (transitions.length === 0) return;
-  recordOperationOwnerTransitions(
-    database,
-    environment,
-    transitions,
-    agentCancelChildCommandId(parentDispatchOperationId, run.id, 'operations'),
-    occurredAt,
-    context,
-  );
-}
-
-function countUnknownSubtreeOperations(
-  database: DatabaseSync,
-  subtree: readonly AgentCancelSubtreeEntry[],
-): number {
-  let count = 0;
-  for (const { run } of subtree) {
-    count += boundOperationsForRun(database, run).filter(
-      ({ owner }) => owner.view.state === 'unknown',
-    ).length;
-  }
-  return count;
+  return target;
 }
 
 function replayAgentCancelBoundary(
@@ -4318,12 +4293,13 @@ function settleAgentCancelBoundary(
       input,
       'agent.cancel',
     );
-    const subtree = agentCancelSubtree(
+    const target = agentCancelTarget(
       database,
       parent,
       cancelCall.cancelInput.childRunId,
       cancelCall.cancelInput.expectedRevision,
     );
+    const subtree = listRunControlSubtree(database, target);
     const { catalog } = loadRunSnapshots(database, parent);
     const tool = catalog.tools.find(({ id }) => id === AgentCancelDefinition.id);
     if (tool === undefined || tool.version !== AgentCancelDefinition.version) {
@@ -4355,32 +4331,43 @@ function settleAgentCancelBoundary(
     }
 
     const terminalSummary = cancelCall.cancelInput.reason.trim() || 'Cancelled by the parent Run.';
-    const cancellationOrder = [...subtree].sort(
-      (left, right) => right.depth - left.depth || left.run.id.localeCompare(right.run.id),
-    );
-    for (const entry of cancellationOrder) {
-      if (RunTerminalStateSchema.safeParse(entry.run.status).success) continue;
-      requestRunOperationCancellations(
-        database,
-        environment,
-        entry.run,
-        preparedDispatch.id,
-        input.settledAt,
-        context,
-      );
-      const current = loadRun(database, entry.run.id);
-      const resultIds = childRunPublicLinks(database, current).resultRefs.map(({ id }) => id);
-      terminalizeRunInTransaction(
-        database,
-        environment,
-        current,
-        'cancelled',
-        agentCancelChildCommandId(preparedDispatch.id, current.id, 'terminal'),
-        input.settledAt,
-        context,
-        { summary: terminalSummary, resultIds },
-      );
-    }
+    controlRunSubtreeInTransaction(database, environment, {
+      root: target,
+      action: 'cancel',
+      occurredAt: input.settledAt,
+      context,
+      subtree,
+      settleActivation(run, action) {
+        return settleRunControlActivationInTransaction(
+          database,
+          environment,
+          run,
+          action,
+          input.settledAt,
+          context,
+        );
+      },
+      transition() {
+        throw corrupt('agent.cancel cannot transition a Run without terminalizing it');
+      },
+      terminalize(run, commandId, terminal) {
+        return terminalizeRunInTransaction(
+          database,
+          environment,
+          run,
+          'cancelled',
+          commandId,
+          input.settledAt,
+          context,
+          { summary: terminal.summary, resultIds: [...terminal.resultIds] },
+        ).run;
+      },
+      operationCommandId: (run) => agentCancelChildCommandId(preparedDispatch.id, run.id, 'operations'),
+      transitionCommandId: (run) => agentCancelChildCommandId(preparedDispatch.id, run.id, 'terminal'),
+      terminalCommandId: (run) => agentCancelChildCommandId(preparedDispatch.id, run.id, 'terminal'),
+      terminalSummary,
+      resultIdsForRun: (run) => childRunPublicLinks(database, run).resultRefs.map(({ id }) => id),
+    });
 
     const children = subtree.map(({ run }) =>
       terminalChildRunSummary(database, parent, run.id, 'agent.cancel'),
@@ -4393,7 +4380,7 @@ function settleAgentCancelBoundary(
     const result = AgentCancelDefinition.parseSuccess({
       children,
       retainedArtifactCount: retainedArtifacts.size,
-      unknownOperationCount: countUnknownSubtreeOperations(database, subtree),
+      unknownOperationCount: countUnknownRunControlOperations(database, subtree),
     });
     const dispatch = settleRuntimeDispatch(database, {
       dispatchOperationId: preparedDispatch.id,
@@ -5096,7 +5083,23 @@ interface DeliveryExportConfirmationRecord {
   readonly decision: 'approved' | 'denied' | null;
   readonly messageId: string | null;
   readonly decidedAt: string | null;
-  readonly target: DomainObjectConfirmationTarget;
+  readonly target: DeliveryExportConfirmationTarget;
+}
+
+function deliveryExportConfirmationTarget(
+  database: DatabaseSync,
+  dispatch: OperationDispatchRecord,
+  exportInput: z.output<typeof DeliveryExportDefinition.inputSchema>,
+): DeliveryExportConfirmationTarget {
+  const manifest = loadDeliveryManifest(database, exportInput.manifest.id);
+  if (
+    manifest.projectId !== dispatch.key.projectId ||
+    manifest.revision !== exportInput.manifest.revision ||
+    manifest.contentHash !== exportInput.manifest.contentHash
+  ) {
+    throw corrupt(`delivery.export Dispatch ${dispatch.id} Manifest changed during confirmation`);
+  }
+  return deliveryExportConfirmationTargetFor(manifest, exportInput);
 }
 
 function deliveryExportConfirmation(
@@ -5178,14 +5181,15 @@ function deliveryExportConfirmation(
     row.decision === 'denied' &&
     row.decided_by_message_id === row.answer_message_id &&
     decidedAt !== null;
+  const expectedTarget = deliveryExportConfirmationTarget(database, dispatch, exportInput);
   if (
     row.run_id !== dispatch.key.runId ||
     row.interaction_run_id !== dispatch.key.runId ||
     row.interaction_kind !== 'confirmation' ||
     row.immutable_input_hash !== dispatch.key.inputHash ||
     canonicalJson(target) !== row.target_v1_json ||
-    target.kind !== 'domain_object' ||
-    canonicalJson(target.ref) !== canonicalJson(exportInput.manifest) ||
+    target.kind !== 'delivery_export' ||
+    canonicalJson(target) !== canonicalJson(expectedTarget) ||
     (!pending && !approved && !denied)
   ) {
     throw corrupt(`delivery.export Confirmation ${row.id} binding is invalid`);
@@ -5397,14 +5401,11 @@ function settleDeliveryExportStartBoundary(
     ) {
       throw corrupt(`delivery.export Dispatch ${initialDispatch.id} is not safely unbound`);
     }
-    const parsedTarget = parseCanonical(ConfirmationTargetSchema, {
-      kind: 'domain_object',
-      ref: exportCall.exportInput.manifest,
-    });
-    if (parsedTarget.kind !== 'domain_object') {
-      throw corrupt(`delivery.export Dispatch ${initialDispatch.id} target is invalid`);
-    }
-    const target: DomainObjectConfirmationTarget = parsedTarget;
+    const target = deliveryExportConfirmationTarget(
+      database,
+      initialDispatch,
+      exportCall.exportInput,
+    );
     const interactionId = parseCanonical(EntityIdSchema, environment.createId('run_interaction'));
     const confirmationId = parseCanonical(EntityIdSchema, environment.createId('run_confirmation'));
     const summary = `Approve delivery export to ${exportCall.exportInput.destination.displayLabel}.`;
@@ -5490,6 +5491,7 @@ function settleDeliveryExportStartBoundary(
           payload: {
             type: 'confirmation_requested',
             interactionId,
+            confirmationId,
             summary,
             target,
             immutableInputHash: dispatch.key.inputHash,
@@ -10795,6 +10797,7 @@ function prepareSkillProposal(
         payload: {
           type: 'confirmation_requested',
           interactionId,
+          confirmationId,
           summary,
           target,
           immutableInputHash: dispatch.key.inputHash,
@@ -11282,6 +11285,7 @@ function prepareProtectedMutationBoundary(
           payload: {
             type: 'confirmation_requested',
             interactionId,
+            confirmationId,
             summary,
             target,
             immutableInputHash: dispatch.key.inputHash,
@@ -12383,6 +12387,161 @@ function syntheticInterruptedResponse(
             providerState: attempt.state === 'submitted' ? 'submitted' : 'unknown',
           },
     ],
+  });
+}
+
+function syntheticRunControlInterruptedResponse(
+  database: DatabaseSync,
+  attempt: ModelAttemptRecordV1,
+): CanonicalModelResponseV1 {
+  const reservations = modelAttemptReservations(database, attempt.runId, attempt.id);
+  const inputTokens = reservations.find(({ kind }) => kind === 'input_tokens')?.amount;
+  const outputTokens = reservations.find(({ kind }) => kind === 'output_tokens')?.amount;
+  const cost = reservations.find(({ kind }) => kind === 'cost')?.amount;
+  if (
+    reservations.length !== 3 ||
+    inputTokens === undefined ||
+    outputTokens === undefined ||
+    cost === undefined ||
+    'currency' in inputTokens ||
+    'currency' in outputTokens ||
+    !('currency' in cost)
+  ) {
+    throw corrupt(`Model Attempt ${attempt.id} resource reservations are incomplete`);
+  }
+  const usage: ModelResourceQuoteV1 =
+    attempt.state === 'prepared'
+      ? {
+          inputTokens: { state: 'known', value: 0 },
+          outputTokens: { state: 'known', value: 0 },
+          cost: { state: 'known', value: '0', currency: cost.currency },
+        }
+      : {
+          // A locally cancelled in-flight request has no provider receipt. Account for its reserved
+          // upper bound as an estimate so resume remains safe without inventing exact zero usage.
+          inputTokens:
+            inputTokens.state === 'unknown'
+              ? { state: 'unknown' }
+              : { state: 'estimated', value: inputTokens.value },
+          outputTokens:
+            outputTokens.state === 'unknown'
+              ? { state: 'unknown' }
+              : { state: 'estimated', value: outputTokens.value },
+          cost:
+            cost.state === 'unknown'
+              ? { state: 'unknown', currency: cost.currency }
+              : { state: 'estimated', value: cost.value, currency: cost.currency },
+        };
+  return parseCanonical(CanonicalModelResponseV1Schema, {
+    version: 1,
+    events: [
+      { type: 'usage', usage },
+      attempt.state === 'prepared'
+        ? {
+            type: 'model_failed',
+            typedCode: 'process_interrupted',
+            retrySafety: 'before_submission',
+            providerState: 'not_submitted',
+          }
+        : {
+            type: 'model_failed',
+            typedCode: 'cancelled',
+            retrySafety: 'never',
+            providerState: attempt.state === 'submitted' ? 'submitted' : 'unknown',
+          },
+    ],
+  });
+}
+
+export function settleRunControlActivationInTransaction(
+  database: DatabaseSync,
+  environment: TargetStorageEnvironment,
+  run: Run,
+  action: 'pause' | 'cancel',
+  occurredAt: string,
+  context: TargetCommandContext,
+): Run {
+  const activation = loadActiveRunActivation(database, run.id);
+  if (activation === null) return run;
+  const attempts = listModelAttemptRecords(database, run.id, activation.id);
+  const unresolved = attempts.filter(
+    ({ state }) => state === 'prepared' || state === 'running' || state === 'submitted',
+  );
+  if (unresolved.length === 0) return run;
+  if (unresolved.length !== 1) {
+    throw corrupt(`Run ${run.id} has multiple active Model Attempts during ${action}`);
+  }
+  const before = unresolved[0]!;
+  const journal = loadRunEvents(database, run.id);
+  const step = attemptModelStep(journal, activation.activation.activationNumber, before.attemptNumber);
+  assertTailOpenStep(
+    journal,
+    activation.activation.activationNumber,
+    step.turnNumber,
+    step.stepNumber,
+    'model',
+  );
+  const attempt = settleModelAttemptRecord(
+    database,
+    before.id,
+    before.requestHash,
+    syntheticRunControlInterruptedResponse(database, before),
+    occurredAt,
+  );
+  if (attempt.usage === null) {
+    throw corrupt(`Run control Model Attempt ${attempt.id} has no usage`);
+  }
+  closeModelResources(database, environment, attempt, attempt.usage, occurredAt);
+  const events = appendRunEventBatch(database, {
+    runId: run.id,
+    commandId: `run-control.${hashCanonical({ action, attemptId: attempt.id, phase: 'interrupted' })}`,
+    events: [
+      {
+        eventId: environment.createId('run_event'),
+        visibility: 'public',
+        occurredAt,
+        actor: context.actor,
+        causation: context.causation,
+        correlationId: context.correlationId,
+        payload: { type: 'usage', ...attempt.usage },
+      },
+      {
+        eventId: environment.createId('run_event'),
+        visibility: 'public',
+        occurredAt,
+        actor: context.actor,
+        causation: context.causation,
+        correlationId: context.correlationId,
+        payload: {
+          type: 'step_ended',
+          activationNumber: activation.activation.activationNumber,
+          turnNumber: step.turnNumber,
+          stepNumber: step.stepNumber,
+          outcome: 'interrupted',
+        },
+      },
+      {
+        eventId: environment.createId('run_event'),
+        visibility: 'public',
+        occurredAt,
+        actor: context.actor,
+        causation: context.causation,
+        correlationId: context.correlationId,
+        payload: {
+          type: 'turn_ended',
+          activationNumber: activation.activation.activationNumber,
+          turnNumber: step.turnNumber,
+          outcome: 'interrupted',
+        },
+      },
+    ],
+  });
+  const head = events.at(-1);
+  if (head === undefined) throw corrupt(`Run control Model Attempt ${attempt.id} emitted no events`);
+  return advanceRunJournalHead(database, run, {
+    eventId: head.eventId,
+    sequence: head.sequence,
+    eventHash: head.eventHash,
   });
 }
 

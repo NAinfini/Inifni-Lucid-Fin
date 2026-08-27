@@ -35,6 +35,7 @@ export function withImmediateTransaction<T>(database: DatabaseSync, callback: ()
       throw new AggregateError(
         [cause, rollbackCause],
         'Target-storage transaction failed and could not be rolled back',
+        { cause: rollbackCause },
       );
     }
     throw cause;

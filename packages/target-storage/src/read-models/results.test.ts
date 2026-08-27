@@ -9,6 +9,7 @@ import {
   providerReceiptHashInput,
   type GenerationQuote,
   type GenerationSpec,
+  type MediaPreviewIssueInputV1,
   type ProviderReceipt,
 } from '@lucid-fin/target-contracts';
 import { describe, expect, it } from 'vitest';
@@ -25,6 +26,8 @@ import type {
 } from '../kernel/generation-provider.js';
 import type { MediaCas, MediaCasExpectedObject } from '../kernel/media-cas.js';
 import type { TargetStore } from '../kernel/store.js';
+import { loadProjectMediaRecord } from '../internal/media-records.js';
+import { createTargetMediaPreviewSourceResolver } from './media-preview.js';
 import { createProjectResultsReadModel } from './results.js';
 
 const NOW = '2026-08-16T12:00:00.000Z';
@@ -142,8 +145,28 @@ class MemoryCas implements MediaCas {
   }
 
   async verify(expected: MediaCasExpectedObject) {
-    expect(this.objects.get(expected.hash)?.byteLength).toBe(expected.byteLength);
+    const bytes = this.objects.get(expected.hash);
+    if (
+      bytes === undefined ||
+      bytes.byteLength !== expected.byteLength ||
+      sha256(bytes) !== expected.hash
+    ) {
+      throw new Error('Memory CAS object does not match its expected bytes');
+    }
   }
+
+  async *openVerified(expected: MediaCasExpectedObject) {
+    await this.verify(expected);
+    const bytes = this.objects.get(expected.hash);
+    if (bytes === undefined) throw new Error('Memory CAS object is missing');
+    yield Uint8Array.from(bytes);
+  }
+}
+
+async function collectBytes(bytes: AsyncIterable<Uint8Array>): Promise<Buffer> {
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of bytes) chunks.push(chunk);
+  return Buffer.concat(chunks);
 }
 
 function memoryStore(): { store: TargetStore; database: DatabaseSync } {
@@ -177,10 +200,11 @@ function ids() {
 async function harness() {
   const { store, database } = memoryStore();
   const provider = new FakeProvider();
+  const mediaCas = new MemoryCas();
   const data = createTargetDataAccess(store, {
     now: () => NOW,
     createId: ids(),
-    mediaCas: new MemoryCas(),
+    mediaCas,
     mediaImportCapabilities: {
       async resolve() {
         throw new Error('unused');
@@ -268,6 +292,7 @@ async function harness() {
         blocks: [{ type: 'text', text: 'Generate two candidates.' }],
         attachments: [],
         selectedContext: [],
+        exportDestinationGrant: null,
         supersedesMessageId: null,
       },
     },
@@ -391,6 +416,7 @@ async function harness() {
     run,
     resultIds,
     assessmentId: assessment.assessmentId,
+    mediaCas,
   };
 }
 
@@ -517,6 +543,119 @@ describe('I2-H0 Project results read model', () => {
       expect(publicJson).not.toContain('private-provider-body');
       expect(publicJson).not.toMatch(
         /databasePath|receipt|blobHash|_v1_json|content_text|credential/i,
+      );
+    } finally {
+      fixture.store.close();
+    }
+  });
+
+  it('resolves only current project-bound Project Media and generated artifact references', async () => {
+    const fixture = await harness();
+    try {
+      const result = fixture.data.results.query(fixture.project.id, {
+        resultIds: [],
+        requestIds: [],
+        targetRefs: [],
+        include: ['artifact'],
+        page: { cursor: null, limit: 1 },
+      }).items[0]!;
+      expect(result.artifact).not.toBeNull();
+      const generatedInput = {
+        projectId: fixture.project.id,
+        source: {
+          kind: 'generated_result' as const,
+          result: result.resultRef,
+          artifact: result.artifact!,
+        },
+      } satisfies MediaPreviewIssueInputV1;
+      const projectMediaRow = fixture.database
+        .prepare('SELECT project_media_ref_id FROM generated_results WHERE id = ?')
+        .get(result.resultRef.id) as { project_media_ref_id: string };
+      const projectMedia = loadProjectMediaRecord(
+        fixture.database,
+        projectMediaRow.project_media_ref_id,
+      );
+      const projectMediaInput = {
+        projectId: fixture.project.id,
+        source: {
+          kind: 'project_media_ref' as const,
+          ref: {
+            authority: 'project_media_ref' as const,
+            id: projectMedia.id,
+            revision: projectMedia.revision,
+            contentHash: projectMedia.contentHash,
+          },
+        },
+      } satisfies MediaPreviewIssueInputV1;
+      const resolver = createTargetMediaPreviewSourceResolver(fixture.store, fixture.mediaCas);
+      const generated = resolver.resolve(generatedInput);
+      const projectSource = resolver.resolve(projectMediaInput);
+      const expected = fixture.mediaCas.objects.get(result.artifact!.contentHash)!;
+
+      expect(Object.keys(generated).sort()).toEqual([
+        'byteLength',
+        'kind',
+        'mimeType',
+        'open',
+        'verify',
+      ]);
+      expect(generated).toMatchObject({
+        kind: 'image',
+        mimeType: 'image/png',
+        byteLength: expected.byteLength,
+      });
+      await expect(collectBytes(generated.open({ start: 1, end: 4 }))).resolves.toEqual(
+        expected.subarray(1, 5),
+      );
+      await expect(collectBytes(projectSource.open({ start: 1, end: 4 }))).resolves.toEqual(
+        expected.subarray(1, 5),
+      );
+
+      fixture.database
+        .prepare(
+          `INSERT INTO projects (
+             id, name, lifecycle, schema_revision, revision, content_hash, created_by_kind,
+             created_by_id, created_at, updated_at, archived_at, deleted_at
+           ) VALUES ('project.results.other', 'Other', 'active', 0, 0, ?, 'direct_ui', ?, ?, ?, NULL, NULL)`,
+        )
+        .run('b'.repeat(64), 'action.results.other', NOW, NOW);
+      expect(() =>
+        resolver.resolve({ ...projectMediaInput, projectId: 'project.results.other' }),
+      ).toThrow(/not found/i);
+      expect(() =>
+        resolver.resolve({
+          ...projectMediaInput,
+          source: {
+            ...projectMediaInput.source,
+            ref: { ...projectMediaInput.source.ref, contentHash: 'c'.repeat(64) },
+          },
+        }),
+      ).toThrow(/not found/i);
+      expect(() =>
+        resolver.resolve({ ...generatedInput, projectId: 'project.results.other' }),
+      ).toThrow(/not found/i);
+      expect(() =>
+        resolver.resolve({
+          ...generatedInput,
+          source: {
+            ...generatedInput.source,
+            result: { ...generatedInput.source.result, contentHash: 'c'.repeat(64) },
+          },
+        }),
+      ).toThrow(/not found/i);
+      expect(() =>
+        resolver.resolve({
+          ...generatedInput,
+          source: {
+            ...generatedInput.source,
+            artifact: { ...generatedInput.source.artifact, contentHash: 'd'.repeat(64) },
+          },
+        }),
+      ).toThrow(/not found/i);
+
+      fixture.mediaCas.objects.set(result.artifact!.contentHash, Buffer.from('corrupt bytes'));
+      await expect(collectBytes(generated.open({ start: 0, end: 3 }))).rejects.toThrow(
+        /does not match/i,
       );
     } finally {
       fixture.store.close();

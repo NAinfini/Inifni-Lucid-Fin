@@ -6,16 +6,13 @@ import {
   InteractionAskDefinition,
   IsoTimestampSchema,
   RunInboxMessageSchema,
-  Sha256Schema,
   SkillProposeDefinition,
-  SkillDocumentSchema,
   WireSuccessV1Schema,
   assertRunStateTransition,
   canonicalJson,
   parseCanonical,
   parseRequestV1,
   strictObject,
-  type SkillDocument,
   type CapabilityCatalogSnapshotV1,
   type WireRequestV1,
   type WireSuccessV1,
@@ -64,11 +61,28 @@ import { appendProjectEvent } from '../internal/project-events.js';
 import { insertRunInboxMessage, nextRunInboxSequence } from '../internal/run-inbox.js';
 import { appendRunEventBatch, type AppendRunEventBatchInput } from '../internal/run-journal.js';
 import { advanceRunJournalHead, loadRun } from '../internal/run-records.js';
+import {
+  SkillRegistrationBatchInputSchema,
+  SkillRegistrationInputSchema,
+  registerGlobalSkillInTransaction,
+  writeSkillRegistrationInTransaction,
+  type SkillRegistrationBatchInput,
+  type SkillRegistrationBatchResult,
+  type SkillRegistrationInput,
+  type SkillRegistrationResult,
+} from '../internal/skill-registration.js';
 import { TargetStorageError } from '../kernel/errors.js';
 import { loadCanonicalBuiltInSkillPack } from '../kernel/artifacts.js';
 import type { TargetStore } from '../kernel/store.js';
 import { withImmediateTransaction } from '../kernel/transaction.js';
 import { buildRootCapabilityCatalog as buildRootCapabilityCatalogFromDatabase } from '../internal/root-capability-catalog.js';
+
+export type {
+  SkillRegistrationBatchInput,
+  SkillRegistrationBatchResult,
+  SkillRegistrationInput,
+  SkillRegistrationResult,
+} from '../internal/skill-registration.js';
 
 const ProviderProfileProvisioningSeedSchema = strictObject({
   id: EntityIdSchema,
@@ -93,61 +107,6 @@ interface ProviderProfileRow {
   status: ProviderProfileProvisioningSeed['status'];
   configuration_v1_json: string;
   revision: number;
-}
-
-interface SkillRow {
-  id: string;
-  version: string;
-  name: string;
-  description: string;
-  content_text: string;
-  content_hash: string;
-  provenance: SkillDocument['provenance'];
-  trust: SkillDocument['trust'];
-  project_id: string | null;
-  created_by_confirmation_id: string | null;
-  created_at: string;
-}
-
-const SkillRegistrationInputSchema = strictObject({
-  document: SkillDocumentSchema,
-  projectId: EntityIdSchema.nullable(),
-}).superRefine(({ document, projectId }, context) => {
-  if ((document.provenance === 'project') !== (projectId !== null)) {
-    context.addIssue({
-      code: 'custom',
-      path: ['projectId'],
-      message: 'Project Skills require one owner and global Skills cannot have one',
-    });
-  }
-});
-
-const SkillRegistrationBatchInputSchema = strictObject({
-  sourceFingerprint: Sha256Schema,
-  entries: z.array(SkillRegistrationInputSchema).min(1).max(100_000),
-}).superRefine(({ entries }, context) => {
-  const identities = new Set<string>();
-  entries.forEach(({ document }, index) => {
-    const identity = `${document.skillId}\u0000${document.version}`;
-    if (identities.has(identity)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['entries', index],
-        message: 'Skill batch identities must be unique',
-      });
-    }
-    identities.add(identity);
-  });
-});
-
-export type SkillRegistrationInput = z.output<typeof SkillRegistrationInputSchema>;
-export interface SkillRegistrationResult extends SkillRegistrationInput {
-  readonly status: 'inserted' | 'unchanged';
-}
-export type SkillRegistrationBatchInput = z.output<typeof SkillRegistrationBatchInputSchema>;
-export interface SkillRegistrationBatchResult {
-  readonly sourceFingerprint: string;
-  readonly results: readonly SkillRegistrationResult[];
 }
 
 function corrupt(message: string, cause?: unknown): TargetStorageError {
@@ -183,159 +142,6 @@ function providerFromRow(row: ProviderProfileRow): ProviderProfileProvisioningSe
   } catch (cause) {
     throw corrupt(`Host Provider Profile ${row.id} is invalid`, cause);
   }
-}
-
-function skillFromRow(row: SkillRow): SkillDocument {
-  let skill: SkillDocument;
-  try {
-    skill = parseCanonical(SkillDocumentSchema, {
-      skillId: row.id,
-      version: row.version,
-      name: row.name,
-      description: row.description,
-      content: row.content_text,
-      contentHash: row.content_hash,
-      provenance: row.provenance,
-      trust: row.trust,
-      createdAt: row.created_at,
-    });
-  } catch (cause) {
-    throw corrupt(`Host Skill ${row.id}@${row.version} is invalid`, cause);
-  }
-  if (hashUtf8(skill.content) !== skill.contentHash) {
-    throw corrupt(`Host Skill ${row.id}@${row.version} content digest does not match`);
-  }
-  return skill;
-}
-
-function skillRegistrationFromRow(row: SkillRow): SkillRegistrationInput {
-  return parseCanonical(SkillRegistrationInputSchema, {
-    document: skillFromRow(row),
-    projectId: row.project_id,
-  });
-}
-
-function ensureSkillQuarantine(database: DatabaseSync, document: SkillDocument): void {
-  if (document.trust !== 'unreviewed') return;
-  database
-    .prepare(
-      `INSERT INTO skill_quarantines (skill_id, skill_version, reason)
-       VALUES (?, ?, 'Unreviewed Skill content is not runtime-eligible')
-       ON CONFLICT(skill_id, skill_version) DO NOTHING`,
-    )
-    .run(document.skillId, document.version);
-}
-
-function writeSkill(
-  database: DatabaseSync,
-  inputValue: SkillRegistrationInput,
-  createdByConfirmationId: string | null,
-  effectiveAt: string,
-  allowExactExisting: boolean,
-): SkillRegistrationResult {
-  let input: SkillRegistrationInput;
-  try {
-    input = parseCanonical(SkillRegistrationInputSchema, inputValue);
-  } catch (cause) {
-    throw new TargetStorageError('INVALID_REQUEST', 'Skill registration is invalid', { cause });
-  }
-  const { document, projectId } = input;
-  const isProjectSkill = document.provenance === 'project';
-  if (isProjectSkill !== (createdByConfirmationId !== null)) {
-    throw new TargetStorageError(
-      'INVALID_REQUEST',
-      'Project Skill registration requires its creating confirmation',
-    );
-  }
-  if (hashUtf8(document.content) !== document.contentHash) {
-    throw new TargetStorageError(
-      'INVALID_REQUEST',
-      `Skill ${document.skillId}@${document.version} content digest does not match`,
-    );
-  }
-  if (
-    projectId !== null &&
-    database.prepare('SELECT 1 FROM projects WHERE id = ?').get(projectId) === undefined
-  ) {
-    throw new TargetStorageError('NOT_FOUND', `Project ${projectId} was not found`);
-  }
-  const existing = database
-    .prepare(
-      `SELECT id, version, name, description, content_text, content_hash, provenance, trust,
-              project_id, created_by_confirmation_id, created_at
-       FROM skills WHERE id = ? AND version = ?`,
-    )
-    .get(document.skillId, document.version) as unknown as SkillRow | undefined;
-  if (existing !== undefined) {
-    if (
-      !allowExactExisting ||
-      canonicalJson(skillRegistrationFromRow(existing)) !== canonicalJson(input) ||
-      existing.created_by_confirmation_id !== createdByConfirmationId
-    ) {
-      throw conflict(
-        `Skill ${document.skillId}@${document.version} already exists with different content or ownership`,
-      );
-    }
-    ensureSkillQuarantine(database, document);
-    return Object.freeze({ ...input, status: 'unchanged' });
-  }
-  database
-    .prepare(
-      `INSERT INTO skills (
-         id, version, name, description, content_text, content_hash, provenance, trust,
-         project_id, created_by_confirmation_id, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      document.skillId,
-      document.version,
-      document.name,
-      document.description,
-      document.content,
-      document.contentHash,
-      document.provenance,
-      document.trust,
-      projectId,
-      createdByConfirmationId,
-      document.createdAt,
-    );
-  database
-    .prepare(
-      `INSERT INTO skill_effective_versions (skill_id, skill_version, changed_at)
-       VALUES (?, ?, ?)
-       ON CONFLICT(skill_id) DO UPDATE SET
-         skill_version = excluded.skill_version,
-         changed_at = excluded.changed_at`,
-    )
-    .run(document.skillId, document.version, effectiveAt);
-  ensureSkillQuarantine(database, document);
-  const inserted = database
-    .prepare(
-      `SELECT id, version, name, description, content_text, content_hash, provenance, trust,
-              project_id, created_by_confirmation_id, created_at
-       FROM skills WHERE id = ? AND version = ?`,
-    )
-    .get(document.skillId, document.version) as unknown as SkillRow;
-  return Object.freeze({ ...skillRegistrationFromRow(inserted), status: 'inserted' });
-}
-
-function registerSkill(
-  database: DatabaseSync,
-  inputValue: SkillRegistrationInput,
-): SkillRegistrationResult {
-  let input: SkillRegistrationInput;
-  try {
-    input = parseCanonical(SkillRegistrationInputSchema, inputValue);
-  } catch (cause) {
-    throw new TargetStorageError('INVALID_REQUEST', 'Skill registration is invalid', { cause });
-  }
-  if (input.document.provenance === 'project') {
-    throw new TargetStorageError(
-      'INVALID_REQUEST',
-      'Project Skills must be registered through confirmation.respond',
-    );
-  }
-  return writeSkill(database, input, null, input.document.createdAt, true);
 }
 
 export interface HostCatalogProvisioning {
@@ -401,9 +207,17 @@ export function createHostCatalogProvisioning(
           .get(seed.id) as unknown as ProviderProfileRow,
       );
     },
-    registerSkill(input: SkillRegistrationInput) {
+    registerSkill(inputValue: SkillRegistrationInput) {
+      let input: SkillRegistrationInput;
+      try {
+        input = parseCanonical(SkillRegistrationInputSchema, inputValue);
+      } catch (cause) {
+        throw new TargetStorageError('INVALID_REQUEST', 'Skill registration is invalid', { cause });
+      }
       const database = getTargetStoreDatabase(store);
-      return withImmediateTransaction(database, () => registerSkill(database, input));
+      return withImmediateTransaction(database, () =>
+        registerGlobalSkillInTransaction(database, input, input.document.createdAt),
+      );
     },
     registerSkillBatch(inputValue: SkillRegistrationBatchInput) {
       let input: SkillRegistrationBatchInput;
@@ -424,7 +238,11 @@ export function createHostCatalogProvisioning(
       return withImmediateTransaction(database, () =>
         Object.freeze({
           sourceFingerprint: input.sourceFingerprint,
-          results: Object.freeze(input.entries.map((entry) => registerSkill(database, entry))),
+          results: Object.freeze(
+            input.entries.map((entry) =>
+              registerGlobalSkillInTransaction(database, entry, entry.document.createdAt),
+            ),
+          ),
         }),
       );
     },
@@ -694,6 +512,7 @@ export function createHostInteractionAuthority(
           actor: 'user',
           source: { kind: 'message', messageId: message.id, contentHash: message.contentHash },
           selectedContext: [],
+          exportDestinationGrant: null,
           contentHash: message.contentHash,
           state: 'queued',
           createdAt: occurredAt,
@@ -796,9 +615,9 @@ type ProtectedMutationTarget = Extract<
   z.output<typeof ConfirmationTargetSchema>,
   { readonly kind: 'protected_mutation' }
 >;
-type DomainObjectConfirmationTarget = Extract<
+type DeliveryExportConfirmationTarget = Extract<
   z.output<typeof ConfirmationTargetSchema>,
-  { readonly kind: 'domain_object' }
+  { readonly kind: 'delivery_export' }
 >;
 
 interface SkillConfirmationRow {
@@ -842,7 +661,7 @@ interface PendingProtectedMutationConfirmation extends Omit<PendingConfirmation,
 }
 
 interface PendingDeliveryExportConfirmation extends Omit<PendingConfirmation, 'target'> {
-  readonly target: DomainObjectConfirmationTarget;
+  readonly target: DeliveryExportConfirmationTarget;
   readonly input: ReturnType<typeof DeliveryExportDefinition.parseInput>;
 }
 
@@ -910,6 +729,22 @@ function pendingConfirmation(
       'INVALID_REQUEST',
       `Run Confirmation ${row.id} input hash does not match`,
     );
+  }
+  if (
+    row.interaction_state === 'cancelled' &&
+    row.answer_message_id === null &&
+    row.resolved_at !== null &&
+    row.decision === null &&
+    row.decided_by_message_id === null &&
+    row.decided_at === null
+  ) {
+    const run = loadRun(database, row.run_id);
+    if (run.status === 'cancelled') {
+      throw new TargetStorageError(
+        'INVALID_REQUEST',
+        `Run Confirmation ${row.id} is no longer pending`,
+      );
+    }
   }
   if (
     row.interaction_run_id !== row.run_id ||
@@ -1026,7 +861,7 @@ function protectedMutationConfirmation(
 function deliveryExportConfirmation(
   confirmation: PendingConfirmation,
 ): PendingDeliveryExportConfirmation {
-  if (confirmation.target.kind !== 'domain_object') {
+  if (confirmation.target.kind !== 'delivery_export') {
     throw new TargetStorageError(
       'INVALID_REQUEST',
       `Run Confirmation ${confirmation.id} is not a delivery export`,
@@ -1053,7 +888,10 @@ function deliveryExportConfirmation(
     dispatch.ownerId !== null ||
     dispatch.projectEventId !== null ||
     dispatch.key.inputHash !== confirmation.immutableInputHash ||
-    canonicalJson(target.ref) !== canonicalJson(input.manifest)
+    canonicalJson(target.manifest) !== canonicalJson(input.manifest) ||
+    target.destination.kind !== input.destination.kind ||
+    target.destination.displayLabel !== input.destination.displayLabel ||
+    target.overwriteExisting !== input.overwriteExisting
   ) {
     throw corrupt(`delivery.export Dispatch ${dispatch.id} binding is invalid`);
   }
@@ -1180,6 +1018,7 @@ function recordConfirmationAnswerInTransaction(
     actor: 'user',
     source: { kind: 'message', messageId: message.id, contentHash: message.contentHash },
     selectedContext: [],
+    exportDestinationGrant: null,
     contentHash: message.contentHash,
     state: 'queued',
     createdAt: occurredAt,
@@ -1474,7 +1313,7 @@ export function createHostConfirmationAuthority(
             occurredAt,
           );
         }
-        if (pending.target.kind === 'domain_object') {
+        if (pending.target.kind === 'delivery_export') {
           return respondDeliveryExportConfirmationInTransaction(
             database,
             environment,
@@ -1512,12 +1351,15 @@ export function createHostConfirmationAuthority(
         }
         let effect: ConfirmationRespondResult['effect'] = null;
         if (request.input.decision === 'approved') {
-          writeSkill(
+          writeSkillRegistrationInTransaction(
             database,
             { document: confirmation.target.skill, projectId: project.id },
-            confirmation.id,
-            occurredAt,
-            false,
+            {
+              createdByConfirmationId: confirmation.id,
+              effectiveAt: occurredAt,
+              allowExactExisting: false,
+              activateEffectiveVersion: true,
+            },
           );
           appendProjectEvent(database, {
             eventId: environment.createId('project_event'),

@@ -121,9 +121,6 @@ function OAuthProviderCard({
   const statusState = status?.state;
   const readyStatus = status?.state === 'ready' ? status : null;
   const modelCapabilities = readyStatus?.modelCapabilities;
-  const selectedModelCapability = modelCapabilities?.models.find(
-    (entry) => entry.model === draftModel.trim() || entry.id === draftModel.trim(),
-  );
   const showModel = modelCapabilities?.supportsModelOverride === true;
   const showReasoningEffort = modelCapabilities?.supportsReasoningEffort === true;
   const configDirty =

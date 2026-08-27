@@ -37,7 +37,7 @@ function mediaReport(hashes: readonly string[]): LegacyMediaPreflightReport {
 }
 
 describe('Legacy root-row classification', () => {
-  it('binds Plan preflight evidence without inventing Production or UserChoice targets', () => {
+  it('blocks valid Plan evidence when its Project owner cannot be proven', () => {
     const content = { title: 'Private production plan' };
     const contentHash = hashCanonical(content);
     const manifestHash = digest('Private manifest');
@@ -171,7 +171,7 @@ describe('Legacy root-row classification', () => {
     expect(
       first.classification.entries.every(
         ({ blockerCode, targetRefs, exportRef }) =>
-          blockerCode === 'legacy_plan_target_mapping_unfrozen' &&
+          blockerCode === 'legacy_imported_history_project_owner_unresolved' &&
           targetRefs.length === 0 &&
           exportRef === null,
       ),
@@ -194,7 +194,7 @@ describe('Legacy root-row classification', () => {
     expect(blocked.planHistory).toMatchObject({ ok: false });
     expect(
       blocked.classification.entries.every(
-        ({ blockerCode }) => blockerCode === 'legacy_plan_history_preflight_blocked',
+        ({ blockerCode }) => blockerCode === 'legacy_imported_history_project_owner_unresolved',
       ),
     ).toBe(true);
     expect(main.prepare('SELECT * FROM plan_documents').all()).toEqual(beforeBlocked.documents);
@@ -472,7 +472,7 @@ describe('Legacy root-row classification', () => {
     expect(JSON.stringify(report)).not.toContain('#010203');
   });
 
-  it('blocks Run event projection and attachment identity instead of guessing target evidence', () => {
+  it('imports Project-owned Run evidence into the read-only history ledger', () => {
     const main = database(`
       CREATE TABLE canvases (id TEXT);
       CREATE TABLE commander_sessions (default_canvas_id TEXT, id TEXT);
@@ -571,28 +571,39 @@ describe('Legacy root-row classification', () => {
           classifiedCount: 5,
           byDisposition: {
             migrated_current_state: 2,
-            immutable_provenance_history: 1,
-            blocking_error: 2,
+            immutable_provenance_history: 3,
+            blocking_error: 0,
           },
         },
-        ok: false,
+        ok: true,
       },
-      ok: false,
+      ok: true,
     });
     expect(
-      new Set(report.classification.entries.map(({ blockerCode }) => blockerCode).filter(Boolean)),
-    ).toEqual(
-      new Set([
-        'legacy_run_attachment_asset_identity_unresolved',
-        'legacy_commander_event_unmappable',
-      ]),
-    );
+      report.classification.entries
+        .filter(({ subject }) =>
+          ['commander_runs', 'commander_events', 'commander_run_attachments'].includes(
+            subject.table,
+          ),
+        )
+        .every(
+          ({ disposition, reasonCode, blockerCode, targetRefs }) =>
+            disposition === 'immutable_provenance_history' &&
+            [
+              'legacy_execution_history_imported_read_only',
+              'legacy_run_history_imported_read_only',
+            ].includes(reasonCode) &&
+            blockerCode === null &&
+            targetRefs.length === 1 &&
+            targetRefs[0]?.projectId === 'project.1',
+        ),
+    ).toBe(true);
     expect(JSON.stringify(report)).not.toContain('Private intent');
     expect(JSON.stringify(report)).not.toContain('Private attachment.mov');
     expect(JSON.stringify(report)).not.toContain('Private recovery');
   });
 
-  it('blocks Legacy Task events that have no provable Target Run owner or event envelope', () => {
+  it('blocks Legacy Task events that have no provable Project owner', () => {
     const main = database(`
       CREATE TABLE task_events (
         actor TEXT,
@@ -651,10 +662,10 @@ describe('Legacy root-row classification', () => {
         entries: [
           {
             disposition: 'blocking_error',
-            reasonCode: 'legacy_task_event_run_owner_unresolved',
+            reasonCode: 'legacy_imported_history_project_owner_unresolved',
             targetRefs: [],
             exportRef: null,
-            blockerCode: 'legacy_task_event_run_owner_unresolved',
+            blockerCode: 'legacy_imported_history_project_owner_unresolved',
           },
         ],
         ok: false,
@@ -667,7 +678,7 @@ describe('Legacy root-row classification', () => {
     expect(JSON.stringify(report)).not.toContain('Private event');
   });
 
-  it('blocks Legacy Task decisions that cannot identify a Target Run interaction', () => {
+  it('blocks Legacy Task decisions that have no provable Project owner', () => {
     const main = database(`
       CREATE TABLE task_decisions (
         allow_free_text INTEGER,
@@ -753,10 +764,10 @@ describe('Legacy root-row classification', () => {
         entries: [
           {
             disposition: 'blocking_error',
-            reasonCode: 'legacy_task_decision_interaction_identity_unresolved',
+            reasonCode: 'legacy_imported_history_project_owner_unresolved',
             targetRefs: [],
             exportRef: null,
-            blockerCode: 'legacy_task_decision_interaction_identity_unresolved',
+            blockerCode: 'legacy_imported_history_project_owner_unresolved',
           },
         ],
         ok: false,
@@ -768,7 +779,7 @@ describe('Legacy root-row classification', () => {
     expect(JSON.stringify(report)).not.toContain('Private question');
   });
 
-  it('blocks Delivery mirror rows that cannot identify target media or results', () => {
+  it('imports Project-owned Delivery mirror evidence into the read-only history ledger', () => {
     const main = database(`
       CREATE TABLE canvases (id TEXT);
       CREATE TABLE delivery_asset_refs (asset_hash TEXT, canvas_id TEXT);
@@ -797,24 +808,29 @@ describe('Legacy root-row classification', () => {
         counts: {
           subjectCount: 2,
           classifiedCount: 2,
-          byDisposition: { migrated_current_state: 1, blocking_error: 1 },
+          byDisposition: { migrated_current_state: 1, immutable_provenance_history: 1 },
         },
         entries: expect.arrayContaining([
           expect.objectContaining({
-            disposition: 'blocking_error',
-            reasonCode: 'legacy_delivery_target_identity_unresolved',
-            targetRefs: [],
+            disposition: 'immutable_provenance_history',
+            reasonCode: 'legacy_delivery_history_imported_read_only',
+            targetRefs: [
+              expect.objectContaining({
+                authority: 'imported_history_record',
+                projectId: 'project.1',
+              }),
+            ],
             exportRef: null,
-            blockerCode: 'legacy_delivery_target_identity_unresolved',
+            blockerCode: null,
           }),
         ]),
-        ok: false,
+        ok: true,
       },
-      ok: false,
+      ok: true,
     });
   });
 
-  it('anchors a Project-resolved Legacy Task to its parent Target TaskList owner', () => {
+  it('anchors a Project-resolved Legacy Task to its imported history identity', () => {
     const main = database(`
       CREATE TABLE canvases (archived_at INTEGER, id TEXT);
       CREATE TABLE task_lists (entity_id TEXT, entity_type TEXT, id TEXT, metadata_json TEXT);
@@ -845,7 +861,9 @@ describe('Legacy root-row classification', () => {
     expect(taskOwnership).toMatchObject({
       projectIds: ['project.1'],
       disposition: 'single_project',
-      targetRefs: [{ authority: 'task_list', id: 'task-list.1', projectId: 'project.1' }],
+      targetRefs: [
+        { authority: 'imported_task_item_history', id: 'task.1', projectId: 'project.1' },
+      ],
       blockerCode: null,
     });
     expect(report.ownership.ok).toBe(true);
@@ -861,7 +879,7 @@ describe('Legacy root-row classification', () => {
     expect(report.ok).toBe(true);
   });
 
-  it('keeps the removed Legacy Task dependency graph in the offline export', () => {
+  it('blocks Legacy Task dependency evidence when its Project owner is absent', () => {
     const main = database(`
       CREATE TABLE task_dependencies (depends_on_task_id TEXT, task_id TEXT);
       INSERT INTO task_dependencies VALUES ('Private prerequisite', 'Private dependent');
@@ -888,20 +906,19 @@ describe('Legacy root-row classification', () => {
           subjectCount: 1,
           classifiedCount: 1,
           targetRefCount: 0,
-          byDisposition: { offline_legacy_export: 1 },
+          byDisposition: { blocking_error: 1 },
         },
         entries: [
           {
-            disposition: 'offline_legacy_export',
-            reasonCode: 'legacy_task_dependency_graph_offline_export',
+            disposition: 'blocking_error',
+            reasonCode: 'legacy_imported_history_project_owner_unresolved',
             targetRefs: [],
-            blockerCode: null,
+            blockerCode: 'legacy_imported_history_project_owner_unresolved',
           },
         ],
-        blockers: [],
-        ok: true,
+        ok: false,
       },
-      ok: true,
+      ok: false,
     });
     expect(JSON.stringify(report)).not.toContain('Private prerequisite');
     expect(JSON.stringify(report)).not.toContain('Private dependent');
@@ -1081,7 +1098,7 @@ describe('Legacy root-row classification', () => {
         counts: {
           subjectCount: 3,
           classifiedCount: 3,
-          byDisposition: { offline_legacy_export: 1, blocking_error: 2 },
+          byDisposition: { offline_legacy_export: 2, blocking_error: 1 },
         },
         ok: false,
       },
@@ -1096,9 +1113,9 @@ describe('Legacy root-row classification', () => {
     ).toEqual(
       expect.arrayContaining([
         {
-          disposition: 'blocking_error',
-          reasonCode: 'legacy_global_app_settings_target_unfrozen',
-          blockerCode: 'legacy_global_app_settings_target_unfrozen',
+          disposition: 'offline_legacy_export',
+          reasonCode: 'legacy_global_app_settings_offline_export',
+          blockerCode: null,
         },
         {
           disposition: 'offline_legacy_export',
@@ -1115,7 +1132,7 @@ describe('Legacy root-row classification', () => {
     expect(JSON.stringify(report)).not.toContain('Private');
   });
 
-  it('blocks Task and Prompt evidence rows until their Target lineage is frozen', () => {
+  it('blocks Task and Prompt evidence rows when their Project owner is absent', () => {
     const main = database(`
       CREATE TABLE prompt_assemblies (id TEXT, output_json TEXT, source_attempt_id TEXT);
       CREATE TABLE task_artifacts (id TEXT, metadata_json TEXT);
@@ -1184,10 +1201,10 @@ describe('Legacy root-row classification', () => {
         ]),
       ),
     ).toEqual({
-      prompt_assemblies: 'legacy_prompt_assembly_target_mapping_unfrozen',
-      task_artifacts: 'legacy_task_artifact_target_mapping_unfrozen',
-      task_attempts: 'legacy_task_attempt_target_mapping_unfrozen',
-      task_evaluations: 'legacy_task_evaluation_target_mapping_unfrozen',
+      prompt_assemblies: 'legacy_imported_history_project_owner_unresolved',
+      task_artifacts: 'legacy_imported_history_project_owner_unresolved',
+      task_attempts: 'legacy_imported_history_project_owner_unresolved',
+      task_evaluations: 'legacy_imported_history_project_owner_unresolved',
     });
     expect(
       first.classification.entries.every(

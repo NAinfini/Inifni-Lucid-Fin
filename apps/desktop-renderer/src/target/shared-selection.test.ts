@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DomainObjectRef } from '@lucid-fin/target-contracts';
 import {
   EMPTY_TARGET_SELECTION,
+  isTargetWorkspace,
   selectionToRunContext,
   targetSelectionReducer,
 } from './shared-selection.js';
@@ -20,6 +21,13 @@ const media: DomainObjectRef = {
 };
 
 describe('target shared selection', () => {
+  it('accepts only canonical Project workspace route segments', () => {
+    expect(isTargetWorkspace('overview')).toBe(true);
+    expect(isTargetWorkspace('delivery')).toBe(true);
+    expect(isTargetWorkspace('legacy')).toBe(false);
+    expect(isTargetWorkspace(null)).toBe(false);
+  });
+
   it('keeps one authoritative primary object across workspaces', () => {
     const selected = targetSelectionReducer(EMPTY_TARGET_SELECTION, { type: 'select', ref: shot });
     const withReference = targetSelectionReducer(selected, { type: 'support', ref: media });
@@ -45,5 +53,27 @@ describe('target shared selection', () => {
         id: media.id,
       }),
     ).toEqual(EMPTY_TARGET_SELECTION);
+  });
+
+  it('rebases matching selected refs after an authoritative revision change', () => {
+    const currentShot = {
+      ...shot,
+      revision: shot.revision + 1,
+      contentHash: 'c'.repeat(64),
+    };
+
+    expect(
+      targetSelectionReducer(
+        { primary: shot, supporting: [media] },
+        { type: 'refresh', ref: currentShot },
+      ),
+    ).toEqual({ primary: currentShot, supporting: [media] });
+
+    expect(
+      targetSelectionReducer(
+        { primary: media, supporting: [shot] },
+        { type: 'refresh', ref: currentShot },
+      ),
+    ).toEqual({ primary: media, supporting: [currentShot] });
   });
 });

@@ -46,6 +46,7 @@ describe('target contract generator', () => {
 
     const builtInSkills = JSON.parse(first['built-in-skills.v1.json']) as Array<{
       content: string;
+      trust: 'trusted' | 'reviewed' | 'unreviewed';
     }>;
     expect(builtInSkills).toHaveLength(287);
     const legacyContents = builtInSkills.map(
@@ -72,6 +73,26 @@ describe('target contract generator', () => {
       ({ source }) => `${source.kind}\u0000${source.logicalKey}`,
     );
     expect(new Set(allSourceKeys).size).toBe(allSourceKeys.length);
+    expect(
+      Object.fromEntries(
+        ['trusted', 'reviewed', 'unreviewed'].map((trust) => [
+          trust,
+          builtInSkills.filter((document) => document.trust === trust).length,
+        ]),
+      ),
+    ).toEqual({ trusted: 250, reviewed: 0, unreviewed: 37 });
+    const trustedRendererToolRoutes = builtInSkills.flatMap((document, index) => {
+      const content = JSON.parse(document.content) as {
+        effectiveInstruction: string;
+        source: { kind: string; logicalKey: string };
+      };
+      return document.trust === 'trusted' &&
+        content.source.kind === 'renderer_skill' &&
+        /`[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+`/iu.test(content.effectiveInstruction)
+        ? [`${index}:${content.source.logicalKey}`]
+        : [];
+    });
+    expect(trustedRendererToolRoutes).toEqual([]);
     const migratedPresetSources = legacyContents.filter(({ source }) =>
       ['preset', 'shot_template'].includes(source.kind),
     );

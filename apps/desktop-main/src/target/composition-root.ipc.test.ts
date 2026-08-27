@@ -124,7 +124,7 @@ function pickerSuccess<Method extends 'os.export.pick' | 'os.media.pick'>(
 }
 
 describe('target desktop single-router IPC journey', () => {
-  it('persists the project-first path and queries all five workspaces through one channel', async () => {
+  it('persists the project-first path and queries all project workspaces through one channel', async () => {
     const setup = await fixture();
     const ipc = ipcFixture();
     let pushRequest = 0;
@@ -134,12 +134,14 @@ describe('target desktop single-router IPC journey', () => {
       notifyDurableRunWork: vi.fn(),
       close: vi.fn(async () => undefined),
     };
+    const privateWritableGrant = 'C:\\private\\exports\\harbor-final.mp4';
     const composition = await startTargetDesktopComposition({
       ...setup,
       ipcMain: ipc.ipcMain,
       createPushRequestId: () => `request.ipc.push.${++pushRequest}`,
       runEventSink: { send: sendPush },
       onInternalError: vi.fn(),
+      authorizeInvocation: () => true,
       contextForRequest: (wireRequest) => ({
         actor: 'user',
         causation: { kind: 'direct_ui', actionId: wireRequest.requestId },
@@ -154,6 +156,14 @@ describe('target desktop single-router IPC journey', () => {
         projectMediaSelections: [],
         citedMemoryEntryIds: [],
       }),
+      exportDestinationPicker: {
+        pick: async (input) => ({
+          state: 'selected',
+          destination: input.destination,
+          displayLabel: 'harbor-final.mp4',
+          writableGrant: privateWritableGrant,
+        }),
+      },
       pickExportDestination: (wireRequest) => pickerSuccess(wireRequest),
       pickMedia: (wireRequest) => pickerSuccess(wireRequest),
       reportStartup: vi.fn(),
@@ -186,6 +196,46 @@ describe('target desktop single-router IPC journey', () => {
           request('chat.create', { projectId: project.id, title: 'Harbor production' }),
         )
       ).result;
+      const exportDestination = await ipc.invoke(
+        request('os.export.pick', {
+          chatId: chat.id,
+          projectId: project.id,
+          deliveryPlan: {
+            authority: 'delivery',
+            id: 'delivery.ipc.export',
+            revision: 1,
+            contentHash: 'd'.repeat(64),
+          },
+          destination: 'file',
+          suggestedFileName: 'harbor-final.mp4',
+          allowedExtensions: ['mp4'],
+        }),
+      );
+      expect(exportDestination.result).toMatchObject({
+        state: 'selected',
+        grant: { destination: { kind: 'user_selected_file', displayLabel: 'harbor-final.mp4' } },
+      });
+      expect(JSON.stringify(exportDestination)).not.toContain(privateWritableGrant);
+      if (exportDestination.result.state !== 'selected') {
+        throw new Error('Expected the target export picker to select a destination');
+      }
+      const { kind, grantId, grantHash, displayLabel, deliveryPlan } =
+        exportDestination.result.grant.destination;
+      const destination = { kind, grantId, grantHash, displayLabel };
+      await expect(
+        composition.exportDestination.resolve({
+          descriptor: destination,
+          projectId: project.id,
+          chatId: chat.id,
+          runId: 'run.ipc.export-destination.1',
+          deliveryPlan,
+          requiredExtension: 'mp4',
+          operationFingerprint: 'a'.repeat(64),
+        }),
+      ).resolves.toEqual({
+        descriptor: destination,
+        writableGrant: privateWritableGrant,
+      });
       const grant = (
         await ipc.invoke(request('os.media.pick', { kinds: ['image'], multiple: false }))
       ).result;
@@ -223,6 +273,7 @@ describe('target desktop single-router IPC journey', () => {
             attachments: [],
             selectedContext: [],
             supersedesMessageId: null,
+            exportDestinationGrant: null,
           }),
         )
       ).result.acceptedRun;
@@ -305,41 +356,75 @@ describe('target desktop single-router IPC journey', () => {
       ).result.items;
       expect(persistedEvents.length).toBeGreaterThan(0);
 
-      const [overview, production, canvas, media, delivery] = await Promise.all([
-        ipc.invoke(request('overview.get', { projectId: project.id })),
-        ipc.invoke(
-          request('production.query', {
-            projectId: project.id,
-            ids: [],
-            types: [],
-            includeArchived: false,
-            includeFactSources: true,
-            page: { cursor: null, limit: 100 },
-          }),
-        ),
-        ipc.invoke(request('canvas.get', { projectId: project.id })),
-        ipc.invoke(
-          request('media.project.list', {
-            projectId: project.id,
-            roles: [],
-            query: '',
-            page: { cursor: null, limit: 100 },
-          }),
-        ),
-        ipc.invoke(
-          request('delivery.query', {
-            projectId: project.id,
-            deliveryPlanIds: [],
-            page: { cursor: null, limit: 100 },
-          }),
-        ),
-      ]);
+      const [overview, production, canvas, media, delivery, results, history, capabilities] =
+        await Promise.all([
+          ipc.invoke(request('overview.get', { projectId: project.id })),
+          ipc.invoke(
+            request('production.query', {
+              projectId: project.id,
+              ids: [],
+              types: [],
+              includeArchived: false,
+              includeFactSources: true,
+              page: { cursor: null, limit: 100 },
+            }),
+          ),
+          ipc.invoke(request('canvas.get', { projectId: project.id })),
+          ipc.invoke(
+            request('media.project.list', {
+              projectId: project.id,
+              roles: [],
+              query: '',
+              page: { cursor: null, limit: 100 },
+            }),
+          ),
+          ipc.invoke(
+            request('delivery.query', {
+              projectId: project.id,
+              deliveryPlanIds: [],
+              page: { cursor: null, limit: 100 },
+            }),
+          ),
+          ipc.invoke(
+            request('result.query', {
+              projectId: project.id,
+              query: {
+                resultIds: [],
+                requestIds: [],
+                targetRefs: [],
+                include: [],
+                page: { cursor: null, limit: 100 },
+              },
+            }),
+          ),
+          ipc.invoke(
+            request('history.query', {
+              projectId: project.id,
+              order: 'reverse_chronological',
+              query: {
+                sources: [],
+                eventTypes: [],
+                subjects: [],
+                actors: [],
+                time: { from: null, to: null },
+                page: { cursor: null, limit: 100 },
+              },
+            }),
+          ),
+          ipc.invoke(request('project.capabilities.get', { projectId: project.id })),
+        ]);
 
       expect(overview.result.project.id).toBe(project.id);
       expect(production.result.items).toEqual([]);
       expect(canvas.result.projectId).toBe(project.id);
       expect(media.result.items).toEqual([attached]);
       expect(delivery.result.plans).toEqual([]);
+      expect(results.result.items).toEqual([]);
+      expect(history.result.items.every((entry) => entry.projectId === project.id)).toBe(true);
+      expect(capabilities.result.projectId).toBe(project.id);
+      expect(capabilities.result.providers).toEqual([
+        expect.objectContaining({ id: PROVIDER_ID, status: 'ready' }),
+      ]);
       expect(ipc.ipcMain.handle).toHaveBeenCalledOnce();
 
       await composition.close();
@@ -350,6 +435,7 @@ describe('target desktop single-router IPC journey', () => {
         createPushRequestId: () => `request.ipc.reconnect.push.${++pushRequest}`,
         runEventSink: { send: vi.fn() },
         onInternalError: vi.fn(),
+        authorizeInvocation: () => true,
         contextForRequest: (wireRequest) => ({
           actor: 'user',
           causation: { kind: 'direct_ui', actionId: wireRequest.requestId },
@@ -387,5 +473,5 @@ describe('target desktop single-router IPC journey', () => {
     } finally {
       await composition.close();
     }
-  });
+  }, 15_000);
 });

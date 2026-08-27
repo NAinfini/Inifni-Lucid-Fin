@@ -22,6 +22,30 @@ export const PositiveNumberSchema = z.number().positive().finite();
 export const CanonicalDecimalSchema = z.string().regex(/^(?:0|[1-9]\d*)(?:\.\d*[1-9])?$/);
 export const IsoCurrencySchema = z.string().regex(/^[A-Z]{3}$/);
 
+function hasUnsafeLeafCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)!;
+    if (character === '/' || character === '\\' || codePoint <= 0x1f || codePoint === 0x7f) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export const SafeLeafDisplayLabelSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(512)
+  .refine(
+    (label) =>
+      label !== '.' &&
+      label !== '..' &&
+      !/^[A-Za-z]:/u.test(label) &&
+      !hasUnsafeLeafCharacter(label),
+    'Display label must be a safe leaf name without path information',
+  );
+
 export const AuthoritySchema = z.enum([
   'project',
   'project_settings',

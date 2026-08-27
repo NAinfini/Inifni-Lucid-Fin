@@ -31,6 +31,16 @@ import {
   type LegacyProjectOwnershipAssignment,
   type LegacyProjectOwnershipGraphReport,
 } from './project-ownership-graph.js';
+import { legacyImportedRootEntry } from './legacy-migration-policy.js';
+import {
+  preflightLegacyRunHistory,
+  type LegacyRunHistoryPreflightReport,
+} from './run-history-preflight.js';
+import {
+  preflightLegacyTaskHistory,
+  type LegacyTaskHistoryPreflightReport,
+} from './task-history-preflight.js';
+import { I0_LEGACY_SOURCE_SCHEMAS } from './legacy-source-schema.js';
 
 export interface LegacyRootRowClassificationReport {
   readonly schema: 'lucid-fin.legacy-root-row-classification/v1';
@@ -38,6 +48,8 @@ export interface LegacyRootRowClassificationReport {
   readonly inventory: LegacyClassificationSubjectInventory;
   readonly ownership: LegacyProjectOwnershipGraphReport;
   readonly planHistory: LegacyPlanHistoryPreflightReport | null;
+  readonly runHistory: LegacyRunHistoryPreflightReport | null;
+  readonly taskHistory: LegacyTaskHistoryPreflightReport | null;
   readonly classification: ReturnType<typeof buildLegacyClassificationReport>;
   readonly fingerprint: string;
   readonly ok: boolean;
@@ -55,9 +67,12 @@ const CURRENT_OWNERSHIP_TABLES = new Set([
   'canvas_edges',
   'canvas_nodes',
   'canvases',
+  'character_folders',
   'characters',
   'commander_sessions',
   'equipment',
+  'equipment_folders',
+  'location_folders',
   'locations',
   'scripts',
 ]);
@@ -100,8 +115,9 @@ function ownershipEntry(
     disposition: CURRENT_OWNERSHIP_TABLES.has(assignment.table)
       ? 'migrated_current_state'
       : 'immutable_provenance_history',
-    reasonCode:
-      assignment.disposition === 'cloned_per_project'
+    reasonCode: assignment.targetRefs.every(({ authority }) => authority.startsWith('imported_'))
+      ? 'legacy_execution_history_imported_read_only'
+      : assignment.disposition === 'cloned_per_project'
         ? 'legacy_shared_production_cloned_per_project'
         : assignment.disposition === 'imported_chat_project'
           ? 'legacy_unassigned_chat_imported_project'
@@ -145,47 +161,62 @@ function blockedRootEntry(
   };
 }
 
-function blockedRunHistoryEntry(row: LegacyClassificationRow): LegacyClassificationEntryInput {
-  if (row.table === 'commander_events') {
-    return blockedRootEntry(row, 'legacy_commander_event_unmappable');
-  }
-  if (row.table === 'commander_run_attachments') {
-    return blockedRootEntry(row, 'legacy_run_attachment_asset_identity_unresolved');
-  }
-  throw new Error(`Unsupported blocked Legacy Run history table: ${row.table}`);
+function assignmentProjectId(
+  assignments: readonly LegacyProjectOwnershipAssignment[],
+  table: string,
+  id: unknown,
+): string | null {
+  if (typeof id !== 'string') return null;
+  const assignment = assignments.find(
+    (candidate) => candidate.table === table && candidate.targetRefs.some((ref) => ref.id === id),
+  );
+  return assignment?.projectIds.length === 1 ? assignment.projectIds[0]! : null;
 }
 
-function blockedTaskHistoryEntry(row: LegacyClassificationRow): LegacyClassificationEntryInput {
-  if (row.table === 'task_artifacts') {
-    return blockedRootEntry(row, 'legacy_task_artifact_target_mapping_unfrozen');
-  }
-  if (row.table === 'task_attempts') {
-    return blockedRootEntry(row, 'legacy_task_attempt_target_mapping_unfrozen');
-  }
-  if (row.table === 'task_events') {
-    return blockedRootEntry(row, 'legacy_task_event_run_owner_unresolved');
-  }
-  if (row.table === 'task_decisions') {
-    return blockedRootEntry(row, 'legacy_task_decision_interaction_identity_unresolved');
-  }
-  if (row.table === 'task_evaluations') {
-    return blockedRootEntry(row, 'legacy_task_evaluation_target_mapping_unfrozen');
-  }
-  throw new Error(`Unsupported blocked Legacy Task history table: ${row.table}`);
-}
-
-function blockedPlanHistoryEntry(
+function importedHistoryProjectId(
   row: LegacyClassificationRow,
-  planHistory: LegacyPlanHistoryPreflightReport | null,
-): LegacyClassificationEntryInput {
-  if (row.table !== 'plan_documents' && row.table !== 'plan_approvals') {
-    throw new Error(`Unsupported Legacy Plan history table: ${row.table}`);
+  assignments: readonly LegacyProjectOwnershipAssignment[],
+): string | null {
+  const values = row.values;
+  if (row.table.startsWith('commander_')) {
+    return assignmentProjectId(assignments, 'commander_runs', values.run_id);
   }
-  return blockedRootEntry(
-    row,
-    planHistory?.ok === true
-      ? 'legacy_plan_target_mapping_unfrozen'
-      : 'legacy_plan_history_preflight_blocked',
+  if (row.table === 'delivery_asset_refs' || row.table === 'prompt_assemblies') {
+    return assignmentProjectId(assignments, 'canvases', values.canvas_id);
+  }
+  if (row.table.startsWith('task_') || row.table.startsWith('plan_')) {
+    return (
+      assignmentProjectId(assignments, 'task_lists', values.task_list_id) ??
+      assignmentProjectId(assignments, 'tasks', values.task_id)
+    );
+  }
+  return null;
+}
+
+function importedHistoryEntry(
+  row: LegacyClassificationRow,
+  assignments: readonly LegacyProjectOwnershipAssignment[],
+): LegacyClassificationEntryInput {
+  const projectId = importedHistoryProjectId(row, assignments);
+  if (projectId === null) {
+    return blockedRootEntry(row, 'legacy_imported_history_project_owner_unresolved');
+  }
+  const entry = legacyImportedRootEntry(row, projectId);
+  if (entry === null) {
+    throw new Error(`Legacy imported-history policy is missing ${row.database}.${row.table}`);
+  }
+  return entry;
+}
+
+function hasFrozenMainTableShape(expected: LegacySourceExpectedSchemas, tableName: string): boolean {
+  const actual = expected.main.tables.find(({ name }) => name === tableName);
+  const frozen = I0_LEGACY_SOURCE_SCHEMAS.main.tables.find(({ name }) => name === tableName);
+  if (!actual || !frozen || actual.kind !== frozen.kind) return false;
+  const actualColumns = [...actual.columns].sort();
+  const frozenColumns = [...frozen.columns].sort();
+  return (
+    actualColumns.length === frozenColumns.length &&
+    actualColumns.every((column, index) => column === frozenColumns[index])
   );
 }
 
@@ -208,9 +239,7 @@ export function classifyLegacyRootRows(
   const promptAssemblyRows: LegacyClassificationRow[] = [];
   const projectSettingRows: LegacyClassificationRow[] = [];
   const colorStyleRows: LegacyClassificationRow[] = [];
-  const blockedRunHistoryRows: LegacyClassificationRow[] = [];
-  const deliveryRows: LegacyClassificationRow[] = [];
-  const blockedTaskHistoryRows: LegacyClassificationRow[] = [];
+  const importedHistoryRows: LegacyClassificationRow[] = [];
   const planDocumentRows: LegacyClassificationRow[] = [];
   const planApprovalRows: LegacyClassificationRow[] = [];
   const taskDependencyRows: LegacyClassificationRow[] = [];
@@ -228,12 +257,11 @@ export function classifyLegacyRootRows(
     if (classifier === 'offline_snapshot') snapshotSubjects.push(row.subject);
     if (classifier === 'derived_projection') derivedProjectionSubjects.push(row.subject);
     if (classifier === 'legacy_skill_candidate') legacySkillRows.push(row);
-    if (classifier === 'prompt_provenance' && row.table === 'prompt_assemblies') {
+    if (classifier === 'prompt_provenance' && row.table === 'prompt_assemblies')
       promptAssemblyRows.push(row);
-    }
     if (classifier === 'project_settings') projectSettingRows.push(row);
     if (classifier === 'production' && row.table === 'color_styles') colorStyleRows.push(row);
-    if (classifier === 'delivery') deliveryRows.push(row);
+    if (classifier === 'delivery') importedHistoryRows.push(row);
     if (classifier === 'task_execution_history' && row.table === 'plan_documents') {
       planDocumentRows.push(row);
     }
@@ -248,16 +276,15 @@ export function classifyLegacyRootRows(
         row.table === 'task_evaluations' ||
         row.table === 'task_events')
     ) {
-      blockedTaskHistoryRows.push(row);
+      importedHistoryRows.push(row);
     }
-    if (classifier === 'task_execution_history' && row.table === 'task_dependencies') {
+    if (classifier === 'task_execution_history' && row.table === 'task_dependencies')
       taskDependencyRows.push(row);
-    }
     if (
       classifier === 'run_history' &&
       (row.table === 'commander_events' || row.table === 'commander_run_attachments')
     ) {
-      blockedRunHistoryRows.push(row);
+      importedHistoryRows.push(row);
     }
     if (row.database === 'main' && ownershipTableSet.has(row.table)) ownershipRows.push(row);
   });
@@ -270,6 +297,30 @@ export function classifyLegacyRootRows(
     expectedPlanTables.has('plan_documents') && expectedPlanTables.has('plan_approvals');
   const planHistory = hasCompletePlanHistorySource
     ? preflightLegacyPlanHistory(databases.main)
+    : null;
+  const hasCompleteRunHistorySource = [
+    'commander_events',
+    'commander_run_attachments',
+    'commander_run_canvases',
+    'commander_runs',
+  ].every((table) => hasFrozenMainTableShape(expected, table));
+  const verifiedMediaHashes = new Set(media.verifiedAssetHashes);
+  const runHistory = hasCompleteRunHistorySource
+    ? preflightLegacyRunHistory(databases.main, verifiedMediaHashes)
+    : null;
+  const hasCompleteTaskHistorySource = [
+    'plan_approvals',
+    'plan_documents',
+    'prompt_assemblies',
+    'task_artifacts',
+    'task_attempts',
+    'task_dependencies',
+    'task_events',
+    'task_lists',
+    'tasks',
+  ].every((table) => hasFrozenMainTableShape(expected, table));
+  const taskHistory = hasCompleteTaskHistorySource
+    ? preflightLegacyTaskHistory(databases.main, verifiedMediaHashes)
     : null;
   if (
     planHistory !== null &&
@@ -311,6 +362,12 @@ export function classifyLegacyRootRows(
     }
     return [ownershipEntry(assignment, subject)];
   });
+  importedHistoryRows.push(
+    ...promptAssemblyRows,
+    ...planDocumentRows,
+    ...planApprovalRows,
+    ...taskDependencyRows,
+  );
   const entries: LegacyClassificationEntryInput[] = [
     ...mediaEntries,
     ...globalMediaFolderEntries,
@@ -321,22 +378,9 @@ export function classifyLegacyRootRows(
     ),
     ...classifyLegacyOfflineSnapshotRows(snapshotSubjects),
     ...classifyLegacyDerivedProjectionRows(derivedProjectionSubjects),
-    ...promptAssemblyRows.map((row) =>
-      blockedRootEntry(row, 'legacy_prompt_assembly_target_mapping_unfrozen'),
-    ),
     ...classifyLegacyProjectSettingRows(projectSettingRows),
     ...colorStyleRows.map(offlineColorStyleEntry),
-    ...blockedRunHistoryRows.map(blockedRunHistoryEntry),
-    ...deliveryRows.map((row) =>
-      blockedRootEntry(row, 'legacy_delivery_target_identity_unresolved'),
-    ),
-    ...blockedTaskHistoryRows.map(blockedTaskHistoryEntry),
-    ...[...planDocumentRows, ...planApprovalRows].map((row) =>
-      blockedPlanHistoryEntry(row, planHistory),
-    ),
-    ...taskDependencyRows.map((row) =>
-      offlineRootEntry(row, 'legacy_task_dependency_graph_offline_export'),
-    ),
+    ...importedHistoryRows.map((row) => importedHistoryEntry(row, ownership.assignments)),
     ...ownershipEntries,
     ...(options.classifyLegacySkillRows?.(legacySkillRows) ?? []),
   ];
@@ -351,6 +395,8 @@ export function classifyLegacyRootRows(
     inventory,
     ownership,
     planHistory,
+    runHistory,
+    taskHistory,
     classification,
   };
   return {
@@ -361,8 +407,14 @@ export function classifyLegacyRootRows(
       inventoryFingerprint: inventory.fingerprint,
       ownershipFingerprint: ownership.fingerprint,
       planHistoryFingerprint: planHistory?.fingerprint ?? null,
+      runHistoryFingerprint: runHistory?.fingerprint ?? null,
+      taskHistoryFingerprint: taskHistory?.fingerprint ?? null,
       classificationReportHash: classification.reportHash,
     }),
-    ok: classification.ok && (planHistory?.ok ?? true),
+    ok:
+      classification.ok &&
+      (planHistory?.ok ?? true) &&
+      (runHistory?.ok ?? true) &&
+      (taskHistory?.ok ?? true),
   };
 }

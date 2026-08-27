@@ -8,6 +8,7 @@ import {
   CountSchema,
   RevisionSchema,
   Sha256Schema,
+  UserChoiceRefSchema,
 } from './primitives.js';
 import { GeneratedResultRefSchema } from './generation.js';
 import { ActiveProtectionSchema } from './protection.js';
@@ -249,9 +250,49 @@ export const ProductionFactSourceSchema = strictObject({
   relation: z.enum(['supports', 'supersedes', 'contradicts']),
   createdAt: IsoTimestampSchema,
 });
+export const ProductionCollectionSchema = strictObject({
+  authority: z.literal('production_collection'),
+  id: EntityIdSchema,
+  projectId: EntityIdSchema,
+  revision: RevisionSchema,
+  contentHash: Sha256Schema,
+  parentCollectionId: EntityIdSchema.nullable(),
+  cloneOfCollectionId: EntityIdSchema.nullable(),
+  sourceCollectionId: z.string().trim().min(1).max(240),
+  importBatchId: EntityIdSchema,
+  sourcePayloadHash: Sha256Schema,
+  name: z.string().trim().min(1).max(240),
+  sortOrder: z.number().int().min(-Number.MAX_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER).finite(),
+  createdAt: IsoTimestampSchema,
+  updatedAt: IsoTimestampSchema,
+}).superRefine((collection, context) => {
+  if (collection.parentCollectionId === collection.id) {
+    context.addIssue({
+      code: 'custom',
+      path: ['parentCollectionId'],
+      message: 'Production Collection cannot be its own parent',
+    });
+  }
+  if (collection.cloneOfCollectionId === collection.id) {
+    context.addIssue({
+      code: 'custom',
+      path: ['cloneOfCollectionId'],
+      message: 'Production Collection cannot clone itself',
+    });
+  }
+});
+export const ProductionCollectionMemberSchema = strictObject({
+  collectionId: EntityIdSchema,
+  productionObjectId: EntityIdSchema,
+  ordinal: CountSchema,
+  importBatchId: EntityIdSchema,
+  sourcePayloadHash: Sha256Schema,
+  createdAt: IsoTimestampSchema,
+});
 export const ProductionObjectViewV1Schema = strictObject({
   object: ProductionObjectSchema,
   factSources: z.array(ProductionFactSourceSchema).max(500),
+  currentChoices: z.array(UserChoiceRefSchema).max(10_000),
 }).superRefine((view, context) => {
   for (const [index, factSource] of view.factSources.entries()) {
     if (factSource.productionObjectId !== view.object.id) {
@@ -259,6 +300,24 @@ export const ProductionObjectViewV1Schema = strictObject({
         code: 'custom',
         path: ['factSources', index, 'productionObjectId'],
         message: 'Production fact source must belong to the viewed object',
+      });
+    }
+  }
+  const decisions = view.object.type === 'shot' ? view.object.resultDecisions : [];
+  if (view.currentChoices.length !== decisions.length) {
+    context.addIssue({
+      code: 'custom',
+      path: ['currentChoices'],
+      message: 'Production view Choice refs must exactly match current Shot result decisions',
+    });
+    return;
+  }
+  for (const [index, decision] of decisions.entries()) {
+    if (view.currentChoices[index]?.id !== decision.currentChoiceId) {
+      context.addIssue({
+        code: 'custom',
+        path: ['currentChoices', index, 'id'],
+        message: 'Production view Choice refs must follow Shot result decision order',
       });
     }
   }
@@ -273,5 +332,7 @@ export type ShotResultDecisionValue = z.infer<typeof ShotResultDecisionValueSche
 export type ShotResultDecision = z.infer<typeof ShotResultDecisionSchema>;
 export type ProductionObject = z.infer<typeof ProductionObjectSchema>;
 export type ProductionFactSource = z.infer<typeof ProductionFactSourceSchema>;
+export type ProductionCollection = z.infer<typeof ProductionCollectionSchema>;
+export type ProductionCollectionMember = z.infer<typeof ProductionCollectionMemberSchema>;
 export type ProductionObjectViewV1 = z.infer<typeof ProductionObjectViewV1Schema>;
 export type Production = z.infer<typeof ProductionSchema>;

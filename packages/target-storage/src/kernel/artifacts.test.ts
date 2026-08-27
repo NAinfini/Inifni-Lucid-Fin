@@ -34,8 +34,8 @@ describe('canonical schema artifacts', () => {
     expect(new Set(pack.skills.map(({ skillId, version }) => `${skillId}\0${version}`)).size).toBe(
       pack.skills.length,
     );
-    expect(pack.skills.filter(({ trust }) => trust === 'trusted')).toHaveLength(252);
-    expect(pack.skills.filter(({ trust }) => trust === 'unreviewed')).toHaveLength(35);
+    expect(pack.skills.filter(({ trust }) => trust === 'trusted')).toHaveLength(250);
+    expect(pack.skills.filter(({ trust }) => trust === 'unreviewed')).toHaveLength(37);
     expect(pack.skills.every(({ provenance }) => provenance === 'built_in')).toBe(true);
   });
 

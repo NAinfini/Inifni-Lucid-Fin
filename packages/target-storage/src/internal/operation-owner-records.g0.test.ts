@@ -463,10 +463,10 @@ describe('G0 local Delivery owner projections', () => {
              id, project_id, run_id, delivery_manifest_id, delivery_manifest_revision,
              delivery_manifest_hash, revision, content_hash, destination_kind,
              destination_grant_id, destination_grant_hash, destination_display_label,
-             overwrite_existing, state, request_hash, idempotency_key, cancel_requested,
+             destination_v1_json, overwrite_existing, state, request_hash, idempotency_key, cancel_requested,
              progress_percent, public_error_code, output_blob_hash, output_content_hash,
              created_at, finished_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           deliveryExport.id,
@@ -481,6 +481,7 @@ describe('G0 local Delivery owner projections', () => {
           deliveryExport.destination.grantId,
           deliveryExport.destination.grantHash,
           deliveryExport.destination.displayLabel,
+          canonicalJson(deliveryExport.destination),
           Number(deliveryExport.overwriteExisting),
           deliveryExport.state,
           deliveryExport.requestHash,
@@ -500,6 +501,15 @@ describe('G0 local Delivery owner projections', () => {
       expect(loadOperationOwnerRecord(database, 'delivery_export', deliveryExport.id).view).toEqual(
         deliveryExport,
       );
+      database
+        .prepare('UPDATE delivery_exports SET destination_v1_json = ? WHERE id = ?')
+        .run(
+          canonicalJson({ ...deliveryExport.destination, displayLabel: 'tampered.mp4' }),
+          deliveryExport.id,
+        );
+      expect(() =>
+        loadOperationOwnerRecord(database, 'delivery_export', deliveryExport.id),
+      ).toThrow(expect.objectContaining({ code: 'CORRUPT_DATA' }));
     } finally {
       database.close();
     }

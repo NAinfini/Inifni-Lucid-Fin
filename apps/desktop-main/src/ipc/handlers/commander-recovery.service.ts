@@ -261,7 +261,7 @@ export function createSafeStorageCommanderRecoveryCodec(
   safeStorage: SafeStorageLike | undefined,
 ): CommanderRecoveryCodec {
   const assertAvailable = (): void => {
-    let available = false;
+    let available: boolean;
     let backend: string | undefined;
     try {
       available = safeStorage?.isEncryptionAvailable() === true;
@@ -443,16 +443,16 @@ export function projectCommanderRecovery(
   codec: CommanderRecoveryCodec,
   currentCatalog: CommanderCatalogRecoveryRecord,
 ): CommanderRecoveryDecision {
-  let verifiedRecoveryHead: string | undefined;
   const required = (
     reason: string,
     orphanToolCallId?: string,
+    recoveryHead?: string,
   ): CommanderRecoveryDecision => ({
     state: 'recovery_required',
     runId: run.id,
     reason,
     ...(orphanToolCallId ? { orphanToolCallId } : {}),
-    ...(verifiedRecoveryHead ? { recoveryHead: verifiedRecoveryHead } : {}),
+    ...(recoveryHead ? { recoveryHead } : {}),
   });
   if (!ACTIVE_STATUSES.has(run.status)) {
     return { state: 'terminal', runId: run.id, status: run.status as TerminalRunStatus };
@@ -639,10 +639,14 @@ export function projectCommanderRecovery(
         break;
     }
   }
-  verifiedRecoveryHead = previousHash ?? undefined;
+  const verifiedRecoveryHead = previousHash ?? undefined;
+  const requiredAfterVerification = (
+    reason: string,
+    orphanToolCallId?: string,
+  ): CommanderRecoveryDecision => required(reason, orphanToolCallId, verifiedRecoveryHead);
 
-  if (!seedRecord) return required('run_seed_missing_or_duplicate');
-  if (!storedCatalog) return required('catalog_missing');
+  if (!seedRecord) return requiredAfterVerification('run_seed_missing_or_duplicate');
+  if (!storedCatalog) return requiredAfterVerification('catalog_missing');
   let parsedCurrentCatalog: CommanderCatalogRecoveryRecord;
   try {
     parsedCurrentCatalog = {
@@ -651,13 +655,15 @@ export function projectCommanderRecovery(
       toolSchemaHashes: catalogSchemaHashesSchema.parse(currentCatalog.toolSchemaHashes),
     };
   } catch {
-    return required('catalog_drift');
+    return requiredAfterVerification('catalog_drift');
   }
   if (stableStringify(storedCatalog) !== stableStringify(parsedCurrentCatalog)) {
-    return required('catalog_drift');
+    return requiredAfterVerification('catalog_drift');
   }
   for (const [toolCallId] of calls) {
-    if (!results.has(toolCallId)) return required('orphan_tool_call', toolCallId);
+    if (!results.has(toolCallId)) {
+      return requiredAfterVerification('orphan_tool_call', toolCallId);
+    }
   }
 
   checkpoints.sort((left, right) => left.record.completedStep - right.record.completedStep);
@@ -667,22 +673,24 @@ export function projectCommanderRecovery(
       index > 0 &&
       checkpoint.record.completedStep <= checkpoints[index - 1]!.record.completedStep
     ) {
-      return required('model_checkpoint_sequence_invalid');
+      return requiredAfterVerification('model_checkpoint_sequence_invalid');
     }
     const seen = new Set<string>();
     for (const modelCall of checkpoint.record.toolCalls) {
-      if (seen.has(modelCall.id)) return required('model_checkpoint_tool_call_duplicate', modelCall.id);
+      if (seen.has(modelCall.id)) {
+        return requiredAfterVerification('model_checkpoint_tool_call_duplicate', modelCall.id);
+      }
       seen.add(modelCall.id);
       const call = calls.get(modelCall.id);
       if (!call || !results.has(modelCall.id)) {
-        return required('model_checkpoint_tool_call_missing', modelCall.id);
+        return requiredAfterVerification('model_checkpoint_tool_call_missing', modelCall.id);
       }
       if (
         call.event.step !== checkpoint.record.completedStep ||
         call.record.toolName !== modelCall.name ||
         stableStringify(call.record.args) !== stableStringify(modelCall.arguments)
       ) {
-        return required('model_checkpoint_tool_call_mismatch', modelCall.id);
+        return requiredAfterVerification('model_checkpoint_tool_call_mismatch', modelCall.id);
       }
     }
   }
@@ -691,7 +699,7 @@ export function projectCommanderRecovery(
   );
   for (const toolCallId of calls.keys()) {
     if (!checkpointCallIds.has(toolCallId)) {
-      return required('tool_call_checkpoint_missing', toolCallId);
+      return requiredAfterVerification('tool_call_checkpoint_missing', toolCallId);
     }
   }
 

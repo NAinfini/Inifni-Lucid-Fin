@@ -24,6 +24,7 @@ import {
   generationPromptAssemblyHashInput,
   type CanonicalModelRequestV1,
   type CanonicalModelResponseV1,
+  type DeliveryDestinationGrantV1,
   type GenerationSpec,
 } from '@lucid-fin/target-contracts';
 import { createAes256GcmPrivateRecoveryCodec, openTargetStore } from '@lucid-fin/target-storage';
@@ -77,6 +78,7 @@ function getRun(data: TargetDataAccess, runId: string, suffix: string) {
 async function activeHarnessFixture(
   mediaUse: 'attachment' | 'project_media' | null = null,
   dependencies?: JourneyDependencies,
+  exportDestinationGrant: DeliveryDestinationGrantV1 | null = null,
 ) {
   const fixture = await createJourneyFixture(dependencies);
   const host = createHostCatalogProvisioning(fixture.store, { now: () => NOW });
@@ -201,6 +203,7 @@ async function activeHarnessFixture(
             role: 'target',
           },
         ],
+        exportDestinationGrant,
         supersedesMessageId: null,
       },
     },
@@ -1160,6 +1163,7 @@ function queueHarnessFollowup(data: TargetDataAccess, runId: string, suffix: str
         expectedRevision: run.revision,
         text: `Follow-up ${suffix}`,
         selectedContext: [],
+        exportDestinationGrant: null,
       },
     },
     userContext,
@@ -1394,6 +1398,66 @@ describe('Harness persistence authority', () => {
       'skill.load',
       'tool.get',
     ]);
+  });
+
+  it('projects a bound export destination from Run Inbox without leaking it into Message or Context', async () => {
+    const grant = {
+      destination: {
+        kind: 'user_selected_file' as const,
+        grantId: 'grant.export.1',
+        grantHash: 'a'.repeat(64),
+        displayLabel: 'movie.mp4',
+        projectId: 'project.1',
+        deliveryPlan: {
+          authority: 'delivery' as const,
+          id: 'delivery.export.1',
+          revision: 1,
+          contentHash: 'b'.repeat(64),
+        },
+        allowedExtensions: ['mp4'],
+      },
+      expiresAt: '2026-08-15T12:30:00.000Z',
+    };
+    const { fixture, runId } = await activeHarnessFixture(null, undefined, grant);
+    try {
+      const snapshot = fixture.data.harness.loadActivation(runId, 1);
+      expect(snapshot.facts.map(({ type }) => type)).toEqual(['message', 'delivery_destination']);
+      expect(snapshot.facts[1]).toEqual({
+        type: 'delivery_destination',
+        eventSequence: expect.any(Number),
+        inboxMessageId: fixture.data.runs.listInbox(runId)[0]!.id,
+        destination: grant.destination,
+        expiresAt: grant.expiresAt,
+        grantBindingHash: hashCanonical(grant),
+      });
+      expect(canonicalJson(snapshot.manifest)).not.toContain(grant.destination.grantId);
+      const messages = fixture.data.conversations.listMessages({
+        wireVersion: 1,
+        kind: 'request',
+        requestId: 'request.i3.export-grant.messages',
+        method: 'message.list',
+        input: {
+          chatId: snapshot.run.chatId,
+          beforeSequence: null,
+          page: { cursor: null, limit: 100 },
+        },
+      }).result.items;
+      expect(canonicalJson(messages)).not.toContain(grant.destination.grantId);
+
+      getJourneyTestDatabase(fixture.store)
+        .prepare(
+          `UPDATE run_inbox_messages
+           SET export_destination_grant_hash = ?
+           WHERE run_id = ?`,
+        )
+        .run('b'.repeat(64), runId);
+      expect(() => fixture.data.harness.loadActivation(runId, 1)).toThrowError(
+        expect.objectContaining({ code: 'CORRUPT_DATA' }),
+      );
+    } finally {
+      fixture.store.close();
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
   });
 
   it('atomically persists a durable agent.spawn boundary without serializing its objective', async () => {
@@ -2777,7 +2841,7 @@ describe('Harness persistence authority', () => {
     }
   }, 90_000);
 
-  it('requests owner cancellation once and reports authoritative unknown operations without a provider call', async () => {
+  it('preserves bound operations on user pause, then requests owner cancellation once for agent.cancel', async () => {
     const generation = new UnknownGenerationProvider();
     const dependencies = { ...createJourneyDependencies(), generation };
     const { fixture, context, project, runId } = await activeHarnessFixture(null, dependencies);
@@ -2904,6 +2968,48 @@ describe('Harness persistence authority', () => {
         commanderContext(child.childRunId),
       );
       expect(unknown.state).toBe('unknown');
+      const beforePause = getRun(fixture.data, runId, 'user-pause-bound-operation');
+      const paused = fixture.data.runs.control(
+        {
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.i3.user-pause.bound-operation',
+          method: 'run.control',
+          input: {
+            runId,
+            expectedRevision: beforePause.revision,
+            action: 'pause',
+            expectedStatus: 'running',
+          },
+        },
+        userContext,
+      );
+      expect(paused.result.status).toBe('paused');
+      expect(
+        fixture.data.operations.get({
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.i3.user-pause.bound-operation.current',
+          method: 'operation.get',
+          input: { operations: [unknown.operation] },
+        }).result.operations[0],
+      ).toMatchObject({ state: 'unknown', cancelRequested: false });
+      const resumed = fixture.data.runs.control(
+        {
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.i3.user-resume.bound-operation',
+          method: 'run.control',
+          input: {
+            runId,
+            expectedRevision: paused.result.revision,
+            action: 'resume',
+            expectedStatus: 'paused',
+          },
+        },
+        userContext,
+      );
+      expect(resumed.result.status).toBe('running');
       const prepared = prepareRunningAgentCancel(
         fixture.data,
         context,
@@ -3025,9 +3131,21 @@ describe('Harness persistence authority', () => {
       expect(
         loadModelAttemptRecord(getJourneyTestDatabase(fixture.store), childAttempt.value.id),
       ).toMatchObject({
-        state: 'running',
-        response: null,
-        usage: null,
+        state: 'cancelled',
+        usage: {
+          inputTokens: { state: 'estimated', value: 120 },
+          outputTokens: { state: 'estimated', value: 24 },
+          cost: { state: 'estimated', value: '0.5', currency: 'USD' },
+        },
+        response: expect.objectContaining({
+          events: expect.arrayContaining([
+            expect.objectContaining({
+              type: 'model_failed',
+              typedCode: 'cancelled',
+              providerState: 'unknown',
+            }),
+          ]),
+        }),
       });
 
       const database = getJourneyTestDatabase(fixture.store);
@@ -3050,7 +3168,7 @@ describe('Harness persistence authority', () => {
           },
           childContext,
         ),
-      ).toThrowError(expect.objectContaining({ code: 'INVALID_REQUEST' }));
+      ).toThrowError(expect.objectContaining({ code: 'IDEMPOTENCY_CONFLICT' }));
       expect(serializedDatabaseRows(database)).toBe(beforeLateResponse);
     } finally {
       fixture.store.close();
@@ -4846,11 +4964,6 @@ describe('Harness persistence authority', () => {
 
   it.each([
     {
-      name: 'non-R task.manage',
-      toolId: TaskManageDefinition.id,
-      input: TaskManageDefinition.examples.input,
-    },
-    {
       name: 'receipt-aware operation.get',
       toolId: OperationGetDefinition.id,
       input: OperationGetDefinition.examples.input,
@@ -4944,8 +5057,86 @@ describe('Harness persistence authority', () => {
     30_000,
   );
 
+  it('rejects non-R task.manage generic settlement before it can create a dispatch recovery frontier', async () => {
+    const { fixture, context, runId } = await activeHarnessFixture();
+    try {
+      const snapshot = fixture.data.harness.loadActivation(runId, 1);
+      const prepared = prepareModelAttempt(
+        fixture.data,
+        {
+          request: requestFor(snapshot, 'model-attempt.i3.recovery.task-manage', [
+            TaskManageDefinition.id,
+          ]),
+          quote: USAGE,
+          commandId: 'command.i3.recovery.task-manage.model.prepare',
+        },
+        context,
+      );
+      fixture.data.harness.markModelAttemptRunning(
+        {
+          attemptId: prepared.value.id,
+          requestHash: prepared.value.requestHash,
+          commandId: 'command.i3.recovery.task-manage.model.running',
+        },
+        context,
+      );
+      const database = getJourneyTestDatabase(fixture.store);
+      const before = serializedDatabaseRows(database);
+      expect(() =>
+        fixture.data.harness.settleModelAttempt(
+          {
+            attemptId: prepared.value.id,
+            requestHash: prepared.value.requestHash,
+            response: {
+              version: 1,
+              events: [
+                {
+                  type: 'tool_call',
+                  providerCallId: 'provider-call.recovery.task-manage',
+                  toolId: TaskManageDefinition.id,
+                  canonicalArguments: TaskManageDefinition.examples.input,
+                },
+                { type: 'usage', usage: USAGE },
+                { type: 'model_completed', finishReason: 'tool_calls' },
+              ],
+            },
+            settledAt: NOW,
+            commandId: 'command.i3.recovery.task-manage.model.settle',
+          },
+          context,
+        ),
+      ).toThrowError(expect.objectContaining({ code: 'INVALID_REQUEST' }));
+      expect(serializedDatabaseRows(database)).toBe(before);
+      expect(fixture.data.harness.loadActivation(runId, 1).recoveryRequired).toBe(true);
+    } finally {
+      fixture.store.close();
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it('accepts one replay-safe retry root per source and supports A to B to C lineage', async () => {
-    const { fixture, context, media, project, runId } = await activeHarnessFixture('attachment');
+    const exportDestinationGrant = {
+      destination: {
+        kind: 'user_selected_file' as const,
+        grantId: 'grant.retry-export.1',
+        grantHash: 'c'.repeat(64),
+        displayLabel: 'retry-review.mp4',
+        projectId: 'project.1',
+        deliveryPlan: {
+          authority: 'delivery' as const,
+          id: 'delivery.retry-export.1',
+          revision: 1,
+          contentHash: 'd'.repeat(64),
+        },
+        allowedExtensions: ['mp4'],
+      },
+      expiresAt: '2026-08-16T13:00:00.000Z',
+    };
+    const { fixture, context, media, project, runId } = await activeHarnessFixture(
+      'attachment',
+      undefined,
+      exportDestinationGrant,
+    );
     try {
       if (media === null) throw new Error('Expected an accepted attachment');
       const snapshot = fixture.data.harness.loadActivation(runId, 1);
@@ -5044,6 +5235,7 @@ describe('Harness persistence authority', () => {
         },
         inbox: { state: 'queued', sequence: 1 },
       });
+      expect(acceptedB.inbox.exportDestinationGrant).toEqual(exportDestinationGrant);
       expect(acceptedB.retryRun.acceptedSource).toEqual(closedA.run.acceptedSource);
       expect(acceptedB.manifest.attachments).toEqual([media.snapshot]);
       expect(acceptedB.catalog.skills).toEqual([]);
@@ -5099,6 +5291,7 @@ describe('Harness persistence authority', () => {
         created: true,
         retryRun: { retryOfRunId: acceptedB.retryRun.id },
       });
+      expect(acceptedC.inbox.exportDestinationGrant).toEqual(exportDestinationGrant);
       expect(acceptedC.retryRun.id).not.toBe(acceptedB.retryRun.id);
     } finally {
       fixture.store.close();
@@ -5806,19 +5999,6 @@ describe('Harness persistence authority', () => {
       const database = getJourneyTestDatabase(fixture.store);
       const beforeGenericBoundary = serializedDatabaseRows(database);
       expect(() =>
-        fixture.data.harness.settleModelAttempt(
-          {
-            attemptId: prepared.value.id,
-            requestHash: prepared.value.requestHash,
-            response,
-            settledAt: NOW,
-            commandId: 'command.i3.canvas-mutate.generic-settle',
-          },
-          context,
-        ),
-      ).toThrow('canvas.mutate');
-      expect(serializedDatabaseRows(database)).toBe(beforeGenericBoundary);
-      expect(() =>
         fixture.data.harness.prepareDispatch(
           {
             ...boundaryInput,
@@ -6053,6 +6233,24 @@ describe('Harness persistence authority', () => {
         },
       });
       expect(paused.run.status).toBe('waiting_confirmation');
+      const confirmationEvent = paused.events.find(
+        (event) =>
+          event.payloadState.state === 'available' &&
+          event.payloadState.payload.type === 'confirmation_requested',
+      );
+      if (
+        confirmationEvent === undefined ||
+        confirmationEvent.payloadState.state !== 'available' ||
+        confirmationEvent.payloadState.payload.type !== 'confirmation_requested'
+      ) {
+        throw new Error('Expected a public confirmation request event');
+      }
+      expect(confirmationEvent.payloadState.payload.confirmationId).toBe(
+        paused.value.confirmationId,
+      );
+      expect(confirmationEvent.payloadState.payload.confirmationId).not.toBe(
+        confirmationEvent.payloadState.payload.interactionId,
+      );
       expect(eventTypes(paused.events)).toEqual([
         'step_started',
         'tool_call_ref',

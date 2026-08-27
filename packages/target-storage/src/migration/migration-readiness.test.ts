@@ -173,6 +173,7 @@ describe('Legacy migration prewrite readiness', () => {
     expect(report.status).toBe('blocked_before_target_write');
     expect(report.blockers.map(({ kind }) => kind)).toEqual([
       'root_classification_blocked',
+      'task_history_preflight_blocked',
       'embedded_json_classification_blocked',
     ]);
     expect(report.ok).toBe(false);

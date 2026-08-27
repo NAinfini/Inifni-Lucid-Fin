@@ -6,6 +6,7 @@ import {
   WireSuccessV1Schema,
   parseCanonical,
   parseRequestV1,
+  type OperationRef,
   type WireRequestV1,
   type WireSuccessV1,
 } from '@lucid-fin/target-contracts';
@@ -27,6 +28,7 @@ import {
 } from '../internal/operation-dispatch.js';
 import {
   operationPublicViewForOwner,
+  operationRefForOwner,
   requestOperationOwnerCancellation,
 } from '../internal/operation-owner-records.js';
 import { TargetStorageError } from '../kernel/errors.js';
@@ -141,6 +143,127 @@ function queryOperations(
   return result;
 }
 
+export interface PendingOperationCancellation {
+  readonly runId: string;
+  readonly operation: OperationRef;
+}
+
+export interface OperationCancellationPageInput {
+  readonly afterOperationId: string | null;
+  readonly limit: number;
+  readonly runIds: readonly string[] | null;
+}
+
+export interface OperationCancellationPage {
+  readonly operations: readonly PendingOperationCancellation[];
+  readonly nextAfterOperationId: string | null;
+}
+
+function listCancellationRequestedOperations(
+  database: DatabaseSync,
+  input: OperationCancellationPageInput,
+): OperationCancellationPage {
+  if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 200) {
+    throw new TargetStorageError(
+      'INVALID_REQUEST',
+      'Cancellation page limit must be between 1 and 200',
+    );
+  }
+  const afterOperationId =
+    input.afterOperationId === null ? null : parseCanonical(EntityIdSchema, input.afterOperationId);
+  const runIds =
+    input.runIds === null
+      ? null
+      : [...new Set(input.runIds.map((runId) => parseCanonical(EntityIdSchema, runId)))];
+  if (runIds !== null && (runIds.length < 1 || runIds.length > 100)) {
+    throw new TargetStorageError(
+      'INVALID_REQUEST',
+      'Cancellation run scope must contain 1 to 100 Runs',
+    );
+  }
+  const runScope =
+    runIds === null ? '' : ` AND dispatch.run_id IN (${runIds.map(() => '?').join(', ')})`;
+  const runScopeParameters = runIds === null ? [] : Array.from({ length: 5 }, () => runIds).flat();
+  const rows = database
+    .prepare(
+      `SELECT id
+       FROM (
+         SELECT dispatch.id AS id
+         FROM dispatch_operations AS dispatch
+         JOIN generation_attempts AS owner
+           ON dispatch.owner_authority = 'generation_attempt' AND dispatch.owner_id = owner.id
+         WHERE owner.cancel_requested = 1
+           AND owner.state NOT IN ('succeeded', 'failed', 'cancelled')
+           ${runScope}
+         UNION ALL
+         SELECT dispatch.id AS id
+         FROM dispatch_operations AS dispatch
+         JOIN media_derivation_attempts AS owner
+           ON dispatch.owner_authority = 'media_derivation_attempt' AND dispatch.owner_id = owner.id
+         WHERE owner.cancel_requested = 1
+           AND owner.state NOT IN ('succeeded', 'failed', 'cancelled')
+           ${runScope}
+         UNION ALL
+         SELECT dispatch.id AS id
+         FROM dispatch_operations AS dispatch
+         JOIN result_assessment_attempts AS owner
+           ON dispatch.owner_authority = 'result_assessment_attempt' AND dispatch.owner_id = owner.id
+         WHERE owner.cancel_requested = 1
+           AND owner.state NOT IN ('succeeded', 'failed', 'cancelled')
+           ${runScope}
+         UNION ALL
+         SELECT dispatch.id AS id
+         FROM dispatch_operations AS dispatch
+         JOIN review_cut_attempts AS owner
+           ON dispatch.owner_authority = 'review_cut_attempt' AND dispatch.owner_id = owner.id
+         WHERE owner.cancel_requested = 1
+           AND owner.state NOT IN ('succeeded', 'failed', 'cancelled')
+           ${runScope}
+         UNION ALL
+         SELECT dispatch.id AS id
+         FROM dispatch_operations AS dispatch
+         JOIN delivery_exports AS owner
+           ON dispatch.owner_authority = 'delivery_export' AND dispatch.owner_id = owner.id
+         WHERE owner.cancel_requested = 1
+           AND owner.state NOT IN ('succeeded', 'failed', 'cancelled')
+           ${runScope}
+       ) AS pending
+       WHERE (? IS NULL OR id > ?)
+       ORDER BY id ASC
+       LIMIT ?`,
+    )
+    .all(
+      ...runScopeParameters,
+      afterOperationId,
+      afterOperationId,
+      input.limit + 1,
+    ) as unknown as readonly {
+    readonly id: string;
+  }[];
+  const pageRows = rows.slice(0, input.limit);
+  return Object.freeze({
+    operations: Object.freeze(
+      pageRows.map(({ id }) => {
+        const bound = loadBoundOperation(database, id);
+        if (
+          !bound.owner.view.cancelRequested ||
+          AttemptTerminalStateSchema.safeParse(bound.owner.view.state).success
+        ) {
+          throw new TargetStorageError(
+            'CORRUPT_DATA',
+            `Cancellation queue selected non-pending Operation ${bound.dispatch.id}`,
+          );
+        }
+        return Object.freeze({
+          runId: bound.dispatch.key.runId,
+          operation: operationRefForOwner(bound.dispatch.id, bound.owner),
+        });
+      }),
+    ),
+    nextAfterOperationId: rows.length > input.limit ? (pageRows.at(-1)?.id ?? null) : null,
+  });
+}
+
 export interface OperationCancelInTransactionResult extends PreparedOperationOwnerTransitionBatch {
   readonly projectId: string;
   readonly runId: string;
@@ -247,6 +370,9 @@ function cancelOperations(
 
 export interface OperationsAuthority {
   readonly get: (request: Request<'operation.get'>) => Success<'operation.get'>;
+  readonly listCancellationRequested: (
+    input: OperationCancellationPageInput,
+  ) => OperationCancellationPage;
   readonly query: (
     projectId: string,
     runId: string,
@@ -265,6 +391,9 @@ export function createOperationsAuthority(
   const authority: OperationsAuthority = {
     get(request) {
       return getOperations(getTargetStoreDatabase(store), exactRequest(request, 'operation.get'));
+    },
+    listCancellationRequested(input) {
+      return listCancellationRequestedOperations(getTargetStoreDatabase(store), input);
     },
     query(projectId, runId, input) {
       return queryOperations(getTargetStoreDatabase(store), projectId, runId, input);

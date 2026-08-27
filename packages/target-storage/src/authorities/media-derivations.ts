@@ -36,7 +36,6 @@ import {
   insertOrValidateMediaBlob,
   insertProjectMediaRecord,
   loadGlobalMediaAsset,
-  loadMediaBlob,
   loadProjectMediaRecord,
   type MediaBlobDescriptor,
 } from '../internal/media-records.js';
@@ -1387,7 +1386,7 @@ async function processProviderState(
   commandId: string,
   context: TargetCommandContext,
 ): Promise<MediaDeriveSuccess> {
-  let current = mediaOperation(loadBoundOperation(database, operationId));
+  const current = mediaOperation(loadBoundOperation(database, operationId));
   if (state.state === 'not_submitted') {
     return finishTerminal(
       database,
@@ -1403,7 +1402,7 @@ async function processProviderState(
     );
   }
   if (state.receipt !== null) {
-    current = persistReceipt(database, environment, operationId, state.receipt, true);
+    persistReceipt(database, environment, operationId, state.receipt, true);
   }
   if (state.state === 'unknown') {
     return markUnknown(database, environment, operationId, commandId, context);

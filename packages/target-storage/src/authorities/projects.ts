@@ -76,7 +76,10 @@ interface EnabledSkillRow {
   skill_version: string;
 }
 
-function storageError(code: 'CORRUPT_DATA' | 'NOT_FOUND' | 'REVISION_CONFLICT', message: string) {
+function storageError(
+  code: 'CORRUPT_DATA' | 'INVALID_REQUEST' | 'NOT_FOUND' | 'REVISION_CONFLICT',
+  message: string,
+) {
   return new TargetStorageError(code, message);
 }
 
@@ -299,18 +302,25 @@ export function updateProjectSettingsInTransaction(
     budget: current.budget,
     enabledSkills: current.enabledSkills,
   };
-  if (canonicalJson(input.values) === canonicalJson(currentValues)) return current;
-  if (
-    input.values.defaultProviderProfileId !== null &&
-    database
-      .prepare('SELECT 1 FROM provider_profiles WHERE id = ?')
-      .get(input.values.defaultProviderProfileId) === undefined
-  ) {
-    throw storageError(
-      'NOT_FOUND',
-      `Provider profile ${input.values.defaultProviderProfileId} was not found`,
-    );
+  if (input.values.defaultProviderProfileId !== null) {
+    const provider = database
+      .prepare('SELECT status FROM provider_profiles WHERE id = ?')
+      .get(input.values.defaultProviderProfileId) as unknown as
+      { status: 'ready' | 'unavailable' | 'disabled' } | undefined;
+    if (provider === undefined) {
+      throw storageError(
+        'NOT_FOUND',
+        `Provider profile ${input.values.defaultProviderProfileId} was not found`,
+      );
+    }
+    if (provider.status !== 'ready') {
+      throw storageError(
+        'INVALID_REQUEST',
+        `Provider profile ${input.values.defaultProviderProfileId} is not ready`,
+      );
+    }
   }
+  if (canonicalJson(input.values) === canonicalJson(currentValues)) return current;
   for (const skill of input.values.enabledSkills) {
     const stored = database
       .prepare(

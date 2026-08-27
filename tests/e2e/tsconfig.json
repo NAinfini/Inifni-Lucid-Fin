@@ -3,13 +3,15 @@
     "target": "ESNext",
     "module": "NodeNext",
     "moduleResolution": "nodenext",
+    "jsx": "react-jsx",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node", "vite/client"]
   },
-  "include": ["./**/*.ts"]
+  "include": ["./**/*.ts", "./**/*.tsx", "../../apps/desktop-renderer/src/types/global.d.ts"]
 }

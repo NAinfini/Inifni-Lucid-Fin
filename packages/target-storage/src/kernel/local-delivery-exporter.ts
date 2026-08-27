@@ -12,8 +12,20 @@ export interface ResolvedDeliveryDestinationGrant {
   readonly writableGrant: unknown;
 }
 
+export interface ResolveDeliveryDestinationGrantRequest {
+  readonly descriptor: DeliveryDestinationIntent;
+  readonly projectId: string;
+  readonly chatId: string;
+  readonly runId: string;
+  readonly deliveryPlan: DeliveryManifest['sourcePlan'];
+  readonly requiredExtension: DeliveryManifest['formatIntent']['container'];
+  readonly operationFingerprint: string;
+}
+
 export interface DeliveryDestinationGrantResolver {
-  resolve(descriptor: DeliveryDestinationIntent): Promise<ResolvedDeliveryDestinationGrant>;
+  resolve(
+    request: ResolveDeliveryDestinationGrantRequest,
+  ): Promise<ResolvedDeliveryDestinationGrant>;
 }
 
 export interface LocalDeliveryExportRequest {

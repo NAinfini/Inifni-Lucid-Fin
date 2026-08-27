@@ -66,6 +66,7 @@ function routerWith(
     router: createTargetWireRouter(
       handlers({ 'project.list': projectList as (request: WireRequestV1) => WireSuccessV1 }),
       {
+        authorizeInvocation: () => true,
         contextForRequest: () => context,
         localizeError: ({ code }) => `Localized ${code}`,
         onInternalError,
@@ -92,11 +93,13 @@ describe('target Wire IPC router', () => {
     const { 'project.list': _missing, ...incomplete } = complete;
     expect(() =>
       createTargetWireRouter(incomplete as TargetWireHandlers, {
+        authorizeInvocation: () => true,
         contextForRequest: () => context,
       }),
     ).toThrow(/exactly match/);
     expect(() =>
       createTargetWireRouter({ ...complete, legacy: vi.fn() } as TargetWireHandlers, {
+        authorizeInvocation: () => true,
         contextForRequest: () => context,
       }),
     ).toThrow(/exactly match/);
@@ -104,7 +107,10 @@ describe('target Wire IPC router', () => {
     const accessorBacked = { ...complete } as TargetWireHandlers;
     Object.defineProperty(accessorBacked, 'project.list', { get: () => vi.fn(), enumerable: true });
     expect(() =>
-      createTargetWireRouter(accessorBacked, { contextForRequest: () => context }),
+      createTargetWireRouter(accessorBacked, {
+        authorizeInvocation: () => true,
+        contextForRequest: () => context,
+      }),
     ).toThrow(/own data function/);
   });
 
@@ -173,6 +179,36 @@ describe('target Wire IPC router', () => {
       kind: 'failure',
       error: { code: 'cancelled', publicSummary: 'Localized cancelled' },
     });
+  });
+
+  it('rejects an untrusted renderer before creating a command context or calling a handler', async () => {
+    const handler = vi.fn((request: Extract<WireRequestV1, { method: 'project.list' }>) =>
+      projectListSuccess(request.requestId),
+    );
+    const contextForRequest = vi.fn(() => context);
+    const router = createTargetWireRouter(
+      handlers({ 'project.list': handler as (request: WireRequestV1) => WireSuccessV1 }),
+      {
+        authorizeInvocation: () => false,
+        contextForRequest,
+        localizeError: ({ code }) => `Localized ${code}`,
+      },
+    );
+
+    await expect(router.invoke(projectListRequest(), { sender: 'untrusted' })).resolves.toEqual({
+      wireVersion: 1,
+      kind: 'failure',
+      requestId: 'request.router.project-list.1',
+      method: 'project.list',
+      error: {
+        code: 'permission_denied',
+        publicSummary: 'Localized permission_denied',
+        retryable: false,
+        correlationId: 'request.router.project-list.1',
+      },
+    });
+    expect(contextForRequest).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('reports invalid handler output as a sanitized internal failure', async () => {

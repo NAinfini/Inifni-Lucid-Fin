@@ -1,19 +1,13 @@
 import { z } from 'zod';
 import { strictObject } from '../canonical.js';
 import {
-  DeliveryAudioPolicySchema,
   DeliveryDestinationIntentSchema,
-  DeliveryFormatIntentSchema,
-  DeliveryItemRefSchema,
   DeliveryManifestRefSchema,
   DeliveryManifestSchema,
   DeliveryMutationCommandSchema,
   DeliveryPlanSchema,
   DeliveryPreviewRequestSchema,
   DeliveryRefSchema,
-  DeliveryReviewStateSchema,
-  DeliveryTrimSchema,
-  DeliveryTransitionSchema,
 } from '../delivery.js';
 import {
   AttemptStateSchema,
@@ -21,17 +15,12 @@ import {
   OperationCancelOutputSchema,
   OperationGetInputSchema,
   OperationGetOutputSchema,
-  OperationKindSchema,
   OperationRefSchema,
 } from '../operation.js';
 import {
   ArtifactRefSchema,
-  CountSchema,
-  DomainObjectRefSchema,
   EntityIdSchema,
-  PositiveCountSchema,
   ResourceAmountSchema,
-  RevisionSchema,
   Sha256Schema,
   UserChoiceRefSchema,
 } from '../primitives.js';
@@ -42,7 +31,6 @@ import {
   controlMetadata,
   defineTool,
   externalMetadata,
-  mutationReceiptSchema,
   pageSchema,
   readMetadata,
   reversibleMetadata,

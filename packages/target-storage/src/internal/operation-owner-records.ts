@@ -222,6 +222,7 @@ interface DeliveryExportRow extends LocalAttemptRow {
   destination_grant_id: string;
   destination_grant_hash: string;
   destination_display_label: string;
+  destination_v1_json: string;
   overwrite_existing: number;
   output_content_hash: string | null;
   manifest_project_id: string;
@@ -1292,6 +1293,24 @@ function loadDeliveryExportOwner(database: DatabaseSync, id: string): OperationO
   ) {
     throw corrupt(`Delivery Export ${row.id} frozen Manifest snapshot does not match`);
   }
+  let destination: z.output<typeof DeliveryDestinationIntentSchema>;
+  try {
+    destination = parseCanonical(
+      DeliveryDestinationIntentSchema,
+      JSON.parse(row.destination_v1_json) as unknown,
+    );
+  } catch (cause) {
+    throw corrupt(`Delivery Export ${row.id} destination is invalid`, cause);
+  }
+  if (
+    canonicalJson(destination) !== row.destination_v1_json ||
+    destination.kind !== row.destination_kind ||
+    destination.grantId !== row.destination_grant_id ||
+    destination.grantHash !== row.destination_grant_hash ||
+    destination.displayLabel !== row.destination_display_label
+  ) {
+    throw corrupt(`Delivery Export ${row.id} destination fields do not match`);
+  }
   const owner = parseStored('Delivery Export', DeliveryExportSchema, {
     authority: 'delivery_export',
     id: row.id,
@@ -1303,12 +1322,7 @@ function loadDeliveryExportOwner(database: DatabaseSync, id: string): OperationO
       revision: row.delivery_manifest_revision,
       contentHash: row.delivery_manifest_hash,
     },
-    destination: parseStored('Delivery destination', DeliveryDestinationIntentSchema, {
-      kind: row.destination_kind,
-      grantId: row.destination_grant_id,
-      grantHash: row.destination_grant_hash,
-      displayLabel: row.destination_display_label,
-    }),
+    destination,
     overwriteExisting: storedBoolean(
       `Delivery Export ${row.id} overwrite_existing`,
       row.overwrite_existing,

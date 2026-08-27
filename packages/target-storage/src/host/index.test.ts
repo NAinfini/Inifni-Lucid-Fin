@@ -286,6 +286,7 @@ async function pendingSkillProposalFixture() {
             role: 'target',
           },
         ],
+        exportDestinationGrant: null,
         supersedesMessageId: null,
       },
     },
@@ -971,6 +972,7 @@ describe('I2-H0 host-only Provider and Skill provisioning', () => {
             blocks: [{ type: 'text', text: 'Create the opening shot.' }],
             attachments: [],
             selectedContext: [],
+            exportDestinationGrant: null,
             supersedesMessageId: null,
           },
         },
@@ -1005,12 +1007,77 @@ describe('I2-H0 host-only Provider and Skill provisioning', () => {
 });
 
 describe('K7B host Skill confirmation response', () => {
+  it('rejects a late confirmation response after its waiting Run was cancelled without treating valid cancellation as corruption', async () => {
+    const state = await pendingSkillProposalFixture();
+    try {
+      const pending = state.proposal.value;
+      const waiting = run(
+        state.fixture.data,
+        state.proposal.run.id,
+        'cancel-before-confirmation',
+      );
+      expect(waiting.status).toBe('waiting_confirmation');
+      const cancelled = state.fixture.data.runs.control(
+        {
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.host.skill.cancel-before-confirmation',
+          method: 'run.control',
+          input: {
+            runId: waiting.id,
+            expectedRevision: waiting.revision,
+            action: 'cancel',
+            expectedStatus: 'waiting_confirmation',
+            terminalSummary: 'The user cancelled this pending confirmation.',
+          },
+        },
+        userContext,
+      );
+      expect(cancelled.result.status).toBe('cancelled');
+
+      expect(() =>
+        state.host.respond(
+          confirmationRequest(
+            pending.confirmationId,
+            pending.immutableInputHash,
+            'approved',
+            'late-after-cancel',
+          ),
+          userContext,
+        ),
+      ).toThrowError(expect.objectContaining({ code: 'INVALID_REQUEST' }));
+    } finally {
+      await closeJourneyFixture(state.fixture);
+    }
+  }, 30_000);
+
   it('approves one exact pending proposal, keeps the current frozen catalog, and replays only through its receipt', async () => {
     const state = await pendingSkillProposalFixture();
     try {
       const database = getJourneyTestDatabase(state.fixture.store);
+      const confirmationEvent = loadRunEvents(database, state.proposal.run.id).find(
+        (event) =>
+          event.payloadState.state === 'available' &&
+          event.payloadState.payload.type === 'confirmation_requested',
+      );
+      if (
+        confirmationEvent === undefined ||
+        confirmationEvent.payloadState.state !== 'available' ||
+        confirmationEvent.payloadState.payload.type !== 'confirmation_requested'
+      ) {
+        throw new Error('Expected a public confirmation request event');
+      }
+      const confirmation = confirmationEvent.payloadState.payload;
+      const interaction = database
+        .prepare('SELECT interaction_id FROM run_confirmations WHERE id = ?')
+        .get(state.proposal.value.confirmationId) as { interaction_id: string };
+      expect(confirmation).toMatchObject({
+        confirmationId: state.proposal.value.confirmationId,
+        interactionId: interaction.interaction_id,
+      });
+      expect(confirmation.confirmationId).not.toBe(confirmation.interactionId);
       const request = confirmationRequest(
-        state.proposal.value.confirmationId,
+        confirmation.confirmationId,
         state.proposal.value.immutableInputHash,
         'approved',
         'approve',
@@ -1140,6 +1207,7 @@ describe('K7B host Skill confirmation response', () => {
                 role: 'target',
               },
             ],
+            exportDestinationGrant: null,
             supersedesMessageId: null,
           },
         },

@@ -9,6 +9,7 @@
     { "column": "canvas_saved_views.viewport_v1_json", "schema": "CanvasViewportV1" },
     { "column": "compaction_views.cited_event_sequences_v1_json", "schema": "SequenceListV1" },
     { "column": "context_manifests.manifest_v1_json", "schema": "ContextManifestV1" },
+    { "column": "delivery_exports.destination_v1_json", "schema": "DeliveryDestinationIntentV1" },
     { "column": "delivery_manifests.created_by_v1_json", "schema": "CausationRefV1" },
     { "column": "delivery_manifests.format_intent_v1_json", "schema": "DeliveryFormatIntentV1" },
     { "column": "delivery_plans.format_intent_v1_json", "schema": "DeliveryFormatIntentV1" },
@@ -40,6 +41,30 @@
     { "column": "generation_requests.spec_v1_json", "schema": "GenerationSpecV1" },
     { "column": "global_media_assets.source_v1_json", "schema": "MediaSourceV1" },
     { "column": "global_media_assets.tags_v1_json", "schema": "StringListV1" },
+    {
+      "column": "imported_history_records.public_payload_v1_json",
+      "schema": "ImportedHistoryPayloadV1"
+    },
+    {
+      "column": "imported_run_event_history.public_payload_v1_json",
+      "schema": "ImportedHistoryPayloadV1"
+    },
+    {
+      "column": "imported_run_history.source_payload_v1_json",
+      "schema": "ImportedHistoryPayloadV1"
+    },
+    {
+      "column": "imported_run_scope_history.payload_v1_json",
+      "schema": "ImportedHistoryPayloadV1"
+    },
+    {
+      "column": "imported_task_item_history.source_payload_v1_json",
+      "schema": "ImportedHistoryPayloadV1"
+    },
+    {
+      "column": "imported_task_list_history.source_payload_v1_json",
+      "schema": "ImportedHistoryPayloadV1"
+    },
     { "column": "media_blobs.technical_facts_v1_json", "schema": "MediaTechnicalFactsV1" },
     { "column": "media_derivation_attempts.provider_v1_json", "schema": "ProviderModelV1" },
     { "column": "media_derivation_attempts.receipt_v1_json", "schema": "ProviderReceiptV1" },
@@ -50,6 +75,7 @@
     { "column": "model_attempts.request_v1_json", "schema": "CanonicalModelRequestV1" },
     { "column": "model_attempts.response_v1_json", "schema": "DurableCanonicalModelResponseV1" },
     { "column": "model_attempts.usage_v1_json", "schema": "ModelResourceQuoteV1" },
+    { "column": "plugin_packages.manifest_v1_json", "schema": "PluginPackageManifestV1" },
     { "column": "production_objects.content_v1_json", "schema": "ProductionContentV1" },
     { "column": "project_event_payloads.payload_v1_json", "schema": "ProjectEventPayloadV1" },
     { "column": "project_media_refs.collections_v1_json", "schema": "StringListV1" },
@@ -75,6 +101,10 @@
     {
       "column": "run_inbox_messages.selected_context_v1_json",
       "schema": "SelectedContextRefListV1"
+    },
+    {
+      "column": "run_inbox_messages.export_destination_grant_v1_json",
+      "schema": "DeliveryDestinationGrantV1Schema"
     },
     { "column": "run_inbox_messages.source_v1_json", "schema": "RunAcceptedSourceSchema" },
     { "column": "run_interactions.context_refs_v1_json", "schema": "DomainObjectRefListV1" },

@@ -75,8 +75,9 @@ describe('Production public wire contract', () => {
       parseCanonical(ProductionObjectViewV1Schema, {
         object: productionObject,
         factSources: [factSource],
+        currentChoices: [],
       }),
-    ).toEqual({ object: productionObject, factSources: [factSource] });
+    ).toEqual({ object: productionObject, factSources: [factSource], currentChoices: [] });
 
     expect(
       parseResponseV1({
@@ -84,7 +85,7 @@ describe('Production public wire contract', () => {
         kind: 'success',
         requestId: 'request_1',
         method: 'production.apply',
-        result: { object: productionObject, factSources: [factSource] },
+        result: { object: productionObject, factSources: [factSource], currentChoices: [] },
       }),
     ).toMatchObject({ kind: 'success', method: 'production.apply' });
 
@@ -92,6 +93,62 @@ describe('Production public wire contract', () => {
       parseCanonical(ProductionObjectViewV1Schema, {
         object: productionObject,
         factSources: [{ ...factSource, productionObjectId: 'story_2' }],
+        currentChoices: [],
+      }),
+    ).toThrow();
+  });
+
+  it('exposes only the current Shot decision Choice refs in result-decision order', () => {
+    const currentChoice = {
+      authority: 'user_choice',
+      id: 'choice_1',
+      choiceHash: HASH_B,
+    } as const;
+    const shot = {
+      ...productionObject,
+      id: 'shot_1',
+      type: 'shot',
+      content: {
+        title: 'Harbor arrival',
+        description: 'A boat enters the harbor.',
+        durationMs: null,
+        shotSize: null,
+        cameraMovement: null,
+      },
+      resultDecisions: [
+        {
+          result: {
+            authority: 'generated_result',
+            id: 'result_1',
+            revision: 0,
+            contentHash: HASH_A,
+          },
+          value: { state: 'selected', feedback: '' },
+          currentChoiceId: currentChoice.id,
+        },
+      ],
+    } as const;
+
+    expect(
+      parseCanonical(ProductionObjectViewV1Schema, {
+        object: shot,
+        factSources: [],
+        currentChoices: [currentChoice],
+      }),
+    ).toMatchObject({ currentChoices: [currentChoice] });
+
+    expect(() =>
+      parseCanonical(ProductionObjectViewV1Schema, {
+        object: shot,
+        factSources: [],
+        currentChoices: [{ ...currentChoice, id: 'choice_other' }],
+      }),
+    ).toThrow();
+    expect(() =>
+      parseCanonical(ProductionObjectViewV1Schema, {
+        object: productionObject,
+        factSources: [],
+        currentChoices: [currentChoice],
       }),
     ).toThrow();
   });
@@ -240,7 +297,7 @@ describe('Production public wire contract', () => {
         requestId: 'request_query_1',
         method: 'production.query',
         result: {
-          items: [{ object: productionObject, factSources: [factSource] }],
+          items: [{ object: productionObject, factSources: [factSource], currentChoices: [] }],
           nextCursor: null,
         },
       }),

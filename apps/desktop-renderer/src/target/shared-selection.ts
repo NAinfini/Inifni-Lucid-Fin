@@ -4,6 +4,10 @@ export const TARGET_WORKSPACES = ['overview', 'canvas', 'media', 'production', '
 
 export type TargetWorkspace = (typeof TARGET_WORKSPACES)[number];
 
+export function isTargetWorkspace(value: string | null | undefined): value is TargetWorkspace {
+  return value !== null && value !== undefined && TARGET_WORKSPACES.some((workspace) => workspace === value);
+}
+
 export interface TargetSharedSelection {
   readonly primary: DomainObjectRef | null;
   readonly supporting: readonly DomainObjectRef[];
@@ -12,6 +16,7 @@ export interface TargetSharedSelection {
 export type TargetSelectionAction =
   | { readonly type: 'select'; readonly ref: DomainObjectRef }
   | { readonly type: 'support'; readonly ref: DomainObjectRef }
+  | { readonly type: 'refresh'; readonly ref: DomainObjectRef }
   | {
       readonly type: 'remove';
       readonly authority: DomainObjectRef['authority'];
@@ -39,6 +44,13 @@ export function targetSelectionReducer(
     return {
       primary: state.primary !== null && matches(state.primary) ? null : state.primary,
       supporting: state.supporting.filter((ref) => !matches(ref)),
+    };
+  }
+  if (action.type === 'refresh') {
+    const refresh = (ref: DomainObjectRef) => (isSameRef(ref, action.ref) ? action.ref : ref);
+    return {
+      primary: state.primary === null ? null : refresh(state.primary),
+      supporting: state.supporting.map(refresh),
     };
   }
   if (action.type === 'select') {

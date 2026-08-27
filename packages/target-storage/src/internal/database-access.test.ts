@@ -70,6 +70,7 @@ describe('target store internal database access', () => {
       });
       expect(Object.keys(data)).toEqual([
         'projects',
+        'plugins',
         'globalMedia',
         'conversations',
         'projectMedia',
@@ -89,6 +90,7 @@ describe('target store internal database access', () => {
         'delivery',
         'deliveryOperations',
         'runReplay',
+        'projectCapabilities',
         'history',
         'search',
         'media',

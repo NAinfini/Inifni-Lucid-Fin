@@ -27,7 +27,6 @@ import {
 import type { MessageSendAcceptanceSeed } from './conversations.js';
 
 const NOW = '2026-08-15T12:00:00.000Z';
-const LATER = '2026-08-15T13:00:00.000Z';
 const directories: string[] = [];
 const rootCatalog = parseCanonical(
   CapabilityCatalogSnapshotV1Schema,
@@ -155,6 +154,7 @@ async function harness() {
           role: 'target' as const,
         },
       ],
+      exportDestinationGrant: null,
       supersedesMessageId: null,
     },
   };
@@ -349,6 +349,14 @@ describe('message.send root Run acceptance', () => {
       const response = fixture.data.conversations.sendMessage(request, context, seed);
       const run = parseCanonical(RunSchema, response.result.acceptedRun);
       const message = response.result.message;
+      const chat = response.result.chat;
+      expect(chat).toEqual(fixture.data.conversations.getChat(fixture.chat.id));
+      expect(chat).toMatchObject({
+        id: fixture.chat.id,
+        revision: fixture.chat.revision + 1,
+        messageCount: fixture.chat.messageCount + 1,
+        messageHeadSequence: message.sequence,
+      });
       expect(run).toMatchObject({
         authority: 'run',
         revision: 0,
@@ -427,6 +435,7 @@ describe('message.send root Run acceptance', () => {
         actor: inboxRow.actor,
         source: JSON.parse(inboxRow.source_v1_json as string),
         selectedContext: JSON.parse(inboxRow.selected_context_v1_json as string),
+        exportDestinationGrant: null,
         contentHash: inboxRow.content_hash,
         state: inboxRow.state,
         createdAt: inboxRow.created_at,
@@ -437,6 +446,7 @@ describe('message.send root Run acceptance', () => {
         actor: 'user',
         source: run.acceptedSource,
         selectedContext: request.input.selectedContext,
+        exportDestinationGrant: null,
         contentHash: message.contentHash,
         state: 'queued',
         createdAt: NOW,

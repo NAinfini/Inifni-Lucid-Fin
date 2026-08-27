@@ -14,6 +14,25 @@ export const LEGACY_ENTITY_REFERENCE_IMAGE_COVERAGE = ENTITY_REFERENCE_SOURCES.m
   paths: REFERENCE_PATHS,
 }));
 
+/** Extracts only hashes from the two audited reference_images paths. */
+export function legacyEntityReferenceImageHashes(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  const hashes = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
+    const record = item as Record<string, unknown>;
+    if (typeof record.assetHash === 'string' && SHA256_PATTERN.test(record.assetHash)) {
+      hashes.add(record.assetHash);
+    }
+    if (Array.isArray(record.variants)) {
+      for (const candidate of record.variants) {
+        if (typeof candidate === 'string' && SHA256_PATTERN.test(candidate)) hashes.add(candidate);
+      }
+    }
+  }
+  return [...hashes].sort();
+}
+
 export type LegacyEntityReferenceImagesPreflightBlocker =
   | {
       readonly kind: 'invalid_entity_reference_images_document';

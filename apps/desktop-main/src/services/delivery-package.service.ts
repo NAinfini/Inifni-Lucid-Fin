@@ -656,7 +656,7 @@ function assertUniquePackageNames(manifest: DeliveryManifestContent): void {
   for (const item of manifest.items) {
     if (
       path.basename(item.packageFileName) !== item.packageFileName ||
-      /[<>:"/\\|?*\u0000-\u001f]/.test(item.packageFileName) ||
+      [...item.packageFileName].some(isUnsafeFileNameCharacter) ||
       /[. ]$/.test(item.packageFileName)
     ) {
       throw new Error(`Approved Delivery package file name is unsafe: ${item.packageFileName}`);
@@ -859,14 +859,18 @@ function hashBuffer(value: Buffer): string {
 }
 
 function sanitizeBaseName(value: string): string {
-  return value
-    .normalize('NFKC')
-    .trim()
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
+  return Array.from(value.normalize('NFKC').trim(), (character) =>
+    isUnsafeFileNameCharacter(character) ? '-' : character,
+  )
+    .join('')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^[. -]+|[. -]+$/g, '')
     .slice(0, 80);
+}
+
+function isUnsafeFileNameCharacter(character: string): boolean {
+  return character.charCodeAt(0) <= 0x1f || '<>:"/\\|?*'.includes(character);
 }
 
 function normalizeIdentityPath(value: string): string {

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  Archive,
   Bot,
   Check,
   ChevronDown,
@@ -10,13 +11,16 @@ import {
   Focus,
   FolderOpen,
   LoaderCircle,
+  MoreHorizontal,
   MessageSquarePlus,
   Paperclip,
   Pause,
   Play,
   Search,
   Send,
+  Settings,
   Sparkles,
+  Trash2,
   User,
   X,
 } from 'lucide-react';
@@ -33,17 +37,25 @@ import type {
 } from '@lucid-fin/target-contracts';
 import { targetCopy } from './copy.js';
 import { useTargetEnvironment } from './environment.js';
+import {
+  ResultDecisionControls,
+  type TargetResultDecisionAction,
+  type TargetResultDecisionState,
+} from './ResultDecisionControls.js';
 import type { TargetSharedSelection, TargetWorkspace } from './shared-selection.js';
 
 interface CommanderDockProps {
   readonly project: Project;
   readonly settings: ProjectSettings;
   readonly chats: readonly Chat[];
+  readonly chatsHaveMore: boolean;
   readonly activeChat: Chat | null;
   readonly messages: readonly Message[];
+  readonly messagesHaveMore: boolean;
   readonly projectSearchMessages: readonly Message[];
   readonly run: Run | null;
   readonly events: readonly PublicRunEvent[];
+  readonly eventsHaveMore: boolean;
   readonly taskList: TaskList | null;
   readonly selection: TargetSharedSelection;
   readonly labelForRef: (ref: DomainObjectRef) => string;
@@ -51,10 +63,17 @@ interface CommanderDockProps {
   readonly composerDraft: string;
   readonly pendingAttachments: readonly MessageAttachment[];
   readonly conversationScroll: { current: number };
+  readonly focusButtonRef: React.RefObject<HTMLButtonElement | null>;
   readonly onFocus: () => void;
   readonly onExitFocus: () => void;
-  readonly onSwitchChat: (chatId: string) => void;
-  readonly onCreateChat: () => void;
+  readonly onOpenProjectSettings: () => void;
+  readonly onSwitchChat: (chatId: string) => Promise<void>;
+  readonly onCreateChat: () => Promise<void>;
+  readonly onLoadMoreChats: () => Promise<void>;
+  readonly onLoadEarlierMessages: () => Promise<void>;
+  readonly onLoadMoreRunEvents: () => Promise<void>;
+  readonly onArchiveChat: (chatId: string) => Promise<void>;
+  readonly onDeleteChat: (chatId: string) => Promise<void>;
   readonly onPrepareSearch: () => Promise<void>;
   readonly onComposerDraftChange: (draft: string) => void;
   readonly onAttachReference: () => Promise<void>;
@@ -68,7 +87,24 @@ interface CommanderDockProps {
   ) => Promise<void>;
   readonly onRemoveContext: (ref: DomainObjectRef) => void;
   readonly onOpenWorkspace: (workspace: TargetWorkspace) => void;
+  readonly onOpenResult: (resultId: string) => void;
+  readonly resultDecisionStateForId: (resultId: string) => TargetResultDecisionState;
+  readonly resultDecisionDisabledReasonForId: (resultId: string) => string | null;
+  readonly onResultDecision: (
+    resultId: string,
+    action: TargetResultDecisionAction,
+    detail: string,
+  ) => Promise<void>;
 }
+
+type ConfirmationTarget = Extract<
+  Extract<PublicRunEvent['payloadState'], { readonly state: 'available' }>['payload'],
+  { readonly type: 'confirmation_requested' }
+>['target'];
+type DeliveryExportConfirmationTarget = Extract<
+  ConfirmationTarget,
+  { readonly kind: 'delivery_export' }
+>;
 
 function messageText(message: Message): string {
   return message.blocks
@@ -130,17 +166,34 @@ function QuestionEvent({
   const { locale } = useTargetEnvironment();
   const [answer, setAnswer] = useState('');
   const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   if (event.payloadState.state !== 'available' || event.payloadState.payload.type !== 'question')
     return null;
   const payload = event.payloadState.payload;
+  const submit = async () => {
+    if (answer.trim().length === 0 || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      await onAnswer(payload.interactionId, answer.trim());
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : locale === 'zh-CN'
+            ? '无法提交此回答。'
+            : 'The answer could not be submitted.',
+      );
+    } finally {
+      setSending(false);
+    }
+  };
   return (
     <form
       className="target-inline-interaction"
       onSubmit={(submitEvent) => {
         submitEvent.preventDefault();
-        if (answer.trim().length === 0) return;
-        setSending(true);
-        void onAnswer(payload.interactionId, answer.trim()).finally(() => setSending(false));
+        void submit();
       }}
     >
       <strong>{payload.prompt}</strong>
@@ -154,7 +207,64 @@ function QuestionEvent({
           {locale === 'zh-CN' ? '回答' : 'Answer'}
         </button>
       </div>
+      {error !== null && (
+        <p className="target-inline-error" role="alert">
+          {error}
+        </p>
+      )}
     </form>
+  );
+}
+
+function DeliveryExportConfirmationPreview({
+  target,
+}: {
+  readonly target: DeliveryExportConfirmationTarget;
+}) {
+  const { locale } = useTargetEnvironment();
+  return (
+    <dl className="target-delivery-confirmation-preview">
+      <div>
+        <dt>{locale === 'zh-CN' ? '冻结清单' : 'Frozen manifest'}</dt>
+        <dd>{target.manifest.id}</dd>
+      </div>
+      <div>
+        <dt>{locale === 'zh-CN' ? '格式' : 'Format'}</dt>
+        <dd>
+          {target.formatIntent.container.toUpperCase()} · {target.formatIntent.videoCodec} ·{' '}
+          {target.formatIntent.width}×{target.formatIntent.height} · {target.formatIntent.frameRate}{' '}
+          fps
+        </dd>
+      </div>
+      <div>
+        <dt>{locale === 'zh-CN' ? '项目' : 'Items'}</dt>
+        <dd>{target.itemCount}</dd>
+      </div>
+      <div>
+        <dt>{locale === 'zh-CN' ? '目标位置' : 'Destination'}</dt>
+        <dd>
+          {target.destination.displayLabel} · {target.destination.kind.replaceAll('_', ' ')}
+        </dd>
+      </div>
+      <div>
+        <dt>{locale === 'zh-CN' ? '覆盖现有文件' : 'Overwrite existing'}</dt>
+        <dd>
+          {target.overwriteExisting
+            ? locale === 'zh-CN'
+              ? '是'
+              : 'Yes'
+            : locale === 'zh-CN'
+              ? '否'
+              : 'No'}
+        </dd>
+      </div>
+      <div>
+        <dt>{locale === 'zh-CN' ? '已知成本' : 'Known cost'}</dt>
+        <dd>
+          {target.cost.currency} {target.cost.value}
+        </dd>
+      </div>
+    </dl>
   );
 }
 
@@ -167,17 +277,30 @@ function ConfirmationEvent({
 }) {
   const { locale } = useTargetEnvironment();
   const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   if (
     event.payloadState.state !== 'available' ||
     event.payloadState.payload.type !== 'confirmation_requested'
   )
     return null;
   const payload = event.payloadState.payload;
-  const decide = (decision: 'approved' | 'denied') => {
+  const decide = async (decision: 'approved' | 'denied') => {
+    if (sending) return;
     setSending(true);
-    void onAnswer(payload.interactionId, payload.immutableInputHash, decision).finally(() =>
-      setSending(false),
-    );
+    setError(null);
+    try {
+      await onAnswer(payload.confirmationId, payload.immutableInputHash, decision);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : locale === 'zh-CN'
+            ? '无法提交此确认。'
+            : 'The confirmation could not be submitted.',
+      );
+    } finally {
+      setSending(false);
+    }
   };
   return (
     <section
@@ -188,14 +311,22 @@ function ConfirmationEvent({
       <div>
         <strong>{payload.summary}</strong>
         <small>{payload.target.kind.replaceAll('_', ' ')}</small>
+        {payload.target.kind === 'delivery_export' && (
+          <DeliveryExportConfirmationPreview target={payload.target} />
+        )}
         <div>
-          <button type="button" onClick={() => decide('denied')} disabled={sending}>
+          <button type="button" onClick={() => void decide('denied')} disabled={sending}>
             {locale === 'zh-CN' ? '拒绝' : 'Deny'}
           </button>
-          <button type="button" onClick={() => decide('approved')} disabled={sending}>
+          <button type="button" onClick={() => void decide('approved')} disabled={sending}>
             {locale === 'zh-CN' ? '确认' : 'Approve'}
           </button>
         </div>
+        {error !== null && (
+          <p className="target-inline-error" role="alert">
+            {error}
+          </p>
+        )}
       </div>
     </section>
   );
@@ -206,9 +337,20 @@ function RunEvents({
   onAnswerInteraction,
   onAnswerConfirmation,
   onOpenWorkspace,
+  onOpenResult,
+  resultDecisionStateForId,
+  resultDecisionDisabledReasonForId,
+  onResultDecision,
 }: Pick<
   CommanderDockProps,
-  'events' | 'onAnswerInteraction' | 'onAnswerConfirmation' | 'onOpenWorkspace'
+  | 'events'
+  | 'onAnswerInteraction'
+  | 'onAnswerConfirmation'
+  | 'onOpenWorkspace'
+  | 'onOpenResult'
+  | 'resultDecisionStateForId'
+  | 'resultDecisionDisabledReasonForId'
+  | 'onResultDecision'
 >) {
   const { locale } = useTargetEnvironment();
   const available = events.filter(
@@ -249,22 +391,14 @@ function RunEvents({
               <div>
                 <strong>{payload.summary}</strong>
                 <small>{payload.resultId}</small>
-                <div>
-                  <button
-                    type="button"
-                    aria-disabled="true"
-                    title={targetCopy(locale, 'unsupported')}
-                  >
-                    {locale === 'zh-CN' ? '选择' : 'Select'}
-                  </button>
-                  <button
-                    type="button"
-                    aria-disabled="true"
-                    title={targetCopy(locale, 'unsupported')}
-                  >
-                    {locale === 'zh-CN' ? '精修' : 'Refine'}
-                  </button>
-                  <button type="button" onClick={() => onOpenWorkspace('media')}>
+                <ResultDecisionControls
+                  resultId={payload.resultId}
+                  state={resultDecisionStateForId(payload.resultId)}
+                  disabledReason={resultDecisionDisabledReasonForId(payload.resultId)}
+                  onDecide={(action, detail) => onResultDecision(payload.resultId, action, detail)}
+                />
+                <div className="target-result-open-row">
+                  <button type="button" onClick={() => onOpenResult(payload.resultId)}>
                     {locale === 'zh-CN' ? '在媒体中打开' : 'Open in Media'}
                   </button>
                 </div>
@@ -354,12 +488,147 @@ function RunEvents({
   );
 }
 
+function ChatLifecycleMenu({
+  chat,
+  onArchive,
+  onDelete,
+}: {
+  readonly chat: Chat | null;
+  readonly onArchive: (chatId: string) => Promise<void>;
+  readonly onDelete: (chatId: string) => Promise<void>;
+}) {
+  const { locale } = useTargetEnvironment();
+  const [open, setOpen] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const chatId = chat?.id ?? null;
+  const previousChatId = useRef(chatId);
+
+  useEffect(() => {
+    const previous = previousChatId.current;
+    previousChatId.current = chatId;
+    if (previous === chatId || (previous === null && chatId !== null)) return;
+    setOpen(false);
+    setConfirmingDelete(false);
+    setPending(false);
+    setError(null);
+  }, [chatId]);
+
+  const perform = async (action: () => Promise<void>, fallback: string) => {
+    if (chat === null || pending) return;
+    setPending(true);
+    setError(null);
+    try {
+      await action();
+      setOpen(false);
+      setConfirmingDelete(false);
+    } catch (cause) {
+      setError(
+        cause instanceof Error && cause.message.trim().length > 0 ? cause.message : fallback,
+      );
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="target-chat-lifecycle">
+      <button
+        type="button"
+        aria-label={locale === 'zh-CN' ? '对话操作' : 'Chat actions'}
+        aria-expanded={open}
+        disabled={chat === null || pending}
+        onClick={() => {
+          setError(null);
+          setOpen((value) => !value);
+        }}
+      >
+        <MoreHorizontal size={15} />
+      </button>
+      {open && chat !== null && (
+        <div className="target-chat-lifecycle-menu">
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() =>
+              void perform(
+                () => onArchive(chat.id),
+                locale === 'zh-CN' ? '无法归档此对话。' : 'The Chat could not be archived.',
+              )
+            }
+          >
+            <Archive size={13} />
+            {locale === 'zh-CN' ? '归档对话' : 'Archive Chat'}
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              setOpen(false);
+              setConfirmingDelete(true);
+            }}
+          >
+            <Trash2 size={13} />
+            {locale === 'zh-CN' ? '删除对话' : 'Delete Chat'}
+          </button>
+        </div>
+      )}
+      {confirmingDelete && chat !== null && (
+        <section
+          className="target-chat-delete-confirmation"
+          role="alertdialog"
+          aria-label={`${locale === 'zh-CN' ? '删除' : 'Delete'} ${chat.title}`}
+        >
+          <strong>
+            {locale === 'zh-CN' ? `删除“${chat.title}”？` : `Delete “${chat.title}”?`}
+          </strong>
+          <p>
+            {locale === 'zh-CN'
+              ? '对话会从活动列表中移除；已提交的项目事实和结果会保留。'
+              : 'The Chat leaves the active list. Committed Project facts and results remain.'}
+          </p>
+          <div>
+            <button type="button" disabled={pending} onClick={() => setConfirmingDelete(false)}>
+              {locale === 'zh-CN' ? '取消' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                void perform(
+                  () => onDelete(chat.id),
+                  locale === 'zh-CN' ? '无法删除此对话。' : 'The Chat could not be deleted.',
+                )
+              }
+            >
+              {pending
+                ? locale === 'zh-CN'
+                  ? '正在删除…'
+                  : 'Deleting…'
+                : locale === 'zh-CN'
+                  ? '删除对话'
+                  : 'Delete Chat'}
+            </button>
+          </div>
+        </section>
+      )}
+      {error !== null && (
+        <p className="target-inline-error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function CommanderDock(props: CommanderDockProps) {
   const { locale } = useTargetEnvironment();
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [sending, setSending] = useState(false);
   const [attaching, setAttaching] = useState(false);
+  const [commandPending, setCommandPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const refs = [
@@ -410,6 +679,21 @@ export function CommanderDock(props: CommanderDockProps) {
     }
   };
 
+  const executeCommand = async (command: () => Promise<void>, fallback: string) => {
+    if (commandPending) return;
+    setCommandPending(true);
+    setError(null);
+    try {
+      await command();
+    } catch (cause) {
+      setError(
+        cause instanceof Error && cause.message.trim().length > 0 ? cause.message : fallback,
+      );
+    } finally {
+      setCommandPending(false);
+    }
+  };
+
   return (
     <div className={`target-commander${props.focus ? ' is-focus' : ''}`}>
       <header className="target-commander-header">
@@ -417,8 +701,13 @@ export function CommanderDock(props: CommanderDockProps) {
           <span className="sr-only">{locale === 'zh-CN' ? '当前对话' : 'Current Chat'}</span>
           <select
             value={props.activeChat?.id ?? ''}
-            onChange={(event) => props.onSwitchChat(event.currentTarget.value)}
-            disabled={props.chats.length === 0}
+            onChange={(event) =>
+              void executeCommand(
+                () => props.onSwitchChat(event.currentTarget.value),
+                locale === 'zh-CN' ? '无法切换对话。' : 'The Chat could not be opened.',
+              )
+            }
+            disabled={props.chats.length === 0 || commandPending}
           >
             {props.chats.length === 0 && (
               <option value="">{locale === 'zh-CN' ? '没有对话' : 'No Chats'}</option>
@@ -430,15 +719,41 @@ export function CommanderDock(props: CommanderDockProps) {
             ))}
           </select>
         </label>
+        {props.chatsHaveMore && (
+          <button
+            type="button"
+            disabled={commandPending}
+            onClick={() =>
+              void executeCommand(
+                props.onLoadMoreChats,
+                locale === 'zh-CN' ? '无法载入更多对话。' : 'More Chats could not be loaded.',
+              )
+            }
+          >
+            <ChevronDown size={15} />
+            <span>{locale === 'zh-CN' ? '载入更多对话' : 'Load more Chats'}</span>
+          </button>
+        )}
         <button
           type="button"
-          onClick={props.onCreateChat}
+          disabled={commandPending}
+          onClick={() =>
+            void executeCommand(
+              props.onCreateChat,
+              locale === 'zh-CN' ? '无法创建对话。' : 'The Chat could not be created.',
+            )
+          }
           aria-label={targetCopy(locale, 'newChat')}
           title={targetCopy(locale, 'newChat')}
         >
           <MessageSquarePlus size={15} />
           <span>{targetCopy(locale, 'newChat')}</span>
         </button>
+        <ChatLifecycleMenu
+          chat={props.activeChat}
+          onArchive={props.onArchiveChat}
+          onDelete={props.onDeleteChat}
+        />
         <button
           type="button"
           onClick={() => {
@@ -461,6 +776,16 @@ export function CommanderDock(props: CommanderDockProps) {
           <span>{targetCopy(locale, 'search')}</span>
         </button>
         <button
+          type="button"
+          onClick={props.onOpenProjectSettings}
+          aria-label={locale === 'zh-CN' ? '项目设置' : 'Project settings'}
+          title={locale === 'zh-CN' ? '项目设置' : 'Project settings'}
+        >
+          <Settings size={15} />
+          <span>{locale === 'zh-CN' ? '设置' : 'Settings'}</span>
+        </button>
+        <button
+          ref={props.focusButtonRef}
           type="button"
           onClick={props.focus ? props.onExitFocus : props.onFocus}
           aria-label={props.focus ? targetCopy(locale, 'exitFocus') : targetCopy(locale, 'focus')}
@@ -502,7 +827,17 @@ export function CommanderDock(props: CommanderDockProps) {
                   <button
                     key={result.id}
                     type="button"
-                    onClick={() => props.onSwitchChat(result.chatId)}
+                    onClick={() =>
+                      void executeCommand(
+                        async () => {
+                          await props.onSwitchChat(result.chatId);
+                          setSearchOpen(false);
+                        },
+                        locale === 'zh-CN'
+                          ? '无法打开搜索结果。'
+                          : 'The search result could not be opened.',
+                      )
+                    }
                   >
                     <small>{result.kind}</small>
                     {result.label}
@@ -527,6 +862,22 @@ export function CommanderDock(props: CommanderDockProps) {
           props.conversationScroll.current = event.currentTarget.scrollTop;
         }}
       >
+        {props.messagesHaveMore && (
+          <button
+            className="target-conversation-pager"
+            type="button"
+            disabled={commandPending}
+            onClick={() =>
+              void executeCommand(
+                props.onLoadEarlierMessages,
+                locale === 'zh-CN' ? '无法载入更早消息。' : 'Earlier Messages could not be loaded.',
+              )
+            }
+          >
+            <ChevronDown size={14} />
+            {locale === 'zh-CN' ? '载入更早消息' : 'Load earlier Messages'}
+          </button>
+        )}
         {props.messages.length === 0 && props.run === null ? (
           <div className="target-conversation-empty">
             <Bot size={21} />
@@ -573,17 +924,57 @@ export function CommanderDock(props: CommanderDockProps) {
               onAnswerInteraction={props.onAnswerInteraction}
               onAnswerConfirmation={props.onAnswerConfirmation}
               onOpenWorkspace={props.onOpenWorkspace}
+              onOpenResult={props.onOpenResult}
+              resultDecisionStateForId={props.resultDecisionStateForId}
+              resultDecisionDisabledReasonForId={props.resultDecisionDisabledReasonForId}
+              onResultDecision={props.onResultDecision}
             />
+            {props.eventsHaveMore && (
+              <button
+                className="target-conversation-pager"
+                type="button"
+                disabled={commandPending}
+                onClick={() =>
+                  void executeCommand(
+                    props.onLoadMoreRunEvents,
+                    locale === 'zh-CN'
+                      ? '无法载入更多 Run 事件。'
+                      : 'More Run events could not be loaded.',
+                  )
+                }
+              >
+                <ChevronDown size={14} />
+                {locale === 'zh-CN' ? '载入更多 Run 事件' : 'Load more Run events'}
+              </button>
+            )}
             {isActiveRun(props.run) && (
               <div className="target-run-controls">
                 {props.run.status === 'running' && (
-                  <button type="button" onClick={() => void props.onControlRun('pause')}>
+                  <button
+                    type="button"
+                    disabled={commandPending}
+                    onClick={() =>
+                      void executeCommand(
+                        () => props.onControlRun('pause'),
+                        locale === 'zh-CN' ? '无法暂停 Run。' : 'The Run could not be paused.',
+                      )
+                    }
+                  >
                     <Pause size={13} />
                     {targetCopy(locale, 'pause')}
                   </button>
                 )}
                 {props.run.status === 'paused' && (
-                  <button type="button" onClick={() => void props.onControlRun('resume')}>
+                  <button
+                    type="button"
+                    disabled={commandPending}
+                    onClick={() =>
+                      void executeCommand(
+                        () => props.onControlRun('resume'),
+                        locale === 'zh-CN' ? '无法继续 Run。' : 'The Run could not be resumed.',
+                      )
+                    }
+                  >
                     <Play size={13} />
                     {targetCopy(locale, 'resume')}
                   </button>
@@ -591,7 +982,13 @@ export function CommanderDock(props: CommanderDockProps) {
                 <button
                   type="button"
                   className="is-stop"
-                  onClick={() => void props.onControlRun('cancel')}
+                  disabled={commandPending}
+                  onClick={() =>
+                    void executeCommand(
+                      () => props.onControlRun('cancel'),
+                      locale === 'zh-CN' ? '无法停止 Run。' : 'The Run could not be stopped.',
+                    )
+                  }
                 >
                   <CircleStop size={13} />
                   {targetCopy(locale, 'stop')}

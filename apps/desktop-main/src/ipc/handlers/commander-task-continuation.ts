@@ -243,7 +243,7 @@ export function createCommanderTaskContinuationController(options: {
         defaultCanvasId: canvasId,
         authorizedCanvasIds: [canvasId],
         sessionId: claimed.continuation.sessionId,
-        intent: { kind: 'user_message', message: continuationMessage(policy.phase) },
+        intent: { kind: 'user_message', message: continuationMessage() },
         selectedNodes: [],
         promptGuides: [],
         customLLMProvider: claimed.continuation.provider,
@@ -406,7 +406,7 @@ function hasPendingVisualEvaluation(
   );
 }
 
-function continuationMessage(phase: string): string {
+function continuationMessage(): string {
   return 'Continue the active persistent movie Task List. Complete only the current durable task described by the SQLite task contract, persist every required evidence item through the named tools, and then stop. Use tool.get when you need schema details. Stop immediately at a human gate, durable question, paused/recovery state, or terminal state. Never treat chat text as approval.';
 }
 

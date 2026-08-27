@@ -561,6 +561,38 @@ describe('Project History read model', () => {
     }
   });
 
+  it('returns latest evidence first with direction-bound stable cursors', async () => {
+    const { store, history } = await harness();
+    try {
+      const first = history.query(
+        'project.1',
+        { ...allHistory, page: { cursor: null, limit: 2 } },
+        'reverse_chronological',
+      );
+      const second = history.query(
+        'project.1',
+        { ...allHistory, page: { cursor: first.nextCursor, limit: 100 } },
+        'reverse_chronological',
+      );
+      expect([...first.items, ...second.items].map(({ source }) => source)).toEqual([
+        'user_choice',
+        'generated_result',
+        'project_event',
+        'run_event',
+        'message',
+      ]);
+      expect(() =>
+        history.query(
+          'project.1',
+          { ...allHistory, page: { cursor: first.nextCursor, limit: 100 } },
+          'chronological',
+        ),
+      ).toThrowError(expect.objectContaining({ code: 'INVALID_REQUEST' }));
+    } finally {
+      store.close();
+    }
+  });
+
   it('uses filter-bound stable cursors and keeps redacted ProjectEvent envelopes visible', async () => {
     const { store, database, history } = await harness();
     try {

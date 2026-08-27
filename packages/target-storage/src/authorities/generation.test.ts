@@ -218,11 +218,12 @@ class MemoryMediaCas implements MediaCas {
   }
 
   openVerified(expected: MediaCasExpectedObject) {
-    const cas = this;
+    const objects = this.objects;
+    const verify = (value: MediaCasExpectedObject) => this.verify(value);
     return {
       async *[Symbol.asyncIterator]() {
-        await cas.verify(expected);
-        yield Uint8Array.from(cas.objects.get(expected.hash)!);
+        await verify(expected);
+        yield Uint8Array.from(objects.get(expected.hash)!);
       },
     };
   }
@@ -364,6 +365,7 @@ async function harness(
         blocks: [{ type: 'text', text: 'Generate the opening frame.' }],
         attachments: [],
         selectedContext: [],
+        exportDestinationGrant: null,
         supersedesMessageId: null,
       },
     },

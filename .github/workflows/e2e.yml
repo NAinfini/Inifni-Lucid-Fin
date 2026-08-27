@@ -14,7 +14,7 @@ jobs:
   e2e-smoke:
     name: E2E Smoke (Windows)
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v6
@@ -35,6 +35,12 @@ jobs:
 
       - name: Run E2E smoke tests
         run: pnpm run test:e2e
+
+      - name: Install Target E2E browser
+        run: pnpm exec playwright install chromium
+
+      - name: Run Target fixture browser journeys
+        run: pnpm run test:e2e:target
 
       - name: Upload Playwright traces on failure
         if: failure()

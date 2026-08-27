@@ -331,6 +331,38 @@ describe('Project authority', () => {
           .get(),
       ).toEqual({ subject_authority: 'project_settings' });
 
+      for (const status of ['unavailable', 'disabled'] as const) {
+        const providerId = `provider.${status}`;
+        database
+          .prepare(
+            `INSERT INTO provider_profiles (
+               id, display_name, provider_kind, model, reasoning_strength, endpoint_origin,
+               credential_handle, status, configuration_v1_json, revision, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, '{}', 0, ?, ?)`,
+          )
+          .run(providerId, status, 'openai', 'gpt-5.6', status, NOW, NOW);
+        expect(() =>
+          data.projects.updateSettings(
+            {
+              ...update,
+              requestId: `request.project.settings.${status}`,
+              input: {
+                ...update.input,
+                expectedRevision: success.result.revision,
+                expectedContentHash: success.result.contentHash,
+                defaultProviderProfileId: providerId,
+              },
+            },
+            context,
+          ),
+        ).toThrowError(expect.objectContaining({ code: 'INVALID_REQUEST' }));
+        expect(
+          database
+            .prepare('SELECT count(*) AS count FROM wire_command_receipts WHERE request_id = ?')
+            .get(`request.project.settings.${status}`),
+        ).toEqual({ count: 0 });
+      }
+
       expect(() =>
         data.projects.updateSettings(
           {

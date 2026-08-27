@@ -68,6 +68,11 @@ import {
   type MessageSendAcceptanceSeed,
 } from '../internal/root-run-acceptance.js';
 import { hashCanonical } from '../internal/hashes.js';
+import {
+  controlRunSubtreeInTransaction,
+  isRunSchedulingAllowed,
+  type RunControlAction,
+} from '../internal/run-control.js';
 import { finalizeTaskList, loadTaskList, replaceTaskList } from '../internal/task-list-records.js';
 import { TargetStorageError } from '../kernel/errors.js';
 import type { PrivateRecoveryCodec } from '../kernel/private-recovery-codec.js';
@@ -234,6 +239,21 @@ function appendInboxEvents(
           messageHash: message.contentHash,
         },
       });
+      if (inbox.exportDestinationGrant !== null) {
+        events.push({
+          eventId: eventId(environment),
+          visibility: 'model_surface',
+          occurredAt,
+          actor: context.actor,
+          causation: context.causation,
+          correlationId: context.correlationId,
+          payload: {
+            type: 'delivery_destination_ref',
+            inboxMessageId: inbox.id,
+            grantBindingHash: hashCanonical(inbox.exportDestinationGrant),
+          },
+        });
+      }
     }
   }
   const appended = appendRunEventBatch(database, {
@@ -488,31 +508,14 @@ function transitionRun(
     ).run;
   }
   assertRunTransition(before, status);
-
-  const activation = status === 'paused' ? loadActiveRunActivation(database, before.id) : null;
-  const drafts: RunEventDraft[] = [];
-  let activationOrdinal: number | null = null;
-  if (activation !== null) {
-    activationOrdinal = drafts.length;
-    drafts.push({
+  const events = appendRunEventBatch(database, {
+    runId: before.id,
+    commandId,
+    events: [
+      {
       eventId: eventId(environment),
       visibility: 'public',
       occurredAt,
-      actor: context.actor,
-      causation: context.causation,
-      correlationId: context.correlationId,
-      payload: {
-        type: 'activation_changed',
-        activationNumber: activation.activation.activationNumber,
-        state: 'ended',
-        endReason: 'paused',
-      },
-    });
-  }
-  drafts.push({
-    eventId: eventId(environment),
-    visibility: 'public',
-    occurredAt,
     actor: context.actor,
     causation: context.causation,
     correlationId: context.correlationId,
@@ -520,21 +523,13 @@ function transitionRun(
       type: 'run_state_changed',
       previousState: before.status,
       state: status,
-      runRevision: before.revision + 1,
-    },
+        runRevision: before.revision + 1,
+      },
+      },
+    ],
   });
-  const events = appendRunEventBatch(database, { runId: before.id, commandId, events: drafts });
   const head = events.at(-1);
   if (head === undefined) throw new TargetStorageError('CORRUPT_DATA', 'Run event batch is empty');
-  if (activation !== null && activationOrdinal !== null) {
-    closeRunActivation(
-      database,
-      activation,
-      events[activationOrdinal]!.sequence,
-      occurredAt,
-      'paused',
-    );
-  }
   return advanceRunJournalHead(
     database,
     before,
@@ -644,6 +639,7 @@ function enqueueFollowupInTransaction(
     actor: 'user',
     source: { kind: 'message', messageId: message.id, contentHash: message.contentHash },
     selectedContext: request.input.selectedContext,
+    exportDestinationGrant: request.input.exportDestinationGrant,
     contentHash: message.contentHash,
     state: 'queued',
     createdAt: occurredAt,
@@ -757,6 +753,7 @@ function sendFollowup(
           blocks: [{ type: 'text', text: request.input.text }],
           attachments: [],
           selectedContext: request.input.selectedContext,
+          exportDestinationGrant: request.input.exportDestinationGrant,
           supersedesMessageId: null,
           idempotencyKey: request.requestId,
         },
@@ -839,6 +836,12 @@ function startActivation(
   return withImmediateTransaction(database, () => {
     const run = loadRun(database, input.runId);
     assertExpectedRun(run, input.expectedRevision);
+    if (!isRunSchedulingAllowed(database, run.id)) {
+      throw new TargetStorageError(
+        'INVALID_REQUEST',
+        `Run ${run.id} cannot start an Activation while its control subtree is paused`,
+      );
+    }
     if (run.status !== 'accepted' && run.status !== 'running' && run.status !== 'recovering') {
       throw new TargetStorageError(
         'INVALID_REQUEST',
@@ -1031,6 +1034,7 @@ function endActivation(
 function controlRun(
   database: DatabaseSync,
   environment: TargetStorageEnvironment,
+  settleActivation: RunControlActivationSettler,
   request: Request<'run.control'>,
   contextValue: TargetCommandContext,
 ): Success<'run.control'> {
@@ -1053,24 +1057,49 @@ function controlRun(
         `Run ${before.id} status does not match ${request.input.expectedStatus}`,
       );
     }
-    const status =
-      request.input.action === 'pause'
-        ? ('paused' as const)
-        : request.input.action === 'resume'
-          ? ('running' as const)
-          : ('cancelled' as const);
-    const after = transitionRun(
-      database,
-      environment,
-      before,
-      status,
-      request.requestId,
+    const action: RunControlAction = request.input.action;
+    const after = controlRunSubtreeInTransaction(database, environment, {
+      root: before,
+      action,
       occurredAt,
       context,
-      request.input.action === 'cancel'
-        ? { summary: request.input.terminalSummary, resultIds: [] }
-        : null,
-    );
+      settleActivation(run, action) {
+        return settleActivation(database, environment, run, action, occurredAt, context);
+      },
+      transition(run, status, commandId) {
+        return transitionRun(
+          database,
+          environment,
+          run,
+          status,
+          commandId,
+          occurredAt,
+          context,
+          null,
+        );
+      },
+      terminalize(run, commandId, terminal) {
+        return terminalizeRunInTransaction(
+          database,
+          environment,
+          run,
+          'cancelled',
+          commandId,
+          occurredAt,
+          context,
+          { summary: terminal.summary, resultIds: [...terminal.resultIds] },
+        ).run;
+      },
+      operationCommandId: (run) =>
+        `run-control.${hashCanonical({ requestId: request.requestId, runId: run.id, phase: 'operations' })}`,
+      transitionCommandId: (run) =>
+        `run-control.${hashCanonical({ requestId: request.requestId, runId: run.id, phase: 'transition' })}`,
+      terminalCommandId: (run) =>
+        `run-control.${hashCanonical({ requestId: request.requestId, runId: run.id, phase: 'terminal' })}`,
+      terminalSummary:
+        request.input.action === 'cancel' ? request.input.terminalSummary : 'Run control transition.',
+      resultIdsForRun: () => [],
+    }).root;
     return { projectId: before.projectId, response: success<'run.control'>(request, after) };
   });
 }
@@ -1110,6 +1139,7 @@ function terminalizeRun(
 
 export interface RunsAuthority {
   readonly get: (request: Request<'run.get'>) => Success<'run.get'>;
+  readonly isSchedulingAllowed: (runId: string) => boolean;
   readonly listPublicEvents: (request: Request<'run.events.list'>) => Success<'run.events.list'>;
   readonly sendFollowup: (
     request: Request<'run.sendFollowup'>,
@@ -1141,14 +1171,27 @@ export interface RunsAuthority {
   ) => RunActivation;
 }
 
+export type RunControlActivationSettler = (
+  database: DatabaseSync,
+  environment: TargetStorageEnvironment,
+  run: Run,
+  action: Exclude<RunControlAction, 'resume'>,
+  occurredAt: string,
+  context: TargetCommandContext,
+) => Run;
+
 export function createRunsAuthority(
   store: TargetStore,
   environment: TargetStorageEnvironment,
   privateRecoveryCodec: PrivateRecoveryCodec | undefined,
+  settleActivation: RunControlActivationSettler,
 ): RunsAuthority {
   const authority: RunsAuthority = {
     get(request) {
       return runGet(getTargetStoreDatabase(store), exactRequest(request, 'run.get'));
+    },
+    isSchedulingAllowed(runId) {
+      return isRunSchedulingAllowed(getTargetStoreDatabase(store), runId);
     },
     listPublicEvents(request) {
       return listPublicEvents(
@@ -1169,6 +1212,7 @@ export function createRunsAuthority(
       return controlRun(
         getTargetStoreDatabase(store),
         environment,
+        settleActivation,
         exactRequest(request, 'run.control'),
         context,
       );

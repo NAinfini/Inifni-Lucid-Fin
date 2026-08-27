@@ -77,17 +77,17 @@ enumerates all actual columns and applies exactly one final disposition.
 
 | Current table               | Target owner/disposition                                                                                                 |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `task_lists`                | Run-owned optional `TaskList` history                                                                                    |
-| `tasks`                     | `TaskList` items; no fixed production phase semantics                                                                    |
-| `task_dependencies`         | TaskList ordering/dependency evidence only                                                                               |
-| `task_artifacts`            | `GeneratedResult`, `ProjectMediaRef`, or cited Run artifact by typed artifact kind                                       |
-| `plan_documents`            | `Production` revision evidence                                                                                           |
-| `plan_approvals`            | `UserChoice` plus Production revision evidence; no future gate engine                                                    |
-| `task_events`               | append-only Run/Project history evidence                                                                                 |
-| `task_decisions`            | `UserChoice` or material interaction evidence                                                                            |
-| `task_attempts`             | typed domain attempt / `OperationRef`; provider-unknown state preserved                                                  |
-| `task_evaluations`          | immutable evaluation evidence; never an automatic subjective selector                                                    |
-| `prompt_assemblies`         | exact `GenerationAttempt`/`GeneratedResult` provenance when bound; otherwise blocking/offline evidence                   |
+| `task_lists`                | immutable `ImportedTaskListHistory`; never a live Run-owned target `TaskList`                                             |
+| `tasks`                     | immutable `ImportedTaskItemHistory`; no target workflow or fixed production phase semantics                              |
+| `task_dependencies`         | typed `ImportedHistoryRecord` dependency evidence only                                                                   |
+| `task_artifacts`            | typed `ImportedHistoryRecord`; independently verified media may also become canonical media owners                       |
+| `plan_documents`            | typed imported plan evidence; never a target Production revision without a proven owner                                  |
+| `plan_approvals`            | typed imported approval evidence; never a `UserChoice` without exact before/after authority                              |
+| `task_events`               | append-only imported task evidence; never a target `RunEvent`                                                            |
+| `task_decisions`            | imported interaction evidence; no fabricated target question or `UserChoice`                                             |
+| `task_attempts`             | imported attempt evidence with provider-unknown state preserved; never a live target operation                           |
+| `task_evaluations`          | imported evaluation evidence; never an automatic subjective selector                                                     |
+| `prompt_assemblies`         | imported prompt provenance; never a target attempt/result unless all required target owners already exist               |
 | `asset_contents`            | `MediaBlob` technical metadata keyed by verified content hash                                                            |
 | `asset_entries`             | `GlobalMediaAsset`; folder membership is a `GlobalMediaFolder` link and proven Project use is separate `ProjectMediaRef` |
 | `characters`                | Project-scoped `ProductionObject(character)`                                                                             |
@@ -109,16 +109,21 @@ enumerates all actual columns and applies exactly one final disposition.
 | `preset_overrides`          | built-in/custom/override `Skill` catalog versions; dynamic content is quarantined and never auto-enabled                 |
 | `commander_sessions`        | `Chat` identity and public `Message` evidence; derived context is not imported                                           |
 | `snapshots`                 | offline backup only; no target runtime restore authority                                                                 |
-| `commander_events`          | append-only public `RunEvent`; validated encrypted recovery remains private                                              |
-| `commander_runs`            | `Run`, activation/retry lineage and terminal evidence                                                                    |
-| `commander_run_canvases`    | legacy Run scope evidence transformed into Project/Context Manifest scope                                                |
-| `commander_run_attachments` | Context Manifest attachment references to verified `MediaBlob`                                                           |
+| `commander_events`          | append-only `ImportedRunEventHistory`; private bytes remain in restricted offline evidence                               |
+| `commander_runs`            | non-schedulable `ImportedRunHistory` with original parent/retry lineage and terminal evidence                            |
+| `commander_run_canvases`    | imported Run scope evidence; never a target `ContextManifest`                                                            |
+| `commander_run_attachments` | imported attachment evidence linked to independently verified target media identities                                   |
 | `process_prompts`           | canonical built-in `Skill` identity plus quarantined override version when customized; Legacy table deleted              |
 | `t_prompt_overrides`        | canonical prompt-template `Skill` identity plus quarantined override version; Legacy table deleted                       |
 | `asset_entries_fts`         | derived search index; never migrated as authority, rebuilt from target media catalog                                     |
 
 Derived indexes, FTS shadow tables, and triggers are rebuilt from canonical target DDL and never treated
 as migration authorities.
+
+Imported Run and Task records are a read-only evidence ledger. They are excluded from the Run
+Coordinator, Dispatcher, recovery, model context, search, Memory, and the 40-tool catalog. A separate
+target-native synthetic Run proves inbox, activation, catalog, compaction, and replay behavior; the
+migration must not claim that Legacy records possessed those target-only invariants.
 
 The Skill cutover is catalog migration, not automatic activation. The exact 287 built-in records are
 registered from the immutable generated pack. Legacy database and renderer customizations become

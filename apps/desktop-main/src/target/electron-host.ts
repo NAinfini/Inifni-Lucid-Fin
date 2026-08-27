@@ -7,6 +7,10 @@ import {
 } from './composition-root.js';
 import type { TargetIpcMainLike } from './ipc/router.js';
 import type { TargetWirePushSink } from './ipc/push-gateway.js';
+import {
+  installTargetMediaPreviewProtocol,
+  type TargetMediaPreviewProtocol,
+} from './media-preview.js';
 
 export interface TargetRendererWindowLike {
   readonly webContents: {
@@ -18,8 +22,13 @@ export interface TargetRendererWindowLike {
 }
 
 export interface TargetElectronHostOptions<Event, Window extends TargetRendererWindowLike> {
-  readonly composition: Omit<TargetDesktopCompositionOptions<Event>, 'ipcMain' | 'runEventSink'>;
+  readonly composition: Omit<
+    TargetDesktopCompositionOptions<Event>,
+    'authorizeInvocation' | 'ipcMain' | 'runEventSink'
+  >;
   readonly ipcMain: TargetIpcMainLike<Event>;
+  readonly mediaPreviewProtocol: TargetMediaPreviewProtocol;
+  readonly isTrustedInvocation: (invocation: Event, window: Window) => boolean;
   readonly createWindow: (preloadPath: string) => Window;
   readonly loadWindow: (window: Window) => Promise<void>;
   readonly moduleUrl?: string;
@@ -54,15 +63,30 @@ export async function startTargetElectronHost<Event, Window extends TargetRender
   const runEventSink = createTargetElectronPushSink(() => window);
   const composition = await startTargetDesktopComposition({
     ...options.composition,
+    authorizeInvocation: (_request, invocation) => {
+      const activeWindow = window;
+      return activeWindow !== null && options.isTrustedInvocation(invocation, activeWindow);
+    },
     ipcMain: options.ipcMain,
     runEventSink,
   });
+  let disposeMediaPreviewProtocol: (() => void) | undefined;
 
   try {
+    disposeMediaPreviewProtocol = installTargetMediaPreviewProtocol(
+      options.mediaPreviewProtocol,
+      composition.mediaPreview,
+    );
     window = options.createWindow(targetPreloadPath(options.moduleUrl));
     await options.loadWindow(window);
   } catch (cause) {
     if (window !== null && !window.isDestroyed()) window.destroy();
+    try {
+      disposeMediaPreviewProtocol?.();
+      disposeMediaPreviewProtocol = undefined;
+    } catch (closeCause) {
+      options.composition.onInternalError(closeCause);
+    }
     try {
       await composition.close();
     } catch (closeCause) {
@@ -80,9 +104,14 @@ export async function startTargetElectronHost<Event, Window extends TargetRender
       if (closed) return;
       closed = true;
       try {
-        await composition.close();
+        disposeMediaPreviewProtocol?.();
+        disposeMediaPreviewProtocol = undefined;
       } finally {
-        if (!readyWindow.isDestroyed()) readyWindow.destroy();
+        try {
+          await composition.close();
+        } finally {
+          if (!readyWindow.isDestroyed()) readyWindow.destroy();
+        }
       }
     },
   });

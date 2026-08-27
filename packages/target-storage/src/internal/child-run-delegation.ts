@@ -554,6 +554,7 @@ function createDelegatedChildInTransaction(
     actor: 'commander',
     source: acceptedSource,
     selectedContext: source.selectedContext,
+    exportDestinationGrant: null,
     contentHash: source.directionHash,
     state: 'queued',
     createdAt: acceptedAt,

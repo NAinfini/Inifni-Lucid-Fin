@@ -29,6 +29,7 @@ import {
   MemoryQueryDefinition,
   OperationCancelDefinition,
   OperationGetDefinition,
+  OperationRefSchema,
   ProductionMutateDefinition,
   ProductionQueryDefinition,
   ProjectGetDefinition,
@@ -50,6 +51,7 @@ import {
   type GenerationSpec,
   type ModelAdapterEvent,
   type ModelResourceQuoteV1,
+  type OperationRef,
   type ResourceBudget,
   type RuntimeLoopOutcome,
   type SkillDocument,
@@ -68,7 +70,7 @@ import type {
   PrivateModelContext,
   ResultAssessmentProviderState,
 } from '@lucid-fin/target-storage';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   NOW,
   IMPORT_TOKEN,
@@ -94,6 +96,7 @@ import {
 import {
   createTargetStorageReadToolExecutor,
   coordinateRun,
+  drainRequestedOperationCancellations,
   recoverTargetActivation,
   runTargetActivation,
   type RecoverTargetActivationDependencies,
@@ -107,6 +110,39 @@ const USAGE = {
   outputTokens: { state: 'known' as const, value: 24 },
   cost: { state: 'known' as const, value: '0.5', currency: 'USD' },
 };
+
+const OPERATION_OWNER_AUTHORITIES = {
+  generation_attempt: 'generation_attempt',
+  media_derivation: 'media_derivation_attempt',
+  result_assessment: 'result_assessment_attempt',
+  review_cut_attempt: 'review_cut_attempt',
+  delivery_export: 'delivery_export',
+} as const;
+
+function queuedCancellationOperation(
+  kind: OperationRef['kind'],
+  suffix: string,
+): { readonly runId: string; readonly operation: OperationRef } {
+  const id = `operation.runtime.cancellation.${suffix}`;
+  return {
+    runId: `run.runtime.cancellation.${suffix}`,
+    operation: OperationRefSchema.parse({
+      id,
+      revision: 1,
+      kind,
+      ownerRef: {
+        authority: OPERATION_OWNER_AUTHORITIES[kind],
+        id: `attempt.runtime.cancellation.${suffix}`,
+        revision: 1,
+        contentHash: sha256(`owner.runtime.cancellation.${suffix}`),
+      },
+    }),
+  };
+}
+
+function throwOnOperationCancellationError(cause: unknown): never {
+  throw cause;
+}
 
 const ROOT_ACCEPTANCE_SEED = {
   model: { providerId: PROVIDER_ID, model: PROVIDER_MODEL, reasoningStrength: null },
@@ -315,6 +351,23 @@ class PendingGenerationProvider extends FakeGenerationProvider {
       outputs: [],
     };
   }
+
+  async cancel(
+    request: Parameters<FakeGenerationProvider['cancel']>[0],
+  ): Promise<GenerationProviderState> {
+    this.cancelCalls += 1;
+    return {
+      state: 'cancelled',
+      receipt: request.receipt,
+      usage: {
+        inputTokens: { state: 'known', value: 0 },
+        outputTokens: { state: 'known', value: 0 },
+        generatedUnits: { state: 'known', value: 0 },
+        cost: { state: 'known', value: '0', currency: 'USD' },
+      },
+      outputs: [],
+    };
+  }
 }
 
 class RecoverableGenerationProvider extends FakeGenerationProvider {
@@ -509,6 +562,7 @@ async function acceptedRuntimeFixture(
             role: 'target',
           },
         ],
+        exportDestinationGrant: null,
         supersedesMessageId: null,
       },
     },
@@ -1510,6 +1564,7 @@ function queueRuntimeFollowup(
         expectedRevision: run.revision,
         text: `Follow-up ${suffix}`,
         selectedContext: [],
+        exportDestinationGrant: null,
       },
     },
     userContext,
@@ -4804,10 +4859,62 @@ describe('target runtime', () => {
       ).toContainEqual(
         expect.objectContaining({
           type: 'confirmation_requested',
-          target: { kind: 'domain_object', ref: input.manifest },
+          confirmationId: dispatch.confirmationId,
+          target: {
+            kind: 'delivery_export',
+            manifest: input.manifest,
+            formatIntent: {
+              container: 'mp4',
+              videoCodec: 'h264',
+              audioCodec: 'aac',
+              width: 1_920,
+              height: 1_080,
+              frameRate: 24,
+              quality: 'review',
+            },
+            itemCount: 1,
+            destination: { kind: 'user_selected_file', displayLabel: 'runtime-final.mp4' },
+            overwriteExisting: false,
+            cost: { state: 'known', value: '0', currency: 'USD' },
+          },
           immutableInputHash: dispatch.key.inputHash,
         }),
       );
+      const database = getJourneyTestDatabase(fixture.store);
+      const storedConfirmation = database
+        .prepare('SELECT target_v1_json FROM run_confirmations WHERE id = ?')
+        .get(dispatch.confirmationId) as { readonly target_v1_json: string } | undefined;
+      if (storedConfirmation === undefined)
+        throw new Error('Expected stored delivery export confirmation');
+      const corruptedTarget = {
+        ...(JSON.parse(storedConfirmation.target_v1_json) as Record<string, unknown>),
+        itemCount: 2,
+      };
+      database
+        .prepare('UPDATE run_confirmations SET target_v1_json = ? WHERE id = ?')
+        .run(JSON.stringify(corruptedTarget), dispatch.confirmationId);
+      expect(() =>
+        createHostConfirmationAuthority(fixture.store, {
+          now: () => NOW,
+          createId: fixture.createId,
+        }).respond(
+          {
+            wireVersion: 1,
+            kind: 'request',
+            requestId: 'request.runtime.delivery-export.tampered',
+            method: 'confirmation.respond',
+            input: {
+              confirmationId: dispatch.confirmationId!,
+              immutableInputHash: dispatch.key.inputHash,
+              decision: 'approved',
+            },
+          },
+          userContext,
+        ),
+      ).toThrow('delivery.export Confirmation');
+      database
+        .prepare('UPDATE run_confirmations SET target_v1_json = ? WHERE id = ?')
+        .run(storedConfirmation.target_v1_json, dispatch.confirmationId);
       expect(dependencies.exporter.calls).toHaveLength(0);
       expect(dependencies.destinations.calls).toHaveLength(0);
 
@@ -4913,7 +5020,6 @@ describe('target runtime', () => {
           },
         ),
       ).rejects.toThrow('simulated process exit before delivery.export owner creation');
-      const database = getJourneyTestDatabase(fixture.store);
       expect(database.prepare('SELECT COUNT(*) AS count FROM delivery_exports').get()).toEqual({
         count: 0,
       });
@@ -6090,7 +6196,7 @@ describe('target runtime', () => {
           },
           capturedContext,
         ),
-      ).toThrow('media.attach, media.link');
+      ).toThrow('media.attach, media.derive, media.link');
       expect(() =>
         fixture.data.harness.prepareDispatch(
           {
@@ -6314,7 +6420,7 @@ describe('target runtime', () => {
           },
           capturedContext,
         ),
-      ).toThrow('media.attach, media.link');
+      ).toThrow('media.attach, media.derive, media.link');
       expect(() =>
         fixture.data.harness.prepareDispatch(
           {
@@ -6443,7 +6549,7 @@ describe('target runtime', () => {
     }
   }, 120_000);
 
-  it('atomically requests operation.cancel without invoking the Provider cancel adapter', async () => {
+  it('atomically requests and immediately drains operation.cancel', async () => {
     const provider = new PendingGenerationProvider();
     const dependencies = {
       ...createJourneyDependencies(),
@@ -6452,6 +6558,12 @@ describe('target runtime', () => {
     const state = await acceptedRuntimeFixture(ROOT_CATALOG, dependencies);
     const { fixture, context, project, runId } = state;
     const operation = await seedCancelableGenerationOperation(state, provider);
+    const operations = {
+      ...fixture.data.operations,
+      listCancellationRequested() {
+        throw new Error('unrelated queued cancellation must not run inside operation.cancel');
+      },
+    };
     const cancelInput = OperationCancelDefinition.parseInput({
       operations: [
         {
@@ -6481,6 +6593,12 @@ describe('target runtime', () => {
             persistence: fixture.data.harness,
             model,
             toolExecutor: createTargetStorageReadToolExecutor(fixture.data),
+            onOperationCancellationError: throwOnOperationCancellationError,
+            operations,
+            deliveryOperations: fixture.data.deliveryOperations,
+            resultAssessments: fixture.data.resultAssessments,
+            generation: fixture.data.generation,
+            mediaDerivations: fixture.data.mediaDerivations,
           },
           {
             runId,
@@ -6499,7 +6617,7 @@ describe('target runtime', () => {
       const cancelled = OperationCancelDefinition.parseSuccess(cancelDispatch.outcome.data)
         .operations[0]!;
 
-      expect(provider).toMatchObject({ submitCalls: 1, cancelCalls: 0 });
+      expect(provider).toMatchObject({ submitCalls: 1, cancelCalls: 1 });
       expect(model.streamed).toHaveLength(1);
       expect(model.streamed[0]!.materializedTools).toContainEqual(
         expect.objectContaining({ id: OperationCancelDefinition.id }),
@@ -6511,29 +6629,501 @@ describe('target runtime', () => {
       });
       expect(
         fixture.data.operations.query(project.id, runId, { operations: [cancelled.ref] }),
-      ).toEqual({ operations: [cancelled] });
-      expect(
-        fixture.data.runs
-          .listPublicEvents({
-            wireVersion: 1,
-            kind: 'request',
-            requestId: 'request.runtime.operation-cancel.events',
-            method: 'run.events.list',
-            input: { runId, afterSequence: null, page: { cursor: null, limit: 200 } },
-          })
-          .result.items.filter(
-            ({ payloadState }) =>
-              payloadState.state === 'available' &&
-              payloadState.payload.type === 'operation_state_changed' &&
-              payloadState.payload.operation.id === operation.id &&
-              payloadState.payload.cancelRequested,
-          ),
-      ).toHaveLength(1);
+      ).toEqual({
+        operations: [expect.objectContaining({ state: 'cancelled', cancelRequested: true })],
+      });
+      const cancellationEvents = fixture.data.runs
+        .listPublicEvents({
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.runtime.operation-cancel.events',
+          method: 'run.events.list',
+          input: { runId, afterSequence: null, page: { cursor: null, limit: 200 } },
+        })
+        .result.items.filter(
+          ({ payloadState }) =>
+            payloadState.state === 'available' &&
+            payloadState.payload.type === 'operation_state_changed' &&
+            payloadState.payload.operation.id === operation.id &&
+            payloadState.payload.cancelRequested,
+        );
+      expect(cancellationEvents).toHaveLength(2);
     } finally {
       fixture.store.close();
       await rm(fixture.directory, { recursive: true, force: true });
     }
   }, 90_000);
+
+  it('keeps a committed operation.cancel successful when its drain and observer both fail', async () => {
+    const provider = new PendingGenerationProvider();
+    const dependencies = {
+      ...createJourneyDependencies(),
+      generation: provider,
+    } satisfies JourneyDependencies;
+    const state = await acceptedRuntimeFixture(ROOT_CATALOG, dependencies);
+    const { fixture, context, runId } = state;
+    const operation = await seedCancelableGenerationOperation(state, provider);
+    const drainFailure = new Error('simulated immediate cancellation drain failure');
+    const observerFailure = new Error('simulated cancellation observer failure');
+    const onOperationCancellationError = vi.fn(() => {
+      throw observerFailure;
+    });
+    const model = new FakeModelAdapter(
+      toolResponse(
+        OperationCancelDefinition.id,
+        OperationCancelDefinition.parseInput({
+          operations: [
+            {
+              ref: operation,
+              expectedRevision: operation.revision,
+              expectedState: 'submitted',
+            },
+          ],
+        }),
+        'provider-call.operation-cancel.observer-failure',
+      ),
+      [FINAL_RESPONSE],
+    );
+    try {
+      const result = await coordinateRun(
+        {
+          runs: fixture.data.runs,
+          persistence: fixture.data.harness,
+          model,
+          toolExecutor: createTargetStorageReadToolExecutor(fixture.data),
+          onOperationCancellationError,
+          operations: fixture.data.operations,
+          deliveryOperations: fixture.data.deliveryOperations,
+          resultAssessments: fixture.data.resultAssessments,
+          generation: {
+            ...fixture.data.generation,
+            async reconcile() {
+              throw drainFailure;
+            },
+          },
+          mediaDerivations: fixture.data.mediaDerivations,
+        },
+        {
+          runId,
+          limits: { maxInputTokens: 2_000, maxOutputTokens: 500 },
+          context,
+        },
+      );
+
+      expect(result).toMatchObject({
+        kind: 'executed',
+        snapshot: { run: { id: runId, status: 'completed' } },
+      });
+      expect(onOperationCancellationError).toHaveBeenCalledOnce();
+      expect(onOperationCancellationError.mock.calls[0]?.[0]).toBeInstanceOf(AggregateError);
+      const cancelDispatch = fixture.data.harness
+        .loadActivation(runId, 1)
+        .dispatches.find(({ key }) => key.toolId === OperationCancelDefinition.id);
+      expect(cancelDispatch?.outcome).toMatchObject({ status: 'succeeded' });
+      expect(
+        getJourneyTestDatabase(fixture.store)
+          .prepare('SELECT state, cancel_requested FROM generation_attempts WHERE id = ?')
+          .get(operation.ownerRef.id),
+      ).toEqual({ state: 'submitted', cancel_requested: 1 });
+    } finally {
+      fixture.store.close();
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  }, 90_000);
+
+  it('drains a user run.control cancellation after its Run is terminal', async () => {
+    const provider = new PendingGenerationProvider();
+    const dependencies = {
+      ...createJourneyDependencies(),
+      generation: provider,
+    } satisfies JourneyDependencies;
+    const state = await acceptedRuntimeFixture(ROOT_CATALOG, dependencies);
+    const { fixture, project, runId } = state;
+    const operation = await seedCancelableGenerationOperation(state, provider);
+    try {
+      const current = fixture.data.runs.get({
+        wireVersion: 1,
+        kind: 'request',
+        requestId: 'request.runtime.run-control-cancellation.current',
+        method: 'run.get',
+        input: { runId },
+      }).result;
+      const cancelled = fixture.data.runs.control(
+        {
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.runtime.run-control-cancellation.cancel',
+          method: 'run.control',
+          input: {
+            runId,
+            expectedRevision: current.revision,
+            expectedStatus: 'accepted',
+            action: 'cancel',
+            terminalSummary: 'Stop the pending generation.',
+          },
+        },
+        userContext,
+      );
+
+      expect(cancelled.result).toMatchObject({ id: runId, status: 'cancelled' });
+      expect(provider.cancelCalls).toBe(0);
+
+      await drainRequestedOperationCancellations({
+        operations: fixture.data.operations,
+        deliveryOperations: fixture.data.deliveryOperations,
+        resultAssessments: fixture.data.resultAssessments,
+        generation: fixture.data.generation,
+        mediaDerivations: fixture.data.mediaDerivations,
+      });
+
+      expect(provider.cancelCalls).toBe(1);
+      expect(
+        getJourneyTestDatabase(fixture.store)
+          .prepare('SELECT state, cancel_requested FROM generation_attempts WHERE id = ?')
+          .get(operation.ownerRef.id),
+      ).toEqual({ state: 'cancelled', cancel_requested: 1 });
+      expect(fixture.data.operations.query(project.id, runId, { operations: [operation] })).toEqual(
+        {
+          operations: [expect.objectContaining({ state: 'cancelled', cancelRequested: true })],
+        },
+      );
+
+      await drainRequestedOperationCancellations({
+        operations: fixture.data.operations,
+        deliveryOperations: fixture.data.deliveryOperations,
+        resultAssessments: fixture.data.resultAssessments,
+        generation: fixture.data.generation,
+        mediaDerivations: fixture.data.mediaDerivations,
+      });
+      expect(provider.cancelCalls).toBe(1);
+    } finally {
+      fixture.store.close();
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  }, 90_000);
+
+  it('drains an unknown generation owner with a receipt after terminal run.control cancellation', async () => {
+    const provider = new PendingGenerationProvider();
+    const dependencies = {
+      ...createJourneyDependencies(),
+      generation: provider,
+    } satisfies JourneyDependencies;
+    const state = await acceptedRuntimeFixture(ROOT_CATALOG, dependencies);
+    const { fixture, context, project, runId } = state;
+    const submitted = await seedCancelableGenerationOperation(state, provider);
+    try {
+      const unknown = await fixture.data.generation.reconcile(
+        {
+          operation: submitted,
+          expectedRevision: submitted.revision,
+          commandId: 'command.runtime.run-control-cancellation.unknown',
+        },
+        context,
+      );
+      expect(unknown.state).toBe('unknown');
+
+      const current = fixture.data.runs.get({
+        wireVersion: 1,
+        kind: 'request',
+        requestId: 'request.runtime.run-control-cancellation.unknown.current',
+        method: 'run.get',
+        input: { runId },
+      }).result;
+      fixture.data.runs.control(
+        {
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.runtime.run-control-cancellation.unknown.cancel',
+          method: 'run.control',
+          input: {
+            runId,
+            expectedRevision: current.revision,
+            expectedStatus: 'accepted',
+            action: 'cancel',
+            terminalSummary: 'Stop the uncertain generation.',
+          },
+        },
+        userContext,
+      );
+
+      await drainRequestedOperationCancellations({
+        operations: fixture.data.operations,
+        deliveryOperations: fixture.data.deliveryOperations,
+        resultAssessments: fixture.data.resultAssessments,
+        generation: fixture.data.generation,
+        mediaDerivations: fixture.data.mediaDerivations,
+      });
+
+      expect(provider.cancelCalls).toBe(1);
+      expect(
+        fixture.data.operations.query(project.id, runId, { operations: [unknown.operation] }),
+      ).toEqual({
+        operations: [expect.objectContaining({ state: 'cancelled', cancelRequested: true })],
+      });
+    } finally {
+      fixture.store.close();
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  }, 90_000);
+
+  it('drains a child owner operation as part of agent.cancel', async () => {
+    const provider = new PendingGenerationProvider();
+    const dependencies = {
+      ...createJourneyDependencies(),
+      generation: provider,
+    } satisfies JourneyDependencies;
+    const state = await acceptedRuntimeFixture(ROOT_CATALOG, dependencies);
+    const { fixture, context, runId } = state;
+    const parent = fixture.data.runs.get({
+      wireVersion: 1,
+      kind: 'request',
+      requestId: 'request.runtime.agent-cancel-drain.parent',
+      method: 'run.get',
+      input: { runId },
+    }).result;
+    const spawned = fixture.data.runs.spawnChild(
+      {
+        parentRunId: runId,
+        expectedParentRevision: parent.revision,
+        commandId: 'command.runtime.agent-cancel-drain.spawn',
+        spawnInput: AgentSpawnDefinition.parseInput({
+          displayName: 'Cancelable child owner operation',
+          objective: 'Run a cancellable generation.',
+          publicSummary: 'Preparing cancellable child work.',
+          contextRefs: [],
+          toolAllowlist: null,
+          permissionCeiling: null,
+          budgetCaps: null,
+          expectedParentRevision: parent.revision,
+        }),
+      },
+      context,
+    );
+    const childRunId = spawned.child.childRunId;
+    const operation = await seedCancelableGenerationOperation(
+      { ...state, context: commanderContext(childRunId), runId: childRunId },
+      provider,
+    );
+    const child = fixture.data.runs.get({
+      wireVersion: 1,
+      kind: 'request',
+      requestId: 'request.runtime.agent-cancel-drain.child',
+      method: 'run.get',
+      input: { runId: childRunId },
+    }).result;
+    const model = new FakeModelAdapter(
+      toolResponse(
+        AgentCancelDefinition.id,
+        AgentCancelDefinition.parseInput({
+          childRunId,
+          expectedRevision: child.revision,
+          reason: 'Cancel the delegated generation.',
+        }),
+        'provider-call.runtime.agent-cancel-drain',
+      ),
+      [FINAL_RESPONSE],
+    );
+    try {
+      await coordinateRun(
+        {
+          runs: fixture.data.runs,
+          persistence: fixture.data.harness,
+          model,
+          toolExecutor: createTargetStorageReadToolExecutor(fixture.data),
+          onOperationCancellationError: throwOnOperationCancellationError,
+          operations: fixture.data.operations,
+          deliveryOperations: fixture.data.deliveryOperations,
+          resultAssessments: fixture.data.resultAssessments,
+          generation: fixture.data.generation,
+          mediaDerivations: fixture.data.mediaDerivations,
+        },
+        {
+          runId,
+          limits: { maxInputTokens: 2_000, maxOutputTokens: 500 },
+          context,
+        },
+      );
+
+      expect(provider.cancelCalls).toBe(1);
+      expect(
+        getJourneyTestDatabase(fixture.store)
+          .prepare('SELECT state, cancel_requested FROM generation_attempts WHERE id = ?')
+          .get(operation.ownerRef.id),
+      ).toEqual({ state: 'cancelled', cancel_requested: 1 });
+    } finally {
+      fixture.store.close();
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  }, 90_000);
+
+  it('fails agent.cancel before durable settlement when cancellation composition is unavailable', async () => {
+    const { fixture, context, runId } = await acceptedRuntimeFixture();
+    const parent = fixture.data.runs.get({
+      wireVersion: 1,
+      kind: 'request',
+      requestId: 'request.runtime.agent-cancel-preflight.parent',
+      method: 'run.get',
+      input: { runId },
+    }).result;
+    const spawned = fixture.data.runs.spawnChild(
+      {
+        parentRunId: runId,
+        expectedParentRevision: parent.revision,
+        commandId: 'command.runtime.agent-cancel-preflight.spawn',
+        spawnInput: AgentSpawnDefinition.parseInput({
+          displayName: 'Preflight child',
+          objective: 'Remain unchanged when cancellation wiring is incomplete.',
+          publicSummary: 'Verifying cancellation composition.',
+          contextRefs: [],
+          toolAllowlist: null,
+          permissionCeiling: null,
+          budgetCaps: null,
+          expectedParentRevision: parent.revision,
+        }),
+      },
+      context,
+    );
+    const childRunId = spawned.child.childRunId;
+    const child = fixture.data.runs.get({
+      wireVersion: 1,
+      kind: 'request',
+      requestId: 'request.runtime.agent-cancel-preflight.child',
+      method: 'run.get',
+      input: { runId: childRunId },
+    }).result;
+    const settleAgentCancelBoundary = vi.fn(fixture.data.harness.settleAgentCancelBoundary);
+    const persistence = {
+      ...fixture.data.harness,
+      settleAgentCancelBoundary,
+    } satisfies HarnessPersistenceAuthority;
+    const model = new FakeModelAdapter(
+      toolResponse(
+        AgentCancelDefinition.id,
+        AgentCancelDefinition.parseInput({
+          childRunId,
+          expectedRevision: child.revision,
+          reason: 'This must not commit without the cancellation worker.',
+        }),
+        'provider-call.runtime.agent-cancel-preflight',
+      ),
+    );
+    try {
+      await expect(
+        coordinateRun(
+          {
+            runs: fixture.data.runs,
+            persistence,
+            model,
+            toolExecutor: createTargetStorageReadToolExecutor(fixture.data),
+          },
+          {
+            runId,
+            limits: { maxInputTokens: 2_000, maxOutputTokens: 500 },
+            context,
+          },
+        ),
+      ).rejects.toThrow(
+        'Operation cancellation drain requires operations, generation, mediaDerivations, resultAssessments, deliveryOperations, onOperationCancellationError',
+      );
+      expect(settleAgentCancelBoundary).not.toHaveBeenCalled();
+      expect(
+        fixture.data.runs.get({
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.runtime.agent-cancel-preflight.child-after',
+          method: 'run.get',
+          input: { runId: childRunId },
+        }).result,
+      ).toMatchObject({ id: childRunId, status: 'accepted', revision: child.revision });
+    } finally {
+      fixture.store.close();
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('routes every queued owner cancellation and drains past a failed candidate', async () => {
+    const candidates = [
+      queuedCancellationOperation('generation_attempt', 'generation'),
+      queuedCancellationOperation('media_derivation', 'media'),
+      queuedCancellationOperation('result_assessment', 'assessment'),
+      queuedCancellationOperation('review_cut_attempt', 'review'),
+      queuedCancellationOperation('delivery_export', 'export'),
+    ];
+    const calls: string[] = [];
+    const dependencies = {
+      operations: {
+        listCancellationRequested: () => ({
+          operations: candidates,
+          nextAfterOperationId: null,
+        }),
+      },
+      generation: {
+        async reconcile(input: { readonly operation: OperationRef }) {
+          calls.push(input.operation.kind);
+          throw new Error('simulated generation cancellation outage');
+        },
+      },
+      mediaDerivations: {
+        async continue(input: { readonly dispatchOperationId: string }) {
+          calls.push(
+            input.dispatchOperationId.includes('.media') ? 'media_derivation' : 'unexpected',
+          );
+        },
+      },
+      resultAssessments: {
+        async acknowledgeCancellation(input: { readonly operation: OperationRef }) {
+          calls.push(input.operation.kind);
+        },
+      },
+      deliveryOperations: {
+        async acknowledgeCancellation(input: { readonly operation: OperationRef }) {
+          calls.push(input.operation.kind);
+        },
+      },
+    } as unknown as Parameters<typeof drainRequestedOperationCancellations>[0];
+
+    let failure: unknown;
+    try {
+      await drainRequestedOperationCancellations(dependencies);
+    } catch (cause) {
+      failure = cause;
+    }
+    if (!(failure instanceof AggregateError)) throw new Error('Expected a drain AggregateError');
+    expect(failure.errors).toHaveLength(1);
+    expect(failure.errors[0]).toMatchObject({
+      message: 'simulated generation cancellation outage',
+    });
+    expect(calls).toEqual([
+      'generation_attempt',
+      'media_derivation',
+      'result_assessment',
+      'review_cut_attempt',
+      'delivery_export',
+    ]);
+  });
+
+  it('reports an unavailable queued owner authority instead of silently dropping it', async () => {
+    const dependencies = {
+      operations: {
+        listCancellationRequested: () => ({
+          operations: [queuedCancellationOperation('media_derivation', 'missing-authority')],
+          nextAfterOperationId: null,
+        }),
+      },
+    } as unknown as Parameters<typeof drainRequestedOperationCancellations>[0];
+
+    let failure: unknown;
+    try {
+      await drainRequestedOperationCancellations(dependencies);
+    } catch (cause) {
+      failure = cause;
+    }
+    if (!(failure instanceof AggregateError)) throw new Error('Expected a drain AggregateError');
+    expect(failure.errors).toHaveLength(1);
+    expect(failure.errors[0]).toMatchObject({
+      message: 'Media Derivation cancellation authority is unavailable',
+    });
+  });
 
   it('replays a committed operation.cancel boundary without cancelling the owner or Provider twice', async () => {
     const provider = new PendingGenerationProvider();
@@ -6611,6 +7201,12 @@ describe('target runtime', () => {
             persistence,
             model,
             toolExecutor: createTargetStorageReadToolExecutor(fixture.data),
+            onOperationCancellationError: throwOnOperationCancellationError,
+            operations: fixture.data.operations,
+            deliveryOperations: fixture.data.deliveryOperations,
+            resultAssessments: fixture.data.resultAssessments,
+            generation: fixture.data.generation,
+            mediaDerivations: fixture.data.mediaDerivations,
           },
           {
             runId,
@@ -6758,6 +7354,12 @@ describe('target runtime', () => {
             persistence,
             model,
             toolExecutor: createTargetStorageReadToolExecutor(fixture.data),
+            onOperationCancellationError: throwOnOperationCancellationError,
+            operations: fixture.data.operations,
+            deliveryOperations: fixture.data.deliveryOperations,
+            resultAssessments: fixture.data.resultAssessments,
+            generation: fixture.data.generation,
+            mediaDerivations: fixture.data.mediaDerivations,
           },
           {
             runId,
@@ -9602,6 +10204,12 @@ describe('target runtime', () => {
             persistence: fixture.data.harness,
             model: crashAfterCancelModel,
             toolExecutor: noGenericExecution,
+            onOperationCancellationError: throwOnOperationCancellationError,
+            operations: fixture.data.operations,
+            deliveryOperations: fixture.data.deliveryOperations,
+            resultAssessments: fixture.data.resultAssessments,
+            generation: fixture.data.generation,
+            mediaDerivations: fixture.data.mediaDerivations,
           },
           {
             runId,
@@ -9947,6 +10555,7 @@ describe('target runtime', () => {
             expectedRevision: sourceBefore.revision,
             text: 'Continue this conversation in a new root Run.',
             selectedContext: [],
+            exportDestinationGrant: null,
           },
         },
         userContext,
@@ -10146,7 +10755,7 @@ describe('target runtime', () => {
     }
   }, 60_000);
 
-  it('defers an existing active Activation without writing or invoking the model', async () => {
+  it('resumes an existing active Activation without starting a duplicate Activation', async () => {
     const { fixture, context, runId } = await activeRuntimeFixture();
     const model = new FakeModelAdapter(FINAL_RESPONSE);
     try {
@@ -10157,7 +10766,7 @@ describe('target runtime', () => {
           persistence: fixture.data.harness,
           model,
           toolExecutor: fakeToolExecutor(STORAGE_READ_IDS, () => {
-            throw new Error('A deferred active Activation must not execute a tool');
+            throw new Error('A direct final response must not execute a tool');
           }),
         },
         {
@@ -10168,14 +10777,13 @@ describe('target runtime', () => {
       );
 
       expect(result).toMatchObject({
-        kind: 'deferred',
-        reason: 'active_activation',
-        run: before.run,
-        pendingInbox: { id: before.activation.triggerInboxMessageId, state: 'delivered' },
+        kind: 'executed',
+        activationNumber: before.activation.activationNumber,
+        triggerInboxMessageId: before.activation.triggerInboxMessageId,
+        snapshot: { run: { id: runId, status: 'completed' } },
       });
-      expect(model.quoted).toEqual([]);
-      expect(model.streamed).toEqual([]);
-      expect(fixture.data.harness.loadActivation(runId, 1)).toEqual(before);
+      expect(model.quoted).toHaveLength(1);
+      expect(model.streamed).toHaveLength(1);
       expect(fixture.data.runs.listActivations(runId)).toHaveLength(1);
     } finally {
       fixture.store.close();
@@ -12572,6 +13180,321 @@ describe('target runtime', () => {
         blocks: [{ type: 'text', text: 'The read completed.' }],
       });
     } finally {
+      fixture.store.close();
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('settles a terminal model_failed response as a failed Run without entering a tool boundary', async () => {
+    const { fixture, context, runId } = await acceptedRuntimeFixture();
+    const model = new FakeModelAdapter([
+      { type: 'usage', usage: USAGE },
+      {
+        type: 'model_failed',
+        typedCode: 'provider_rejected',
+        retrySafety: 'never',
+        providerState: 'terminal',
+      },
+    ]);
+    let executeCount = 0;
+    try {
+      const result = await coordinateRun(
+        {
+          runs: fixture.data.runs,
+          persistence: fixture.data.harness,
+          model,
+          toolExecutor: fakeToolExecutor([ProjectSearchDefinition.id], () => {
+            executeCount += 1;
+            throw new Error('A model failure must not execute a tool');
+          }),
+        },
+        { runId, limits: { maxInputTokens: 2_000, maxOutputTokens: 500 }, context },
+      );
+
+      if (result.kind !== 'executed') throw new Error('Expected the failed Run to settle');
+      expect(executeCount).toBe(0);
+      expect(model.streamed).toHaveLength(1);
+      expect(result.snapshot.modelAttempts).toMatchObject([
+        {
+          state: 'failed',
+          response: {
+            events: [
+              { type: 'usage', usage: USAGE },
+              { type: 'model_failed', typedCode: 'provider_rejected', providerState: 'terminal' },
+            ],
+          },
+        },
+      ]);
+      expect(result.snapshot.dispatches).toEqual([]);
+      expect(result.snapshot.run).toMatchObject({
+        status: 'failed',
+        terminalOutcome: { status: 'failed', summary: 'Model attempt failed: provider_rejected.' },
+      });
+      expect(result.snapshot.activation).toMatchObject({ state: 'ended', endReason: 'terminal' });
+      expect(result.snapshot.recoveryRequired).toBe(false);
+    } finally {
+      fixture.store.close();
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('forwards one abort signal to an in-flight Model Attempt without scheduling a retry', async () => {
+    const { fixture, context, runId } = await activeRuntimeFixture();
+    const controller = new AbortController();
+    let quoteSignal: AbortSignal | undefined;
+    let streamSignal: AbortSignal | undefined;
+    let markStreamStarted: (() => void) | undefined;
+    const streamStarted = new Promise<void>((resolve) => {
+      markStreamStarted = resolve;
+    });
+    const model: TargetModelAdapter = {
+      provider: {
+        providerId: PROVIDER_ID,
+        model: PROVIDER_MODEL,
+        reasoningStrength: null,
+      },
+      async quote(_request, _privateContext, signal?: AbortSignal) {
+        quoteSignal = signal;
+        return USAGE;
+      },
+      async *stream(_request, _privateContext, signal?: AbortSignal) {
+        streamSignal = signal;
+        markStreamStarted?.();
+        if (signal === undefined) {
+          yield* FINAL_RESPONSE;
+          return;
+        }
+        if (!signal.aborted) {
+          await new Promise<void>((resolve) =>
+            signal.addEventListener('abort', resolve, { once: true }),
+          );
+        }
+      },
+    };
+    const running = runTargetActivation(
+      {
+        persistence: fixture.data.harness,
+        model,
+        toolExecutor: fakeToolExecutor([ProjectSearchDefinition.id], () => {
+          throw new Error('An aborted Model Attempt must not execute a tool');
+        }),
+      },
+      {
+        runId,
+        activationNumber: 1,
+        limits: { maxInputTokens: 2_000, maxOutputTokens: 500 },
+        context,
+        signal: controller.signal,
+      },
+    );
+    try {
+      await streamStarted;
+      expect(quoteSignal).toBe(controller.signal);
+      expect(streamSignal).toBe(controller.signal);
+      controller.abort();
+
+      const after = await running;
+      expect(after.modelAttempts).toMatchObject([{ state: 'running', response: null }]);
+      expect(after.run).toMatchObject({ status: 'running' });
+      expect(after.activation).toMatchObject({ state: 'active' });
+      expect(after.recoveryRequired).toBe(true);
+      expect(fixture.data.harness.loadActivation(runId, 1).modelAttempts).toHaveLength(1);
+    } finally {
+      controller.abort();
+      await running;
+      fixture.store.close();
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('forwards abort to a generation owner and leaves its boundary unsettled for recovery', async () => {
+    let markSubmissionStarted: (() => void) | undefined;
+    const submissionStarted = new Promise<void>((resolve) => {
+      markSubmissionStarted = resolve;
+    });
+    const provider = new (class extends FakeGenerationProvider {
+      seenSignal: AbortSignal | undefined;
+
+      async submit(_request: unknown, signal?: AbortSignal): Promise<GenerationProviderState> {
+        this.submitCalls += 1;
+        this.seenSignal = signal;
+        markSubmissionStarted?.();
+        if (signal === undefined)
+          throw new Error('Generation owner did not receive an AbortSignal');
+        if (!signal.aborted) {
+          await new Promise<void>((resolve) =>
+            signal.addEventListener('abort', resolve, { once: true }),
+          );
+        }
+        throw new Error('simulated generation provider interruption');
+      }
+    })();
+    const dependencies = {
+      ...createJourneyDependencies(),
+      generation: provider,
+    } satisfies JourneyDependencies;
+    const state = await acceptedRuntimeFixture(ROOT_CATALOG, dependencies);
+    const { fixture, context, runId } = state;
+    const input = await seedGenerationSubmitInput(state);
+    const controller = new AbortController();
+    const model = new FakeModelAdapter(
+      toolResponse(
+        ToolGetDefinition.id,
+        ToolGetDefinition.parseInput({ names: [GenerationSubmitDefinition.id] }),
+        'provider-call.tool-get.generation-abort',
+      ),
+      [toolResponse(GenerationSubmitDefinition.id, input, 'provider-call.generation-submit.abort')],
+    );
+    const running = coordinateRun(
+      {
+        runs: fixture.data.runs,
+        persistence: fixture.data.harness,
+        model,
+        toolExecutor: createTargetStorageReadToolExecutor(fixture.data),
+        generation: fixture.data.generation,
+      },
+      {
+        runId,
+        limits: { maxInputTokens: 2_000, maxOutputTokens: 500 },
+        context,
+        signal: controller.signal,
+      },
+    );
+    try {
+      await submissionStarted;
+      expect(provider.seenSignal).toBe(controller.signal);
+      controller.abort();
+
+      const result = await running;
+      if (result.kind !== 'executed')
+        throw new Error('Expected aborted generation owner execution');
+      const snapshot = fixture.data.harness.loadActivation(runId, 1);
+      expect(
+        snapshot.dispatches.find(({ key }) => key.toolId === GenerationSubmitDefinition.id),
+      ).toMatchObject({
+        outcome: null,
+      });
+      expect(snapshot).toMatchObject({
+        run: { status: 'running' },
+        activation: { state: 'active' },
+        recoveryRequired: true,
+      });
+      expect(
+        getJourneyTestDatabase(fixture.store)
+          .prepare('SELECT state FROM generation_attempts')
+          .get(),
+      ).toEqual({ state: 'unknown' });
+    } finally {
+      controller.abort();
+      await running;
+      fixture.store.close();
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('settles an in-flight Model Attempt on pause, then resumes the same Activation without a stranded reservation', async () => {
+    const { fixture, context, runId } = await activeRuntimeFixture();
+    let releaseStream!: () => void;
+    const release = new Promise<void>((resolve) => {
+      releaseStream = resolve;
+    });
+    let markStreamStarted!: () => void;
+    const streamStarted = new Promise<void>((resolve) => {
+      markStreamStarted = resolve;
+    });
+    const executor = fakeToolExecutor([HistoryQueryDefinition.id], () => {
+      throw new Error('A paused Run must not start its prepared Tool dispatch');
+    });
+    const pausedModel = new FakeModelAdapter(
+      toolResponse(
+        HistoryQueryDefinition.id,
+        HISTORY_QUERY_INPUT,
+        'provider-call.pause-safe-boundary',
+      ),
+      [],
+      async () => {
+        markStreamStarted();
+        await release;
+      },
+    );
+    const running = runTargetActivation(
+      {
+        persistence: fixture.data.harness,
+        model: pausedModel,
+        toolExecutor: executor,
+      },
+      {
+        runId,
+        activationNumber: 1,
+        limits: { maxInputTokens: 2_000, maxOutputTokens: 500 },
+        context,
+      },
+    );
+    try {
+      await streamStarted;
+      const beforePause = fixture.data.harness.loadActivation(runId, 1).run;
+      const pause = fixture.data.runs.control(
+        {
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.runtime.pause.in-flight-model',
+          method: 'run.control',
+          input: {
+            runId,
+            expectedRevision: beforePause.revision,
+            action: 'pause',
+            expectedStatus: 'running',
+          },
+        },
+        userContext,
+      );
+      expect(pause.result.status).toBe('paused');
+      releaseStream();
+
+      const paused = await running;
+      expect(paused.run.status).toBe('paused');
+      expect(paused.activation).toMatchObject({ state: 'active', activationNumber: 1 });
+      expect(paused.modelAttempts).toMatchObject([{ state: 'cancelled' }]);
+      expect(paused.dispatches).toEqual([]);
+      expect(paused.resourceExposure).toMatchObject({ inputTokens: 120n, outputTokens: 24n });
+
+      const resume = fixture.data.runs.control(
+        {
+          wireVersion: 1,
+          kind: 'request',
+          requestId: 'request.runtime.resume.in-flight-model',
+          method: 'run.control',
+          input: {
+            runId,
+            expectedRevision: pause.result.revision,
+            action: 'resume',
+            expectedStatus: 'paused',
+          },
+        },
+        userContext,
+      );
+      expect(resume.result.status).toBe('running');
+      const resumedModel = new FakeModelAdapter(FINAL_RESPONSE);
+      const completed = await coordinateRun(
+        {
+          runs: fixture.data.runs,
+          persistence: fixture.data.harness,
+          model: resumedModel,
+          toolExecutor: executor,
+        },
+        { runId, limits: { maxInputTokens: 2_000, maxOutputTokens: 500 }, context },
+      );
+      if (completed.kind !== 'executed') throw new Error('Expected the paused Run to resume');
+      expect(completed.snapshot.run.status).toBe('completed');
+      expect(completed.snapshot.activation).toMatchObject({
+        state: 'ended',
+        endReason: 'terminal',
+      });
+      expect(completed.snapshot.modelAttempts).toHaveLength(2);
+      expect(completed.snapshot.recoveryRequired).toBe(false);
+    } finally {
+      releaseStream();
+      await running.catch(() => undefined);
       fixture.store.close();
       await rm(fixture.directory, { recursive: true, force: true });
     }

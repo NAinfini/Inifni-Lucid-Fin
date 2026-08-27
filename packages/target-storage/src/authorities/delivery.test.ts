@@ -361,6 +361,7 @@ async function harness() {
         blocks: [{ type: 'text', text: 'Generate candidates.' }],
         attachments: [],
         selectedContext: [],
+        exportDestinationGrant: null,
         supersedesMessageId: null,
       },
     },

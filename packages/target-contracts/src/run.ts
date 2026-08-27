@@ -25,7 +25,12 @@ import {
   assertPolicyNarrowing,
 } from './primitives.js';
 import { ProjectSettingsSchema } from './project.js';
-import { DeliveryRefSchema } from './delivery.js';
+import {
+  DeliveryDestinationGrantV1Schema,
+  DeliveryFormatIntentSchema,
+  DeliveryManifestRefSchema,
+  DeliveryRefSchema,
+} from './delivery.js';
 import { ProductionRefSchema } from './production.js';
 import { ProtectedFieldRefSchema } from './protection.js';
 import {
@@ -552,6 +557,7 @@ export const RunInboxMessageSchema = strictObject({
   actor: z.enum(['user', 'commander']),
   source: RunAcceptedSourceSchema,
   selectedContext: z.array(SelectedContextRefSchema).max(1_000),
+  exportDestinationGrant: DeliveryDestinationGrantV1Schema.nullable(),
   contentHash: Sha256Schema,
   state: RunInboxStateSchema,
   createdAt: IsoTimestampSchema,
@@ -563,6 +569,16 @@ export const RunInboxMessageSchema = strictObject({
       code: 'custom',
       path: ['contentHash'],
       message: 'Inbox content hash must match its accepted source hash',
+    });
+  }
+  if (
+    message.exportDestinationGrant !== null &&
+    (message.actor !== 'user' || message.source.kind !== 'message')
+  ) {
+    context.addIssue({
+      code: 'custom',
+      path: ['exportDestinationGrant'],
+      message: 'Only a user Message Inbox entry may carry an export destination grant',
     });
   }
 });
@@ -901,8 +917,35 @@ export const ProtectedMutationPlannedIdsSchema = z.union([
   ProductionMutationPlannedIdsSchema,
 ]);
 
+const DeliveryExportConfirmationDestinationSchema = strictObject({
+  kind: z.enum(['user_selected_file', 'user_selected_folder']),
+  displayLabel: z
+    .string()
+    .trim()
+    .min(1)
+    .max(512)
+    .refine((label) => !label.includes('/') && !label.includes('\\'), {
+      message: 'Delivery destination label must be a basename',
+    }),
+});
+
+export const DeliveryExportConfirmationTargetSchema = strictObject({
+  kind: z.literal('delivery_export'),
+  manifest: DeliveryManifestRefSchema,
+  formatIntent: DeliveryFormatIntentSchema,
+  itemCount: z.number().int().min(0).max(20_000).finite(),
+  destination: DeliveryExportConfirmationDestinationSchema,
+  overwriteExisting: z.boolean(),
+  cost: strictObject({
+    state: z.literal('known'),
+    value: z.literal('0'),
+    currency: z.literal('USD'),
+  }),
+});
+
 export const ConfirmationTargetSchema = z.union([
   strictObject({ kind: z.literal('domain_object'), ref: DomainObjectRefSchema }),
+  DeliveryExportConfirmationTargetSchema,
   strictObject({
     kind: z.literal('skill_registration'),
     projectId: EntityIdSchema,
@@ -990,6 +1033,7 @@ export const ConfirmationTargetSchema = z.union([
 export const ConfirmationRunEventPayloadSchema = strictObject({
   type: z.literal('confirmation_requested'),
   interactionId: EntityIdSchema,
+  confirmationId: EntityIdSchema,
   summary: z.string().min(1).max(20_000),
   target: ConfirmationTargetSchema,
   immutableInputHash: Sha256Schema,
@@ -1202,6 +1246,11 @@ export const MessageRefModelSurfacePayloadSchema = strictObject({
   messageId: EntityIdSchema,
   messageHash: Sha256Schema,
 });
+export const DeliveryDestinationRefModelSurfacePayloadSchema = strictObject({
+  type: z.literal('delivery_destination_ref'),
+  inboxMessageId: EntityIdSchema,
+  grantBindingHash: Sha256Schema,
+});
 export const ToolCallRefModelSurfacePayloadSchema = strictObject({
   type: z.literal('tool_call_ref'),
   callId: EntityIdSchema,
@@ -1247,6 +1296,7 @@ export const ConfirmationAnsweredModelSurfacePayloadSchema = strictObject({
 });
 export const ModelSurfaceRunEventPayloadSchema = z.union([
   MessageRefModelSurfacePayloadSchema,
+  DeliveryDestinationRefModelSurfacePayloadSchema,
   ToolCallRefModelSurfacePayloadSchema,
   ToolResultRefModelSurfacePayloadSchema,
   SkillLoadedModelSurfacePayloadSchema,

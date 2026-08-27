@@ -87,14 +87,14 @@ describe('host legacy Skill registration', () => {
           )
           .all(),
       ).toEqual([
-        { provenance: 'built_in', trust: 'trusted', count: 252 },
-        { provenance: 'built_in', trust: 'unreviewed', count: 35 },
+        { provenance: 'built_in', trust: 'trusted', count: 250 },
+        { provenance: 'built_in', trust: 'unreviewed', count: 37 },
       ]);
       expect(
         database.prepare('SELECT COUNT(*) AS count FROM skill_effective_versions').get(),
       ).toEqual({ count: 287 });
       expect(database.prepare('SELECT COUNT(*) AS count FROM skill_quarantines').get()).toEqual({
-        count: 35,
+        count: 37,
       });
       expect(
         database.prepare('SELECT COUNT(*) AS count FROM skills WHERE project_id IS NOT NULL').get(),

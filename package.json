@@ -16,6 +16,7 @@
     "build": "pnpm --recursive run build",
     "pretest": "node scripts/ensure-native-runtime.mjs node",
     "test": "vitest run",
+    "test:target": "vitest run apps/desktop-renderer/src/target apps/desktop-renderer/src/target-entry.test.tsx apps/desktop-renderer/vite.target-rc.config.test.ts apps/desktop-main/src/target packages/target-contracts/src packages/target-storage/src packages/target-storage/test/i2h packages/target-storage/test/i7 packages/target-runtime/src scripts/build-target-rc.test.ts scripts/check-ipc-migration-allowlist.test.ts scripts/check-target-only-rc.test.ts scripts/generate-target-contracts.test.ts scripts/generate-target-preload.test.ts scripts/i0-baseline.test.ts scripts/migrate-legacy-skills.sqlite.test.ts scripts/migrate-legacy-skills.test.ts scripts/seal-legacy-browser-state.test.ts",
     "pretest:perf": "node scripts/ensure-native-runtime.mjs node",
     "test:perf": "vitest run --config vitest.performance.config.ts",
     "test:types": "tsc --noEmit -p tests/types/tsconfig.json",
@@ -32,7 +33,8 @@
     "dist": "pnpm run build && pnpm --filter @lucid-fin/desktop-main run pack",
     "audit:uncommitted": "tsx scripts/audit-uncommitted.ts",
     "pretest:e2e": "node scripts/ensure-native-runtime.mjs electron",
-    "test:e2e": "playwright test --config tests/e2e/playwright.config.ts"
+    "test:e2e": "playwright test --config tests/e2e/playwright.config.ts",
+    "test:e2e:target": "playwright test --config tests/e2e/target.playwright.config.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -49,8 +51,5 @@
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.65.0",
     "vitest": "^4.1.10"
-  },
-  "dependencies": {
-    "target-contracts": "link:../../packages/target-contracts"
   }
 }

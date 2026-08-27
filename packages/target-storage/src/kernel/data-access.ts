@@ -20,6 +20,11 @@ import {
 } from '../internal/environment.js';
 import { createProjectsAuthority, type ProjectsAuthority } from '../authorities/projects.js';
 import {
+  createPluginPackagesAuthority,
+  type PluginPackagesAuthority,
+  type TrustedPluginCatalogPort,
+} from '../authorities/plugins.js';
+import {
   createConversationsAuthority,
   type ConversationAuthority,
 } from '../authorities/conversations.js';
@@ -40,6 +45,7 @@ import { createCanvasAuthority, type CanvasAuthority } from '../authorities/canv
 import { createRunsAuthority, type RunsAuthority } from '../authorities/runs.js';
 import {
   createHarnessPersistenceAuthority,
+  settleRunControlActivationInTransaction,
   type HarnessPersistenceAuthority,
 } from '../authorities/harness-runtime.js';
 import { createTaskListsAuthority, type TaskListsAuthority } from '../authorities/task-lists.js';
@@ -75,6 +81,10 @@ import {
   type ProjectHistoryReadModel,
 } from '../read-models/history.js';
 import {
+  createProjectCapabilitiesReadModel,
+  type ProjectCapabilitiesReadModel,
+} from '../read-models/project-capabilities.js';
+import {
   createProjectMemoryReadModel,
   type ProjectMemoryReadModel,
 } from '../read-models/memory.js';
@@ -99,6 +109,7 @@ import {
 
 export interface TargetDataAccess {
   readonly projects: ProjectsAuthority;
+  readonly plugins: PluginPackagesAuthority;
   readonly globalMedia: GlobalMediaAuthority;
   readonly conversations: ConversationAuthority;
   readonly projectMedia: ProjectMediaAuthority;
@@ -118,6 +129,7 @@ export interface TargetDataAccess {
   readonly delivery: DeliveryAuthority;
   readonly deliveryOperations: DeliveryOperationsAuthority;
   readonly runReplay: RunReplayReadModel;
+  readonly projectCapabilities: ProjectCapabilitiesReadModel;
   readonly history: ProjectHistoryReadModel;
   readonly search: ProjectSearchReadModel;
   readonly media: MediaQueryReadModel;
@@ -128,6 +140,7 @@ export interface TargetDataAccess {
 }
 
 export interface TargetDataAccessOptions extends TargetStorageEnvironmentOptions {
+  readonly trustedPluginCatalog?: TrustedPluginCatalogPort;
   readonly privateRecoveryCodec: PrivateRecoveryCodec;
   readonly mediaCas: MediaCas;
   readonly mediaImportCapabilities: MediaImportCapabilityResolver;
@@ -148,9 +161,15 @@ export function createTargetDataAccess(
 ): TargetDataAccess {
   const environment = resolveTargetStorageEnvironment(options);
   const delivery = createDeliveryAuthority(store, environment);
-  const runs = createRunsAuthority(store, environment, options.privateRecoveryCodec);
+  const runs = createRunsAuthority(
+    store,
+    environment,
+    options.privateRecoveryCodec,
+    settleRunControlActivationInTransaction,
+  );
   return Object.freeze({
     projects: createProjectsAuthority(store, environment),
+    plugins: createPluginPackagesAuthority(store, environment, options.trustedPluginCatalog),
     globalMedia: createGlobalMediaAuthority(
       store,
       environment,
@@ -210,6 +229,7 @@ export function createTargetDataAccess(
       options.deliveryExporter,
     ),
     runReplay: createRunReplayReadModel(store),
+    projectCapabilities: createProjectCapabilitiesReadModel(store),
     history: createProjectHistoryReadModel(store),
     search: createProjectSearchReadModel(store),
     media: createMediaQueryReadModel(store),

@@ -36,7 +36,6 @@ import {
   planDocumentSchema,
   productionMediaViewSchema,
   promptAssemblyRecordSchema,
-  stringArraySchema,
   stringSchema,
   taskListSchema,
   unionSchema,

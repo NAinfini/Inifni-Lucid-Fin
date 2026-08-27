@@ -1,5 +1,6 @@
 import {
   DeliveryDestinationIntentSchema,
+  DeliveryExportConfirmationTargetSchema,
   DeliveryExportDefinition,
   DeliveryExportOperationRefSchema,
   DeliveryExportSchema,
@@ -93,6 +94,33 @@ type ExportBoundOperation = Omit<BoundOperationRecord, 'owner'> & {
   };
 };
 type LocalBoundOperation = ReviewBoundOperation | ExportBoundOperation;
+
+export interface DeliveryExportConfirmationInput {
+  readonly manifest: z.output<typeof DeliveryManifestRefSchema>;
+  readonly destination: {
+    readonly kind: 'user_selected_file' | 'user_selected_folder';
+    readonly displayLabel: string;
+  };
+  readonly overwriteExisting: boolean;
+}
+
+export function deliveryExportConfirmationTargetFor(
+  manifest: DeliveryManifest,
+  request: DeliveryExportConfirmationInput,
+): z.output<typeof DeliveryExportConfirmationTargetSchema> {
+  return parseCanonical(DeliveryExportConfirmationTargetSchema, {
+    kind: 'delivery_export',
+    manifest: request.manifest,
+    formatIntent: manifest.formatIntent,
+    itemCount: manifest.items.length,
+    destination: {
+      kind: request.destination.kind,
+      displayLabel: request.destination.displayLabel,
+    },
+    overwriteExisting: request.overwriteExisting,
+    cost: { state: 'known', value: '0', currency: 'USD' },
+  });
+}
 
 export interface StartReviewCutInput {
   readonly runId: string;
@@ -539,10 +567,11 @@ function prepareExport(
     const manifest = exactManifest(database, request.manifest, currentKey.projectId);
     const approved = loadApprovedRunConfirmation(database, confirmationId, currentKey);
     if (
-      approved.target.kind !== 'domain_object' ||
-      canonicalJson(approved.target.ref) !== canonicalJson(request.manifest)
+      approved.target.kind !== 'delivery_export' ||
+      canonicalJson(approved.target) !==
+        canonicalJson(deliveryExportConfirmationTargetFor(manifest, request))
     ) {
-      throw invalid('Delivery Export confirmation does not bind the exact Manifest');
+      throw invalid('Delivery Export confirmation does not bind the exact frozen export intent');
     }
     const requestHash = hashCanonical(request);
     const withoutHash = {
@@ -584,10 +613,10 @@ function prepareExport(
            id, project_id, run_id, delivery_manifest_id, delivery_manifest_revision,
            delivery_manifest_hash, revision, content_hash, destination_kind,
            destination_grant_id, destination_grant_hash, destination_display_label,
-           overwrite_existing, state, request_hash, idempotency_key, cancel_requested,
+           destination_v1_json, overwrite_existing, state, request_hash, idempotency_key, cancel_requested,
            progress_percent, public_error_code, output_blob_hash, output_content_hash,
            created_at, finished_at
-         ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?, 0,
+         ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 'prepared', ?, ?, 0,
                    NULL, NULL, NULL, NULL, ?, NULL)`,
       )
       .run(
@@ -602,6 +631,7 @@ function prepareExport(
         attempt.destination.grantId,
         attempt.destination.grantHash,
         attempt.destination.displayLabel,
+        canonicalJson(attempt.destination),
         Number(attempt.overwriteExisting),
         attempt.requestHash,
         attempt.idempotencyKey,
@@ -985,9 +1015,9 @@ async function renderReview(
 
 async function resolveGrant(
   resolver: DeliveryDestinationGrantResolver,
-  descriptor: ExportRequest['destination'],
+  request: Parameters<DeliveryDestinationGrantResolver['resolve']>[0],
 ) {
-  const value = exactObject(await resolver.resolve(descriptor), 'Resolved Delivery destination');
+  const value = exactObject(await resolver.resolve(request), 'Resolved Delivery destination');
   exactKeys(value, ['descriptor', 'writableGrant'], 'Resolved Delivery destination');
   let resolvedDescriptor: ExportRequest['destination'];
   try {
@@ -996,7 +1026,7 @@ async function resolveGrant(
     throw invalid('Resolved Delivery destination descriptor is invalid');
   }
   if (
-    canonicalJson(resolvedDescriptor) !== canonicalJson(descriptor) ||
+    canonicalJson(resolvedDescriptor) !== canonicalJson(request.descriptor) ||
     value.writableGrant === null ||
     value.writableGrant === undefined
   ) {
@@ -1042,9 +1072,18 @@ async function exportDelivery(
     ) as Promise<DeliveryExportSuccess>;
   }
   const manifest = exactManifest(database, bound.owner.view.manifest, bound.owner.projectId);
+  const run = loadRun(database, bound.owner.runId);
   let grant: Awaited<ReturnType<typeof resolveGrant>>;
   try {
-    grant = await resolveGrant(resolver, bound.owner.view.destination);
+    grant = await resolveGrant(resolver, {
+      descriptor: bound.owner.view.destination,
+      projectId: bound.owner.projectId,
+      chatId: run.chatId,
+      runId: run.id,
+      deliveryPlan: manifest.sourcePlan,
+      requiredExtension: manifest.formatIntent.container,
+      operationFingerprint: bound.dispatch.key.fingerprint,
+    });
   } catch {
     return finishWithoutOutput(
       database,

@@ -48,6 +48,9 @@ contextBridge.exposeInMainWorld('lucidTarget', {
     apply: (request: TargetDesktopCall) => invoke('delivery.apply', request),
     query: (request: TargetDesktopCall) => invoke('delivery.query', request),
   },
+  history: {
+    query: (request: TargetDesktopCall) => invoke('history.query', request),
+  },
   interaction: {
     answer: (request: TargetDesktopCall) => invoke('interaction.answer', request),
   },
@@ -59,6 +62,7 @@ contextBridge.exposeInMainWorld('lucidTarget', {
     projectDetach: (request: TargetDesktopCall) => invoke('media.project.detach', request),
     projectLink: (request: TargetDesktopCall) => invoke('media.project.link', request),
     projectList: (request: TargetDesktopCall) => invoke('media.project.list', request),
+    previewIssue: (request: TargetDesktopCall) => invoke('media.preview.issue', request),
   },
   message: {
     list: (request: TargetDesktopCall) => invoke('message.list', request),
@@ -75,17 +79,25 @@ contextBridge.exposeInMainWorld('lucidTarget', {
   overview: {
     get: (request: TargetDesktopCall) => invoke('overview.get', request),
   },
+  plugin: {
+    apply: (request: TargetDesktopCall) => invoke('plugin.apply', request),
+    query: (request: TargetDesktopCall) => invoke('plugin.query', request),
+  },
   production: {
     apply: (request: TargetDesktopCall) => invoke('production.apply', request),
     query: (request: TargetDesktopCall) => invoke('production.query', request),
   },
   project: {
+    capabilitiesGet: (request: TargetDesktopCall) => invoke('project.capabilities.get', request),
     create: (request: TargetDesktopCall) => invoke('project.create', request),
     get: (request: TargetDesktopCall) => invoke('project.get', request),
     list: (request: TargetDesktopCall) => invoke('project.list', request),
     settingsGet: (request: TargetDesktopCall) => invoke('project.settings.get', request),
     settingsUpdate: (request: TargetDesktopCall) => invoke('project.settings.update', request),
     update: (request: TargetDesktopCall) => invoke('project.update', request),
+  },
+  result: {
+    query: (request: TargetDesktopCall) => invoke('result.query', request),
   },
   run: {
     control: (request: TargetDesktopCall) => invoke('run.control', request),

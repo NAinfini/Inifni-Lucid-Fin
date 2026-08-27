@@ -70,6 +70,7 @@ describe('Run scheduling read model', () => {
           blocks: [{ type: 'text', text: 'Start one schedulable Run.' }],
           attachments: [],
           selectedContext: [],
+          exportDestinationGrant: null,
           supersedesMessageId: null,
         },
       },

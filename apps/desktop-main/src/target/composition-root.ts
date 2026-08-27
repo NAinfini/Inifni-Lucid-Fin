@@ -1,6 +1,7 @@
 import { TARGET_WIRE_INVOKE_CHANNEL_V1, type WireRequestV1 } from '@lucid-fin/target-contracts';
 import {
   createTargetDataAccess,
+  createTargetMediaPreviewSourceResolver,
   openOrCreateTargetStore,
   type TargetCommandContext,
   type TargetDataAccess,
@@ -28,6 +29,15 @@ import {
   type TargetPersistedRunEventPublisher,
   type TargetWirePushSink,
 } from './ipc/push-gateway.js';
+import {
+  createTargetMediaPreviewCapabilityGateway,
+  type TargetMediaPreviewCapabilityGateway,
+} from './media-preview.js';
+import {
+  createTargetExportDestinationGateway,
+  type TargetExportDestinationGateway,
+  type TargetExportDestinationPickerAdapter,
+} from './export-destination.js';
 
 export type TargetDesktopStartupStage = 'store' | 'skills' | 'recovery' | 'ipc' | 'ready';
 
@@ -53,11 +63,16 @@ export interface TargetDesktopRuntimeController {
 
 export interface TargetDesktopCompositionOptions<Event> extends Pick<
   TargetWireUseCaseDependencies,
-  'acceptanceSeedFor' | 'pickExportDestination' | 'pickMedia'
+  'acceptanceSeedFor' | 'pickMedia'
 > {
   readonly databasePath: string;
   readonly dataAccess: TargetDataAccessOptions;
+  readonly exportDestinationPicker?: TargetExportDestinationPickerAdapter;
   readonly ipcMain: TargetIpcMainLike<Event>;
+  readonly authorizeInvocation: (
+    request: WireRequestV1,
+    invocation: Event,
+  ) => boolean | Promise<boolean>;
   readonly contextForRequest: (
     request: WireRequestV1,
     invocation: Event,
@@ -78,6 +93,8 @@ export interface TargetDesktopComposition {
   readonly data: TargetDataAccess;
   readonly databaseCreated: boolean;
   readonly builtInSkills: SkillRegistrationBatchResult;
+  readonly exportDestination: TargetExportDestinationGateway;
+  readonly mediaPreview: TargetMediaPreviewCapabilityGateway;
   readonly store: TargetStore;
   close(): Promise<void>;
 }
@@ -106,6 +123,8 @@ export async function startTargetDesktopComposition<Event>(
   let store: TargetStore | undefined;
   let runtime: TargetDesktopRuntimeController | undefined;
   let disposeIpc: (() => void) | undefined;
+  let exportDestination: TargetExportDestinationGateway | undefined;
+  let mediaPreview: TargetMediaPreviewCapabilityGateway | undefined;
 
   const starting = (next: typeof stage) => {
     stage = next;
@@ -119,7 +138,17 @@ export async function startTargetDesktopComposition<Event>(
 
     starting('skills');
     const builtInSkills = await provisionCanonicalBuiltInSkills(store);
-    const data = createTargetDataAccess(store, options.dataAccess);
+    exportDestination = createTargetExportDestinationGateway({
+      picker: options.exportDestinationPicker,
+    });
+    const data = createTargetDataAccess(store, {
+      ...options.dataAccess,
+      deliveryDestinationGrants: exportDestination,
+    });
+    mediaPreview = createTargetMediaPreviewCapabilityGateway({
+      sourceResolver: createTargetMediaPreviewSourceResolver(store, options.dataAccess.mediaCas),
+      onInternalError: options.onInternalError,
+    });
     const runEvents = createTargetPersistedRunEventPublisher(data.runs, options.runEventSink, {
       createRequestId: options.createPushRequestId,
       onError: options.onInternalError,
@@ -137,12 +166,14 @@ export async function startTargetDesktopComposition<Event>(
       interaction,
       confirmation,
       acceptanceSeedFor: options.acceptanceSeedFor,
-      pickExportDestination: options.pickExportDestination,
+      pickExportDestination: exportDestination.pick,
       pickMedia: options.pickMedia,
+      mediaPreview,
       notifyDurableRunWork: () => runtime?.notifyDurableRunWork(),
       publishPersistedRunHead: (run) => runEvents.publishHead(run),
     });
     const router = createTargetWireRouter(handlers, {
+      authorizeInvocation: options.authorizeInvocation,
       contextForRequest: options.contextForRequest,
       localizeError: options.localizeWireError,
       onInternalError: options.onInternalError,
@@ -161,6 +192,8 @@ export async function startTargetDesktopComposition<Event>(
       data,
       databaseCreated: opened.created,
       builtInSkills,
+      exportDestination,
+      mediaPreview,
       store,
       async close(): Promise<void> {
         if (closed) return;
@@ -170,6 +203,8 @@ export async function startTargetDesktopComposition<Event>(
         try {
           await runtime?.close();
         } finally {
+          exportDestination?.close();
+          mediaPreview?.close();
           store?.close();
         }
       },
@@ -181,6 +216,8 @@ export async function startTargetDesktopComposition<Event>(
     } catch (closeCause) {
       options.onInternalError(closeCause);
     } finally {
+      exportDestination?.close();
+      mediaPreview?.close();
       store?.close();
     }
     const publicSummary = options.localizeStartupError?.(stage) ?? DEFAULT_STARTUP_SUMMARY;

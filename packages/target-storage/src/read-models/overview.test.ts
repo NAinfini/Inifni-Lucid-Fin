@@ -70,6 +70,7 @@ describe('Project Overview read model', () => {
           blocks: [{ type: 'text', text: 'Build the opening sequence.' }],
           attachments: [],
           selectedContext: [],
+          exportDestinationGrant: null,
           supersedesMessageId: null,
         },
       },

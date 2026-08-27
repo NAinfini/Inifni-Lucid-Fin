@@ -2702,7 +2702,7 @@
     "name": "Batch Re-Prompt",
     "provenance": "built_in",
     "skillId": "legacy.renderer_skill.3cdb15f617cbfbe48fb8b50eeab53a40e32809dbaa4e660893e3504ddc1203f4",
-    "trust": "trusted",
+    "trust": "unreviewed",
     "version": "1.0.0+legacy.65d4724f1fa2d8927ada08fb3ba753dc0addda7dc1195c28cc75d3f71a059088"
   },
   {
@@ -2812,7 +2812,7 @@
     "name": "Continuity Check",
     "provenance": "built_in",
     "skillId": "legacy.renderer_skill.898ff72cd4270cf6874f6182633d9b15a70b15fef2d828cb353342dbe004fa5c",
-    "trust": "trusted",
+    "trust": "unreviewed",
     "version": "1.0.0+legacy.faecb8e5a0fd4e95b977b1f45cbe97af0ea6ebcdcaf31f0c4f984cf0b6a69eb6"
   },
   {

@@ -3,7 +3,6 @@ import {
   AlertCircle,
   ArrowLeft,
   CheckCircle2,
-  ChevronDown,
   ChevronUp,
   CircleHelp,
   CircleSlash2,
@@ -13,7 +12,6 @@ import {
   Send,
   ShieldAlert,
   Square,
-  Wrench,
 } from 'lucide-react';
 
 import {
@@ -456,6 +454,7 @@ export function AgentActivityControl({
   const treeItemRefs = useRef(new Map<string, HTMLButtonElement>());
   const contentId = `agent-activity-panel-${tree?.rootRunId ?? 'none'}`;
   const isFocusRequested = focusRunId !== null;
+  const validFocusRunId = focusRunId && tree?.nodesById[focusRunId] ? focusRunId : null;
 
   const selectedNode = tree && selectedRunId ? tree.nodesById[selectedRunId] : undefined;
   const taskListPlan =
@@ -491,15 +490,11 @@ export function AgentActivityControl({
   useEffect(() => {
     setOpen(isFocusRequested);
     setMode(isFocusRequested ? 'detail' : 'tree');
-    setSelectedRunId(
-      isFocusRequested && focusRunId && tree?.nodesById[focusRunId]
-        ? focusRunId
-        : (tree?.rootRunId ?? null),
-    );
+    setSelectedRunId(validFocusRunId ?? tree?.rootRunId ?? null);
     setMessageDraft('');
     setPendingControlAction(null);
     setInlineError(null);
-  }, [focusRunId, isFocusRequested, sessionId, tree?.rootRunId]);
+  }, [isFocusRequested, sessionId, tree?.rootRunId, validFocusRunId]);
 
   useEffect(() => {
     if (!tree?.hasActiveDescendant && !isFocusRequested) setOpen(false);

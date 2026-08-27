@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { checkIpcMigrationAllowlist } from './check-ipc-migration-allowlist.js';
 
@@ -22,6 +23,21 @@ async function withTempRepo(
 }
 
 describe('checkIpcMigrationAllowlist', () => {
+  it('keeps the desktop-main registrations equal to the reviewed repository baseline', async () => {
+    const repoRoot = path.resolve(fileURLToPath(import.meta.url), '../..');
+    const result = await checkIpcMigrationAllowlist({
+      repoRoot,
+      sourceRoot: 'apps/desktop-main/src',
+      allowlistPath: 'apps/desktop-main/src/ipc/ipc-migration-allowlist.txt',
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      unapproved: [],
+      staleAllowlistEntries: [],
+    });
+  });
+
   it('passes when every raw ipcMain.handle registration is allowlisted', async () => {
     await withTempRepo(
       {

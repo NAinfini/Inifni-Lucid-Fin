@@ -139,6 +139,7 @@ async function baseHarness() {
         blocks: [{ type: 'text', text: 'Create the sequence.' }],
         attachments: [],
         selectedContext: [],
+        exportDestinationGrant: null,
         supersedesMessageId: null,
       },
     },
@@ -586,10 +587,10 @@ function seedOwnerRows(fixture: Fixture) {
            id, project_id, run_id, delivery_manifest_id, delivery_manifest_revision,
            delivery_manifest_hash, revision, content_hash, destination_kind,
            destination_grant_id, destination_grant_hash, destination_display_label,
-           overwrite_existing, state, request_hash, idempotency_key, cancel_requested,
+           destination_v1_json, overwrite_existing, state, request_hash, idempotency_key, cancel_requested,
            progress_percent, public_error_code, output_blob_hash, output_content_hash,
            created_at, finished_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, NULL, NULL,
                    NULL, ?, NULL)`,
       )
       .run(
@@ -605,6 +606,7 @@ function seedOwnerRows(fixture: Fixture) {
         deliveryExport.destination.grantId,
         deliveryExport.destination.grantHash,
         deliveryExport.destination.displayLabel,
+        canonicalJson(deliveryExport.destination),
         Number(deliveryExport.overwriteExisting),
         deliveryExport.state,
         deliveryExport.requestHash,
@@ -796,6 +798,7 @@ function registerSecondRunReview(
         blocks: [{ type: 'text', text: 'Create another review.' }],
         attachments: [],
         selectedContext: [],
+        exportDestinationGrant: null,
         supersedesMessageId: null,
       },
     },
@@ -1181,6 +1184,75 @@ describe('Operations authority', () => {
           fixture.context,
         ),
       ).toThrowError(expect.objectContaining({ code: 'IDEMPOTENCY_CONFLICT' }));
+    } finally {
+      fixture.store.close();
+    }
+  }, 30_000);
+
+  it('pages only nonterminal cancellation intents across owner tables within an exact Run scope', async () => {
+    const fixture = await baseHarness();
+    try {
+      const owners = seedOwnerRows(fixture);
+      const operations = registerOwners(fixture, owners);
+      const second = registerSecondRunReview(fixture, owners.review.manifest);
+      fixture.data.operations.cancel(
+        cancelRequest(operations, 'request.operation.cancellation-queue.first'),
+        fixture.context,
+      );
+      fixture.data.operations.cancel(
+        cancelRequest([second], 'request.operation.cancellation-queue.second'),
+        {
+          actor: 'commander',
+          causation: { kind: 'run', runId: second.dispatch.key.runId },
+          correlationId: 'correlation.operations.cancellation-queue.second',
+        },
+      );
+
+      const all = fixture.data.operations.listCancellationRequested({
+        afterOperationId: null,
+        limit: 10,
+        runIds: null,
+      });
+      expect(all.operations).toHaveLength(6);
+      expect(new Set(all.operations.map(({ operation }) => operation.kind))).toEqual(
+        new Set([
+          'generation_attempt',
+          'media_derivation',
+          'result_assessment',
+          'review_cut_attempt',
+          'delivery_export',
+        ]),
+      );
+      expect(all.operations.map(({ operation }) => operation.id)).toContain(second.dispatch.id);
+
+      fixture.database
+        .prepare(
+          `UPDATE generation_attempts
+           SET state = 'cancelled', public_error_code = 'cancelled', finished_at = ?
+           WHERE id = ?`,
+        )
+        .run(NOW, owners.generation.id);
+
+      const ids: string[] = [];
+      let afterOperationId: string | null = null;
+      do {
+        const page = fixture.data.operations.listCancellationRequested({
+          afterOperationId,
+          limit: 2,
+          runIds: [fixture.run.id],
+        });
+        ids.push(...page.operations.map(({ operation }) => operation.id));
+        afterOperationId = page.nextAfterOperationId;
+      } while (afterOperationId !== null);
+
+      expect(ids).toEqual(
+        operations
+          .slice(1)
+          .map(({ dispatch }) => dispatch.id)
+          .sort(),
+      );
+      expect(ids).not.toContain(operations[0]!.dispatch.id);
+      expect(ids).not.toContain(second.dispatch.id);
     } finally {
       fixture.store.close();
     }

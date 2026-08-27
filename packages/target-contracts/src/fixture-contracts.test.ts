@@ -175,6 +175,7 @@ describe('I0 synthetic scenarios on target contracts', () => {
       role: 'user',
       status: 'accepted',
       originatingRunId: null,
+      originatingImportedRunId: null,
       blocks: [{ type: 'text', text: 'Create a moonlit harbor sequence.' }],
       attachments: [],
       supersedesMessageId: null,

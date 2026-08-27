@@ -399,8 +399,11 @@ removes the old product only after the new product passes its end-to-end gates o
 - Run the one-way migration repeatedly on copied representative databases and media directories.
 - Generate and verify complete pre/post reports, offline export, backup/restore instructions, and
   failure rollback.
-- In the implementation branch, wire only the target startup and delete every old schema/API/tool/UI /
-  prompt/preset/template/guide/phase path named in the approved contracts.
+- Preserve Legacy Run/Task/workflow records only as a non-schedulable imported-history ledger; prove
+  target inbox, activation, compaction, catalog, and child lineage with a separate target-native Run.
+- Build an independent target-only release-candidate entry and enumerate every old schema/API/tool/UI /
+  prompt/preset/template/guide/phase path in a deletion manifest. Physical deletion and the official
+  Electron entry switch remain separate approval-gated actions.
 - Prove no target production import, route, IPC, registry, or schema depends on deleted code.
 - Extend disposable replay fixtures with Run inbox ordering, activation epochs, compaction
   start/derived/end evidence, catalog digest, and parent/child lineage.
@@ -409,7 +412,7 @@ removes the old product only after the new product passes its end-to-end gates o
 
 - Migration executable with dry-run/report mode and exact supported-source fingerprint.
 - Deletion manifest and zero-reference audit.
-- Release candidate built only on the target architecture.
+- Reproducible target-only release-candidate build graph and file manifest; no installation or release.
 
 ### Acceptance and validation
 
@@ -419,7 +422,9 @@ removes the old product only after the new product passes its end-to-end gates o
 - Additional drift, invalid FK, hash mismatch, or ambiguous ownership refuses before destructive
   changes and leaves the copy unchanged.
 - Fresh install and migrated copy pass the same full target test suite and startup smoke.
-- Repository search confirms no callable/discoverable Legacy Resource or compatibility alias remains.
+- The target-only release-candidate transitive closure contains no callable/discoverable Legacy
+  Resource or compatibility alias. Repository-wide zero Legacy is claimed only after an approved
+  physical deletion.
 
 ### Stop conditions
 

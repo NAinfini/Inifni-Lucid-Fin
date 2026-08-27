@@ -5,6 +5,7 @@ import {
   AttemptStateSchema,
   AgentResultDefinition,
   AgentSendRecoveryPayloadV1Schema,
+  CanonicalModelFactV1Schema,
   CanonicalDecimalSchema,
   ChildObjectiveRecoveryPayloadV1Schema,
   CompactionEventSchema,
@@ -15,6 +16,7 @@ import {
   MediaDerivationAttemptViewSchema,
   MediaSchema,
   ModelSurfaceRunEventSchema,
+  ModelSurfaceRunEventPayloadSchema,
   OperationRefSchema,
   ProjectHistorySchema,
   ProjectSchema,
@@ -439,6 +441,7 @@ describe('durable Run order', () => {
         actor: 'user',
         source: { kind: 'message', messageId: 'message-1', contentHash: HASH_A },
         selectedContext: [],
+        exportDestinationGrant: null,
         contentHash: HASH_A,
         state: 'consumed',
         createdAt: NOW,
@@ -450,6 +453,7 @@ describe('durable Run order', () => {
         actor: 'user',
         source: { kind: 'message', messageId: 'message-2', contentHash: HASH_B },
         selectedContext: [],
+        exportDestinationGrant: null,
         contentHash: HASH_B,
         state: 'queued',
         createdAt: NOW,
@@ -465,6 +469,47 @@ describe('durable Run order', () => {
         { ...inbox[1], state: 'consumed' },
       ]),
     ).toThrow(/FIFO/i);
+
+    const exportDestinationGrant = {
+      destination: {
+        kind: 'user_selected_file' as const,
+        grantId: 'grant-1',
+        grantHash: HASH_B,
+        displayLabel: 'movie.mp4',
+        projectId: 'project-1',
+        deliveryPlan: {
+          authority: 'delivery' as const,
+          id: 'delivery-1',
+          revision: 1,
+          contentHash: HASH_A,
+        },
+        allowedExtensions: ['mp4'],
+      },
+      expiresAt: NOW,
+    };
+    expect(
+      RunInboxMessageSchema.safeParse({ ...inbox[0], exportDestinationGrant }).success,
+    ).toBe(true);
+    expect(RunInboxMessageSchema.safeParse({ ...inbox[0], exportDestinationGrant: undefined }).success).toBe(
+      false,
+    );
+    expect(
+      ModelSurfaceRunEventPayloadSchema.safeParse({
+        type: 'delivery_destination_ref',
+        inboxMessageId: inbox[0].id,
+        grantBindingHash: HASH_A,
+      }).success,
+    ).toBe(true);
+    expect(
+      CanonicalModelFactV1Schema.safeParse({
+        type: 'delivery_destination',
+        eventSequence: 2,
+        inboxMessageId: inbox[0].id,
+        destination: exportDestinationGrant.destination,
+        expiresAt: exportDestinationGrant.expiresAt,
+        grantBindingHash: HASH_A,
+      }).success,
+    ).toBe(true);
 
     expect(() =>
       assertActivationOrdering([
@@ -504,6 +549,51 @@ describe('durable Run order', () => {
     expect(() =>
       assertAppendOnlyRunEvents([events[0], { ...events[1], previousEventHash: null }]),
     ).toThrow(/hash chain/i);
+  });
+
+  it('keeps the public confirmation address separate from its interaction', () => {
+    const event = {
+      ...runEvent(1, null, HASH_A),
+      payloadState: {
+        state: 'available' as const,
+        payload: {
+          type: 'confirmation_requested' as const,
+          interactionId: 'interaction.contracts',
+          confirmationId: 'confirmation.contracts',
+          summary: 'Approve the protected change.',
+          target: {
+            kind: 'domain_object' as const,
+            ref: {
+              authority: 'production' as const,
+              id: 'shot.contracts',
+              revision: 1,
+              contentHash: HASH_A,
+            },
+          },
+          immutableInputHash: HASH_B,
+        },
+      },
+    };
+    expect(PublicRunEventSchema.parse(event).payloadState).toMatchObject({
+      state: 'available',
+      payload: {
+        type: 'confirmation_requested',
+        interactionId: 'interaction.contracts',
+        confirmationId: 'confirmation.contracts',
+      },
+    });
+    expect(
+      PublicRunEventSchema.safeParse({
+        ...event,
+        payloadState: {
+          ...event.payloadState,
+          payload: {
+            ...event.payloadState.payload,
+            confirmationId: undefined,
+          },
+        },
+      }).success,
+    ).toBe(false);
   });
 
   it('separates public projection, model surface, private recovery, and derived History', () => {

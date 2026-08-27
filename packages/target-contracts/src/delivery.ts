@@ -9,6 +9,7 @@ import {
   IsoTimestampSchema,
   PositiveCountSchema,
   RevisionSchema,
+  SafeLeafDisplayLabelSchema,
   Sha256Schema,
   UserChoiceRefSchema,
 } from './primitives.js';
@@ -57,22 +58,44 @@ export const DeliveryTrimSchema = strictObject({
   endMs: PositiveCountSchema,
 }).refine((trim) => trim.endMs > trim.startMs, { message: 'Delivery trim is reversed' });
 
-export const DeliveryDestinationIntentSchema = strictObject({
+export const DeliveryAllowedExtensionsSchema = z
+  .array(z.string().regex(/^[A-Za-z0-9]{1,12}$/))
+  .min(1)
+  .max(20)
+  .superRefine((extensions, context) => {
+    const normalized = extensions.map((extension) => extension.toLowerCase());
+    if (new Set(normalized).size !== normalized.length) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Delivery extensions must be unique ignoring case',
+      });
+    }
+  });
+
+const DeliveryDestinationIntentShape = {
   kind: z.enum(['user_selected_file', 'user_selected_folder']),
   grantId: EntityIdSchema,
   grantHash: Sha256Schema,
-  displayLabel: z
-    .string()
-    .trim()
-    .min(1)
-    .max(512)
-    .refine((label) => !label.includes('/') && !label.includes('\\'), {
-      message: 'Delivery destination label must be a basename',
-    }),
+  displayLabel: SafeLeafDisplayLabelSchema,
+};
+
+export const DeliveryDestinationIntentSchema = strictObject(DeliveryDestinationIntentShape);
+
+export const ScopedDeliveryDestinationIntentSchema = strictObject({
+  ...DeliveryDestinationIntentShape,
+  projectId: EntityIdSchema,
+  deliveryPlan: DeliveryRefSchema,
+  allowedExtensions: DeliveryAllowedExtensionsSchema,
 });
 
+export const DeliveryDestinationGrantV1Schema = strictObject({
+  destination: ScopedDeliveryDestinationIntentSchema,
+  expiresAt: IsoTimestampSchema,
+});
+
+export const DeliveryContainerSchema = z.enum(['mp4', 'mov', 'webm']);
 export const DeliveryFormatIntentSchema = strictObject({
-  container: z.enum(['mp4', 'mov', 'webm']),
+  container: DeliveryContainerSchema,
   videoCodec: z.enum(['h264', 'h265', 'prores', 'vp9', 'av1']),
   audioCodec: z.enum(['aac', 'pcm', 'opus']).nullable(),
   width: PositiveCountSchema,
@@ -468,6 +491,10 @@ export type DeliveryItemRef = z.infer<typeof DeliveryItemRefSchema>;
 export type DeliveryItem = z.infer<typeof DeliveryItemSchema>;
 export type DeliveryItemSemanticSnapshot = z.infer<typeof DeliveryItemSemanticSnapshotSchema>;
 export type DeliveryDestinationIntent = z.infer<typeof DeliveryDestinationIntentSchema>;
+export type ScopedDeliveryDestinationIntent = z.infer<
+  typeof ScopedDeliveryDestinationIntentSchema
+>;
+export type DeliveryDestinationGrantV1 = z.infer<typeof DeliveryDestinationGrantV1Schema>;
 export type DeliveryFormatIntent = z.infer<typeof DeliveryFormatIntentSchema>;
 export type DeliveryMutationCommand = z.infer<typeof DeliveryMutationCommandSchema>;
 export type DeliveryPlan = z.infer<typeof DeliveryPlanSchema>;

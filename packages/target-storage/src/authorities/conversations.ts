@@ -191,7 +191,8 @@ function queryMessages(
     .prepare(
       `SELECT id, sequence
        FROM messages
-       WHERE chat_id = ?${upperClause}${lowerClause}${idClause}
+       WHERE chat_id = ?
+         AND originating_imported_run_id IS NULL${upperClause}${lowerClause}${idClause}
        ORDER BY sequence DESC
        LIMIT ?`,
     )

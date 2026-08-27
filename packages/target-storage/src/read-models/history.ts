@@ -1,9 +1,9 @@
 import {
   CausationRefSchema,
   CountSchema,
-  DomainObjectRefSchema,
   EntityIdSchema,
   HistoryQueryDefinition,
+  HistoryQueryOrderV1Schema,
   IsoTimestampSchema,
   MessageBlockSchema,
   ProjectEventHistoryEntryViewSchema,
@@ -11,7 +11,6 @@ import {
   ProjectEventSubjectSchema,
   ProjectHistoryEntryViewSchema,
   PublicRunEventPayloadSchema,
-  SequenceSchema,
   Sha256Schema,
   UserChoiceDetailSchema,
   UserChoiceSubjectSchema,
@@ -19,6 +18,7 @@ import {
   parseCanonical,
   z,
   strictObject,
+  type HistoryQueryOrderV1,
   type ProjectHistoryEntryView,
 } from '@lucid-fin/target-contracts';
 import type { DatabaseSync } from 'node:sqlite';
@@ -31,11 +31,13 @@ import type { TargetStore } from '../kernel/store.js';
 
 type HistoryQueryInput = ReturnType<typeof HistoryQueryDefinition.parseInput>;
 type HistoryQueryOutput = ReturnType<typeof HistoryQueryDefinition.parseSuccess>;
+export type ProjectHistoryOrder = HistoryQueryOrderV1;
 
 const MessageBlocksSchema = z.array(MessageBlockSchema).min(1).max(1_000);
 const HistoryCursorSchema = strictObject({
   kind: z.literal('project_history'),
   filterHash: Sha256Schema,
+  order: HistoryQueryOrderV1Schema,
   occurredAt: IsoTimestampSchema,
   sourcePriority: CountSchema,
   stableKey: z.string().min(1).max(600),
@@ -163,7 +165,8 @@ function messageEntries(database: DatabaseSync, projectId: string): ProjectHisto
               payload.blocks_v1_json, payload.payload_hash, payload.erased_at
        FROM messages AS m
        JOIN message_payloads AS payload ON payload.message_id = m.id
-       WHERE m.project_id = ?`,
+       WHERE m.project_id = ?
+         AND m.originating_imported_run_id IS NULL`,
     )
     .all(projectId) as unknown as MessageRow[];
   return rows.map((row) => {
@@ -227,7 +230,14 @@ function projectEventEntries(database: DatabaseSync, projectId: string): Project
               payload.payload_v1_json, payload.erased_at, event.previous_event_hash, event.event_hash
        FROM project_events AS event
        JOIN project_event_payloads AS payload ON payload.project_event_id = event.id
-       WHERE event.project_id = ?`,
+       WHERE event.project_id = ?
+         AND NOT EXISTS (
+           SELECT 1
+           FROM messages AS message
+           WHERE event.subject_authority = 'message'
+             AND message.id = event.subject_id
+             AND message.originating_imported_run_id IS NOT NULL
+         )`,
     )
     .all(projectId) as unknown as ProjectEventRow[];
   return rows.map((row) => {
@@ -374,6 +384,15 @@ function compareKeys(left: HistorySortKey, right: HistorySortKey): number {
   );
 }
 
+function compareForOrder(
+  left: HistorySortKey,
+  right: HistorySortKey,
+  order: ProjectHistoryOrder,
+): number {
+  const comparison = compareKeys(left, right);
+  return order === 'chronological' ? comparison : -comparison;
+}
+
 function entryMatches(entry: ProjectHistoryEntryView, input: HistoryQueryInput): boolean {
   if (input.sources.length > 0 && !input.sources.includes(entry.source)) return false;
   if (input.time.from !== null && entry.occurredAt < input.time.from) return false;
@@ -424,10 +443,14 @@ function entryMatches(entry: ProjectHistoryEntryView, input: HistoryQueryInput):
   return true;
 }
 
-function encodeCursor(filterHash: string, entry: ProjectHistoryEntryView): string {
+function encodeCursor(
+  filterHash: string,
+  entry: ProjectHistoryEntryView,
+  order: ProjectHistoryOrder,
+): string {
   const key = sortKey(entry);
   return `cur_${Buffer.from(
-    canonicalJson({ kind: 'project_history', filterHash, ...key }),
+    canonicalJson({ kind: 'project_history', filterHash, order, ...key }),
     'utf8',
   ).toString('base64url')}`;
 }
@@ -453,14 +476,23 @@ export function historyWatermark(database: DatabaseSync, projectId: string): num
 }
 
 export interface ProjectHistoryReadModel {
-  readonly query: (projectId: string, input: HistoryQueryInput) => HistoryQueryOutput;
+  readonly query: (
+    projectId: string,
+    input: HistoryQueryInput,
+    order?: ProjectHistoryOrder,
+  ) => HistoryQueryOutput;
   readonly getWatermark: (projectId: string) => number;
 }
 
 export function createProjectHistoryReadModel(store: TargetStore): ProjectHistoryReadModel {
   return Object.freeze({
-    query(projectIdValue: string, inputValue: HistoryQueryInput) {
+    query(
+      projectIdValue: string,
+      inputValue: HistoryQueryInput,
+      orderValue: ProjectHistoryOrder = 'chronological',
+    ) {
       const input = HistoryQueryDefinition.parseInput(inputValue);
+      const order = parseCanonical(HistoryQueryOrderV1Schema, orderValue);
       const database = getTargetStoreDatabase(store);
       const projectId = requireProject(database, projectIdValue);
       const filterHash = hashCanonical({
@@ -470,9 +502,10 @@ export function createProjectHistoryReadModel(store: TargetStore): ProjectHistor
         subjects: input.subjects,
         actors: input.actors,
         time: input.time,
+        order,
       });
       const cursor = input.page.cursor === null ? null : decodeCursor(input.page.cursor);
-      if (cursor !== null && cursor.filterHash !== filterHash) {
+      if (cursor !== null && (cursor.filterHash !== filterHash || cursor.order !== order)) {
         throw new TargetStorageError('INVALID_REQUEST', 'History cursor belongs to another query');
       }
       const entries = [
@@ -483,17 +516,17 @@ export function createProjectHistoryReadModel(store: TargetStore): ProjectHistor
         ...userChoiceEntries(database, projectId),
       ]
         .filter((entry) => entryMatches(entry, input))
-        .sort((left, right) => compareKeys(sortKey(left), sortKey(right)));
+        .sort((left, right) => compareForOrder(sortKey(left), sortKey(right), order));
       const afterCursor =
         cursor === null
           ? entries
-          : entries.filter((entry) => compareKeys(sortKey(entry), cursor) > 0);
+          : entries.filter((entry) => compareForOrder(sortKey(entry), cursor, order) > 0);
       const items = afterCursor.slice(0, input.page.limit);
       return HistoryQueryDefinition.parseSuccess({
         items,
         nextCursor:
           afterCursor.length > items.length && items.length > 0
-            ? encodeCursor(filterHash, items.at(-1)!)
+            ? encodeCursor(filterHash, items.at(-1)!, order)
             : null,
       });
     },

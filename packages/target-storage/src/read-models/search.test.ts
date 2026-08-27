@@ -94,6 +94,31 @@ function insertSearchDocument(
   };
   database
     .prepare(
+      `INSERT INTO chats (
+         id, project_id, revision, content_hash, title, lifecycle, message_count,
+         message_head_sequence, created_at, updated_at, archived_at, deleted_at
+       ) VALUES ('chat.search', ?, 0, ?, 'Search fixture', 'active', 0, NULL, ?, ?, NULL, NULL)
+       ON CONFLICT(id) DO NOTHING`,
+    )
+    .run(projectId, HASH_A, NOW, NOW);
+  database
+    .prepare(
+      `INSERT INTO messages (
+         id, project_id, chat_id, sequence, role, status, originating_run_id,
+         originating_imported_run_id, content_hash, supersedes_message_id, created_at
+       ) VALUES (?, ?, 'chat.search', ?, 'user', 'accepted', NULL, NULL, ?, NULL, ?)`,
+    )
+    .run(source.messageId, projectId, source.sequence, source.contentHash, NOW);
+  database
+    .prepare(
+      `UPDATE chats
+          SET message_count = (SELECT count(*) FROM messages WHERE chat_id = 'chat.search'),
+              message_head_sequence = (SELECT max(sequence) FROM messages WHERE chat_id = 'chat.search')
+        WHERE id = 'chat.search'`,
+    )
+    .run();
+  database
+    .prepare(
       `INSERT INTO project_search_documents (
          id, project_id, source_kind, source_id, source_revision, source_hash,
          source_state, source_v1_json, search_text, updated_at

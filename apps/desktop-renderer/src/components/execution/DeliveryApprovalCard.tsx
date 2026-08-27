@@ -160,20 +160,34 @@ function packageProgress(status: DeliveryPackageAttemptView['status']): number {
   }
 }
 
-function initialPackageAttempt(
-  context: DeliveryManifestContext,
+function packageAttemptView(
+  attemptId: string | undefined,
+  status: DeliveryPackageTaskAttempt['status'] | undefined,
+  destinationPath: string | undefined,
+  manifestRevision: number | undefined,
+  manifestHash: string | undefined,
+  attemptNumber: number | undefined,
+  error?: string,
 ): DeliveryPackageAttemptView | null {
-  const attempt = context.packageAttempt;
-  if (!attempt) return null;
+  if (
+    attemptId === undefined ||
+    status === undefined ||
+    destinationPath === undefined ||
+    manifestRevision === undefined ||
+    manifestHash === undefined ||
+    attemptNumber === undefined
+  ) {
+    return null;
+  }
   return {
-    attemptId: attempt.id,
-    status: attempt.status,
-    progress: packageProgress(attempt.status),
-    destinationPath: attempt.destinationPath,
-    manifestRevision: attempt.manifestRevision,
-    manifestHash: attempt.manifestHash,
-    attempt: attempt.attempt,
-    ...(attempt.error ? { error: attempt.error } : {}),
+    attemptId,
+    status,
+    progress: packageProgress(status),
+    destinationPath,
+    manifestRevision,
+    manifestHash,
+    attempt: attemptNumber,
+    ...(error ? { error } : {}),
   };
 }
 
@@ -193,26 +207,68 @@ function reviewCutErrorMessage(error: unknown): string {
 
 function DeliveryPackageActions({ context }: { context: DeliveryManifestContext }) {
   const manifest = context.manifest.content as DeliveryManifestContent;
+  const packageAttempt = context.packageAttempt;
+  const packageAttemptId = packageAttempt?.id;
+  const packageAttemptStatus = packageAttempt?.status;
+  const packageAttemptDestinationPath = packageAttempt?.destinationPath;
+  const packageAttemptManifestRevision = packageAttempt?.manifestRevision;
+  const packageAttemptManifestHash = packageAttempt?.manifestHash;
+  const packageAttemptNumber = packageAttempt?.attempt;
+  const packageAttemptError = packageAttempt?.error;
+  const packageAttemptUpdatedAt = packageAttempt?.updatedAt;
   const [attempt, setAttempt] = useState<DeliveryPackageAttemptView | null>(() =>
-    initialPackageAttempt(context),
+    packageAttemptView(
+      packageAttemptId,
+      packageAttemptStatus,
+      packageAttemptDestinationPath,
+      packageAttemptManifestRevision,
+      packageAttemptManifestHash,
+      packageAttemptNumber,
+      packageAttemptError,
+    ),
   );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setAttempt(initialPackageAttempt(context));
+    setAttempt(
+      packageAttemptView(
+        packageAttemptId,
+        packageAttemptStatus,
+        packageAttemptDestinationPath,
+        packageAttemptManifestRevision,
+        packageAttemptManifestHash,
+        packageAttemptNumber,
+        packageAttemptError,
+      ),
+    );
     setError(null);
-  }, [context.manifest.contentHash, context.packageAttempt?.id, context.packageAttempt?.updatedAt]);
+  }, [
+    context.manifest.contentHash,
+    packageAttemptDestinationPath,
+    packageAttemptError,
+    packageAttemptId,
+    packageAttemptManifestHash,
+    packageAttemptManifestRevision,
+    packageAttemptNumber,
+    packageAttemptStatus,
+    packageAttemptUpdatedAt,
+  ]);
+
+  const attemptId = attempt?.attemptId ?? null;
+  const attemptStatus = attempt?.status ?? null;
 
   useEffect(() => {
-    if (!attempt || !isActivePackageStatus(attempt.status)) return;
+    if (attemptId === null || attemptStatus === null || !isActivePackageStatus(attemptStatus)) {
+      return;
+    }
     let disposed = false;
 
     const poll = async () => {
       try {
         const api = getAPI();
         if (!api?.deliveryPackage) throw new Error(t('deliveryPackage.unavailable'));
-        const nextAttempt = await api.deliveryPackage.status(attempt.attemptId);
+        const nextAttempt = await api.deliveryPackage.status(attemptId);
         if (!disposed && nextAttempt) setAttempt(nextAttempt);
       } catch (pollError) {
         if (!disposed) setError(errorMessage(pollError));
@@ -225,7 +281,7 @@ function DeliveryPackageActions({ context }: { context: DeliveryManifestContext 
       disposed = true;
       window.clearInterval(interval);
     };
-  }, [attempt?.attemptId, attempt?.status]);
+  }, [attemptId, attemptStatus]);
 
   const start = async () => {
     setSubmitting(true);
@@ -445,6 +501,8 @@ function ReviewCutActions({ context }: { context: DeliveryManifestContext }) {
   const [job, setJob] = useState<ReviewCutJobView | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const jobId = job?.jobId ?? null;
+  const jobStatus = job?.status ?? null;
 
   useEffect(() => {
     setJob(null);
@@ -452,14 +510,14 @@ function ReviewCutActions({ context }: { context: DeliveryManifestContext }) {
   }, [context.manifest.contentHash]);
 
   useEffect(() => {
-    if (!job || !isActiveReviewCutStatus(job.status)) return;
+    if (jobId === null || jobStatus === null || !isActiveReviewCutStatus(jobStatus)) return;
     let disposed = false;
 
     const poll = async () => {
       try {
         const api = getReviewCutApi();
         if (!api) throw new Error(t('reviewCut.unavailable'));
-        const nextJob = await api.status(job.jobId);
+        const nextJob = await api.status(jobId);
         if (disposed) return;
         if (nextJob) {
           setJob(nextJob);
@@ -478,7 +536,7 @@ function ReviewCutActions({ context }: { context: DeliveryManifestContext }) {
       disposed = true;
       window.clearInterval(interval);
     };
-  }, [job?.jobId, job?.status]);
+  }, [jobId, jobStatus]);
 
   const start = async () => {
     setSubmitting(true);

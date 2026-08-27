@@ -8,7 +8,7 @@ import {
   canonicalJson,
   generationQuoteHashInput,
   providerReceiptHashInput,
-  type DeliveryDestinationIntent,
+  type DeliveryManifest,
   type DomainObjectRef,
   type GenerationQuote,
   type ProjectMemoryIndex,
@@ -20,6 +20,7 @@ import {
   createTargetDataAccess,
   createTargetStore,
   type DeliveryDestinationGrantResolver,
+  type ResolveDeliveryDestinationGrantRequest,
   type GenerationProviderAdapter,
   type GenerationProviderQuoteRequest,
   type GenerationProviderState,
@@ -44,6 +45,7 @@ import type {
 } from '../../src/kernel/index.js';
 import { getTargetStoreDatabase } from '../../dist/internal/database-access.js';
 import { resolveOperationDispatchKey } from '../../dist/internal/operation-dispatch.js';
+import { deliveryExportConfirmationTargetFor } from '../../dist/authorities/delivery-operations.js';
 
 export const NOW = '2026-08-16T12:00:00.000Z';
 export const PROVIDER_ID = 'provider.i2h';
@@ -162,12 +164,16 @@ export class MemoryMediaCas implements MediaCas {
   }
 
   openVerified(expected: MediaCasExpectedObject) {
-    const cas = this;
+    const objects = this.objects;
+    const verify = (value: MediaCasExpectedObject) => this.verify(value);
+    const recordOpen = () => {
+      this.openCalls += 1;
+    };
     return {
       async *[Symbol.asyncIterator]() {
-        cas.openCalls += 1;
-        await cas.verify(expected);
-        yield Uint8Array.from(cas.objects.get(expected.hash)!);
+        recordOpen();
+        await verify(expected);
+        yield Uint8Array.from(objects.get(expected.hash)!);
       },
     };
   }
@@ -181,7 +187,10 @@ export class MemoryImportCapabilities implements MediaImportCapabilityResolver {
   async resolve(capabilityToken: string) {
     this.resolveCalls += 1;
     if (capabilityToken !== IMPORT_TOKEN) throw new Error('Unexpected I2-H import capability');
-    const capabilities = this;
+    const bytes = this.bytes;
+    const recordOpen = () => {
+      this.openCalls += 1;
+    };
     return {
       descriptor: {
         capabilityToken,
@@ -193,8 +202,8 @@ export class MemoryImportCapabilities implements MediaImportCapabilityResolver {
         technicalFacts: { kind: 'image' as const, width: 1_920, height: 1_080 },
       },
       openBytes() {
-        capabilities.openCalls += 1;
-        return stream(capabilities.bytes);
+        recordOpen();
+        return stream(bytes);
       },
     };
   }
@@ -485,11 +494,11 @@ export class FakeDeliveryExporter implements LocalDeliveryExporterAdapter {
 }
 
 export class FakeDestinationGrants implements DeliveryDestinationGrantResolver {
-  readonly calls: DeliveryDestinationIntent[] = [];
+  readonly calls: ResolveDeliveryDestinationGrantRequest[] = [];
 
-  async resolve(descriptor: DeliveryDestinationIntent) {
-    this.calls.push(descriptor);
-    return { descriptor, writableGrant: { opaque: 'test-only-grant' } };
+  async resolve(request: ResolveDeliveryDestinationGrantRequest) {
+    this.calls.push(request);
+    return { descriptor: request.descriptor, writableGrant: { opaque: 'test-only-grant' } };
   }
 }
 
@@ -674,6 +683,7 @@ export function memoryIndex(
 export function seedApprovedExportConfirmation(
   store: TargetStore,
   runId: string,
+  manifest: DeliveryManifest,
   request: Parameters<
     ReturnType<typeof createJourneyDataAccess>['deliveryOperations']['export']
   >[0]['request'],
@@ -710,7 +720,7 @@ export function seedApprovedExportConfirmation(
       confirmationId,
       runId,
       interactionId,
-      canonicalJson({ kind: 'domain_object', ref: request.manifest }),
+      canonicalJson(deliveryExportConfirmationTargetFor(manifest, request)),
       key.inputHash,
       objective.objective_message_id,
       NOW,

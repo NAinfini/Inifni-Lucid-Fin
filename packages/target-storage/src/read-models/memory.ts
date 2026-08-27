@@ -210,15 +210,28 @@ function assertMemorySource(database: DatabaseSync, projectId: string, source: M
     case 'message': {
       const row = database
         .prepare(
-          `SELECT project_id, chat_id, sequence, content_hash
+          `SELECT project_id, chat_id, sequence, content_hash, originating_imported_run_id
            FROM messages WHERE id = ?`,
         )
         .get(source.messageId) as unknown as
-        { project_id: string; chat_id: string; sequence: number; content_hash: string } | undefined;
+        | {
+            project_id: string;
+            chat_id: string;
+            sequence: number;
+            content_hash: string;
+            originating_imported_run_id: string | null;
+          }
+        | undefined;
       if (row === undefined) {
         throw new TargetStorageError(
           'NOT_FOUND',
           `Memory Message source was not found: ${source.messageId}`,
+        );
+      }
+      if (row.originating_imported_run_id !== null) {
+        throw new TargetStorageError(
+          'INVALID_REQUEST',
+          `Imported Message cannot be a Project Memory source: ${source.messageId}`,
         );
       }
       if (
@@ -310,6 +323,31 @@ function assertMemorySource(database: DatabaseSync, projectId: string, source: M
   }
 }
 
+function assertMemoryIndexExcludesImportedMessages(
+  database: DatabaseSync,
+  index: ProjectMemoryIndex,
+): void {
+  const messageIds = [
+    ...new Set(
+      index.entries.flatMap((entry) =>
+        entry.sources.flatMap((source) => (source.kind === 'message' ? [source.messageId] : [])),
+      ),
+    ),
+  ];
+  if (messageIds.length === 0) return;
+  const imported = database
+    .prepare(
+      `SELECT id FROM messages
+       WHERE id IN (${messageIds.map(() => '?').join(', ')})
+         AND originating_imported_run_id IS NOT NULL
+       LIMIT 1`,
+    )
+    .get(...messageIds) as unknown as { id: string } | undefined;
+  if (imported !== undefined) {
+    throw corrupt(`Project Memory contains an imported Message source: ${imported.id}`);
+  }
+}
+
 function assertRecordableIndex(database: DatabaseSync, index: ProjectMemoryIndex): void {
   requireProject(database, index.projectId);
   if (index.historyWatermark > currentHistoryWatermark(database, index.projectId)) {
@@ -395,6 +433,7 @@ function loadMemoryIndex(database: DatabaseSync, memoryVersionId: string): Proje
   if (computeProjectMemorySourceSetHash(index.entries) !== index.sourceSetHash) {
     throw corrupt(`Project Memory ${index.id} source-set hash does not match`);
   }
+  assertMemoryIndexExcludesImportedMessages(database, index);
   return index;
 }
 

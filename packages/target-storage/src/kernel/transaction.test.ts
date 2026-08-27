@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { withImmediateTransaction } from './transaction.js';
 
 const disposablePaths: string[] = [];
@@ -31,6 +31,29 @@ describe('BEGIN IMMEDIATE transaction boundary', () => {
     ).toThrow('stop');
     expect(countRows(db)).toBe(0);
     db.close();
+  });
+
+  it('retains both the primary and rollback failures', () => {
+    const primary = new Error('primary failure');
+    const rollback = new Error('rollback failure');
+    const database = {
+      exec: vi.fn((statement: string) => {
+        if (statement === 'ROLLBACK') throw rollback;
+      }),
+    } as unknown as DatabaseSync;
+    let thrown: unknown;
+
+    try {
+      withImmediateTransaction(database, () => {
+        throw primary;
+      });
+    } catch (cause) {
+      thrown = cause;
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toEqual([primary, rollback]);
+    expect((thrown as AggregateError).cause).toBe(rollback);
   });
 
   it('rejects nested helper transactions and rolls back the outer write', () => {

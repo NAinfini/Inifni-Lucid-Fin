@@ -64,6 +64,7 @@ import {
   type ToolProgramInput,
 } from '@lucid-fin/target-contracts';
 import {
+  TargetStorageError,
   isRecoverySafeRuntimeReadTool,
   isRuntimeReadTool,
   type HarnessActivationSnapshot,
@@ -72,6 +73,8 @@ import {
   type DeliveryOperationsAuthority,
   type GenerationAuthority,
   type MediaDerivationsAuthority,
+  type OperationsAuthority,
+  type PendingOperationCancellation,
   type ResultAssessmentsAuthority,
   type PrivateModelContext,
   type RunsAuthority,
@@ -84,10 +87,12 @@ export interface TargetModelAdapter {
   readonly quote: (
     request: CanonicalModelRequestV1,
     privateContext: PrivateModelContext,
+    signal?: AbortSignal,
   ) => Promise<ModelResourceQuoteV1>;
   readonly stream: (
     request: CanonicalModelRequestV1,
     privateContext: PrivateModelContext,
+    signal?: AbortSignal,
   ) => AsyncIterable<ModelAdapterEvent>;
 }
 
@@ -441,13 +446,160 @@ export interface TargetRuntimeDependencies {
   readonly persistence: HarnessPersistenceAuthority;
   readonly model: TargetModelAdapter;
   readonly toolExecutor: TargetToolExecutor;
-  readonly deliveryOperations?: Pick<DeliveryOperationsAuthority, 'export' | 'preview'>;
+  readonly onOperationCancellationError?: (cause: unknown) => void;
+  readonly operations?: Pick<OperationsAuthority, 'listCancellationRequested'>;
+  readonly deliveryOperations?: Pick<
+    DeliveryOperationsAuthority,
+    'acknowledgeCancellation' | 'export' | 'preview'
+  >;
   readonly resultAssessments?: Pick<
     ResultAssessmentsAuthority,
-    'start' | 'executeLocal' | 'submitProvider' | 'reconcileProvider'
+    'acknowledgeCancellation' | 'start' | 'executeLocal' | 'submitProvider' | 'reconcileProvider'
   >;
   readonly generation?: Pick<GenerationAuthority, 'submit' | 'reconcile'>;
   readonly mediaDerivations?: Pick<MediaDerivationsAuthority, 'start' | 'continue'>;
+}
+
+function cancellationContext(runId: string): TargetCommandContext {
+  return {
+    actor: 'commander',
+    causation: { kind: 'run', runId },
+    correlationId: id('correlation'),
+  };
+}
+
+function assertOperationCancellationDependencies(dependencies: TargetRuntimeDependencies): void {
+  const missing = [
+    dependencies.operations === undefined ? 'operations' : null,
+    dependencies.generation === undefined ? 'generation' : null,
+    dependencies.mediaDerivations === undefined ? 'mediaDerivations' : null,
+    dependencies.resultAssessments === undefined ? 'resultAssessments' : null,
+    dependencies.deliveryOperations === undefined ? 'deliveryOperations' : null,
+    dependencies.onOperationCancellationError === undefined ? 'onOperationCancellationError' : null,
+  ].filter((value): value is string => value !== null);
+  if (missing.length > 0) {
+    throw new Error(`Operation cancellation drain requires ${missing.join(', ')}`);
+  }
+}
+
+async function drainRequestedOperationCancellation(
+  dependencies: TargetRuntimeDependencies,
+  candidate: PendingOperationCancellation,
+): Promise<void> {
+  const { operation, runId } = candidate;
+  const context = cancellationContext(runId);
+  const commandId = id('command');
+  switch (operation.kind) {
+    case 'generation_attempt': {
+      const generation = dependencies.generation;
+      if (generation === undefined)
+        throw new Error('Generation cancellation authority is unavailable');
+      await generation.reconcile(
+        { operation, expectedRevision: operation.revision, commandId },
+        context,
+      );
+      return;
+    }
+    case 'media_derivation': {
+      const mediaDerivations = dependencies.mediaDerivations;
+      if (mediaDerivations === undefined) {
+        throw new Error('Media Derivation cancellation authority is unavailable');
+      }
+      await mediaDerivations.continue({ dispatchOperationId: operation.id, commandId }, context);
+      return;
+    }
+    case 'result_assessment': {
+      const resultAssessments = dependencies.resultAssessments;
+      if (resultAssessments === undefined) {
+        throw new Error('Result Assessment cancellation authority is unavailable');
+      }
+      await resultAssessments.acknowledgeCancellation(
+        { operation, expectedRevision: operation.revision, commandId },
+        context,
+      );
+      return;
+    }
+    case 'review_cut_attempt':
+    case 'delivery_export': {
+      const deliveryOperations = dependencies.deliveryOperations;
+      if (deliveryOperations === undefined) {
+        throw new Error('Delivery cancellation authority is unavailable');
+      }
+      await deliveryOperations.acknowledgeCancellation(
+        { operation, expectedRevision: operation.revision, commandId },
+        context,
+      );
+      return;
+    }
+  }
+}
+
+async function collectOperationCancellationFailures(
+  dependencies: TargetRuntimeDependencies,
+  candidates: readonly PendingOperationCancellation[],
+): Promise<unknown[]> {
+  const failures: unknown[] = [];
+  for (const candidate of candidates) {
+    try {
+      await drainRequestedOperationCancellation(dependencies, candidate);
+    } catch (cause) {
+      if (cause instanceof TargetStorageError && cause.code === 'REVISION_CONFLICT') continue;
+      failures.push(cause);
+    }
+  }
+  return failures;
+}
+
+function throwOperationCancellationFailures(failures: readonly unknown[]): void {
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'One or more requested Operation cancellations failed');
+  }
+}
+
+async function drainKnownOperationCancellations(
+  dependencies: TargetRuntimeDependencies,
+  candidates: readonly PendingOperationCancellation[],
+): Promise<void> {
+  throwOperationCancellationFailures(
+    await collectOperationCancellationFailures(dependencies, candidates),
+  );
+}
+
+async function reportImmediateOperationCancellationFailures(
+  dependencies: TargetRuntimeDependencies,
+  drain: () => Promise<void>,
+): Promise<void> {
+  try {
+    await drain();
+  } catch (cause) {
+    try {
+      dependencies.onOperationCancellationError!(cause);
+    } catch {
+      // A host observer cannot retroactively fail a committed cancellation boundary.
+    }
+  }
+}
+
+/**
+ * Drives durable owner cancellation intent outside the mutation transaction.
+ * A later durable notification or process restart retries owners that remain nonterminal.
+ */
+export async function drainRequestedOperationCancellations(
+  dependencies: TargetRuntimeDependencies,
+  runIds: readonly string[] | null = null,
+): Promise<void> {
+  const operations = dependencies.operations;
+  if (operations === undefined) {
+    throw new Error('Operation cancellation drain requires operations');
+  }
+  const failures: unknown[] = [];
+  let afterOperationId: string | null = null;
+  do {
+    const page = operations.listCancellationRequested({ afterOperationId, limit: 100, runIds });
+    failures.push(...(await collectOperationCancellationFailures(dependencies, page.operations)));
+    afterOperationId = page.nextAfterOperationId;
+  } while (afterOperationId !== null);
+  throwOperationCancellationFailures(failures);
 }
 
 export interface RunTargetActivationInput {
@@ -455,11 +607,18 @@ export interface RunTargetActivationInput {
   readonly activationNumber: number;
   readonly limits: CanonicalModelRequestV1['limits'];
   readonly context: TargetCommandContext;
+  readonly signal?: AbortSignal;
 }
 
 type RunSchedulingAuthority = Pick<
   RunsAuthority,
-  'get' | 'listInbox' | 'listActivations' | 'transitionInbox' | 'startActivation'
+  | 'get'
+  | 'isSchedulingAllowed'
+  | 'listInbox'
+  | 'listActivations'
+  | 'transitionInbox'
+  | 'startActivation'
+  | 'terminalize'
 >;
 
 export interface RunCoordinatorDependencies extends TargetRuntimeDependencies {
@@ -480,7 +639,11 @@ export type RunCoordinationResult =
       readonly kind: 'deferred';
       readonly run: Run;
       readonly pendingInbox: RunInboxMessage | null;
-      readonly reason: 'active_activation' | 'run_not_running' | 'terminal_run_requires_new_root';
+      readonly reason:
+        | 'active_activation'
+        | 'paused_control_subtree'
+        | 'run_not_running'
+        | 'terminal_run_requires_new_root';
     }
   | {
       readonly kind: 'idle';
@@ -549,7 +712,9 @@ interface RuntimeToolCall {
 }
 
 type RuntimeModelBoundary =
-  { readonly kind: 'completed' } | ({ readonly kind: 'tool_call' } & RuntimeToolCall);
+  | { readonly kind: 'completed' }
+  | { readonly kind: 'failed' }
+  | ({ readonly kind: 'tool_call' } & RuntimeToolCall);
 
 interface CompletedModelAttemptResult {
   readonly kind: 'attempt';
@@ -562,6 +727,7 @@ interface CompletedModelAttemptResult {
 }
 
 type ModelAttemptResult =
+  | { readonly kind: 'aborted' }
   | { readonly kind: 'yielded' }
   | { readonly kind: 'spawned' }
   | { readonly kind: 'sent' }
@@ -644,12 +810,21 @@ async function responseFrom(
   model: TargetModelAdapter,
   request: CanonicalModelRequestV1,
   privateContext: PrivateModelContext,
-) {
+  signal?: AbortSignal,
+): Promise<CanonicalModelResponseV1 | null> {
+  if (signal?.aborted) return null;
   const events: ModelAdapterEvent[] = [];
-  for await (const event of model.stream(request, privateContext)) {
-    if (events.length === 10_000) throw new Error('Model Adapter exceeded 10,000 events');
-    events.push(parseCanonical(ModelAdapterEventSchema, event));
+  try {
+    for await (const event of model.stream(request, privateContext, signal)) {
+      if (signal?.aborted) return null;
+      if (events.length === 10_000) throw new Error('Model Adapter exceeded 10,000 events');
+      events.push(parseCanonical(ModelAdapterEventSchema, event));
+    }
+  } catch (cause) {
+    if (signal?.aborted) return null;
+    throw cause;
   }
+  if (signal?.aborted) return null;
   return parseCanonical(CanonicalModelResponseV1Schema, { version: 1, events });
 }
 
@@ -660,8 +835,20 @@ async function runModelAttempt(
   materializedTools: CanonicalModelRequestV1['materializedTools'],
   privateContext: PrivateModelContext,
 ): Promise<ModelAttemptResult> {
+  if (
+    input.signal?.aborted ||
+    !dependencies.persistence.isRunActivationActive(input.runId, input.activationNumber)
+  ) {
+    return { kind: 'aborted' };
+  }
   const request = requestFor(snapshot, input.limits, materializedTools);
-  const quote = await dependencies.model.quote(request, privateContext);
+  const quote = await dependencies.model.quote(request, privateContext, input.signal);
+  if (
+    input.signal?.aborted ||
+    !dependencies.persistence.isRunActivationActive(input.runId, input.activationNumber)
+  ) {
+    return { kind: 'aborted' };
+  }
   const preparation = dependencies.persistence.prepareModelBoundary(
     { request, quote, commandId: id('cmd') },
     input.context,
@@ -669,6 +856,12 @@ async function runModelAttempt(
   if (preparation.kind === 'yielded') return { kind: 'yielded' };
   const prepared = preparation.commit;
   const step = preparedModelStep(prepared);
+  if (
+    input.signal?.aborted ||
+    !dependencies.persistence.isRunActivationActive(input.runId, input.activationNumber)
+  ) {
+    return { kind: 'aborted' };
+  }
   dependencies.persistence.markModelAttemptRunning(
     {
       attemptId: prepared.value.id,
@@ -677,7 +870,13 @@ async function runModelAttempt(
     },
     input.context,
   );
-  const response = await responseFrom(dependencies.model, request, privateContext);
+  const response = await responseFrom(dependencies.model, request, privateContext, input.signal);
+  if (
+    response === null ||
+    !dependencies.persistence.isRunActivationActive(input.runId, input.activationNumber)
+  ) {
+    return { kind: 'aborted' };
+  }
   const boundary = runtimeModelBoundary(response, request);
   if (boundary.kind === 'tool_call' && boundary.call.toolId === AgentSpawnDefinition.id) {
     dependencies.persistence.settleAgentSpawnBoundary(
@@ -744,7 +943,8 @@ async function runModelAttempt(
     return { kind: 'resulted' };
   }
   if (boundary.kind === 'tool_call' && boundary.call.toolId === AgentCancelDefinition.id) {
-    dependencies.persistence.settleAgentCancelBoundary(
+    assertOperationCancellationDependencies(dependencies);
+    const settled = dependencies.persistence.settleAgentCancelBoundary(
       {
         attemptId: prepared.value.id,
         requestHash: prepared.value.requestHash,
@@ -756,6 +956,12 @@ async function runModelAttempt(
         settledAt: new Date().toISOString(),
       },
       input.context,
+    );
+    await reportImmediateOperationCancellationFailures(dependencies, () =>
+      drainRequestedOperationCancellations(
+        dependencies,
+        settled.value.result.children.map(({ child }) => child.childRunId),
+      ),
     );
     return { kind: 'cancelled' };
   }
@@ -924,7 +1130,8 @@ async function runModelAttempt(
     return { kind: 'canvas_mutated' };
   }
   if (boundary.kind === 'tool_call' && boundary.call.toolId === OperationCancelDefinition.id) {
-    dependencies.persistence.settleOperationCancelBoundary(
+    assertOperationCancellationDependencies(dependencies);
+    const settled = dependencies.persistence.settleOperationCancelBoundary(
       {
         attemptId: prepared.value.id,
         requestHash: prepared.value.requestHash,
@@ -936,6 +1143,12 @@ async function runModelAttempt(
         settledAt: new Date().toISOString(),
       },
       input.context,
+    );
+    await reportImmediateOperationCancellationFailures(dependencies, () =>
+      drainKnownOperationCancellations(
+        dependencies,
+        settled.value.result.operations.map(({ ref }) => ({ runId: input.runId, operation: ref })),
+      ),
     );
     return { kind: 'operation_cancelled' };
   }
@@ -1055,6 +1268,7 @@ function runtimeModelBoundary(
     assertFinalResponse(response);
     return { kind: 'completed' };
   }
+  if (terminal?.type === 'model_failed') return { kind: 'failed' };
   const toolCall = runtimeToolCall(response, request);
   return { kind: 'tool_call', ...toolCall };
 }
@@ -1087,12 +1301,11 @@ function continuesActivation(
   ) {
     throw new Error('Target runtime reloaded a different Run Activation');
   }
+  if (input.signal?.aborted) return false;
   if (snapshot.activation.state === 'ended') return false;
+  if (snapshot.run.status !== 'running') return false;
   if (snapshot.recoveryRequired) {
     throw new Error('Target runtime cannot continue across an unresolved recovery frontier');
-  }
-  if (snapshot.run.status !== 'running') {
-    throw new Error('An active Run Activation cannot have a non-running Run state');
   }
   return true;
 }
@@ -1619,8 +1832,37 @@ function settledAgentControlContinuation(snapshot: HarnessActivationSnapshot): b
 
 const AGENT_WAIT_POLL_INTERVAL_MS = 25;
 
-function waitForAgentWaitPoll(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+async function executeAbortableOwnerOperation<T>(
+  signal: AbortSignal | undefined,
+  operation: () => Promise<T>,
+): Promise<T | null> {
+  if (signal?.aborted) return null;
+  try {
+    const result = await operation();
+    return signal?.aborted ? null : result;
+  } catch (cause) {
+    if (signal?.aborted) return null;
+    throw cause;
+  }
+}
+
+function waitForAgentWaitPoll(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    };
+    const timeout = setTimeout(finish, milliseconds);
+    const abort = () => {
+      clearTimeout(timeout);
+      finish();
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+  });
 }
 
 async function executeAgentWaitBoundary(
@@ -1629,6 +1871,7 @@ async function executeAgentWaitBoundary(
   dispatchOperationId: string,
 ): Promise<void> {
   for (;;) {
+    if (input.signal?.aborted) return;
     const boundary = dependencies.persistence.loadAgentWaitBoundary(dispatchOperationId);
     if (boundary.dispatch.outcome !== null) return;
     if (boundary.parent.status !== 'running' || boundary.activation.state !== 'active') {
@@ -1646,7 +1889,10 @@ async function executeAgentWaitBoundary(
       );
       return;
     }
-    await waitForAgentWaitPoll(Math.min(AGENT_WAIT_POLL_INTERVAL_MS, boundary.remainingMs));
+    await waitForAgentWaitPoll(
+      Math.min(AGENT_WAIT_POLL_INTERVAL_MS, boundary.remainingMs),
+      input.signal,
+    );
   }
 }
 
@@ -1655,6 +1901,7 @@ async function executeDeliveryPreviewBoundary(
   input: RunTargetActivationInput,
   dispatchOperationId: string,
 ): Promise<void> {
+  if (input.signal?.aborted) return;
   const boundary = dependencies.persistence.loadDeliveryPreviewBoundary(dispatchOperationId);
   if (boundary.dispatch.outcome !== null) return;
   if (boundary.parent.status !== 'running' || boundary.activation.state !== 'active') return;
@@ -1665,8 +1912,8 @@ async function executeDeliveryPreviewBoundary(
   const request = DeliveryPreviewDefinition.parseInput(
     boundary.dispatch.key.input as Record<string, unknown>,
   );
-  const result = DeliveryPreviewDefinition.parseSuccess({
-    ...(await deliveryOperations.preview(
+  const ownerResult = await executeAbortableOwnerOperation(input.signal, () =>
+    deliveryOperations.preview(
       {
         runId: boundary.parent.id,
         commandId: id('cmd'),
@@ -1674,8 +1921,11 @@ async function executeDeliveryPreviewBoundary(
         dispatchOperationId,
       },
       input.context,
-    )),
-  });
+      input.signal,
+    ),
+  );
+  if (ownerResult === null) return;
+  const result = DeliveryPreviewDefinition.parseSuccess({ ...ownerResult });
   dependencies.persistence.settleDeliveryPreviewBoundary(
     {
       dispatchOperationId,
@@ -1693,6 +1943,7 @@ async function executeDeliveryExportBoundary(
   input: RunTargetActivationInput,
   dispatchOperationId: string,
 ): Promise<void> {
+  if (input.signal?.aborted) return;
   const boundary = dependencies.persistence.loadDeliveryExportBoundary(dispatchOperationId);
   if (boundary.dispatch.outcome !== null) return;
   if (
@@ -1709,8 +1960,8 @@ async function executeDeliveryExportBoundary(
   const request = DeliveryExportDefinition.parseInput(
     boundary.dispatch.key.input as Record<string, unknown>,
   );
-  const result = DeliveryExportDefinition.parseSuccess({
-    ...(await deliveryOperations.export(
+  const ownerResult = await executeAbortableOwnerOperation(input.signal, () =>
+    deliveryOperations.export(
       {
         runId: boundary.parent.id,
         commandId: id('cmd'),
@@ -1719,8 +1970,11 @@ async function executeDeliveryExportBoundary(
         dispatchOperationId,
       },
       input.context,
-    )),
-  });
+      input.signal,
+    ),
+  );
+  if (ownerResult === null) return;
+  const result = DeliveryExportDefinition.parseSuccess({ ...ownerResult });
   dependencies.persistence.settleDeliveryExportBoundary(
     {
       dispatchOperationId,
@@ -1738,6 +1992,7 @@ async function executeEvaluationRunBoundary(
   input: RunTargetActivationInput,
   dispatchOperationId: string,
 ): Promise<void> {
+  if (input.signal?.aborted) return;
   const boundary = dependencies.persistence.loadEvaluationRunBoundary(dispatchOperationId);
   if (boundary.dispatch.outcome !== null) return;
   if (boundary.parent.status !== 'running' || boundary.activation.state !== 'active') return;
@@ -1752,8 +2007,8 @@ async function executeEvaluationRunBoundary(
   const local = request.kind === 'technical_integrity' || request.kind === 'delivery_readiness';
   let result = boundary.result;
   if (result === null) {
-    result = EvaluationRunDefinition.parseSuccess(
-      await resultAssessments.start(
+    const started = await executeAbortableOwnerOperation(input.signal, () =>
+      resultAssessments.start(
         {
           runId: boundary.parent.id,
           commandId: id('cmd'),
@@ -1761,36 +2016,45 @@ async function executeEvaluationRunBoundary(
           dispatchOperationId,
         },
         input.context,
+        input.signal,
       ),
     );
+    if (started === null) return;
+    result = EvaluationRunDefinition.parseSuccess(started);
   }
-  if (!terminal(result.state)) {
-    const operation = parseCanonical(ResultAssessmentOperationRefSchema, result.operation);
+  const currentResult = result;
+  if (!terminal(currentResult.state)) {
+    const operation = parseCanonical(ResultAssessmentOperationRefSchema, currentResult.operation);
     const continuation = {
       operation,
       expectedRevision: operation.revision,
       commandId: id('cmd'),
     };
-    result = EvaluationRunDefinition.parseSuccess(
+    const continued = await executeAbortableOwnerOperation(input.signal, () =>
       local
-        ? await resultAssessments.executeLocal(continuation, input.context)
-        : result.state === 'unknown' || result.state === 'submitted'
-          ? await resultAssessments.reconcileProvider(continuation, input.context)
-          : await resultAssessments.submitProvider(continuation, input.context),
+        ? resultAssessments.executeLocal(continuation, input.context)
+        : currentResult.state === 'unknown' || currentResult.state === 'submitted'
+          ? resultAssessments.reconcileProvider(continuation, input.context, input.signal)
+          : resultAssessments.submitProvider(continuation, input.context, input.signal),
     );
+    if (continued === null) return;
+    result = EvaluationRunDefinition.parseSuccess(continued);
   }
   if (!local && !terminal(result.state)) {
     const operation = parseCanonical(ResultAssessmentOperationRefSchema, result.operation);
-    result = EvaluationRunDefinition.parseSuccess(
-      await resultAssessments.reconcileProvider(
+    const reconciled = await executeAbortableOwnerOperation(input.signal, () =>
+      resultAssessments.reconcileProvider(
         {
           operation,
           expectedRevision: operation.revision,
           commandId: id('cmd'),
         },
         input.context,
+        input.signal,
       ),
     );
+    if (reconciled === null) return;
+    result = EvaluationRunDefinition.parseSuccess(reconciled);
   }
   dependencies.persistence.settleEvaluationRunBoundary(
     {
@@ -1809,6 +2073,7 @@ async function executeGenerationSubmitBoundary(
   input: RunTargetActivationInput,
   dispatchOperationId: string,
 ): Promise<void> {
+  if (input.signal?.aborted) return;
   const boundary = dependencies.persistence.loadGenerationSubmitBoundary(dispatchOperationId);
   if (boundary.dispatch.outcome !== null) return;
   if (boundary.parent.status !== 'running' || boundary.activation.state !== 'active') return;
@@ -1816,8 +2081,8 @@ async function executeGenerationSubmitBoundary(
   if (generation === undefined) throw new Error('generation.submit requires GenerationAuthority');
   let result = boundary.result;
   if (result === null) {
-    result = GenerationSubmitDefinition.parseSuccess(
-      await generation.submit(
+    const submitted = await executeAbortableOwnerOperation(input.signal, () =>
+      generation.submit(
         {
           runId: boundary.parent.id,
           commandId: id('cmd'),
@@ -1827,21 +2092,27 @@ async function executeGenerationSubmitBoundary(
           dispatchOperationId,
         },
         input.context,
+        input.signal,
       ),
     );
+    if (submitted === null) return;
+    result = GenerationSubmitDefinition.parseSuccess(submitted);
   }
   if (!['succeeded', 'failed', 'cancelled'].includes(result.state)) {
     const operation = parseCanonical(GenerationOperationRefSchema, result.operation);
-    result = GenerationSubmitDefinition.parseSuccess(
-      await generation.reconcile(
+    const reconciled = await executeAbortableOwnerOperation(input.signal, () =>
+      generation.reconcile(
         {
           operation,
           expectedRevision: operation.revision,
           commandId: id('cmd'),
         },
         input.context,
+        input.signal,
       ),
     );
+    if (reconciled === null) return;
+    result = GenerationSubmitDefinition.parseSuccess(reconciled);
   }
   dependencies.persistence.settleGenerationSubmitBoundary(
     {
@@ -1860,6 +2131,7 @@ async function executeMediaDeriveBoundary(
   input: RunTargetActivationInput,
   dispatchOperationId: string,
 ): Promise<void> {
+  if (input.signal?.aborted) return;
   const boundary = dependencies.persistence.loadMediaDeriveBoundary(dispatchOperationId);
   if (boundary.dispatch.outcome !== null) return;
   if (boundary.parent.status !== 'running' || boundary.activation.state !== 'active') return;
@@ -1868,21 +2140,30 @@ async function executeMediaDeriveBoundary(
     throw new Error('media.derive requires MediaDerivationsAuthority');
   }
   if (boundary.result === null) {
-    await mediaDerivations.start(
-      {
-        runId: boundary.parent.id,
-        commandId: id('cmd'),
-        input: MediaDeriveDefinition.parseInput(
-          boundary.dispatch.key.input as Record<string, unknown>,
-        ),
-        dispatchOperationId,
-      },
-      input.context,
+    const started = await executeAbortableOwnerOperation(input.signal, () =>
+      mediaDerivations.start(
+        {
+          runId: boundary.parent.id,
+          commandId: id('cmd'),
+          input: MediaDeriveDefinition.parseInput(
+            boundary.dispatch.key.input as Record<string, unknown>,
+          ),
+          dispatchOperationId,
+        },
+        input.context,
+      ),
     );
+    if (started === null) return;
   }
-  const result = MediaDeriveDefinition.parseSuccess(
-    await mediaDerivations.continue({ dispatchOperationId, commandId: id('cmd') }, input.context),
+  const continued = await executeAbortableOwnerOperation(input.signal, () =>
+    mediaDerivations.continue(
+      { dispatchOperationId, commandId: id('cmd') },
+      input.context,
+      input.signal,
+    ),
   );
+  if (continued === null) return;
+  const result = MediaDeriveDefinition.parseSuccess(continued);
   dependencies.persistence.settleMediaDeriveBoundary(
     {
       dispatchOperationId,
@@ -2216,6 +2497,9 @@ async function runTargetActivationWithPrivateContext(
       materializedTools,
       currentPrivateContext,
     );
+    if (attempt.kind === 'aborted') {
+      return dependencies.persistence.loadActivation(input.runId, input.activationNumber);
+    }
     if (attempt.kind === 'yielded') {
       return dependencies.persistence.loadActivation(input.runId, input.activationNumber);
     }
@@ -2310,7 +2594,7 @@ async function runTargetActivationWithPrivateContext(
       currentPrivateContext = dependencies.persistence.materializePrivateModelContext(input.runId);
       continue;
     }
-    if (attempt.boundary.kind === 'completed') {
+    if (attempt.boundary.kind === 'completed' || attempt.boundary.kind === 'failed') {
       return dependencies.persistence.loadActivation(input.runId, input.activationNumber);
     }
 
@@ -2463,6 +2747,42 @@ function terminalRun(run: Run): boolean {
   );
 }
 
+function terminalModelFailure(
+  snapshot: HarnessActivationSnapshot,
+): Extract<ModelAdapterEvent, { readonly type: 'model_failed' }> | null {
+  const terminal = snapshot.modelAttempts.at(-1)?.response?.events.at(-1);
+  return terminal?.type === 'model_failed' ? terminal : null;
+}
+
+function terminalizeModelFailure(
+  dependencies: Pick<RunCoordinatorDependencies, 'persistence' | 'runs'>,
+  snapshot: HarnessActivationSnapshot,
+  context: TargetCommandContext,
+): HarnessActivationSnapshot | null {
+  const failure = terminalModelFailure(snapshot);
+  if (
+    failure === null ||
+    failure.typedCode === 'process_interrupted' ||
+    (failure.typedCode === 'cancelled' && failure.providerState !== 'terminal') ||
+    snapshot.run.status !== 'running' ||
+    snapshot.activation.state !== 'active'
+  ) {
+    return null;
+  }
+  const run = dependencies.runs.terminalize(
+    {
+      runId: snapshot.run.id,
+      expectedRevision: snapshot.run.revision,
+      status: failure.typedCode === 'cancelled' ? 'cancelled' : 'failed',
+      summary: `Model attempt failed: ${failure.typedCode}.`,
+      resultIds: [],
+      commandId: id('cmd'),
+    },
+    context,
+  );
+  return dependencies.persistence.loadActivation(run.id, snapshot.activation.activationNumber);
+}
+
 function assertRunCoordinatorInput(input: CoordinateRunInput): string {
   const runId = parseCanonical(EntityIdSchema, input.runId);
   if (
@@ -2482,11 +2802,27 @@ export async function coordinateRun(
   const runId = assertRunCoordinatorInput(input);
   let run = coordinatorRun(dependencies.runs, runId);
   let pendingInbox = coordinatorInbox(dependencies.runs, runId);
+  if (!dependencies.runs.isSchedulingAllowed(runId)) {
+    return { kind: 'deferred', run, pendingInbox, reason: 'paused_control_subtree' };
+  }
   const active = dependencies.runs.listActivations(runId).filter(({ state }) => state === 'active');
   if (active.length > 1) throw new Error(`Run ${runId} has multiple active Activations`);
   if (active.length === 1) {
     const activation = active[0]!;
     const snapshot = dependencies.persistence.loadActivation(runId, activation.activationNumber);
+    if (run.status !== 'accepted' && run.status !== 'running') {
+      return { kind: 'deferred', run, pendingInbox, reason: 'run_not_running' };
+    }
+    const failed = terminalizeModelFailure(dependencies, snapshot, input.context);
+    if (failed !== null) {
+      return {
+        kind: 'executed',
+        runId,
+        activationNumber: activation.activationNumber,
+        triggerInboxMessageId: activation.triggerInboxMessageId,
+        snapshot: failed,
+      };
+    }
     const program = unresolvedToolProgramDispatch(snapshot);
     const wait = unresolvedAgentWaitDispatch(snapshot);
     const preview = unresolvedDeliveryPreviewDispatch(snapshot);
@@ -2504,7 +2840,7 @@ export async function coordinateRun(
       mediaDerive !== null ||
       settledAgentControlContinuation(snapshot)
     ) {
-      const resumed = await runTargetActivationWithPrivateContext(
+      let resumed = await runTargetActivationWithPrivateContext(
         dependencies,
         {
           ...input,
@@ -2513,6 +2849,7 @@ export async function coordinateRun(
         },
         dependencies.persistence.materializePrivateModelContext(runId),
       );
+      resumed = terminalizeModelFailure(dependencies, resumed, input.context) ?? resumed;
       return {
         kind: 'executed',
         runId,
@@ -2521,7 +2858,25 @@ export async function coordinateRun(
         snapshot: resumed,
       };
     }
-    return { kind: 'deferred', run, pendingInbox, reason: 'active_activation' };
+    if (snapshot.recoveryRequired) {
+      return { kind: 'deferred', run, pendingInbox, reason: 'active_activation' };
+    }
+    const resumed = await runTargetActivationWithPrivateContext(
+      dependencies,
+      {
+        ...input,
+        runId,
+        activationNumber: activation.activationNumber,
+      },
+      dependencies.persistence.materializePrivateModelContext(runId),
+    );
+    return {
+      kind: 'executed',
+      runId,
+      activationNumber: activation.activationNumber,
+      triggerInboxMessageId: activation.triggerInboxMessageId,
+      snapshot: terminalizeModelFailure(dependencies, resumed, input.context) ?? resumed,
+    };
   }
   if (terminalRun(run)) {
     return pendingInbox === null
@@ -2556,7 +2911,7 @@ export async function coordinateRun(
       { runId, expectedRevision: run.revision, commandId: id('cmd') },
       input.context,
     );
-    const snapshot = await runTargetActivationWithPrivateContext(
+    let snapshot = await runTargetActivationWithPrivateContext(
       dependencies,
       {
         ...input,
@@ -2565,6 +2920,7 @@ export async function coordinateRun(
       },
       privateContext,
     );
+    snapshot = terminalizeModelFailure(dependencies, snapshot, input.context) ?? snapshot;
     const executed: RunCoordinationResult = {
       kind: 'executed',
       runId,

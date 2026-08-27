@@ -195,8 +195,7 @@ describe('I3 canonical runtime contracts', () => {
     expect(sha256(durableCanonicalModelResponseHashInput(durable))).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it('keeps a model agent.send direction out of the durable response shape', async () => {
-    const request = await requestFixture();
+  it('keeps a model agent.send direction out of the durable response shape', () => {
     const raw = CanonicalModelResponseV1Schema.parse({
       version: 1,
       events: [

@@ -59,6 +59,7 @@ describe('public wire v1', () => {
       'decision.record',
       'delivery.apply',
       'delivery.query',
+      'history.query',
       'interaction.answer',
       'media.global.import',
       'media.global.list',
@@ -67,6 +68,7 @@ describe('public wire v1', () => {
       'media.project.detach',
       'media.project.link',
       'media.project.list',
+      'media.preview.issue',
       'message.list',
       'message.send',
       'operation.cancel',
@@ -74,19 +76,24 @@ describe('public wire v1', () => {
       'os.export.pick',
       'os.media.pick',
       'overview.get',
+      'plugin.apply',
+      'plugin.query',
       'production.apply',
       'production.query',
+      'project.capabilities.get',
       'project.create',
       'project.get',
       'project.list',
       'project.settings.get',
       'project.settings.update',
       'project.update',
+      'result.query',
       'run.control',
       'run.events.list',
       'run.get',
       'run.sendFollowup',
     ]);
+    expect(Object.keys(PUBLIC_WIRE_METHODS_V1)).toHaveLength(45);
     expect(Object.isFrozen(PUBLIC_WIRE_METHODS_V1)).toBe(true);
     expect(PUBLIC_WIRE_METHODS_V1['operation.get'].inputSchema).toBe(OperationGetInputSchema);
     expect(PUBLIC_WIRE_METHODS_V1['operation.get'].outputSchema).toBe(OperationGetOutputSchema);
@@ -135,6 +142,197 @@ describe('public wire v1', () => {
         input: { projectId: 'project_1', legacyFallback: true },
       }),
     ).toThrow();
+  });
+
+  it('binds media preview capability requests to current Project Media or Result identities', () => {
+    const preview = PUBLIC_WIRE_METHODS_V1['media.preview.issue'];
+    const projectMedia = {
+      projectId: 'project_1',
+      source: {
+        kind: 'project_media_ref' as const,
+        ref: {
+          authority: 'project_media_ref' as const,
+          id: 'media_1',
+          revision: 2,
+          contentHash: HASH_A,
+        },
+      },
+    };
+    expect(preview.inputSchema.safeParse(projectMedia).success).toBe(true);
+    expect(
+      preview.inputSchema.safeParse({
+        projectId: 'project_1',
+        source: {
+          kind: 'generated_result',
+          result: {
+            authority: 'generated_result',
+            id: 'result_1',
+            revision: 0,
+            contentHash: HASH_A,
+          },
+          artifact: {
+            kind: 'video',
+            id: 'result_1',
+            contentHash: HASH_B,
+            mimeType: 'video/mp4',
+            width: 1920,
+            height: 1080,
+            durationMs: 1000,
+          },
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      preview.inputSchema.safeParse({
+        projectId: 'project_1',
+        source: {
+          kind: 'generated_result',
+          result: {
+            authority: 'generated_result',
+            id: 'result_1',
+            revision: 0,
+            contentHash: HASH_A,
+          },
+          artifact: {
+            kind: 'document',
+            id: 'result_1',
+            contentHash: HASH_B,
+            mimeType: 'application/pdf',
+            width: null,
+            height: null,
+            durationMs: null,
+          },
+        },
+      }).success,
+    ).toBe(false);
+
+    const grant = {
+      url: 'lucid-target-media://preview/cap_RandomOpaqueValue_1234567890',
+      expiresAt: '2026-08-25T12:30:00.000Z',
+      kind: 'video',
+      mimeType: 'video/mp4',
+    };
+    expect(preview.outputSchema.safeParse(grant).success).toBe(true);
+    expect(
+      preview.outputSchema.safeParse({ ...grant, path: 'C:\\private\\media.mp4' }).success,
+    ).toBe(false);
+    expect(preview.outputSchema.safeParse({ ...grant, hash: HASH_A }).success).toBe(false);
+  });
+
+  it('keeps Result and History reads explicitly project-scoped', () => {
+    expect(
+      PUBLIC_WIRE_METHODS_V1['result.query'].inputSchema.safeParse({
+        projectId: 'project_1',
+        query: {
+          resultIds: [],
+          requestIds: [],
+          targetRefs: [],
+          include: [],
+          page: { cursor: null, limit: 20 },
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      PUBLIC_WIRE_METHODS_V1['history.query'].inputSchema.safeParse({
+        projectId: 'project_1',
+        order: 'reverse_chronological',
+        query: {
+          sources: [],
+          eventTypes: [],
+          subjects: [],
+          actors: [],
+          time: { from: null, to: null },
+          page: { cursor: null, limit: 20 },
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      PUBLIC_WIRE_METHODS_V1['history.query'].inputSchema.safeParse({
+        projectId: 'project_1',
+        query: {
+          sources: [],
+          eventTypes: [],
+          subjects: [],
+          actors: [],
+          time: { from: null, to: null },
+          page: { cursor: null, limit: 20 },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      PUBLIC_WIRE_METHODS_V1['result.query'].inputSchema.safeParse({
+        projectId: 'project_1',
+        resultIds: [],
+        requestIds: [],
+        targetRefs: [],
+        include: [],
+        page: { cursor: null, limit: 20 },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('exposes only safe project capability summaries', () => {
+    const method = PUBLIC_WIRE_METHODS_V1['project.capabilities.get'];
+    expect(method.inputSchema.safeParse({ projectId: 'project_1' }).success).toBe(true);
+
+    const result = {
+      projectId: 'project_1',
+      providers: [
+        {
+          id: 'provider_1',
+          displayName: 'Local provider',
+          providerKind: 'image',
+          model: 'model_1',
+          status: 'ready',
+          revision: 1,
+        },
+      ],
+      skills: [
+        {
+          id: 'skill_1',
+          name: 'Storyboard',
+          description: 'Creates storyboard directions.',
+          version: '1.0.0',
+          contentHash: HASH_A,
+          provenance: 'built_in',
+          trust: 'trusted',
+          eligibility: 'available',
+          quarantineReason: null,
+          pluginPackage: null,
+        },
+      ],
+    };
+    expect(method.outputSchema.safeParse(result).success).toBe(true);
+    expect(
+      method.outputSchema.safeParse({
+        ...result,
+        providers: [{ ...result.providers[0], credentialHandle: 'keychain://secret' }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts only manifest-bound Plugin package management commands', () => {
+    const apply = PUBLIC_WIRE_METHODS_V1['plugin.apply'];
+    expect(
+      apply.inputSchema.safeParse({
+        action: 'install',
+        packageId: 'plugin.storyboard',
+        version: '1.0.0',
+        manifestHash: HASH_A,
+        expectedInstallationRevision: null,
+      }).success,
+    ).toBe(true);
+    expect(
+      apply.inputSchema.safeParse({
+        action: 'install',
+        packageId: 'plugin.storyboard',
+        version: '1.0.0',
+        manifestHash: HASH_A,
+        expectedInstallationRevision: null,
+        manifest: {},
+      }).success,
+    ).toBe(false);
+    expect(PUBLIC_WIRE_METHODS_V1['plugin.query'].inputSchema.safeParse({}).success).toBe(true);
   });
 
   it('rejects an accessor without invoking it', () => {
@@ -215,6 +413,160 @@ describe('public wire v1', () => {
         },
       }),
     ).toThrow();
+  });
+
+  it.each([
+    'C:\\Users\\alice\\Private\\shot.png',
+    '/Users/alice/Private/shot.png',
+    'folder/shot.png',
+    'folder\\shot.png',
+    'C:private-shot.png',
+    'shot\u0000.png',
+    'shot\u001f.png',
+    'shot\u007f.png',
+    '.',
+    '..',
+  ])('rejects picker labels that are not safe leaf display names: %s', (displayLabel) => {
+    expect(() =>
+      parseResponseV1({
+        wireVersion: 1,
+        kind: 'success',
+        requestId: 'request_picker_label',
+        method: 'os.media.pick',
+        result: {
+          capabilityToken: 'cap_1234567890abcdefgh',
+          displayLabel,
+          expiresAt: '2026-08-15T12:30:00.000Z',
+        },
+      }),
+    ).toThrow();
+  });
+
+  it('keeps export destination grants structured, scoped to a Chat, and out of message content', () => {
+    const request = parseRequestV1({
+      wireVersion: 1,
+      kind: 'request',
+      requestId: 'request_export_picker',
+      method: 'os.export.pick',
+      input: {
+        chatId: 'chat_1',
+        projectId: 'project_1',
+        deliveryPlan: {
+          authority: 'delivery',
+          id: 'delivery_1',
+          revision: 2,
+          contentHash: HASH_B,
+        },
+        destination: 'file',
+        suggestedFileName: 'movie.mp4',
+        allowedExtensions: ['mp4'],
+      },
+    });
+    expect(request.method).toBe('os.export.pick');
+
+    const selected = parseResponseV1({
+      wireVersion: 1,
+      kind: 'success',
+      requestId: 'request_export_picker',
+      method: 'os.export.pick',
+      result: {
+        state: 'selected',
+        grant: {
+          destination: {
+            kind: 'user_selected_file',
+            grantId: 'grant_1',
+            grantHash: HASH_A,
+            displayLabel: 'movie.mp4',
+            projectId: 'project_1',
+            deliveryPlan: {
+              authority: 'delivery',
+              id: 'delivery_1',
+              revision: 2,
+              contentHash: HASH_B,
+            },
+            allowedExtensions: ['mp4'],
+          },
+          expiresAt: '2026-08-15T12:30:00.000Z',
+        },
+      },
+    });
+    expect(selected.kind).toBe('success');
+    expect(
+      parseResponseV1({
+        wireVersion: 1,
+        kind: 'success',
+        requestId: 'request_export_picker_cancelled',
+        method: 'os.export.pick',
+        result: { state: 'cancelled' },
+      }).kind,
+    ).toBe('success');
+    expect(() =>
+      parseResponseV1({
+        wireVersion: 1,
+        kind: 'success',
+        requestId: 'request_export_picker_raw_token',
+        method: 'os.export.pick',
+        result: {
+          state: 'selected',
+          grant: {
+            destination: {
+              kind: 'user_selected_file',
+              grantId: 'grant_1',
+              grantHash: HASH_A,
+              displayLabel: 'movie.mp4',
+              projectId: 'project_1',
+              deliveryPlan: {
+                authority: 'delivery',
+                id: 'delivery_1',
+                revision: 2,
+                contentHash: HASH_B,
+              },
+              allowedExtensions: ['mp4'],
+            },
+            expiresAt: '2026-08-15T12:30:00.000Z',
+            capabilityToken: 'cap_secret_should_not_cross_wire',
+          },
+        },
+      }),
+    ).toThrow();
+
+    const destinationGrant =
+      selected.kind === 'success' && selected.method === 'os.export.pick'
+        ? selected.result.state === 'selected'
+          ? selected.result.grant
+          : null
+        : null;
+    const messageInput = {
+      chatId: 'chat_1',
+      blocks: [{ type: 'text' as const, text: 'Export the approved cut.' }],
+      attachments: [],
+      selectedContext: [],
+      supersedesMessageId: null,
+      exportDestinationGrant: destinationGrant,
+    };
+    expect(PUBLIC_WIRE_METHODS_V1['message.send'].inputSchema.safeParse(messageInput).success).toBe(
+      true,
+    );
+    const { exportDestinationGrant: _grant, ...messageWithoutGrant } = messageInput;
+    expect(
+      PUBLIC_WIRE_METHODS_V1['message.send'].inputSchema.safeParse(messageWithoutGrant).success,
+    ).toBe(false);
+
+    const followupInput = {
+      runId: 'run_1',
+      expectedRevision: 1,
+      text: 'Export the approved cut.',
+      selectedContext: [],
+      exportDestinationGrant: destinationGrant,
+    };
+    expect(
+      PUBLIC_WIRE_METHODS_V1['run.sendFollowup'].inputSchema.safeParse(followupInput).success,
+    ).toBe(true);
+    const { exportDestinationGrant: _followupGrant, ...followupWithoutGrant } = followupInput;
+    expect(
+      PUBLIC_WIRE_METHODS_V1['run.sendFollowup'].inputSchema.safeParse(followupWithoutGrant)
+        .success,
+    ).toBe(false);
   });
 
   it('binds destructive confirmations to the exact immutable input', () => {
@@ -458,7 +810,13 @@ describe('public wire v1', () => {
       },
       {
         method: 'run.sendFollowup',
-        input: { runId: 'run_1', expectedRevision: 3, text: 'Continue', selectedContext: [] },
+        input: {
+          runId: 'run_1',
+          expectedRevision: 3,
+          text: 'Continue',
+          selectedContext: [],
+          exportDestinationGrant: null,
+        },
       },
       {
         method: 'media.global.remove',

@@ -46,6 +46,10 @@ export interface TargetWireErrorDescriptor {
 }
 
 export interface TargetWireRouterOptions<Invocation> {
+  readonly authorizeInvocation: (
+    request: WireRequestV1,
+    invocation: Invocation,
+  ) => boolean | Promise<boolean>;
   readonly contextForRequest: (
     request: WireRequestV1,
     invocation: Invocation,
@@ -223,6 +227,9 @@ export function createTargetWireRouter<Invocation>(
 
       let context: TargetCommandContext | undefined;
       try {
+        if (!(await options.authorizeInvocation(request, invocation))) {
+          throw new TargetWirePublicError({ code: 'permission_denied', retryable: false });
+        }
         context = await options.contextForRequest(request, invocation);
         const handler = handlers[request.method] as (
           request: WireRequestV1,

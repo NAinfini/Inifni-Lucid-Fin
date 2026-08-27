@@ -38,6 +38,14 @@ generation_attempts
 generation_requests
 global_media_assets
 global_media_folders
+imported_history_batches
+imported_history_records
+imported_run_attachment_history
+imported_run_event_history
+imported_run_history
+imported_run_scope_history
+imported_task_item_history
+imported_task_list_history
 media_blobs
 media_derivation_attempts
 media_derivation_outputs
@@ -46,7 +54,13 @@ message_attachments
 message_payloads
 messages
 model_attempts
+plugin_audit_events
+plugin_installations
+plugin_package_skills
+plugin_packages
 private_recovery_envelopes
+production_collection_members
+production_collections
 production_fact_sources
 production_objects
 production_protections
@@ -104,12 +118,23 @@ idx_generation_attempts_state
 idx_generation_requests_run
 idx_global_media_assets_blob
 idx_global_media_folders_parent_order_name
+idx_imported_history_batches_source
+idx_imported_history_records_project_occurred
+idx_imported_run_events_run_sequence
+idx_imported_runs_project_accepted
+idx_imported_task_items_list_order
+idx_imported_task_lists_project_updated
 idx_media_derivation_attempts_state
 idx_media_derivations_run
 idx_message_attachments_media
 idx_messages_project_created
 idx_model_attempts_run
+idx_plugin_audit_events_package
+idx_plugin_installations_state
+idx_plugin_package_skills_skill
 idx_private_recovery_run
+idx_production_collection_members_object
+idx_production_collections_parent_order
 idx_production_fact_sources_object
 idx_production_objects_project_type
 idx_production_protections_object
@@ -159,9 +184,9 @@ uniq_shot_selected_result
   .trim()
   .split('\n');
 
-const EXPECTED_FOREIGN_KEY_COUNT = 189;
+const EXPECTED_FOREIGN_KEY_COUNT = 268;
 const EXPECTED_FOREIGN_KEY_HASH =
-  '43ef2ab3b1b5e6314c469c3a7bd9d6efd3090b16fd049d4ee1bdef0ba293e88a';
+  '99b27f5e32d321fe20e8cd5dc1aad70d8f56ba7575cfcdf71349d85e3621fe5f';
 
 interface NameRow {
   name: string;
@@ -287,6 +312,150 @@ describe('project-v1 DDL', () => {
         )?.on_delete,
       ).toBe('RESTRICT');
     } finally {
+      db.close();
+    }
+  });
+
+  it('requires exactly one Assistant Message origin and no User Message origin', async () => {
+    const { db } = await openDatabase();
+    try {
+      db.exec('PRAGMA foreign_keys = OFF');
+      const insertMessage = db.prepare(
+        `INSERT INTO messages (
+           id, project_id, chat_id, sequence, role, status, originating_run_id,
+           originating_imported_run_id, content_hash, supersedes_message_id, created_at
+         ) VALUES (?, 'project.1', 'chat.1', ?, ?, ?, ?, ?, ?, NULL, ?)`,
+      );
+      expect(() =>
+        insertMessage.run(
+          'message.imported-origin',
+          1,
+          'assistant',
+          'completed',
+          null,
+          'imported-run.1',
+          HASH_A,
+          NOW,
+        ),
+      ).not.toThrow();
+      expect(() =>
+        insertMessage.run(
+          'message.no-origin',
+          2,
+          'assistant',
+          'completed',
+          null,
+          null,
+          HASH_A,
+          NOW,
+        ),
+      ).toThrow();
+      expect(() =>
+        insertMessage.run(
+          'message.two-origins',
+          3,
+          'assistant',
+          'completed',
+          'run.1',
+          'imported-run.1',
+          HASH_A,
+          NOW,
+        ),
+      ).toThrow();
+      expect(() =>
+        insertMessage.run(
+          'message.user-origin',
+          4,
+          'user',
+          'accepted',
+          null,
+          'imported-run.1',
+          HASH_A,
+          NOW,
+        ),
+      ).toThrow();
+    } finally {
+      db.close();
+    }
+  });
+
+  it('keeps imported-history lineage inside its owning batch and Project', async () => {
+    const { db } = await openDatabase();
+    try {
+      expect(foreignKeys(db)).toEqual(
+        expect.arrayContaining([
+          'imported_run_event_history.batch_id->imported_run_history.batch_id',
+          'imported_run_event_history.run_id->imported_run_history.id',
+          'imported_run_scope_history.batch_id->imported_run_history.batch_id',
+          'imported_run_scope_history.run_id->imported_run_history.id',
+          'imported_run_attachment_history.batch_id->imported_run_history.batch_id',
+          'imported_run_attachment_history.run_id->imported_run_history.id',
+          'imported_task_item_history.task_list_id->imported_task_item_history.task_list_id',
+          'imported_task_item_history.parent_item_id->imported_task_item_history.id',
+          'imported_history_records.batch_id->imported_history_records.batch_id',
+          'imported_history_records.project_id->imported_history_records.project_id',
+          'imported_history_records.parent_record_id->imported_history_records.id',
+          'production_collection_members.collection_id->production_collections.id',
+          'production_collection_members.import_batch_id->production_collections.import_batch_id',
+        ]),
+      );
+    } finally {
+      db.close();
+    }
+  });
+
+  it('allows an imported Run direct child to share its root and parent identity', async () => {
+    const { db } = await openDatabase();
+    try {
+      db.prepare(
+        `INSERT INTO projects (
+           id, name, lifecycle, schema_revision, revision, content_hash,
+           created_by_kind, created_by_id, created_at, updated_at, archived_at, deleted_at
+         ) VALUES ('project.imported', 'Imported', 'active', 1, 0, ?, 'import', 'batch.imported', ?, ?, NULL, NULL)`,
+      ).run(HASH_A, NOW, NOW);
+      db.prepare(
+        `INSERT INTO imported_history_batches (
+           id, source_schema_id, source_snapshot_hash, classification_hash, plan_hash,
+           offline_evidence_manifest_hash, reconciliation_hash, created_at
+         ) VALUES ('batch.imported', 'legacy.v1', ?, ?, ?, NULL, ?, ?)`,
+      ).run(HASH_A, HASH_A, HASH_A, HASH_A, NOW);
+      const insertRun = db.prepare(
+        `INSERT INTO imported_run_history (
+           id, batch_id, legacy_run_id, project_id, chat_id, legacy_session_id,
+           root_run_id, parent_run_id, retry_of_run_id, work_type, display_name,
+           intent, objective, status, accepted_at, started_at, finished_at,
+           last_sequence, source_payload_v1_json, source_payload_hash, created_at
+         ) VALUES (?, 'batch.imported', ?, 'project.imported', NULL, 'session.imported',
+                   ?, ?, NULL, 'agent', NULL, 'Imported work', NULL, 'completed',
+                   ?, ?, ?, 1, '{}', ?, ?)`,
+      );
+
+      expect(() => {
+        db.exec('BEGIN');
+        insertRun.run('run.root', 'legacy.root', 'run.root', null, NOW, NOW, NOW, HASH_A, NOW);
+        insertRun.run(
+          'run.child',
+          'legacy.child',
+          'run.root',
+          'run.root',
+          NOW,
+          NOW,
+          NOW,
+          HASH_A,
+          NOW,
+        );
+        db.exec('COMMIT');
+      }).not.toThrow();
+      expect(
+        db
+          .prepare('SELECT id, root_run_id, parent_run_id FROM imported_run_history ORDER BY id')
+          .all(),
+      ).toEqual([
+        { id: 'run.child', root_run_id: 'run.root', parent_run_id: 'run.root' },
+        { id: 'run.root', root_run_id: 'run.root', parent_run_id: null },
+      ]);
+    } finally {
+      if (db.isTransaction) db.exec('ROLLBACK');
       db.close();
     }
   });

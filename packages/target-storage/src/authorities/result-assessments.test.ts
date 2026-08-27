@@ -252,6 +252,7 @@ function harness(
         blocks: [{ type: 'text', text: 'Assess the opening shot.' }],
         attachments: [],
         selectedContext: [],
+        exportDestinationGrant: null,
         supersedesMessageId: null,
       },
     },

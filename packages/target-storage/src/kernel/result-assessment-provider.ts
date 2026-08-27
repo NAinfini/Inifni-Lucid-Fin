@@ -66,7 +66,7 @@ export type ResultAssessmentProviderState =
     })
   | (ResultAssessmentProviderStateCommon & { readonly state: 'cancelled' });
 
-export interface ResultAssessmentProviderSubmitRequest extends ResultAssessmentProviderQuoteRequest {}
+export type ResultAssessmentProviderSubmitRequest = ResultAssessmentProviderQuoteRequest;
 
 export interface ResultAssessmentProviderReconcileRequest {
   readonly idempotencyKey: string;
