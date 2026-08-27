@@ -15,7 +15,7 @@ import {
   installArchivePlatform,
   loadManifest,
   smokeTestPayload,
-  verifyPayload,
+  verifyInstalledPlatform,
   type PlatformKey,
 } from './ffmpeg-artifacts.ts';
 
@@ -108,16 +108,16 @@ async function main(): Promise<void> {
   }
 
   if (options.verifyOnly) {
-    await verifyPayload(destination, platform);
+    await verifyInstalledPlatform(platformKey, destination, platform);
   } else {
-    await installArchivePlatform(platform, destination, {
+    await installArchivePlatform(platformKey, platform, destination, {
       ...(options.archivePath ? { archivePath: options.archivePath } : {}),
     });
   }
 
   const canRunNatively = platformKey === currentPlatformKey();
   if (!options.skipSmoke && canRunNatively) {
-    await smokeTestPayload(destination, manifest.version, platform);
+    await smokeTestPayload(platformKey, destination, manifest.version, platform);
     console.log('Payload checksum and native smoke checks passed.');
   } else if (!options.skipSmoke) {
     console.log('Payload checksums passed; native smoke skipped for cross-architecture target.');

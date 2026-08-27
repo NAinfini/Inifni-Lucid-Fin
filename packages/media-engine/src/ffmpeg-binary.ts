@@ -34,6 +34,10 @@ function binaryFilename(name: FfmpegBinaryName, platform: NodeJS.Platform): stri
   return platform === 'win32' ? `${name}.exe` : name;
 }
 
+function bundledBinaryFilename(name: FfmpegBinaryName, platform: NodeJS.Platform): string {
+  return platform === 'linux' ? `${name}-launcher` : binaryFilename(name, platform);
+}
+
 /**
  * Resolves an explicit override first, then a verified bundled payload.
  * Packaged applications fail closed when their payload is missing; only development may use PATH.
@@ -53,6 +57,7 @@ export function resolveFfmpegBinary(
 
   const platform = getPlatformKey(platformName, arch);
   const filename = binaryFilename(name, platformName);
+  const bundledFilename = bundledBinaryFilename(name, platformName);
 
   if (resourcesPath) {
     if (!platform) {
@@ -61,13 +66,13 @@ export function resolveFfmpegBinary(
           `Supported: ${SUPPORTED_PLATFORMS.join(', ')}`,
       );
     }
-    const bundledPath = join(resourcesPath, 'bin', platform, 'bin', filename);
+    const bundledPath = join(resourcesPath, 'bin', platform, 'bin', bundledFilename);
     if (existsSync(bundledPath)) return bundledPath;
     throw new Error(`Bundled ${name} binary is missing: ${bundledPath}`);
   }
 
   if (platform) {
-    const developmentPath = join(cwd, 'resources', 'bin', platform, 'bin', filename);
+    const developmentPath = join(cwd, 'resources', 'bin', platform, 'bin', bundledFilename);
     if (existsSync(developmentPath)) return developmentPath;
   }
 

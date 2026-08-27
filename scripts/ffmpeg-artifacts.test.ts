@@ -12,6 +12,7 @@ import {
   installArchivePlatform,
   loadManifest,
   validateManifest,
+  verifyInstalledPlatform,
   verifyPayload,
   type FfmpegManifest,
   type PlatformArchive,
@@ -283,13 +284,74 @@ describe('installArchivePlatform', () => {
     await mkdir(destination);
     await writeFile(join(destination, 'stale.txt'), 'stale');
 
-    await installArchivePlatform(platform, destination, { archivePath });
+    await installArchivePlatform('win32-x64', platform, destination, { archivePath });
 
     await expect(readFile(join(destination, 'bin', 'ffmpeg.exe'), 'utf8')).resolves.toBe('ok');
     await expect(readFile(join(destination, 'bin', 'ffprobe.exe'), 'utf8')).resolves.toBe('ok');
     await expect(readFile(join(destination, 'stale.txt'), 'utf8')).rejects.toMatchObject({
       code: 'ENOENT',
     });
+  });
+
+  it('generates and verifies child-scoped Linux library launchers', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'ffmpeg-linux-install-test-'));
+    temporaryDirectories.push(directory);
+    const archiveSource = join(directory, 'archive-source');
+    const archiveRoot = join(archiveSource, 'ffmpeg-8.1.2');
+    await mkdir(join(archiveRoot, 'bin'), { recursive: true });
+    await mkdir(join(archiveRoot, 'lib'), { recursive: true });
+    await writeFile(join(archiveRoot, 'bin', 'ffmpeg'), 'ffmpeg');
+    await writeFile(join(archiveRoot, 'bin', 'ffprobe'), 'ffprobe');
+    await writeFile(join(archiveRoot, 'lib', 'libavdevice.so.62'), 'library');
+
+    const archivePath = join(directory, 'payload.tar');
+    await execFileAsync('tar', ['-cf', archivePath, '-C', archiveSource, 'ffmpeg-8.1.2']);
+    const platform = archivePlatform({
+      archive: {
+        url: 'https://github.com/example/releases/download/ffmpeg-8.1.2/payload.tar',
+        sha256: await computeSha256(archivePath),
+        root: 'ffmpeg-8.1.2',
+      },
+      commands: { ffmpeg: 'bin/ffmpeg', ffprobe: 'bin/ffprobe' },
+      files: [
+        {
+          source: 'bin/ffmpeg',
+          destination: 'bin/ffmpeg',
+          sha256: sha256('ffmpeg'),
+          size: 6,
+          executable: true,
+        },
+        {
+          source: 'bin/ffprobe',
+          destination: 'bin/ffprobe',
+          sha256: sha256('ffprobe'),
+          size: 7,
+          executable: true,
+        },
+        {
+          source: 'lib/libavdevice.so.62',
+          destination: 'lib/libavdevice.so.62',
+          sha256: sha256('library'),
+          size: 7,
+        },
+      ],
+    });
+    const destination = join(directory, 'installed');
+
+    await installArchivePlatform('linux-x64', platform, destination, { archivePath });
+
+    const launcherPath = join(destination, 'bin', 'ffmpeg-launcher');
+    const launcher = await readFile(launcherPath, 'utf8');
+    expect(launcher).toContain('LD_LIBRARY_PATH="$lf_library_dir:$LD_LIBRARY_PATH"');
+    expect(launcher).toContain('exec "$lf_launcher_dir/ffmpeg" "$@"');
+    await expect(
+      verifyInstalledPlatform('linux-x64', destination, platform),
+    ).resolves.toBeUndefined();
+
+    await writeFile(launcherPath, '#!/bin/sh\nexit 0\n');
+    await expect(verifyInstalledPlatform('linux-x64', destination, platform)).rejects.toThrow(
+      /launcher content is invalid/i,
+    );
   });
 });
 
@@ -306,6 +368,28 @@ describe('repository manifest', () => {
     expect(manifest.platforms['linux-x64']).toMatchObject({ kind: 'archive' });
     expect(manifest.platforms['darwin-x64']).toMatchObject({ kind: 'source-build' });
     expect(manifest.platforms['darwin-arm64']).toMatchObject({ kind: 'source-build' });
+  });
+});
+
+describe('macOS source-build downloads', () => {
+  it('bounds retries and connection time for transient source-host failures', async () => {
+    const script = await readFile(join(import.meta.dirname, 'build-ffmpeg-macos-lgpl.sh'), 'utf8');
+    const functionStart = script.indexOf('lf_download() {');
+    const functionEnd = script.indexOf('\n}\n', functionStart);
+    const downloadFunction = script.slice(functionStart, functionEnd);
+
+    expect(functionStart).toBeGreaterThanOrEqual(0);
+    expect(functionEnd).toBeGreaterThan(functionStart);
+    expect(downloadFunction).toContain('--fail');
+    expect(downloadFunction).toContain('--retry 3');
+    expect(downloadFunction).toContain('--retry-delay 2');
+    expect(downloadFunction).toContain('--retry-max-time 60');
+    expect(downloadFunction).toContain('--connect-timeout 20');
+    expect(downloadFunction).toContain('--max-time 300');
+    expect(downloadFunction).not.toContain('--retry-all-errors');
+    expect(downloadFunction.indexOf('curl \\')).toBeLessThan(
+      downloadFunction.indexOf('shasum -a 256 --check'),
+    );
   });
 });
 

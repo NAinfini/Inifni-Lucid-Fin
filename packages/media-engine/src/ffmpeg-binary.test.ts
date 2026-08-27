@@ -28,7 +28,12 @@ describe('resolveFfmpegBinary', () => {
   it('returns production bundled path when resourcesPath is set and binary exists', () => {
     (process as unknown as Record<string, unknown>).resourcesPath = '/app/resources';
     const platform = `${process.platform}-${process.arch}`;
-    const expectedFilename = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+    const expectedFilename =
+      process.platform === 'win32'
+        ? 'ffmpeg.exe'
+        : process.platform === 'linux'
+          ? 'ffmpeg-launcher'
+          : 'ffmpeg';
     const expectedPath = path.join('/app/resources', 'bin', platform, 'bin', expectedFilename);
 
     existsSyncMock.mockImplementation((p) => p === expectedPath);
@@ -36,9 +41,77 @@ describe('resolveFfmpegBinary', () => {
     expect(resolveFfmpegBinary('ffmpeg')).toBe(expectedPath);
   });
 
+  it('resolves the bundled Linux launcher without mutating the parent environment', () => {
+    const resourcesPath = '/app/resources';
+    const payloadPath = path.join(resourcesPath, 'bin', 'linux-x64');
+    const expectedPath = path.join(payloadPath, 'bin', 'ffmpeg-launcher');
+    const env: NodeJS.ProcessEnv = { LD_LIBRARY_PATH: '/system/lib' };
+
+    existsSyncMock.mockImplementation((candidate) => candidate === expectedPath);
+
+    const context = {
+      platform: 'linux' as const,
+      arch: 'x64',
+      resourcesPath,
+      env,
+    };
+    expect(resolveFfmpegBinary('ffmpeg', context)).toBe(expectedPath);
+    expect(env.LD_LIBRARY_PATH).toBe('/system/lib');
+  });
+
+  it('leaves the Linux library path unchanged for an explicit binary override', () => {
+    const env: NodeJS.ProcessEnv = {
+      FFMPEG_PATH: '/custom/ffmpeg',
+      LD_LIBRARY_PATH: '/system/lib',
+    };
+
+    expect(
+      resolveFfmpegBinary('ffmpeg', {
+        platform: 'linux',
+        arch: 'x64',
+        resourcesPath: '/app/resources',
+        env,
+      }),
+    ).toBe('/custom/ffmpeg');
+    expect(env.LD_LIBRARY_PATH).toBe('/system/lib');
+  });
+
+  it('keeps a custom FFmpeg isolated when FFprobe uses the bundled Linux launcher', () => {
+    const resourcesPath = '/app/resources';
+    const expectedProbe = path.join(resourcesPath, 'bin', 'linux-x64', 'bin', 'ffprobe-launcher');
+    const env: NodeJS.ProcessEnv = {
+      FFMPEG_PATH: '/custom/ffmpeg',
+      LD_LIBRARY_PATH: '/system/lib',
+    };
+    existsSyncMock.mockImplementation((candidate) => candidate === expectedProbe);
+
+    expect(
+      resolveFfmpegBinary('ffmpeg', {
+        platform: 'linux',
+        arch: 'x64',
+        resourcesPath,
+        env,
+      }),
+    ).toBe('/custom/ffmpeg');
+    expect(
+      resolveFfmpegBinary('ffprobe', {
+        platform: 'linux',
+        arch: 'x64',
+        resourcesPath,
+        env,
+      }),
+    ).toBe(expectedProbe);
+    expect(env.LD_LIBRARY_PATH).toBe('/system/lib');
+  });
+
   it('returns dev resources path when resourcesPath is not set but local binary exists', () => {
     const platform = `${process.platform}-${process.arch}`;
-    const expectedFilename = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+    const expectedFilename =
+      process.platform === 'win32'
+        ? 'ffmpeg.exe'
+        : process.platform === 'linux'
+          ? 'ffmpeg-launcher'
+          : 'ffmpeg';
     const expectedPath = path.join(
       process.cwd(),
       'resources',

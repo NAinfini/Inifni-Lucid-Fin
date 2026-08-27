@@ -78,7 +78,18 @@ lf_download() {
   local lf_sha256="$2"
   local lf_filename="$3"
   local lf_path="$LF_DOWNLOADS/$lf_filename"
-  curl --fail --location --proto '=https' --tlsv1.2 --output "$lf_path" "$lf_url"
+  curl \
+    --fail \
+    --location \
+    --retry 3 \
+    --retry-delay 2 \
+    --retry-max-time 60 \
+    --connect-timeout 20 \
+    --max-time 300 \
+    --proto '=https' \
+    --tlsv1.2 \
+    --output "$lf_path" \
+    "$lf_url"
   printf '%s  %s\n' "$lf_sha256" "$lf_path" | shasum -a 256 --check
 }
 

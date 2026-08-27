@@ -4,6 +4,16 @@
 
 ---
 
+## 0.0.10 — 2026-08-27
+
+### Fixed
+
+- Configured the verified bundled Linux FFmpeg library directory for both release smoke checks and packaged runtime child processes.
+- Added bounded retries and connection/transfer limits for transient failures while downloading checksum-pinned macOS FFmpeg build inputs.
+- Isolated the Legacy Electron and Target browser Playwright suites so each runs with its required harness configuration.
+
+---
+
 ## 0.0.9 — 2026-08-26
 
 ### Release scope

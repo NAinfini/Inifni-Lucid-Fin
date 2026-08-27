@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
-import { chmod, lstat, mkdir, readFile, rename, rm } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { basename, dirname, join, posix, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -424,7 +424,81 @@ export interface InstallArchiveOptions {
   archivePath?: string;
 }
 
+const LINUX_COMMANDS = ['ffmpeg', 'ffprobe'] as const;
+
+function linuxLauncherPath(directory: string, command: (typeof LINUX_COMMANDS)[number]): string {
+  return join(directory, 'bin', `${command}-launcher`);
+}
+
+function linuxLauncherContent(command: (typeof LINUX_COMMANDS)[number]): string {
+  return `#!/bin/sh
+set -eu
+
+lf_launcher_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+lf_library_dir="$lf_launcher_dir/../lib"
+if [ -n "\${LD_LIBRARY_PATH:-}" ]; then
+  export LD_LIBRARY_PATH="$lf_library_dir:$LD_LIBRARY_PATH"
+else
+  export LD_LIBRARY_PATH="$lf_library_dir"
+fi
+exec "$lf_launcher_dir/${command}" "$@"
+`;
+}
+
+function assertLinuxCommandLayout(platform: PlatformArchive): void {
+  for (const command of LINUX_COMMANDS) {
+    const expected = `bin/${command}`;
+    if (platform.commands[command] !== expected) {
+      throw new Error(`Linux ${command} command must be ${expected}`);
+    }
+  }
+}
+
+async function installLinuxLaunchers(directory: string, platform: PlatformArchive): Promise<void> {
+  assertLinuxCommandLayout(platform);
+  for (const command of LINUX_COMMANDS) {
+    const launcher = linuxLauncherPath(directory, command);
+    await writeFile(launcher, linuxLauncherContent(command), {
+      encoding: 'utf8',
+      flag: 'wx',
+      mode: 0o755,
+    });
+    await chmod(launcher, 0o755);
+  }
+}
+
+async function verifyLinuxLaunchers(directory: string, platform: PlatformArchive): Promise<void> {
+  assertLinuxCommandLayout(platform);
+  const libraryMetadata = await lstat(join(directory, 'lib'));
+  if (!libraryMetadata.isDirectory() || libraryMetadata.isSymbolicLink()) {
+    throw new Error(`Linux FFmpeg library directory is invalid: ${join(directory, 'lib')}`);
+  }
+  for (const command of LINUX_COMMANDS) {
+    const launcher = linuxLauncherPath(directory, command);
+    const [content, metadata] = await Promise.all([readFile(launcher, 'utf8'), lstat(launcher)]);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      throw new Error(`Linux ${command} launcher must be a regular file: ${launcher}`);
+    }
+    if (content !== linuxLauncherContent(command)) {
+      throw new Error(`Linux ${command} launcher content is invalid: ${launcher}`);
+    }
+    if (process.platform !== 'win32' && (metadata.mode & 0o111) === 0) {
+      throw new Error(`Linux ${command} launcher is not executable: ${launcher}`);
+    }
+  }
+}
+
+export async function verifyInstalledPlatform(
+  platformKey: PlatformKey,
+  directory: string,
+  platform: PlatformArchive,
+): Promise<void> {
+  await verifyPayload(directory, platform);
+  if (platformKey === 'linux-x64') await verifyLinuxLaunchers(directory, platform);
+}
+
 export async function installArchivePlatform(
+  platformKey: PlatformKey,
   platform: PlatformArchive,
   destination: string,
   options: InstallArchiveOptions = {},
@@ -457,7 +531,8 @@ export async function installArchivePlatform(
       if (file.executable && process.platform !== 'win32') await chmod(outputPath, 0o755);
     }
 
-    await verifyPayload(staging, platform);
+    if (platformKey === 'linux-x64') await installLinuxLaunchers(staging, platform);
+    await verifyInstalledPlatform(platformKey, staging, platform);
     await replaceDirectoryAtomically(staging, destination);
   } finally {
     if (await pathExists(staging)) await rm(staging, { recursive: true, force: true });
@@ -477,12 +552,19 @@ async function runCommand(path: string, args: string[]): Promise<string> {
 }
 
 export async function smokeTestPayload(
+  platformKey: PlatformKey,
   directory: string,
   version: string,
   platform: PlatformArchive,
 ): Promise<void> {
-  const ffmpeg = payloadPath(directory, platform.commands.ffmpeg);
-  const ffprobe = payloadPath(directory, platform.commands.ffprobe);
+  const ffmpeg =
+    platformKey === 'linux-x64'
+      ? linuxLauncherPath(directory, 'ffmpeg')
+      : payloadPath(directory, platform.commands.ffmpeg);
+  const ffprobe =
+    platformKey === 'linux-x64'
+      ? linuxLauncherPath(directory, 'ffprobe')
+      : payloadPath(directory, platform.commands.ffprobe);
   const [versionOutput, buildConfig, encoders, probeVersion] = await Promise.all([
     runCommand(ffmpeg, ['-version']),
     runCommand(ffmpeg, ['-hide_banner', '-buildconf']),
