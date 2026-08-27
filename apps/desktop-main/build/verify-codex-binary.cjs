@@ -18,19 +18,10 @@ function normalizeArch(value) {
   return { 0: 'ia32', 1: 'x64', 2: 'armv7l', 3: 'arm64', 4: 'universal' }[value];
 }
 
-/** @param {import('electron-builder').AfterPackContext} context */
-module.exports = async function verifyCodexBinary(context) {
-  const platform = context.electronPlatformName;
-  const arch = normalizeArch(context.arch);
-  const target = targets[`${platform}-${arch}`];
-  if (!target) {
-    throw new Error(`Unsupported Codex package target: ${platform}-${String(arch)}`);
-  }
-
+function resolveCodexBinaryPath(context, target) {
   const [packageName, triple, executable] = target;
-  const binaryPath = path.join(
-    context.appOutDir,
-    'resources',
+  return path.join(
+    context.packager.getResourcesDir(context.appOutDir),
     'app.asar.unpacked',
     'node_modules',
     ...packageName.split('/'),
@@ -39,6 +30,18 @@ module.exports = async function verifyCodexBinary(context) {
     'bin',
     executable,
   );
+}
+
+/** @param {import('electron-builder').AfterPackContext} context */
+async function verifyCodexBinary(context) {
+  const platform = context.electronPlatformName;
+  const arch = normalizeArch(context.arch);
+  const target = targets[`${platform}-${arch}`];
+  if (!target) {
+    throw new Error(`Unsupported Codex package target: ${platform}-${String(arch)}`);
+  }
+
+  const binaryPath = resolveCodexBinaryPath(context, target);
   const stat = fs.statSync(binaryPath);
   if (!stat.isFile()) throw new Error(`Bundled Codex binary is not a file: ${binaryPath}`);
 
@@ -50,4 +53,7 @@ module.exports = async function verifyCodexBinary(context) {
   if (!new RegExp(`\\b${EXPECTED_VERSION.replaceAll('.', '\\.')}\\b`).test(output)) {
     throw new Error(`Bundled Codex version mismatch: expected ${EXPECTED_VERSION}, received ${output}`);
   }
-};
+}
+
+module.exports = verifyCodexBinary;
+module.exports.resolveCodexBinaryPath = resolveCodexBinaryPath;

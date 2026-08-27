@@ -4,6 +4,14 @@
 
 ---
 
+## 0.0.13 — 2026-08-27
+
+### Fixed
+
+- Resolved packaged resources through electron-builder's platform-aware directory so macOS release verification checks inside the application bundle.
+
+---
+
 ## 0.0.12 — 2026-08-27
 
 ### Fixed

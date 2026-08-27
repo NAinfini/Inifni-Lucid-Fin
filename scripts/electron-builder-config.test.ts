@@ -1,6 +1,9 @@
 import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+const require = createRequire(import.meta.url);
 
 describe('electron-builder release identity', () => {
   it('uses Linux-safe executable and Debian package names without renaming other platforms', async () => {
@@ -38,5 +41,49 @@ describe('electron-builder release identity', () => {
       '@openai/codex-win32-arm64': 'npm:@openai/codex@0.145.0-win32-arm64',
       '@openai/codex-win32-x64': 'npm:@openai/codex@0.145.0-win32-x64',
     });
+  });
+
+  it('resolves packaged resources through electron-builder on every platform', async () => {
+    const hookPath = join(
+      import.meta.dirname,
+      '..',
+      'apps',
+      'desktop-main',
+      'build',
+      'verify-codex-binary.cjs',
+    );
+    const hook = require(hookPath) as {
+      resolveCodexBinaryPath: (
+        context: {
+          appOutDir: string;
+          packager: { getResourcesDir: (appOutDir: string) => string };
+        },
+        target: readonly [string, string, string],
+      ) => string;
+    };
+    const appOutDir = join('release', 'mac-arm64');
+    const resourcesDir = join(appOutDir, 'Lucid Fin.app', 'Contents', 'Resources');
+    const getResourcesDir = vi.fn(() => resourcesDir);
+
+    const binaryPath = hook.resolveCodexBinaryPath({ appOutDir, packager: { getResourcesDir } }, [
+      '@openai/codex-darwin-arm64',
+      'aarch64-apple-darwin',
+      'codex',
+    ]);
+
+    expect(getResourcesDir).toHaveBeenCalledWith(appOutDir);
+    expect(binaryPath).toBe(
+      join(
+        resourcesDir,
+        'app.asar.unpacked',
+        'node_modules',
+        '@openai',
+        'codex-darwin-arm64',
+        'vendor',
+        'aarch64-apple-darwin',
+        'bin',
+        'codex',
+      ),
+    );
   });
 });

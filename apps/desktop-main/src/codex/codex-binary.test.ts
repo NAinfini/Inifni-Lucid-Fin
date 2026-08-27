@@ -58,6 +58,13 @@ describe('Codex binary resolution', () => {
     expect(mapAsarToUnpacked('C:\\app\\resources\\app.asar\\native.exe')).toBe(
       'C:\\app\\resources\\app.asar.unpacked\\native.exe',
     );
+    expect(
+      mapAsarToUnpacked(
+        '/release/mac-arm64/Lucid Fin.app/Contents/Resources/app.asar/node_modules/native',
+      ),
+    ).toBe(
+      '/release/mac-arm64/Lucid Fin.app/Contents/Resources/app.asar.unpacked/node_modules/native',
+    );
   });
 
   it('rejects an optional package that does not match the pinned Codex version', () => {
