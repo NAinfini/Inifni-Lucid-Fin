@@ -4,6 +4,14 @@
 
 ---
 
+## 0.0.14 — 2026-08-27
+
+### Fixed
+
+- Allowed macOS VideoToolbox encoders to use their software implementation when a hardware compression session is unavailable, both in release verification and runtime transcoding.
+
+---
+
 ## 0.0.13 — 2026-08-27
 
 ### Fixed

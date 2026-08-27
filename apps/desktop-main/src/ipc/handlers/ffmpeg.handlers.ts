@@ -106,10 +106,18 @@ export function registerFfmpegHandlers(ipcMain: IpcMain): void {
 
       if (args.options?.videoCodec && typeof args.options.videoCodec === 'string') {
         const requestedCodec = args.options.videoCodec.toLowerCase();
-        if (requestedCodec === 'h264' || requestedCodec === 'libx264') {
-          cmd.videoCodec(getLgplVideoCodecConfig('h264').encoder);
-        } else if (requestedCodec === 'h265' || requestedCodec === 'libx265') {
-          cmd.videoCodec(getLgplVideoCodecConfig('h265').encoder);
+        const lgplCodec =
+          requestedCodec === 'h264' || requestedCodec === 'libx264'
+            ? 'h264'
+            : requestedCodec === 'h265' || requestedCodec === 'libx265'
+              ? 'h265'
+              : undefined;
+        if (lgplCodec) {
+          const codecConfig = getLgplVideoCodecConfig(lgplCodec);
+          cmd.videoCodec(codecConfig.encoder);
+          if (codecConfig.outputOptions.length > 0) {
+            cmd.addOutputOptions(codecConfig.outputOptions);
+          }
         } else {
           cmd.videoCodec(args.options.videoCodec);
         }

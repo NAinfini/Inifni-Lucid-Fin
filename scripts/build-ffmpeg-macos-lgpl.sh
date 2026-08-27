@@ -376,7 +376,7 @@ printf '1\n00:00:00,000 --> 00:00:00,900\nLucid Fin\n' > "$LF_SMOKE_SUBTITLE"
   -hide_banner -loglevel error -y \
   -f lavfi -i 'color=c=black:s=64x64:d=1' \
   -vf "subtitles=$LF_SMOKE_SUBTITLE" \
-  -an -c:v h264_videotoolbox -pix_fmt yuv420p \
+  -an -c:v h264_videotoolbox -allow_sw 1 -pix_fmt yuv420p \
   "$LF_SMOKE_VIDEO"
 "$LF_STAGING/bin/ffprobe" \
   -v error -select_streams v:0 -show_entries stream=codec_name \

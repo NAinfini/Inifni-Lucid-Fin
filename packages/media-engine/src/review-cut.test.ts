@@ -20,11 +20,7 @@ vi.mock('node:fs', () => ({
   existsSync: existsSyncMock,
 }));
 
-import {
-  buildReviewCutCommandPlan,
-  renderReviewCut,
-  type ReviewCutInput,
-} from './review-cut.js';
+import { buildReviewCutCommandPlan, renderReviewCut, type ReviewCutInput } from './review-cut.js';
 
 function makeInput(): ReviewCutInput {
   return {
@@ -63,7 +59,10 @@ function makeInput(): ReviewCutInput {
 describe('buildReviewCutCommandPlan', () => {
   beforeEach(() => {
     codecConfigMock.mockReset();
-    codecConfigMock.mockReturnValue({ encoder: 'test-h264', outputOptions: ['-b:v 8M'] });
+    codecConfigMock.mockReturnValue({
+      encoder: 'test-h264',
+      outputOptions: ['-allow_sw 1', '-b:v 8M'],
+    });
   });
 
   it('builds one normalized hard-cut graph with source audio or matching silence per video', () => {
@@ -84,13 +83,12 @@ describe('buildReviewCutCommandPlan', () => {
     expect(plan.filterComplex).not.toContain('[1:a]');
     expect(plan.filterComplex).not.toContain('[2:a]');
     expect(plan.filterComplex.match(/anullsrc=r=48000:cl=stereo/g)).toHaveLength(2);
-    expect(plan.filterComplex).toContain(
-      '[v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1[vout][aout]',
-    );
+    expect(plan.filterComplex).toContain('[v0][a0][v1][a1][v2][a2]concat=n=3:v=1:a=1[vout][aout]');
     expect(plan.outputOptions).toEqual([
       '-map [vout]',
       '-map [aout]',
       '-c:v test-h264',
+      '-allow_sw 1',
       '-b:v 8M',
       '-pix_fmt yuv420p',
       '-c:a aac',
@@ -141,13 +139,14 @@ describe('renderReviewCut', () => {
     existsSyncMock.mockReset();
     codecConfigMock.mockReset();
     existsSyncMock.mockReturnValue(true);
-    codecConfigMock.mockReturnValue({ encoder: 'test-h264', outputOptions: ['-b:v 8M'] });
+    codecConfigMock.mockReturnValue({
+      encoder: 'test-h264',
+      outputOptions: ['-allow_sw 1', '-b:v 8M'],
+    });
   });
 
   it('runs the canonical command with progress and cancellation wiring', async () => {
-    let progressListener:
-      | ((progress: { percent?: number; timemark: string }) => void)
-      | undefined;
+    let progressListener: ((progress: { percent?: number; timemark: string }) => void) | undefined;
     const command = {
       input: vi.fn().mockReturnThis(),
       on: vi.fn().mockImplementation((event, listener) => {

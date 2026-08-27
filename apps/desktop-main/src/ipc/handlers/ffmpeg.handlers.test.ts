@@ -52,7 +52,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   createCommandMock.mockReset();
   getLgplVideoCodecConfigMock.mockReset();
-  getLgplVideoCodecConfigMock.mockReturnValue({ encoder: 'test-lgpl-h264', outputOptions: [] });
+  getLgplVideoCodecConfigMock.mockReturnValue({
+    encoder: 'test-lgpl-h264',
+    outputOptions: ['-allow_sw 1'],
+  });
   runCommandMock.mockClear();
 });
 
@@ -74,7 +77,7 @@ describe('registerFfmpegHandlers', () => {
           output,
           options: {
             audioCodec: 'aac',
-            outputOptions: ['-movflags', '+faststart'],
+            outputOptions: ['-allow_sw 0', '-movflags', '+faststart'],
             videoCodec: 'libx264',
           },
         },
@@ -85,8 +88,35 @@ describe('registerFfmpegHandlers', () => {
     expect(getLgplVideoCodecConfigMock).toHaveBeenCalledWith('h264');
     expect(command.videoCodec).toHaveBeenCalledWith('test-lgpl-h264');
     expect(command.audioCodec).toHaveBeenCalledWith('aac');
-    expect(command.addOutputOptions).toHaveBeenCalledWith(['-movflags']);
+    expect(command.addOutputOptions).toHaveBeenNthCalledWith(1, ['-allow_sw 1']);
+    expect(command.addOutputOptions).toHaveBeenNthCalledWith(2, ['-movflags']);
     expect(command.output).toHaveBeenCalledWith(output);
     expect(runCommandMock).toHaveBeenCalledWith(command);
+  });
+
+  it('applies trusted LGPL encoder options to H.265 aliases', async () => {
+    vi.spyOn(fs, 'existsSync').mockReturnValue(true);
+    const command = makeCommand();
+    createCommandMock.mockReturnValue(command);
+    getLgplVideoCodecConfigMock.mockReturnValue({
+      encoder: 'test-lgpl-hevc',
+      outputOptions: ['-allow_sw 1'],
+    });
+    const transcode = registerHandlers().get('ffmpeg:transcode');
+
+    await expect(
+      transcode?.(
+        {},
+        {
+          input: path.join(os.tmpdir(), 'input.mp4'),
+          output: path.join(os.tmpdir(), 'output.mp4'),
+          options: { videoCodec: 'libx265' },
+        },
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(getLgplVideoCodecConfigMock).toHaveBeenCalledWith('h265');
+    expect(command.videoCodec).toHaveBeenCalledWith('test-lgpl-hevc');
+    expect(command.addOutputOptions).toHaveBeenCalledWith(['-allow_sw 1']);
   });
 });

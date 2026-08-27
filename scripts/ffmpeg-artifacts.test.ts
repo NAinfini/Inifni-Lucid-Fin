@@ -421,6 +421,17 @@ describe('macOS source-build downloads', () => {
     expect(workDirectory).toBeGreaterThan(normalization);
     expect(cleanupGuard).toBeGreaterThan(workDirectory);
   });
+
+  it('allows the VideoToolbox smoke encode to use its software implementation', async () => {
+    const script = await readFile(join(import.meta.dirname, 'build-ffmpeg-macos-lgpl.sh'), 'utf8');
+    const smokeStart = script.indexOf('LF_SMOKE_VIDEO=');
+    const checksumStart = script.indexOf('SHA256SUMS', smokeStart);
+    const smoke = script.slice(smokeStart, checksumStart);
+
+    expect(smokeStart).toBeGreaterThanOrEqual(0);
+    expect(checksumStart).toBeGreaterThan(smokeStart);
+    expect(smoke).toContain('-c:v h264_videotoolbox -allow_sw 1 -pix_fmt yuv420p');
+  });
 });
 
 async function createDarwinFixture(platformKey: DarwinPlatformKey): Promise<{

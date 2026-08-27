@@ -13,18 +13,32 @@ export interface LgplVideoCodecConfig {
   outputOptions: string[];
 }
 
-const PLATFORM_ENCODERS: Record<'darwin' | 'win32' | 'linux', Record<LgplVideoCodec, string>> = {
+interface PlatformCodecConfig {
+  encoders: Record<LgplVideoCodec, string>;
+  outputOptions: string[];
+}
+
+const PLATFORM_CODECS: Record<'darwin' | 'win32' | 'linux', PlatformCodecConfig> = {
   darwin: {
-    h264: 'h264_videotoolbox',
-    h265: 'hevc_videotoolbox',
+    encoders: {
+      h264: 'h264_videotoolbox',
+      h265: 'hevc_videotoolbox',
+    },
+    outputOptions: ['-allow_sw 1'],
   },
   win32: {
-    h264: 'libopenh264',
-    h265: 'libkvazaar',
+    encoders: {
+      h264: 'libopenh264',
+      h265: 'libkvazaar',
+    },
+    outputOptions: [],
   },
   linux: {
-    h264: 'libopenh264',
-    h265: 'libkvazaar',
+    encoders: {
+      h264: 'libopenh264',
+      h265: 'libkvazaar',
+    },
+    outputOptions: [],
   },
 };
 
@@ -44,9 +58,9 @@ export function getLgplVideoCodecConfig(
   options: LgplVideoCodecOptions = {},
 ): LgplVideoCodecConfig {
   const platform = options.platform ?? process.platform;
-  const encoders = PLATFORM_ENCODERS[platform as keyof typeof PLATFORM_ENCODERS];
+  const platformConfig = PLATFORM_CODECS[platform as keyof typeof PLATFORM_CODECS];
 
-  if (!encoders) {
+  if (!platformConfig) {
     throw new Error(`Unsupported platform for bundled LGPL video encoding: ${platform}`);
   }
 
@@ -54,7 +68,10 @@ export function getLgplVideoCodecConfig(
     options.bitrate ?? (options.quality ? QUALITY_BITRATES[options.quality] : undefined);
 
   return {
-    encoder: encoders[codec],
-    outputOptions: bitrate === undefined ? [] : [`-b:v ${bitrate}`],
+    encoder: platformConfig.encoders[codec],
+    outputOptions: [
+      ...platformConfig.outputOptions,
+      ...(bitrate === undefined ? [] : [`-b:v ${bitrate}`]),
+    ],
   };
 }

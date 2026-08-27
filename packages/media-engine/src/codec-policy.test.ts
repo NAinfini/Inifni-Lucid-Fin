@@ -3,16 +3,16 @@ import { getLgplVideoCodecConfig } from './codec-policy.js';
 
 describe('getLgplVideoCodecConfig', () => {
   it.each([
-    ['darwin', 'h264', 'h264_videotoolbox'],
-    ['darwin', 'h265', 'hevc_videotoolbox'],
-    ['win32', 'h264', 'libopenh264'],
-    ['win32', 'h265', 'libkvazaar'],
-    ['linux', 'h264', 'libopenh264'],
-    ['linux', 'h265', 'libkvazaar'],
-  ] as const)('selects %s LGPL encoder for %s', (platform, codec, encoder) => {
+    ['darwin', 'h264', 'h264_videotoolbox', ['-allow_sw 1']],
+    ['darwin', 'h265', 'hevc_videotoolbox', ['-allow_sw 1']],
+    ['win32', 'h264', 'libopenh264', []],
+    ['win32', 'h265', 'libkvazaar', []],
+    ['linux', 'h264', 'libopenh264', []],
+    ['linux', 'h265', 'libkvazaar', []],
+  ] as const)('selects %s LGPL encoder for %s', (platform, codec, encoder, outputOptions) => {
     expect(getLgplVideoCodecConfig(codec, { platform })).toEqual({
       encoder,
-      outputOptions: [],
+      outputOptions,
     });
   });
 
@@ -35,7 +35,7 @@ describe('getLgplVideoCodecConfig', () => {
       }),
     ).toEqual({
       encoder: 'hevc_videotoolbox',
-      outputOptions: ['-b:v 50M'],
+      outputOptions: ['-allow_sw 1', '-b:v 50M'],
     });
   });
 
