@@ -89,13 +89,13 @@ would erase it. Any ordinary Target source drift during the operation also inval
 emitted-audit-root sets. The build writes no worktree `dist`, package, installer, or release and
 does not launch Electron.
 
-Two consecutive serial builds after every fixture worker stopped produced the same frozen evidence:
+Three consecutive serial builds after every fixture worker stopped produced the same frozen evidence:
 
-- closure SHA-256: `99ea33505b68d41e1c313ec8f3125c262588c4fe5047a70c7faf64a67e554113`;
-- input SHA-256: `f2dfc1ffc9d5a1c6e28527a5f3bb80b1ac65aeb54836e68f0e3a7c32594c3a41`;
-- metadata SHA-256: `6d91ce99a9e8b10f8e5af53734abad4ee683de89e3cb7c885c5e91e1b0f8e583`;
-- four runtime entrypoints, 186 emitted audit roots/closure files, 216 bound inputs, nine
-  configurations, and 714 emitted artifacts.
+- closure SHA-256: `a22bac8ae94d2328cb6eb274b1a535e55f569d9a3405f50316dbe3170f15bce9`;
+- input SHA-256: `9bda767fcf35a51c7db7536aa16fdbbed8645f1269c8a819d1de33a398a461c9`;
+- metadata SHA-256: `f672fe3e398b1c05f67704bb5eedad7f6802ece7f58d495d5ad8b5b043c3c22b`;
+- four runtime entrypoints, 187 emitted audit roots/closure files, 217 bound inputs, nine
+  configurations, and 718 emitted artifacts.
 
 The complete validation ledger and disposable migration evidence are in
 [`2026-08-25-i7-completion-evidence.md`](./2026-08-25-i7-completion-evidence.md).

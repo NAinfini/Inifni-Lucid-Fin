@@ -26,12 +26,12 @@ The real source paths and fingerprints are intentionally absent. Capturing them 
 user state and is therefore the first operation after Gate A approval, not preparation work.
 
 The reviewed I7 RC v3 evidence currently freezes closure
-`99ea33505b68d41e1c313ec8f3125c262588c4fe5047a70c7faf64a67e554113`, input
-`f2dfc1ffc9d5a1c6e28527a5f3bb80b1ac65aeb54836e68f0e3a7c32594c3a41`, and metadata
-`6d91ce99a9e8b10f8e5af53734abad4ee683de89e3cb7c885c5e91e1b0f8e583`. It contains four runtime
-entrypoints, 186 emitted audit roots/closure files, 216 bound inputs, nine configurations, and 714
-emitted artifacts. Any change requires the
-I7 RC checks and two-build determinism proof to be repeated before Gate A can use it.
+`a22bac8ae94d2328cb6eb274b1a535e55f569d9a3405f50316dbe3170f15bce9`, input
+`9bda767fcf35a51c7db7536aa16fdbbed8645f1269c8a819d1de33a398a461c9`, and metadata
+`f672fe3e398b1c05f67704bb5eedad7f6802ece7f58d495d5ad8b5b043c3c22b`. It contains four runtime
+entrypoints, 187 emitted audit roots/closure files, 217 bound inputs, nine configurations, and 718
+emitted artifacts. Any change requires the I7 RC checks and three-build determinism proof to be
+repeated before Gate A can use it.
 
 ## Gate A — maintenance and final-copy approval
 
