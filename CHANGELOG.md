@@ -4,6 +4,15 @@
 
 ---
 
+## 0.0.11 — 2026-08-27
+
+### Fixed
+
+- Set explicit Linux executable and package names so AppImage and Debian packaging do not inherit the scoped npm package name.
+- Canonicalized the macOS FFmpeg build root before dependency relocation so runner `TMPDIR` formatting cannot leave verified dylibs unbundled.
+
+---
+
 ## 0.0.10 — 2026-08-27
 
 ### Fixed

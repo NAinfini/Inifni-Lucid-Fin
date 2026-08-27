@@ -391,6 +391,25 @@ describe('macOS source-build downloads', () => {
       downloadFunction.indexOf('shasum -a 256 --check'),
     );
   });
+
+  it('normalizes TMPDIR before deriving relocatable dependency paths', async () => {
+    const script = await readFile(join(import.meta.dirname, 'build-ffmpeg-macos-lgpl.sh'), 'utf8');
+    const tempRoot = script.indexOf(`LF_TEMP_ROOT="\${TMPDIR:-/tmp}"`);
+    const normalization = script.indexOf(
+      'LF_TEMP_ROOT="$(cd "$LF_TEMP_ROOT" && pwd -P)"',
+      tempRoot,
+    );
+    const workDirectory = script.indexOf(
+      `LF_WORK="$(mktemp -d "\${LF_TEMP_ROOT%/}/lucid-fin-ffmpeg.XXXXXX")"`,
+      tempRoot,
+    );
+    const cleanupGuard = script.indexOf(`"\${LF_TEMP_ROOT%/}"/lucid-fin-ffmpeg.*)`, workDirectory);
+
+    expect(tempRoot).toBeGreaterThanOrEqual(0);
+    expect(normalization).toBeGreaterThan(tempRoot);
+    expect(workDirectory).toBeGreaterThan(normalization);
+    expect(cleanupGuard).toBeGreaterThan(workDirectory);
+  });
 });
 
 async function createDarwinFixture(platformKey: DarwinPlatformKey): Promise<{

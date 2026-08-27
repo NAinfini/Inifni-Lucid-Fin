@@ -55,7 +55,8 @@ case "$LF_MACHINE" in
 esac
 
 LF_TEMP_ROOT="${TMPDIR:-/tmp}"
-LF_WORK="$(mktemp -d "$LF_TEMP_ROOT/lucid-fin-ffmpeg.XXXXXX")"
+LF_TEMP_ROOT="$(cd "$LF_TEMP_ROOT" && pwd -P)"
+LF_WORK="$(mktemp -d "${LF_TEMP_ROOT%/}/lucid-fin-ffmpeg.XXXXXX")"
 LF_DOWNLOADS="$LF_WORK/downloads"
 LF_SOURCES="$LF_WORK/sources"
 LF_BUILDS="$LF_WORK/builds"
@@ -65,7 +66,7 @@ LF_STAGING="$LF_WORK/payload"
 
 lf_cleanup() {
   case "$LF_WORK" in
-    "$LF_TEMP_ROOT"/lucid-fin-ffmpeg.*) rm -rf -- "$LF_WORK" ;;
+    "${LF_TEMP_ROOT%/}"/lucid-fin-ffmpeg.*) rm -rf -- "$LF_WORK" ;;
     *) echo "Refusing unsafe temporary cleanup: $LF_WORK" >&2 ;;
   esac
 }
