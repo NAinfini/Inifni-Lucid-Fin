@@ -2,13 +2,40 @@
 
 ## Unreleased
 
+---
+
+## 0.0.9 — 2026-08-26
+
+### Release scope
+
+- The official installers continue to use the production Electron entry in `apps/desktop-main/src/electron.ts`.
+- Target/Harness RC v3 is included as a deterministic, source-verified candidate only. Real-data migration, production/native adapter composition, the official Target cutover, and Legacy disposal remain separately gated work and are not claimed by this release.
+
+### Highlights
+
+- Completed the disposable-scope Target/Harness RC v3 across target contracts, storage, runtime, task execution, Electron boundaries, and the responsive renderer.
+- Rebuilt persistent AI video production around durable operations, provider capabilities, result assessment, media generation, audio, review, and delivery flows.
+- Added Target browser E2E coverage for Project, Chat, Run, Media, Canvas, protected confirmation, cancellation, and Delivery journeys at desktop and mobile widths.
+
+### Added
+
+- Deterministic Legacy-to-Target migration rehearsal, reconciliation, offline export, imported-history isolation, browser-state sealing, and target-native replay on disposable stores.
+- Isolated Target Electron and renderer entrypoints, generated IPC/preload contracts, trusted renderer checks, opaque CAS-backed media previews, and private single-use export destination grants.
+- Codex app-server integration, production media services, provider OAuth and capability handling, persistent task lists, cancellation propagation, and recovery paths.
+
 ### Changed
 
 - Upgraded all direct stable dependencies except the intentionally frozen TypeScript 6.0.2 toolchain.
-- Standardized development and CI on Node 26.5.1 and npm 12.0.2, with Electron 43.2.0 and FFmpeg 8.1.2.
+- Standardized development and CI on Node 26.5.1 and pnpm 11.21.0, with Electron 43.2.0 and FFmpeg 8.1.2.
 - Updated GitHub Actions runtimes and artifact actions to their current stable majors.
-- Declared `package-lock.json` as the canonical dependency source and marked the retained pnpm lock as legacy and non-authoritative.
-- Hardened Electron 43 installation recovery and pinned npm 12 install-script approvals for native and packaging dependencies.
+- Declared `pnpm-lock.yaml` as the only install and CI dependency source of truth.
+- Hardened Electron 43 installation recovery and pinned native/package build approvals.
+
+### Fixed
+
+- Blocked renderer-controlled provider URLs from exfiltrating stored keys and made keychain write failures explicit.
+- Corrected macOS FFmpeg source linking and pinned verified FFmpeg 8.1.2 inputs for the five-platform release matrix.
+- Closed Target cancellation, media capability, migration cleanup, IPC baseline, lint, accessibility, and browser E2E gaps found during final frontend/backend review.
 
 ---
 

@@ -1,6 +1,6 @@
 {
   "name": "@lucid-fin/desktop-main",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "Lucid Fin – Electron main process",
   "author": {
     "name": "NAinfini",
