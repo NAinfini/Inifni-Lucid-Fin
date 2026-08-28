@@ -1,360 +1,89 @@
-<div align="center">
+# Lucid Fin
 
-<!-- HERO BANNER -->
-<img src="asset/光辉的鱼与蝶.png" alt="梦鱼 Lucid Fin" width="180">
+[English](README.md)
 
-<br>
+Lucid Fin 是一款用于本地 AI 辅助视频制作的 Electron 桌面应用。当前开发版本只有一条正式
+应用路径：类型化合同、`node:sqlite` 存储、可恢复的运行时、本地媒体处理，以及本地 Ollama
+模型适配器。
 
-# 梦鱼 Lucid Fin
+## 功能
 
-### AI 驱动的影视制作桌面应用
+- 通过概览、画布、媒体、制作和交付五个工作区组织项目。
+- 通过原生文件选择导入全局与项目媒体，以规范元数据保存，并通过不透明能力而非文件路径提供预览。
+- 通过类型化 Electron 桥接运行可持久恢复的项目对话、根 Run 与子 Run。
+- 使用 FFmpeg/ffprobe 在本地生成媒体派生物、审阅片和交付导出。
+- 在规范存储中保存项目决策、结果状态、历史、保护控制和确认记录。
+- 首次启动提供 287 个已签入的内置 Skill：216 个预设、19 个镜头模板、26 个渲染器
+  Skill、21 个流程提示词和 5 个提示词模板。
+- 用户可以直接要求 AI 新增 Skill；`skill.propose` 会先创建精确提案，必须经过持久化确认后
+  才能注册，并从下一个根 Run 开始可见。
 
-_从剧本到镜头，从镜头到场景，从场景到影片 — 全程 AI 驱动。_
+## 运行模型
 
-<p>
-  <a href="#-功能特性">功能特性</a> &nbsp;&bull;&nbsp;
-  <a href="#-截图">截图</a> &nbsp;&bull;&nbsp;
-  <a href="#-架构">架构</a> &nbsp;&bull;&nbsp;
-  <a href="docs/TECH_STACK.md">技术栈</a> &nbsp;&bull;&nbsp;
-  <a href="#-快速开始">快速开始</a> &nbsp;&bull;&nbsp;
-  <a href="README.md">English</a>
-</p>
-
-<p>
-  <img src="https://img.shields.io/github/actions/workflow/status/NAinfini/Inifni-Lucid-Fin/ci.yml?branch=main&style=flat-square&label=CI" alt="CI">
-  <img src="https://img.shields.io/github/stars/NAinfini/Inifni-Lucid-Fin?style=flat-square&color=f5c842" alt="Stars">
-  <img src="https://img.shields.io/github/forks/NAinfini/Inifni-Lucid-Fin?style=flat-square" alt="Forks">
-  <img src="https://img.shields.io/github/license/NAinfini/Inifni-Lucid-Fin?style=flat-square&color=red" alt="License">
-  <img src="https://img.shields.io/badge/平台-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square" alt="Platform">
-</p>
-
-<p>
-  <img src="https://img.shields.io/badge/Electron-43.2.0-47848F?style=flat-square&logo=electron&logoColor=white" alt="Electron">
-  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React">
-  <img src="https://img.shields.io/badge/TypeScript-6-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
-  <img src="https://img.shields.io/badge/Vite-8-646CFF?style=flat-square&logo=vite&logoColor=white" alt="Vite">
-  <img src="https://img.shields.io/badge/SQLite-3-003B57?style=flat-square&logo=sqlite&logoColor=white" alt="SQLite">
-  <img src="https://img.shields.io/badge/FFmpeg-8.1.2-007808?style=flat-square&logo=ffmpeg&logoColor=white" alt="FFmpeg">
-  <img src="https://img.shields.io/badge/Node-%E2%89%A526.5.1-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node">
-</p>
-
-</div>
-
----
-
-## 功能特性
-
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <h4>画布工作区</h4>
-      <p>节点式可视化编辑器 — 图像、视频、音频、文本和背景板节点通过有向边连接。拖拽、连接、生成。</p>
-    </td>
-    <td width="33%" valign="top">
-      <h4>梦鱼 AI</h4>
-      <p>内置 AI 助手，拥有 170+ 个工具。拆解剧本、管理角色、应用预设、分析图像、生成媒体 — 全部通过对话完成。</p>
-    </td>
-    <td width="33%" valign="top">
-      <h4>预设系统</h4>
-      <p>8 类预设轨道（主体、风格、摄影机、灯光、色彩、情绪、构图、特效），支持每条目强度控制和多参数调节。</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="33%" valign="top">
-      <h4>视觉分析</h4>
-      <p>从任意图像反向推理提示词。提取画风、灯光、色彩、情绪、构图 — 支持 15+ 家视觉 AI 提供方。</p>
-    </td>
-    <td width="33%" valign="top">
-      <h4>情感向量 TTS</h4>
-      <p>8 维情感控制（开心、悲伤、愤怒、恐惧、惊讶、厌恶、轻蔑、中性），为语音合成赋予丰富表现力。</p>
-    </td>
-  </tr>
-  <tr>
-    <td width="33%" valign="top">
-      <h4>剧本集成</h4>
-      <p>导入 Fountain/FDX/纯文本剧本。自动拆解为镜头。转换为画布节点并关联角色、场景、装备。</p>
-    </td>
-    <td width="33%" valign="top">
-      <h4>跨帧连续性</h4>
-      <p>视频生成后自动提取最后一帧，设置为下一节点的首帧参考 — 实现视觉无缝过渡。</p>
-    </td>
-    <td width="33%" valign="top">
-      <h4>专业导出</h4>
-      <p>先审核并批准不可变的最终导出清单，再通过本地 FFmpeg 渲染并校验 MP4 或 MOV 成片。</p>
-    </td>
-  </tr>
-</table>
-
-<details>
-<summary><strong>更多功能...</strong></summary>
-
-- **持久化提示词组装** — Commander 将用户意图、预设、参考素材和任务列表权威统一为一份可审计的提供商提示词
-- **角色与装备管理** — 参考图、结构化外观字段，确保角色一致性
-- **场景管理** — 结构化场景位置，含氛围、天气、灯光、参考图和节点使用追踪
-- **口型同步** — 视频生成后自动口型同步，支持云端 API 和本地 Wav2Lip
-- **自适应工具执行** — 基于成功率自动调节并发度（1-8 路并行调用）
-- **上下文压缩** — 借鉴 Codex/Claude Code 的 handoff 式摘要，附带防循环保护
-- **镜头模板** — 预定义镜头设置一键应用到多个节点
-- **批量工具操作** — 大部分画布工具支持多节点批量执行
-- **快照与回滚** — Time Machine 式分级保留，支持手动和自动快照
-- **国际化** — 完整的中英文本地化
-
-</details>
-
----
-
-## 截图
-
-> 截图待补充
-
-<details open>
-<summary><strong>画布工作区</strong></summary>
-<br>
-<img src="docs/assets/screenshot-canvas.png" alt="画布工作区" width="100%">
-<em>节点式画布，包含图像/视频/音频节点、预设轨道和生成控制</em>
-</details>
-
-<details>
-<summary><strong>梦鱼 AI</strong></summary>
-<br>
-<img src="docs/assets/screenshot-commander.png" alt="梦鱼 AI" width="100%">
-<em>AI 助手，支持斜杠命令、工具调用、流式响应和上下文管理</em>
-</details>
-
-<details>
-<summary><strong>预设系统</strong></summary>
-<br>
-<img src="docs/assets/screenshot-presets.png" alt="预设系统" width="100%">
-<em>8 类预设轨道，带强度滑块和每条目参数控制</em>
-</details>
-
-<details>
-<summary><strong>设置与提供方</strong></summary>
-<br>
-<img src="docs/assets/screenshot-settings.png" alt="设置" width="100%">
-<em>多提供方配置：LLM、图像、视频、音频、视觉 AI</em>
-</details>
-
----
-
-## 支持的 AI 提供方
-
-<table>
-  <tr>
-    <th>类别</th>
-    <th>提供方</th>
-  </tr>
-  <tr>
-    <td><strong>LLM</strong></td>
-    <td>
-      <img src="https://img.shields.io/badge/OpenAI-412991?style=flat-square&logo=openai&logoColor=white" alt="OpenAI">
-      <img src="https://img.shields.io/badge/Claude-CC785C?style=flat-square&logo=anthropic&logoColor=white" alt="Claude">
-      <img src="https://img.shields.io/badge/Gemini-4285F4?style=flat-square&logo=google&logoColor=white" alt="Gemini">
-      <img src="https://img.shields.io/badge/DeepSeek-0A84FF?style=flat-square" alt="DeepSeek">
-      <img src="https://img.shields.io/badge/Grok-000000?style=flat-square" alt="Grok">
-      <img src="https://img.shields.io/badge/通义千问-FF6A00?style=flat-square" alt="Qwen">
-      <img src="https://img.shields.io/badge/Mistral-FF7000?style=flat-square" alt="Mistral">
-      <img src="https://img.shields.io/badge/Ollama-000000?style=flat-square" alt="Ollama">
-      <br>
-      <img src="https://img.shields.io/badge/OpenRouter-6366F1?style=flat-square" alt="OpenRouter">
-      <img src="https://img.shields.io/badge/Together-FF4500?style=flat-square" alt="Together">
-      <img src="https://img.shields.io/badge/Groq-F55036?style=flat-square" alt="Groq">
-      <img src="https://img.shields.io/badge/硅基流动-00D4AA?style=flat-square" alt="SiliconFlow">
-      <img src="https://img.shields.io/badge/月之暗面-7C3AED?style=flat-square" alt="Moonshot">
-      <img src="https://img.shields.io/badge/智谱-2563EB?style=flat-square" alt="Zhipu">
-      <img src="https://img.shields.io/badge/豆包-FF4D4F?style=flat-square" alt="Doubao">
-      <img src="https://img.shields.io/badge/百川-1D4ED8?style=flat-square" alt="Baichuan">
-      <img src="https://img.shields.io/badge/阶跃星辰-10B981?style=flat-square" alt="StepFun">
-    </td>
-  </tr>
-  <tr>
-    <td><strong>图像</strong></td>
-    <td>ChatGPT 图像生成（OAuth）、OpenAI GPT Image 2、Google Gemini 3.1 Image、Recraft、Ideogram、Leonardo、智谱 GLM Image、阶跃星辰、火山引擎 Seedream、通义万象、xAI Imagine、BFL FLUX、Stability、Bria、百度千帆、Replicate、fal、Together AI、硅基流动、Krea、Higgsfield、Segmind、Freepik</td>
-  </tr>
-  <tr>
-    <td><strong>视频</strong></td>
-    <td>Google Gemini Omni Flash、Runway Gen-4.5、LTX 2.3、Luma Dream Machine、MiniMax H3、可灵、智谱 CogVideoX-3、生数 Vidu、火山引擎 Seedance、阿里 Wan 2.7、百度千帆、xAI Imagine、PixVerse V6、Replicate、fal、Together AI、硅基流动、Krea、Higgsfield、Segmind、Freepik、Seedance、混元视频</td>
-  </tr>
-  <tr>
-    <td><strong>音频</strong></td>
-    <td>ElevenLabs、MiniMax TTS、火山引擎 TTS、Azure TTS、Google Cloud TTS、OpenAI TTS</td>
-  </tr>
-  <tr>
-    <td><strong>视觉</strong></td>
-    <td>14 家已验证图像输入的提供方，包括 OpenAI、Gemini、Claude、通义千问、Grok、Mistral、智谱、Kimi、阶跃星辰以及可配置模型中心/本地模型</td>
-  </tr>
-</table>
-
-默认模型、传输映射、官方资料和明确排除项见[媒体提供方与 API 矩阵](docs/MEDIA_PROVIDER_MATRIX.md)。
-当前 LLM/视觉默认模型、上下文窗口、协议要求和迁移行为见[LLM 与视觉提供方矩阵](docs/LLM_PROVIDER_MATRIX.md)。
-
----
-
-## 架构
-
-```mermaid
-graph TB
-    subgraph Desktop["桌面应用 (Electron 43)"]
-        subgraph Renderer["渲染进程 — React 19 + Vite 8"]
-            UI["画布工作区<br/>检查器 &middot; 梦鱼 AI"]
-            Store["Redux 状态管理<br/>18 个切片"]
-        end
-
-        subgraph Main["主进程"]
-            IPC["IPC 路由"]
-            Pipeline["生成管线"]
-            Commander["梦鱼 AI<br/>170+ 个代理工具"]
-        end
-
-        UI <--> Store
-        Store <-- "IPC 桥接" --> IPC
-        IPC --> Pipeline
-        IPC --> Commander
-    end
-
-    subgraph Packages["共享包"]
-        Contracts["contracts<br/>类型 &middot; DTO &middot; IPC"]
-        AppLayer["application<br/>编排器 &middot; 工具 &middot; 提示编译器"]
-        Storage["storage<br/>SQLite &middot; CAS &middot; 钥匙串"]
-        Adapters["adapters-ai<br/>提供方 SDK"]
-        Domain["domain<br/>剧本解析 &middot; 级联"]
-        Media["media-engine<br/>FFmpeg &middot; 导出"]
-    end
-
-    Commander --> AppLayer
-    Pipeline --> Media
-    AppLayer --> Storage
-    AppLayer --> Adapters
-    AppLayer --> Domain
-
-    subgraph Providers["AI 提供方"]
-        LLM["LLM<br/>19 家"]
-        IMG["图像<br/>已验证目录"]
-        VID["视频<br/>已验证目录"]
-        AUD["音频<br/>6 家"]
-        VIS["视觉<br/>14 家"]
-    end
-
-    Adapters --> LLM
-    Adapters --> IMG
-    Adapters --> VID
-    Adapters --> AUD
-    Adapters --> VIS
+```text
+React 渲染器 → 类型化桌面协议 → Electron 主进程
+                                  ├─ contracts
+                                  ├─ storage（node:sqlite）
+                                  ├─ runtime
+                                  ├─ media-engine（FFmpeg/ffprobe）
+                                  └─ 本地 Ollama 适配器
 ```
 
-<details>
-<summary><strong>目录结构</strong></summary>
+渲染器不能直接访问数据库、密钥链、文件系统、原始 Electron IPC 或模型地址。主进程拥有新的
+`lucid-fin-v1` 配置目录、通过 `keytar` 管理的恢复密钥边界，以及本地媒体与导出适配器。
 
-```
-apps/
-  desktop-main/         Electron 主进程 — IPC、生成管线、梦鱼 AI
-  desktop-renderer/     React + Vite 前端 — 画布、面板、Redux 状态管理
-
-packages/
-  contracts/            共享 TypeScript 类型、DTO、IPC 通道定义
-  contracts-parse/      Zod 运行时校验 Schema
-  shared-utils/         跨层共享的纯工具函数
-  storage/              SQLite 数据库、内容寻址资产存储、系统钥匙串
-  adapters-ai/          AI 提供方适配器（图像、视频、音频、LLM、视觉）
-  task-execution/       持久化任务列表计划、审批、执行与恢复
-  application/          梦鱼 AI 编排器、170+ 个代理工具、提示词来源编译器
-  agent/                Commander 计划、工具、评分与受限修复
-  domain/               剧本解析器、提示组装器、级联逻辑
-  media-engine/         FFmpeg 媒体探测、评估支持与 Review Cut 渲染
-
-evals/                  Commander 评估测试套件
-.github/workflows/     CI 管线 — 每次 push/PR 自动类型检查、测试、代码规范
-docs/                   AI 视频提示词指南、规划文档
-```
-
-</details>
-
----
+Ollama 是唯一配置的模型提供方。桌面应用仅接受无认证的回环 HTTP 地址，默认模型为
+`qwen3:8b`；请求失败会明确报错，不会切换到云服务。
 
 ## 快速开始
 
+要求：
+
+- Node.js `>=26.5.1`
+- pnpm `11.21.0` 且 `<12`
+- 本地安装 Ollama，并可用 `qwen3:8b`
+
 ```bash
-# 克隆
 git clone https://github.com/NAinfini/Inifni-Lucid-Fin.git
 cd Inifni-Lucid-Fin
-
-# 安装依赖
 pnpm install --frozen-lockfile
 
-# 开发环境
-pnpm run dev
+# 如果 Ollama 尚未运行，请在另一个终端执行
+ollama serve
+ollama pull qwen3:8b
 
-# 运行测试
-pnpm test
-
-# 构建
 pnpm run build
+pnpm run dev
 ```
 
-<details>
-<summary><strong>环境要求</strong></summary>
+## 开发验证
 
-| 要求     | 版本                    |
-| -------- | ----------------------- |
-| Node.js  | >= 26.5.1               |
-| pnpm     | 11.21.0                 |
-| FFmpeg   | 固定 8.1.2 LGPL 运行时  |
-| 操作系统 | Windows / macOS / Linux |
+```bash
+pnpm run lint
+pnpm run test:types
+pnpm test
+pnpm run build
+pnpm run check:production-closure
+pnpm run test:e2e
+pnpm run format:check
+pnpm run license:audit
+```
 
-</details>
+使用 `pnpm run dist` 创建当前平台的软件包。打包完成后执行：
 
-完整版本矩阵、唯一事实源及 TypeScript 6.0.2 冻结策略见[技术栈文档](docs/TECH_STACK.md)。
+```bash
+pnpm run check:production-closure -- --require-package
+```
 
-<details>
-<summary><strong>AI 提供方配置</strong></summary>
+## 进一步阅读
 
-1. 打开 **设置**（齿轮图标）
-2. 选择提供方标签：**LLM**、**图像**、**视频**、**音频** 或 **视觉**
-3. API 提供方需输入 API 密钥并点击 **保存**；OAuth 提供方展开卡片后点击 **登录**，不会要求 API 密钥或密码
-4. 将提供方设为当前使用
-5. 添加自定义提供方：点击 **+ 添加自定义提供方**，输入名称、基础 URL 和模型
-
-ChatGPT OAuth 可分别用于 Commander LLM、图像生成和备用视觉理解；提供方能返回额度时，OAuth
-卡片会显示剩余用量。Gemini 的 LLM、图像、视频和视觉提供方使用 API 密钥。当前 LLM 支持图像
-理解时，Lucid Fin 会直接复用该 LLM，不再调用备用视觉提供方。详见 [OAuth
-安全与路由契约](docs/PROVIDER_OAUTH.md)。
-
-</details>
-
----
-
-## CI / CD
-
-每次 push 和 pull request 都会在 Node 26.5.1 与 pnpm 11.21.0 上通过 GitHub Actions 运行完整 CI 管线：
-
-| 任务         | 内容                                                            |
-| ------------ | --------------------------------------------------------------- |
-| **类型检查** | `tsc --noEmit` — 检查 `contracts`、`application`、`adapters-ai` |
-| **测试**     | `vitest run` — 运行所有单元测试和集成测试                       |
-| **代码规范** | `eslint` — 零警告策略                                           |
-
-详见 [`.github/workflows/ci.yml`](.github/workflows/ci.yml)。
-
----
-
-## Star 趋势
-
-<div align="center">
-
-[![Star History Chart](https://api.star-history.com/svg?repos=NAinfini/Inifni-Lucid-Fin&type=Date)](https://star-history.com/#NAinfini/Inifni-Lucid-Fin&Date)
-
-</div>
-
----
+- [产品合同](PRODUCT.md)
+- [技术栈](docs/TECH_STACK.md)
+- [贡献指南](CONTRIBUTING.md)
+- [应用所有权](docs/architecture/application-ownership.md)
+- [生产适配器边界](docs/architecture/production-adapters.md)
+- [规范 Skill](docs/architecture/skills.md)
 
 ## 许可证
 
-MIT — 详见 [LICENSE](LICENSE)。
-
----
-
-<div align="center">
-
-**为 AI 电影人倾力打造**
-
-</div>
+MIT，详见 [LICENSE](LICENSE)。

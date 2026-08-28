@@ -12,7 +12,7 @@ policy, and UI activity plumbing; it is not a compatibility wrapper or a second 
 This contract is subordinate to the product model in
 [`2026-08-15-project-first-lucid-fin.md`](./2026-08-15-project-first-lucid-fin.md) and the data ownership
 model in
-[`2026-08-15-project-data-history-memory-cutover.md`](./2026-08-15-project-data-history-memory-cutover.md).
+[`the archived data/history cutover`](../archive/target-transition/2026-08-15-project-data-history-memory-cutover.md).
 Its public states are rendered by
 [`../design/project-shell-screen-contract.md`](../design/project-shell-screen-contract.md) across the
 workspace ownership defined in

@@ -50,6 +50,8 @@ export interface MediaProbeResult {
   width?: number;
   height?: number;
   fps?: number;
+  sampleRateHz?: number;
+  channels?: number;
   videoCodec?: string;
   audioCodec?: string;
   hasAudio: boolean;
@@ -79,6 +81,8 @@ export function probeMedia(filePath: string): Promise<MediaProbeResult> {
         width: finitePositiveInteger(video?.width),
         height: finitePositiveInteger(video?.height),
         fps: parseFrameRate(rate),
+        sampleRateHz: finitePositiveInteger(audio?.sample_rate),
+        channels: finitePositiveInteger(audio?.channels),
         videoCodec: nonEmptyString(video?.codec_name),
         audioCodec: nonEmptyString(audio?.codec_name),
         hasAudio: Boolean(audio),

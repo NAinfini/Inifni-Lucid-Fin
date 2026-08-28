@@ -10,16 +10,16 @@ The user must be able to inspect and manage autonomous work. Public UI may show 
 
 ## Implementation status
 
-| Phase | Current worktree |
-| --- | --- |
-| Replay and safety baseline | Implemented and covered by focused regressions |
-| Thin prompts and model autonomy | Implemented |
-| Stable Run capability catalog | Implemented |
-| Unified dispatcher and public projections | Implemented |
-| Event-sourced context and resource budgets | Implemented |
-| User Control Plane | Implemented |
-| Typed Tool Program mode | Implemented |
-| Model-directed subagents | Implemented and covered by integration regressions |
+| Phase                                      | Current worktree                                   |
+| ------------------------------------------ | -------------------------------------------------- |
+| Replay and safety baseline                 | Implemented and covered by focused regressions     |
+| Thin prompts and model autonomy            | Implemented                                        |
+| Stable Run capability catalog              | Implemented                                        |
+| Unified dispatcher and public projections  | Implemented                                        |
+| Event-sourced context and resource budgets | Implemented                                        |
+| User Control Plane                         | Implemented                                        |
+| Typed Tool Program mode                    | Implemented                                        |
+| Model-directed subagents                   | Implemented and covered by integration regressions |
 
 ## Invariants
 

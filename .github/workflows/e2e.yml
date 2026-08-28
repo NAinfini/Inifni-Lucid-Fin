@@ -36,12 +36,6 @@ jobs:
       - name: Run E2E smoke tests
         run: pnpm run test:e2e
 
-      - name: Install Target E2E browser
-        run: pnpm exec playwright install chromium
-
-      - name: Run Target fixture browser journeys
-        run: pnpm run test:e2e:target
-
       - name: Upload Playwright traces on failure
         if: failure()
         uses: actions/upload-artifact@v7

@@ -25,12 +25,7 @@
     }
   ],
   "asar": true,
-  "asarUnpack": [
-    "node_modules/better-sqlite3/**",
-    "node_modules/keytar/**",
-    "node_modules/@openai/codex-*/vendor/**"
-  ],
-  "afterPack": "build/verify-codex-binary.cjs",
+  "asarUnpack": ["node_modules/keytar/**"],
   "win": {
     "target": [{ "target": "nsis" }],
     "icon": "build/icon.ico",

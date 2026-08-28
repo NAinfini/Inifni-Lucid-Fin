@@ -23,7 +23,7 @@ jobs:
         run: |
           if grep -rn 'ZodType\|ZodObject\|ZodString\|z\.string\|z\.object\|z\.number' \
             apps/desktop-renderer/dist/assets/*.js 2>/dev/null; then
-            echo "::error::Zod detected in renderer bundle. Renderer must not import from @lucid-fin/contracts-parse."
+            echo "::error::Zod detected in renderer bundle. Renderer must consume the generated desktop wire API without runtime schema imports."
             exit 1
           fi
           echo "✓ Renderer chunk is zod-free."

@@ -2,18 +2,16 @@
 
 ## Status
 
-Planning only. This contract defines the responsibilities, object ownership, navigation, and shared
-interaction model for Overview, Canvas, Media, Production, and Delivery. It does not authorize source
-changes, schema migration, deletion, or release work.
+Implemented product contract. This document defines the responsibilities, object ownership,
+navigation, and shared interaction model for Overview, Canvas, Media, Production, and Delivery.
 
-These are native workspaces of the ground-up AI video production Harness. They replace the legacy
-Canvas/resource application model; they are not projections layered over old nodes, resource
-managers, prompt/preset editors, or duplicate renderer stores.
+These are the native workspaces of the Lucid Fin AI video production Harness. Each workspace projects
+the same canonical Project facts; none owns a parallel renderer store or a second resource model.
 
 This ownership contract implements the product model in
 [`../plans/2026-08-15-project-first-lucid-fin.md`](../plans/2026-08-15-project-first-lucid-fin.md), uses
 the authority and history rules in
-[`../plans/2026-08-15-project-data-history-memory-cutover.md`](../plans/2026-08-15-project-data-history-memory-cutover.md),
+[`../archive/target-transition/2026-08-15-project-data-history-memory-cutover.md`](../archive/target-transition/2026-08-15-project-data-history-memory-cutover.md),
 and exposes the capabilities defined in
 [`../plans/2026-08-15-commander-runtime-tool-surface.md`](../plans/2026-08-15-commander-runtime-tool-surface.md).
 
@@ -47,20 +45,20 @@ the other domains, not four synchronized Shot records.
 
 ## One fact, one owner
 
-| Fact or object | Authoritative owner | Other workspaces may |
-| --- | --- | --- |
-| Project identity, settings, permission and budget defaults | Project | Read and link |
-| Current explicit user request and decisions | Project History | Render a projection |
-| Current derived creative memory | Project Memory | Query and explain provenance |
-| Character, location, scene, sequence and Shot facts | Production | Link, place, review and revise through the owner |
-| Immutable file bytes and technical metadata | MediaBlob; Global Media owns catalog identity | Reference, never duplicate bytes |
-| A Project's use, label and relationship for a media asset | Media | Link and select |
-| Generated candidate, provider parameters and prompt/reference provenance | Generated Result | Review, compare, select and link |
-| User select, reject, refine, use-as-reference and undo actions | User Choice / Project History | Render consistently everywhere |
-| Position, size, grouping, viewport and edges | Canvas | Read only when spatial context matters |
-| Final order, chosen clip, trim, audio preference and export intent | Delivery | Link back to Shot and Result |
-| Chat transcript | Chat | Read only inside that Chat |
-| Public Run progress and final summary | Run / TaskList | Render in Chat and owning Project status |
+| Fact or object                                                           | Authoritative owner                           | Other workspaces may                             |
+| ------------------------------------------------------------------------ | --------------------------------------------- | ------------------------------------------------ |
+| Project identity, settings, permission and budget defaults               | Project                                       | Read and link                                    |
+| Current explicit user request and decisions                              | Project History                               | Render a projection                              |
+| Current derived creative memory                                          | Project Memory                                | Query and explain provenance                     |
+| Character, location, scene, sequence and Shot facts                      | Production                                    | Link, place, review and revise through the owner |
+| Immutable file bytes and technical metadata                              | MediaBlob; Global Media owns catalog identity | Reference, never duplicate bytes                 |
+| A Project's use, label and relationship for a media asset                | Media                                         | Link and select                                  |
+| Generated candidate, provider parameters and prompt/reference provenance | Generated Result                              | Review, compare, select and link                 |
+| User select, reject, refine, use-as-reference and undo actions           | User Choice / Project History                 | Render consistently everywhere                   |
+| Position, size, grouping, viewport and edges                             | Canvas                                        | Read only when spatial context matters           |
+| Final order, chosen clip, trim, audio preference and export intent       | Delivery                                      | Link back to Shot and Result                     |
+| Chat transcript                                                          | Chat                                          | Read only inside that Chat                       |
+| Public Run progress and final summary                                    | Run / TaskList                                | Render in Chat and owning Project status         |
 
 Overview owns no production facts. Commander owns no secret second Project database. Project Memory is
 a derived view over recorded evidence and must point back to the events and objects that support it.
@@ -340,7 +338,7 @@ within the accepted Run; the action remains visible in the final summary and Pro
 
 ## Acceptance scenarios
 
-1. A user creates a Project from a short brief and sees meaningful work without configuring legacy
+1. A user creates a Project from a short brief and sees meaningful work without configuring internal
    resources or a workflow.
 2. Selecting a Shot on Canvas and opening Production resolves to the same object and preserves the
    selection.
@@ -367,11 +365,10 @@ within the accepted Run; the action remains visible in the final summary and Pro
 - The five primary Project workspaces are Overview, Canvas, Media, Production, and Delivery.
 - Commander is a fixed Dock with Focus mode, not a floating panel.
 - Chat quick selection and Media Compare share one User Choice state.
-- Production facts are Commander-managed and user-correctable; no legacy resource manager remains.
+- Production facts are Commander-managed and user-correctable through the canonical Project model.
 - TaskList is Commander-managed inline progress; Subagents are optional and hidden when unused.
 - The user sees and chooses among valid creative results; Commander does not silently make subjective
   selection decisions.
 
-The persistent object, history, memory, and migration rules that support these workspaces are defined
-in
-[`docs/plans/2026-08-15-project-data-history-memory-cutover.md`](../plans/2026-08-15-project-data-history-memory-cutover.md).
+Historical cutover reasoning for persistent objects, history, and memory is retained in
+[`the archived data/history plan`](../archive/target-transition/2026-08-15-project-data-history-memory-cutover.md).

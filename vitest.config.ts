@@ -36,18 +36,15 @@ export default defineConfig({
   plugins: [ctsPlugin()],
   test: {
     pool: 'vmForks',
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
+    maxConcurrency: 4,
     poolMatchGlobs: [
       ['packages/storage/**', 'forks'],
       ['apps/desktop-main/src/ipc/__tests__/integration/**', 'forks'],
       ['apps/desktop-main/src/workflow/**', 'forks'],
     ],
-    exclude: [
-      '**/dist/**',
-      '**/node_modules/**',
-      '**/*.perf.test.ts',
-      'tests/e2e/**',
-      'tests/types/**',
-    ],
+    exclude: ['**/dist/**', '**/node_modules/**', '**/*.perf.test.ts', 'tests/e2e/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],

@@ -187,16 +187,16 @@ type AgentActivityTreeView = {
 
 ## 5. 状态与视觉语义
 
-| 状态 | 图标/颜色 | 触发器与详情语义 |
-| --- | --- | --- |
-| accepted / running | `Loader2`, `text-primary` | “运行中”；仅此状态旋转 |
-| waiting_user | `CircleHelp`, `text-amber-400` | “等待你的输入” |
-| pausing | `Loader2`, `text-amber-400` | “将在安全边界暂停” |
-| paused | `PauseCircle`, `text-amber-400` | “已暂停” |
-| completed | `CheckCircle2`, `text-emerald-400` | “已完成” |
-| failed | `AlertCircle`, `text-destructive` | “失败”并展示规范化错误 |
-| blocked | `ShieldAlert` 或 `Clock3`, `text-amber-400` | “已阻塞”并展示 typed blocker |
-| cancelled | `CircleSlash2`, `text-muted-foreground` | “已取消” |
+| 状态               | 图标/颜色                                   | 触发器与详情语义             |
+| ------------------ | ------------------------------------------- | ---------------------------- |
+| accepted / running | `Loader2`, `text-primary`                   | “运行中”；仅此状态旋转       |
+| waiting_user       | `CircleHelp`, `text-amber-400`              | “等待你的输入”               |
+| pausing            | `Loader2`, `text-amber-400`                 | “将在安全边界暂停”           |
+| paused             | `PauseCircle`, `text-amber-400`             | “已暂停”                     |
+| completed          | `CheckCircle2`, `text-emerald-400`          | “已完成”                     |
+| failed             | `AlertCircle`, `text-destructive`           | “失败”并展示规范化错误       |
+| blocked            | `ShieldAlert` 或 `Clock3`, `text-amber-400` | “已阻塞”并展示 typed blocker |
+| cancelled          | `CircleSlash2`, `text-muted-foreground`     | “已取消”                     |
 
 状态不能只靠颜色表达；图标、文字和 `aria-label` 同时存在。树的总状态优先级为：`waiting_user` > `blocked/failed` > `pausing/paused` > `running` > terminal。
 
@@ -269,17 +269,17 @@ type AgentActivityTreeView = {
 
 不新增另一套主题变量，直接复用 `globals.css`：
 
-| 用途 | 令牌/utility |
-| --- | --- |
-| 弹层背景 | `bg-card` |
-| 内部轻微层级/hover | `bg-surface`, `hover:bg-muted` |
-| 边框/分隔 | `border-border/70`, `border-border/50` |
-| 主文本 | `text-foreground` |
-| 次文本 | `text-muted-foreground` |
-| 活跃/焦点 | `text-primary`, `ring-primary` |
-| 危险动作 | `text-destructive`, `border-destructive/50` |
-| 等待/阻塞 | `text-amber-400` |
-| 完成 | `text-emerald-400` |
+| 用途               | 令牌/utility                                |
+| ------------------ | ------------------------------------------- |
+| 弹层背景           | `bg-card`                                   |
+| 内部轻微层级/hover | `bg-surface`, `hover:bg-muted`              |
+| 边框/分隔          | `border-border/70`, `border-border/50`      |
+| 主文本             | `text-foreground`                           |
+| 次文本             | `text-muted-foreground`                     |
+| 活跃/焦点          | `text-primary`, `ring-primary`              |
+| 危险动作           | `text-destructive`, `border-destructive/50` |
+| 等待/阻塞          | `text-amber-400`                            |
+| 完成               | `text-emerald-400`                          |
 
 - 字体沿用应用系统 UI stack；不引入新字体。
 - 弹层 `rounded-xl`，行/按钮 `rounded-md` 或 `rounded-lg`；只保留一层 `0 16px 42px rgba(0,0,0,.42)` 阴影。

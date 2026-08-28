@@ -9,11 +9,12 @@ const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(TEST_DIR, '..', '..');
 
 /**
- * Resolve the Electron main entry point (the built JS file).
- * We look for the compiled main in `apps/desktop-main/dist/electron.js`.
+ * Resolve the checked-in E2E entry. It imports the production build but
+ * supplies disposable recovery-key and model adapters, so native smoke never
+ * reads the system keychain or reaches a provider.
  */
 function resolveMainEntry(): string {
-  return path.join(REPO_ROOT, 'apps', 'desktop-main', 'dist', 'electron.js');
+  return path.join(REPO_ROOT, 'tests', 'e2e', 'electron-main.mjs');
 }
 
 /**
@@ -41,71 +42,68 @@ function resolveElectronBinary(): string {
 
 /** Check whether the Electron build output exists. */
 export function isBuildAvailable(): boolean {
-  return fs.existsSync(resolveMainEntry());
+  return (
+    fs.existsSync(resolveMainEntry()) &&
+    fs.existsSync(path.join(REPO_ROOT, 'apps', 'desktop-main', 'dist', 'electron.js'))
+  );
 }
 
 export type TestFixtures = {
-  mainWindow: Page;
-};
-
-export type WorkerFixtures = {
   electronApp: ElectronApplication;
+  mainWindow: Page;
 };
 
 /**
  * Extended Playwright test fixture that launches the Electron app.
  *
- * - Sets `ELECTRON_IS_E2E=1` so the app can skip auto-updater/analytics.
+ * - Uses a checked-in E2E composition with an in-memory recovery-key store.
+ * - Gives every test its own disposable profile directory.
  * - Closes the app in teardown.
  * - Provides both `electronApp` (for app-level APIs) and `mainWindow` (the
  *   first BrowserWindow's page object).
  */
-export const test = base.extend<TestFixtures, WorkerFixtures>({
-  electronApp: [
-    // eslint-disable-next-line no-empty-pattern
-    async ({}, use) => {
-      const mainEntry = resolveMainEntry();
+export const test = base.extend<TestFixtures>({
+  // eslint-disable-next-line no-empty-pattern
+  electronApp: async ({}, use) => {
+    const mainEntry = resolveMainEntry();
 
-      if (!fs.existsSync(mainEntry)) {
-        throw new Error(
-          `Electron build not found at ${mainEntry}. ` +
-            'Run `pnpm run build` from the repo root before running E2E tests.',
-        );
-      }
+    if (!isBuildAvailable()) {
+      throw new Error(
+        `Electron build not found at ${mainEntry}. ` +
+          'Run `pnpm run build` from the repo root before running E2E tests.',
+      );
+    }
 
-      const electronBinary = resolveElectronBinary();
-      const appDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-fin-e2e-'));
-      const roamingAppDataDir = path.join(appDataDir, 'AppData', 'Roaming');
-      const localAppDataDir = path.join(appDataDir, 'AppData', 'Local');
-      fs.mkdirSync(roamingAppDataDir, { recursive: true });
-      fs.mkdirSync(localAppDataDir, { recursive: true });
+    const electronBinary = resolveElectronBinary();
+    const appDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lucid-fin-e2e-'));
+    const roamingAppDataDir = path.join(appDataDir, 'AppData', 'Roaming');
+    const localAppDataDir = path.join(appDataDir, 'AppData', 'Local');
+    fs.mkdirSync(roamingAppDataDir, { recursive: true });
+    fs.mkdirSync(localAppDataDir, { recursive: true });
 
-      const app = await _electron.launch({
-        executablePath: electronBinary,
-        args: [mainEntry],
-        env: {
-          ...process.env,
-          APPDATA: roamingAppDataDir,
-          ELECTRON_IS_E2E: '1',
-          HOME: appDataDir,
-          LOCALAPPDATA: localAppDataDir,
-          NODE_ENV: 'test',
-          USERPROFILE: appDataDir,
-        },
-      });
+    const app = await _electron.launch({
+      executablePath: electronBinary,
+      args: [mainEntry],
+      env: {
+        ...process.env,
+        APPDATA: roamingAppDataDir,
+        HOME: appDataDir,
+        LOCALAPPDATA: localAppDataDir,
+        NODE_ENV: 'test',
+        USERPROFILE: appDataDir,
+      },
+    });
 
+    try {
+      await use(app);
+    } finally {
       try {
-        await use(app);
+        await app.close();
       } finally {
-        try {
-          await app.close();
-        } finally {
-          fs.rmSync(appDataDir, { recursive: true, force: true });
-        }
+        fs.rmSync(appDataDir, { recursive: true, force: true });
       }
-    },
-    { scope: 'worker' },
-  ],
+    }
+  },
 
   mainWindow: async ({ electronApp }, use) => {
     // Wait for the first BrowserWindow to open

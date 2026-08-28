@@ -258,15 +258,9 @@ function checkTypeScript(): CheckResult {
     'apps/desktop-main',
     'apps/desktop-renderer',
     'packages/contracts',
-    'packages/contracts-parse',
-    'packages/shared-utils',
-    'packages/application',
-    'packages/adapters-ai',
-    'packages/domain',
     'packages/storage',
     'packages/media-engine',
-    'packages/task-execution',
-    'packages/agent',
+    'packages/runtime',
   ];
 
   const failures: string[] = [];
@@ -348,8 +342,7 @@ function checkWindowsBuildTools(): CheckResult {
   return {
     name: 'MSVC Build Tools',
     status: 'warn',
-    message:
-      'Visual Studio Build Tools not detected (needed for native modules like better-sqlite3)',
+    message: 'Visual Studio Build Tools not detected (needed when keytar requires a local build)',
     fix: 'Install "Desktop development with C++" from https://visualstudio.microsoft.com/visual-cpp-build-tools/',
   };
 }

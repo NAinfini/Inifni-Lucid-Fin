@@ -1,146 +1,100 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  PUBLIC_WIRE_METHODS_V1,
+  LUCID_FIN_DESKTOP_API_GLOBAL_V1,
+  LUCID_FIN_WIRE_INVOKE_CHANNEL_V1,
+  LUCID_FIN_WIRE_PUSH_CHANNEL_V1,
+  type DesktopApiV1,
+  type WirePushV1,
+} from '@lucid-fin/contracts';
 
 const exposeInMainWorld = vi.hoisted(() => vi.fn());
-const ipcInvoke = vi.hoisted(() => vi.fn());
-const ipcOn = vi.hoisted(() => vi.fn());
-const ipcRemoveListener = vi.hoisted(() => vi.fn());
+const invoke = vi.hoisted(() => vi.fn());
+const on = vi.hoisted(() => vi.fn());
+const removeListener = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({
-  contextBridge: {
-    exposeInMainWorld,
-  },
-  ipcRenderer: {
-    invoke: ipcInvoke,
-    on: ipcOn,
-    removeListener: ipcRemoveListener,
-  },
+  contextBridge: { exposeInMainWorld },
+  ipcRenderer: { invoke, on, removeListener },
 }));
 
-describe('preload commander bridge', () => {
+describe('desktop preload', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.resetModules();
-    ipcInvoke.mockResolvedValue(undefined);
+    invoke.mockResolvedValue({ kind: 'success' });
   });
 
-  it('exposes session, snapshot, Commander control, Canvas lifecycle, Delivery, and Review Cut APIs through lucidAPI', async () => {
+  it('exposes exactly the 45 canonical use cases through one invoke channel', async () => {
     await import('./preload.cjs');
+    expect(exposeInMainWorld).toHaveBeenCalledOnce();
+    expect(exposeInMainWorld.mock.calls[0]?.[0]).toBe(LUCID_FIN_DESKTOP_API_GLOBAL_V1);
+    const api = exposeInMainWorld.mock.calls[0]?.[1] as DesktopApiV1;
+    const exposedUseCases = Object.entries(api).flatMap(([namespace, methods]) =>
+      Object.keys(methods)
+        .filter((method) => method !== 'onEventsAppended')
+        .map((method) => `${namespace}.${method}`),
+    );
+    expect(exposedUseCases).toHaveLength(45);
+    expect(exposedUseCases).toHaveLength(Object.keys(PUBLIC_WIRE_METHODS_V1).length);
 
-    const api = exposeInMainWorld.mock.calls[0]?.[1] as {
-      session: Record<string, unknown>;
-      snapshot: Record<string, unknown>;
-      commander: Record<string, unknown>;
-      canvas: Record<string, unknown>;
-      canvasDelivery: Record<string, unknown>;
-      deliveryPackage: Record<string, unknown>;
-      reviewCut: Record<string, unknown>;
+    const request = {
+      requestId: 'request.preload.project-list.1',
+      input: { cursor: null, limit: 20 },
     };
-
-    expect(api.session).toBeDefined();
-    expect(typeof api.session.upsert).toBe('function');
-    expect(typeof api.session.list).toBe('function');
-    expect(typeof api.session.get).toBe('function');
-    expect(typeof api.session.delete).toBe('function');
-    expect(typeof api.session.move).toBe('function');
-
-    expect(api.snapshot).toBeDefined();
-    expect(typeof api.snapshot.capture).toBe('function');
-    expect(typeof api.snapshot.list).toBe('function');
-    expect(typeof api.snapshot.restore).toBe('function');
-    expect(typeof api.snapshot.delete).toBe('function');
-    expect(typeof api.commander.runControl).toBe('function');
-    expect(typeof api.commander.runTree).toBe('function');
-    expect(typeof api.canvas.restore).toBe('function');
-    expect(typeof api.canvas.deletePermanent).toBe('function');
-    expect(typeof api.canvasDelivery.update).toBe('function');
-    expect(Object.keys(api.deliveryPackage).sort()).toEqual([
-      'cancel',
-      'open',
-      'retry',
-      'start',
-      'status',
-    ]);
-    expect(Object.keys(api.reviewCut).sort()).toEqual(['cancel', 'open', 'start', 'status']);
-  });
-
-  it('replays an initialization error emitted before the renderer subscribes', async () => {
-    let initErrorListener: ((event: unknown, error: unknown) => void) | undefined;
-    ipcOn.mockImplementation((channel: string, listener: (...args: unknown[]) => void) => {
-      if (channel === 'app:init-error') initErrorListener = listener;
+    await api.project.list(request);
+    expect(invoke).toHaveBeenCalledWith(LUCID_FIN_WIRE_INVOKE_CHANNEL_V1, {
+      wireVersion: 1,
+      kind: 'request',
+      requestId: request.requestId,
+      method: 'project.list',
+      input: request.input,
     });
+    expect(new Set(invoke.mock.calls.map((call) => call[0]))).toEqual(
+      new Set([LUCID_FIN_WIRE_INVOKE_CHANNEL_V1]),
+    );
+  });
 
+  it('exposes one typed Run push subscription with exact listener cleanup', async () => {
+    let listener: ((event: unknown, push: WirePushV1) => void) | undefined;
+    on.mockImplementation((channel: string, value: typeof listener) => {
+      if (channel === LUCID_FIN_WIRE_PUSH_CHANNEL_V1) listener = value;
+    });
     await import('./preload.cjs');
-    initErrorListener?.({}, 'Canonical schema validation failed');
-
-    const api = exposeInMainWorld.mock.calls[0]?.[1] as {
-      onInitError: (callback: (error: string) => void) => () => void;
-    };
+    const api = exposeInMainWorld.mock.calls[0]?.[1] as DesktopApiV1;
     const callback = vi.fn();
-    const unsubscribe = api.onInitError(callback);
+    const dispose = api.run.onEventsAppended(callback);
+    const push = {
+      wireVersion: 1,
+      kind: 'push',
+      method: 'run.events.appended',
+      payload: {
+        cursor: { sequence: 1, eventHash: 'a'.repeat(64) },
+        event: {
+          visibility: 'public',
+          eventId: 'event.preload.1',
+          eventVersion: 1,
+          runId: 'run.preload.1',
+          sequence: 1,
+          occurredAt: '2026-08-24T12:00:00.000Z',
+          actor: 'commander',
+          causation: { kind: 'run', runId: 'run.preload.1' },
+          correlationId: null,
+          idempotencyKey: null,
+          payloadHash: 'b'.repeat(64),
+          previousEventHash: null,
+          eventHash: 'a'.repeat(64),
+          payloadState: {
+            state: 'available',
+            payload: { type: 'progress', summary: 'Working' },
+          },
+        },
+      },
+    } as const satisfies WirePushV1;
 
-    expect(callback).toHaveBeenCalledWith('Canonical schema validation failed');
-    expect(unsubscribe).toBeTypeOf('function');
-  });
-});
-
-describe('preload IPC timeout', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.resetModules();
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('rejects with timeout error when invoke does not respond within default timeout', async () => {
-    // Make invoke hang forever
-    ipcInvoke.mockReturnValue(new Promise(() => {}));
-
-    const { default: _ } = await import('./preload.cjs');
-    const api = exposeInMainWorld.mock.calls[0]?.[1] as {
-      app: { version: () => Promise<string> };
-    };
-
-    const promise = api.app.version();
-    // Advance past the default 30s timeout
-    vi.advanceTimersByTime(30_001);
-
-    await expect(promise).rejects.toThrow(/IPC timeout.*app:version.*30000ms/);
-  });
-
-  it('resolves normally when invoke responds before timeout', async () => {
-    ipcInvoke.mockResolvedValue('1.0.0');
-
-    await import('./preload.cjs');
-    const api = exposeInMainWorld.mock.calls[0]?.[1] as {
-      app: { version: () => Promise<string> };
-    };
-
-    const result = await api.app.version();
-    expect(result).toBe('1.0.0');
-  });
-});
-
-describe('preload IPC health check', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.resetModules();
-    ipcInvoke.mockResolvedValue('pong');
-  });
-
-  it('exposes ipc.ping through lucidAPI', async () => {
-    await import('./preload.cjs');
-    const api = exposeInMainWorld.mock.calls[0]?.[1] as {
-      ipc: { ping: () => Promise<'pong'> };
-    };
-
-    expect(api.ipc).toBeDefined();
-    expect(typeof api.ipc.ping).toBe('function');
-
-    const result = await api.ipc.ping();
-    expect(result).toBe('pong');
-    expect(ipcInvoke).toHaveBeenCalledWith('ipc:ping');
+    listener?.({}, push);
+    expect(callback).toHaveBeenCalledWith(push);
+    dispose();
+    expect(removeListener).toHaveBeenCalledWith(LUCID_FIN_WIRE_PUSH_CHANNEL_V1, listener);
   });
 });

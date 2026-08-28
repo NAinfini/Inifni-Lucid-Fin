@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@tailwindcss/vite', () => ({ default: () => ({}) }));
+vi.mock('rollup-plugin-visualizer', () => ({ visualizer: () => ({}) }));
 
 import viteConfigFn, { desktopRendererManualChunks } from './vite.config.js';
 
@@ -26,23 +26,11 @@ describe('desktop renderer vite config', () => {
     });
   });
 
-  it('groups node_modules into vendor chunks and canvas panels into named chunks', () => {
+  it('groups contracts separately and all remaining dependencies into one vendor chunk', () => {
     expect(desktopRendererManualChunks('C:/repo/node_modules/react/index.js')).toBe('vendor');
     expect(
-      desktopRendererManualChunks('C:\\repo\\node_modules\\@xyflow\\react\\dist\\index.mjs'),
-    ).toBe('vendor-reactflow');
-    expect(desktopRendererManualChunks('C:/repo/src/components/canvas/CommanderPanel.tsx')).toBe(
-      'panel-commander',
-    );
-    expect(desktopRendererManualChunks('C:/repo/src/components/canvas/AssetBrowserPanel.tsx')).toBe(
-      'panel-assets',
-    );
-    expect(desktopRendererManualChunks('C:/repo/src/components/canvas/InspectorPanel.tsx')).toBe(
-      'panel-inspector',
-    );
-    expect(desktopRendererManualChunks('C:/repo/src/components/canvas/HistoryPanel.tsx')).toBe(
-      'panels',
-    );
-    expect(desktopRendererManualChunks('C:/repo/src/store/slices/canvas.ts')).toBeUndefined();
+      desktopRendererManualChunks('C:\\repo\\node_modules\\@lucid-fin\\contracts\\dist\\index.js'),
+    ).toBe('vendor-contracts');
+    expect(desktopRendererManualChunks('C:/repo/src/ProjectShell.tsx')).toBeUndefined();
   });
 });

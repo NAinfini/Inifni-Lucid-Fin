@@ -98,7 +98,6 @@ describe('buildReviewCutCommandPlan', () => {
       '-r 24',
       '-movflags +faststart',
       '-f mp4',
-      '-n',
     ]);
   });
 

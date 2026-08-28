@@ -7,7 +7,7 @@ release work.
 
 This plan is the target product model. It is a ground-up semantic replacement, not a redesign layer,
 Canvas mode, Commander upgrade, or compatibility shell added to the current product. Existing
-`PRODUCT.md`, `docs/PRODUCT_TREE.md`, old plans, schemas, services, and UI are migration evidence only;
+`PRODUCT.md`, the archived product tree, old plans, schemas, services, and UI are migration evidence only;
 they are not target requirements or architecture foundations.
 
 ## Product contract
@@ -339,7 +339,7 @@ The five-workspace ownership and interaction contract is maintained in
 [`docs/design/project-workspaces-contract.md`](../design/project-workspaces-contract.md).
 
 The target data, immutable evidence, Project Memory, and one-time cutover contract is maintained in
-[`docs/plans/2026-08-15-project-data-history-memory-cutover.md`](./2026-08-15-project-data-history-memory-cutover.md).
+[`the archived data/history plan`](../archive/target-transition/2026-08-15-project-data-history-memory-cutover.md).
 
 The minimal system prompt, stable per-Run Capability Catalog, canonical ToolDefinition, single
 Dispatcher, autonomous Agent Loop, film-production tool surface, Skills, TaskList, Subagents, Tool

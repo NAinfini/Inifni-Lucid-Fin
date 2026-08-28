@@ -29,13 +29,9 @@ const PACKAGE_GLOBS: readonly string[] = [
   'apps/desktop-main/src/**/*.{ts,tsx}',
   'apps/desktop-renderer/src/**/*.{ts,tsx}',
   'packages/contracts/src/**/*.{ts,tsx}',
-  'packages/contracts-parse/src/**/*.{ts,tsx}',
-  'packages/shared-utils/src/**/*.{ts,tsx}',
-  'packages/application/src/**/*.{ts,tsx}',
-  'packages/adapters-ai/src/**/*.{ts,tsx}',
-  'packages/domain/src/**/*.{ts,tsx}',
   'packages/storage/src/**/*.{ts,tsx}',
   'packages/media-engine/src/**/*.{ts,tsx}',
+  'packages/runtime/src/**/*.{ts,tsx}',
 ] as const;
 
 type MetricKey = 'lines' | 'statements' | 'branches' | 'functions';

@@ -68,9 +68,7 @@ export function buildReviewCutCommandPlan(input: ReviewCutInput): ReviewCutComma
     concatInputs.push(`[v${index}][a${index}]`);
   }
 
-  filters.push(
-    `${concatInputs.join('')}concat=n=${input.videos.length}:v=1:a=1[vout][aout]`,
-  );
+  filters.push(`${concatInputs.join('')}concat=n=${input.videos.length}:v=1:a=1[vout][aout]`);
   const codec = getLgplVideoCodecConfig('h264', { quality: 'standard' });
 
   return {
@@ -89,7 +87,6 @@ export function buildReviewCutCommandPlan(input: ReviewCutInput): ReviewCutComma
       `-r ${input.fps}`,
       '-movflags +faststart',
       '-f mp4',
-      '-n',
     ],
     durationMs,
   };
@@ -116,10 +113,7 @@ export async function renderReviewCut(
     lastPercentage = percentage;
     options.onProgress?.({ percentage });
   });
-  command
-    .complexFilter(plan.filterComplex)
-    .addOutputOptions(plan.outputOptions)
-    .output(outputPath);
+  command.complexFilter(plan.filterComplex).addOutputOptions(plan.outputOptions).output(outputPath);
 
   await runCommand(command, options.signal);
   options.onProgress?.({ percentage: 100 });
@@ -154,7 +148,8 @@ function validateInput(input: ReviewCutInput): void {
 
 function validateOutputPath(outputPath: string): void {
   if (!isAbsolute(outputPath)) throw new Error(`Output path must be absolute: ${outputPath}`);
-  if (hasAsciiControlCharacter(outputPath)) throw new Error('Output path contains invalid characters');
+  if (hasAsciiControlCharacter(outputPath))
+    throw new Error('Output path contains invalid characters');
   if (extname(outputPath).toLowerCase() !== '.mp4') {
     throw new Error('Output path must use the .mp4 extension');
   }
@@ -193,7 +188,8 @@ function seconds(milliseconds: number): string {
 }
 
 function positiveInteger(value: number, label: string): void {
-  if (!Number.isInteger(value) || value <= 0) throw new Error(`${label} must be a positive integer`);
+  if (!Number.isInteger(value) || value <= 0)
+    throw new Error(`${label} must be a positive integer`);
 }
 
 function nonNegativeInteger(value: number, label: string): void {

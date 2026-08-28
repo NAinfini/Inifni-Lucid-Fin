@@ -1,167 +1,265 @@
-import * as electron from 'electron';
-import type { BrowserWindow } from 'electron';
-import log from '../logger.js';
-import type { SqliteIndex } from '@lucid-fin/storage';
-import { CAS, Keychain, type PromptStore, type ProcessPromptStore } from '@lucid-fin/storage';
-import type { AdapterRegistry, LLMRegistry } from '@lucid-fin/adapters-ai';
-import type { TaskExecutionEngine } from '@lucid-fin/application';
-import { registerAssetHandlers } from './handlers/asset.handlers.js';
-import { registerKeychainHandlers } from './handlers/keychain.handlers.js';
-import { registerScriptHandlers } from './handlers/script.handlers.js';
-import { registerCharacterHandlers } from './handlers/character.handlers.js';
-import { registerEquipmentHandlers } from './handlers/equipment.handlers.js';
-import { registerLocationHandlers } from './handlers/location.handlers.js';
-import { registerStyleHandlers } from './handlers/style.handlers.js';
-import { registerColorStyleHandlers } from './handlers/color-style.handlers.js';
-import { registerTaskListHandlers } from './handlers/task-list.handlers.js';
-import { registerDeliveryPackageHandlers } from './handlers/delivery-package.handlers.js';
-import { registerReviewCutHandlers } from './handlers/review-cut.handlers.js';
-import { registerFfmpegHandlers } from './handlers/ffmpeg.handlers.js';
-import { registerCanvasHandlers, type CanvasStore } from './handlers/canvas.handlers.js';
-import { projectPresetCatalog, registerPresetHandlers } from './handlers/preset.handlers.js';
-import { registerCommanderHandlers } from './handlers/commander.handlers.js';
-import { registerVisionHandlers } from './handlers/vision.handlers.js';
-import { registerStorageHandlers } from './handlers/storage.handlers.js';
-import { registerSnapshotHandlers } from './handlers/snapshot.handlers.js';
-import { registerProcessPromptHandlers } from './handlers/process-prompt.handlers.js';
-import { registerFolderHandlers } from './handlers/folder.handlers.js';
-import { registerProviderOAuthHandlers } from './handlers/provider-oauth.handlers.js';
-import { registerCanvasDeliveryHandlers } from './handlers/canvas-delivery.handlers.js';
-import { createDeliveryPackageService } from '../services/delivery-package.service.js';
-import { createReviewCutService } from '../services/review-cut.service.js';
-import { createProductionMediaService } from '../services/production-media.service.js';
-import type { VisualAnalyzer } from '../services/visual-analyzer.service.js';
-import type { MediaGenerationService } from '../services/media-generation.service.js';
-import type { MediaEvaluationService } from '../services/media-evaluation.service.js';
-import type { ProviderOAuthManager } from '../oauth/provider-oauth-manager.js';
-import { reconcileStaleCommanderTaskLists } from './handlers/commander-task-list-lifecycle.js';
-import { createSafeStorageCommanderRecoveryCodec } from './handlers/commander-recovery.service.js';
+import {
+  EntityIdSchema,
+  PUBLIC_WIRE_METHODS_V1,
+  PublicWireMethodV1Schema,
+  WireResponseV1Schema,
+  parseCanonical,
+  parseRequestV1,
+  type PublicWireMethodV1,
+  type WireFailureV1,
+  type WireRequestV1,
+  type WireResponseV1,
+  type WireSuccessV1,
+} from '@lucid-fin/contracts';
+import { StorageError, type CommandContext, type StorageErrorCode } from '@lucid-fin/storage';
 
-const { ipcMain } = electron;
+type RequestFor<Method extends PublicWireMethodV1> = Extract<
+  WireRequestV1,
+  { readonly method: Method }
+>;
+type SuccessFor<Method extends PublicWireMethodV1> = Extract<
+  WireSuccessV1,
+  { readonly method: Method }
+>;
 
-export interface AppDeps {
-  db: SqliteIndex;
-  cas: CAS;
-  keychain: Keychain;
-  registry: AdapterRegistry;
-  llmRegistry: LLMRegistry;
-  taskExecutionEngine: TaskExecutionEngine;
-  promptStore: PromptStore;
-  processPromptStore: ProcessPromptStore;
-  oauthManager: ProviderOAuthManager;
-  promptAssemblyService: import('../services/prompt-assembly.service.js').PromptAssemblyService;
-  audioTaskService: import('../services/audio-task.service.js').AudioTaskService;
-  mediaTaskService: import('../services/media-task.service.js').MediaTaskService;
-  mediaGenerationService: MediaGenerationService;
-  mediaEvaluationService: MediaEvaluationService;
-  visualAnalyzer: VisualAnalyzer;
-  canvasStore: CanvasStore;
+export type WireHandler<Method extends PublicWireMethodV1> = (
+  request: RequestFor<Method>,
+  context: CommandContext,
+) => SuccessFor<Method> | Promise<SuccessFor<Method>>;
+
+export type WireHandlers = {
+  readonly [Method in PublicWireMethodV1]: WireHandler<Method>;
+};
+
+export type WireStandardErrorCode = Exclude<
+  WireFailureV1['error']['code'],
+  'confirmation_required'
+>;
+
+export interface WireErrorDescriptor {
+  readonly code: WireStandardErrorCode;
+  readonly retryable: boolean;
 }
 
-export async function registerAllHandlers(
-  getWindow: () => BrowserWindow | null,
-  deps: AppDeps,
-): Promise<void> {
-  const {
-    db,
-    cas,
-    keychain,
-    registry,
-    llmRegistry,
-    taskExecutionEngine,
-    promptStore,
-    processPromptStore,
-    oauthManager,
-    promptAssemblyService,
-    audioTaskService,
-    mediaTaskService,
-    mediaGenerationService,
-    mediaEvaluationService,
-    visualAnalyzer,
-    canvasStore,
-  } = deps;
-  log.info('Registering IPC handlers', {
-    category: 'ipc',
-    hasWindowGetter: typeof getWindow === 'function',
+export interface WireRouterOptions<Invocation> {
+  readonly authorizeInvocation: (
+    request: WireRequestV1,
+    invocation: Invocation,
+  ) => boolean | Promise<boolean>;
+  readonly contextForRequest: (
+    request: WireRequestV1,
+    invocation: Invocation,
+  ) => CommandContext | Promise<CommandContext>;
+  readonly localizeError?: (descriptor: WireErrorDescriptor) => string;
+  readonly onInternalError?: (cause: unknown, request: WireRequestV1) => void;
+}
+
+export interface WireRouter<Invocation> {
+  invoke(input: unknown, invocation: Invocation): Promise<WireResponseV1>;
+}
+
+export interface IpcMainLike<Event> {
+  handle(
+    channel: string,
+    listener: (event: Event, input: unknown) => Promise<WireResponseV1>,
+  ): void;
+  removeHandler(channel: string): void;
+}
+
+export class WireProtocolError extends Error {
+  readonly code = 'invalid_request' as const;
+
+  constructor() {
+    super('The desktop IPC request envelope is invalid');
+    this.name = 'WireProtocolError';
+  }
+}
+
+export class WirePublicError extends Error {
+  readonly descriptor: WireErrorDescriptor;
+
+  constructor(descriptor: WireErrorDescriptor, options?: ErrorOptions) {
+    super(descriptor.code, options);
+    this.name = 'WirePublicError';
+    this.descriptor = Object.freeze({ ...descriptor });
+  }
+}
+
+const DEFAULT_PUBLIC_SUMMARIES: Readonly<Record<WireStandardErrorCode, string>> = Object.freeze({
+  budget_exceeded: 'The request exceeds the available budget.',
+  cancelled: 'The request was cancelled.',
+  idempotency_conflict: 'This request identifier was already used for another command.',
+  internal_failure: 'The request could not be completed.',
+  invalid_request: 'The request is invalid.',
+  not_found: 'The requested item was not found.',
+  permission_denied: 'The request is not permitted.',
+  revision_conflict: 'The item changed before the request could be applied.',
+  unavailable: 'The requested capability is temporarily unavailable.',
+});
+
+const STORAGE_ERROR_DESCRIPTORS: Readonly<Record<StorageErrorCode, WireErrorDescriptor>> =
+  Object.freeze({
+    CORRUPT_DATA: { code: 'internal_failure', retryable: false },
+    DATABASE_ALREADY_EXISTS: { code: 'idempotency_conflict', retryable: false },
+    FOREIGN_KEY_CHECK_FAILED: { code: 'internal_failure', retryable: false },
+    IDEMPOTENCY_CONFLICT: { code: 'idempotency_conflict', retryable: false },
+    INTEGRITY_CHECK_FAILED: { code: 'internal_failure', retryable: false },
+    INVALID_REQUEST: { code: 'invalid_request', retryable: false },
+    NOT_FOUND: { code: 'not_found', retryable: false },
+    REVISION_CONFLICT: { code: 'revision_conflict', retryable: false },
+    SCHEMA_ARTIFACT_HASH_MISMATCH: { code: 'internal_failure', retryable: false },
+    SCHEMA_ARTIFACT_INVALID: { code: 'internal_failure', retryable: false },
+    SCHEMA_DRIFT: { code: 'internal_failure', retryable: false },
+    SECURITY_CONFIGURATION_FAILED: { code: 'internal_failure', retryable: false },
+    STORE_NOT_OPEN: { code: 'unavailable', retryable: true },
   });
-  registerAssetHandlers(ipcMain, cas, db);
-  registerKeychainHandlers(ipcMain, keychain, registry, llmRegistry);
-  registerProviderOAuthHandlers(ipcMain, getWindow, oauthManager);
-  registerScriptHandlers(ipcMain, db);
-  registerCharacterHandlers(ipcMain, db);
-  registerEquipmentHandlers(ipcMain, db);
-  registerLocationHandlers(ipcMain, db);
-  registerStyleHandlers(ipcMain, db);
-  registerProcessPromptHandlers(ipcMain, processPromptStore);
-  registerColorStyleHandlers(ipcMain, db, cas, taskExecutionEngine);
-  registerPresetHandlers(ipcMain, db);
-  const deliveryPackageService = createDeliveryPackageService({
-    db,
-    cas,
-    taskExecutionEngine,
+
+interface RequestIdentity {
+  readonly requestId: string;
+  readonly method: PublicWireMethodV1;
+}
+
+function requestIdentity(value: unknown): RequestIdentity | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return null;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const requestId = descriptors.requestId;
+  const method = descriptors.method;
+  if (
+    requestId === undefined ||
+    method === undefined ||
+    'get' in requestId ||
+    'set' in requestId ||
+    'get' in method ||
+    'set' in method
+  ) {
+    return null;
+  }
+  const parsedRequestId = EntityIdSchema.safeParse(requestId.value);
+  const parsedMethod = PublicWireMethodV1Schema.safeParse(method.value);
+  if (!parsedRequestId.success || !parsedMethod.success) return null;
+  return Object.freeze({ requestId: parsedRequestId.data, method: parsedMethod.data });
+}
+
+function exactHandlerMap(handlers: WireHandlers): WireHandlers {
+  const expected = Object.keys(PUBLIC_WIRE_METHODS_V1).sort();
+  const ownKeys = Reflect.ownKeys(handlers);
+  if (ownKeys.some((key) => typeof key !== 'string')) {
+    throw new Error('Desktop Wire handlers must not use symbol keys');
+  }
+  const actual = (ownKeys as string[]).sort();
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    throw new Error('Desktop Wire handler registry must exactly match PUBLIC_WIRE_METHODS_V1');
+  }
+  const copy = Object.create(null) as Record<string, unknown>;
+  const descriptors = Object.getOwnPropertyDescriptors(handlers);
+  for (const method of expected) {
+    const descriptor = descriptors[method];
+    if (
+      descriptor === undefined ||
+      'get' in descriptor ||
+      'set' in descriptor ||
+      typeof descriptor.value !== 'function'
+    ) {
+      throw new Error(`Desktop Wire handler ${method} must be an own data function`);
+    }
+    copy[method] = descriptor.value;
+  }
+  return Object.freeze(copy) as WireHandlers;
+}
+
+function descriptorForCause(cause: unknown): WireErrorDescriptor {
+  if (cause instanceof WirePublicError) return cause.descriptor;
+  if (cause instanceof StorageError) return STORAGE_ERROR_DESCRIPTORS[cause.code];
+  return { code: 'internal_failure', retryable: false };
+}
+
+function failureResponse(
+  identity: RequestIdentity,
+  correlationId: string,
+  descriptor: WireErrorDescriptor,
+  localize: (descriptor: WireErrorDescriptor) => string,
+): WireFailureV1 {
+  return parseCanonical(WireResponseV1Schema, {
+    wireVersion: 1,
+    kind: 'failure',
+    requestId: identity.requestId,
+    method: identity.method,
+    error: {
+      ...descriptor,
+      publicSummary: localize(descriptor),
+      correlationId,
+    },
+  }) as WireFailureV1;
+}
+
+export function createWireRouter<Invocation>(
+  handlersValue: WireHandlers,
+  options: WireRouterOptions<Invocation>,
+): WireRouter<Invocation> {
+  const handlers = exactHandlerMap(handlersValue);
+  const localize =
+    options.localizeError ??
+    ((descriptor: WireErrorDescriptor) => DEFAULT_PUBLIC_SUMMARIES[descriptor.code]);
+
+  return Object.freeze({
+    async invoke(input: unknown, invocation: Invocation): Promise<WireResponseV1> {
+      const identity = requestIdentity(input);
+      let request: WireRequestV1;
+      try {
+        request = parseRequestV1(input);
+      } catch {
+        if (identity === null) throw new WireProtocolError();
+        return failureResponse(
+          identity,
+          identity.requestId,
+          { code: 'invalid_request', retryable: false },
+          localize,
+        );
+      }
+
+      let context: CommandContext | undefined;
+      try {
+        if (!(await options.authorizeInvocation(request, invocation))) {
+          throw new WirePublicError({ code: 'permission_denied', retryable: false });
+        }
+        context = await options.contextForRequest(request, invocation);
+        const handler = handlers[request.method] as (
+          request: WireRequestV1,
+          context: CommandContext,
+        ) => WireSuccessV1 | Promise<WireSuccessV1>;
+        const response = parseCanonical(
+          WireResponseV1Schema,
+          await handler(request, context),
+        ) as WireResponseV1;
+        if (
+          response.kind !== 'success' ||
+          response.requestId !== request.requestId ||
+          response.method !== request.method
+        ) {
+          throw new Error('Desktop Wire handler returned a mismatched response');
+        }
+        return response as WireSuccessV1;
+      } catch (cause) {
+        const descriptor = descriptorForCause(cause);
+        if (descriptor.code === 'internal_failure') options.onInternalError?.(cause, request);
+        return failureResponse(
+          { requestId: request.requestId, method: request.method },
+          context?.correlationId ?? request.requestId,
+          descriptor,
+          localize,
+        );
+      }
+    },
   });
-  const reviewCutService = createReviewCutService({ db, cas, taskExecutionEngine });
-  const productionMediaService = createProductionMediaService({
-    db,
-    cas,
-    keychain,
-    visualAnalyzer,
-    adapterRegistry: registry,
-    canvasStore,
-    presetCatalog: projectPresetCatalog,
-    taskExecutionEngine,
-    promptAssemblyService,
-    mediaGenerationService,
-    mediaEvaluationService,
-    resolveProcessPrompt: (processKey: string) => processPromptStore.getEffectiveValue(processKey),
-  });
-  registerDeliveryPackageHandlers(ipcMain, getWindow, deliveryPackageService);
-  registerReviewCutHandlers(ipcMain, getWindow, reviewCutService);
-  registerFfmpegHandlers(ipcMain);
-  registerCanvasHandlers(ipcMain, canvasStore);
-  registerCanvasDeliveryHandlers(ipcMain, getWindow, db.repos.canvases, {
-    replace: (canvasId, deliverySequence) =>
-      canvasStore.replaceDeliverySequence(canvasId, deliverySequence),
-  });
-  const commanderContinuation = registerCommanderHandlers(ipcMain, getWindow, {
-    adapterRegistry: registry,
-    llmRegistry,
-    canvasStore,
-    presetCatalog: projectPresetCatalog,
-    taskExecutionEngine,
-    db,
-    cas,
-    keychain,
-    promptStore,
-    productionMediaService,
-    mediaGenerationService,
-    visualAnalyzer,
-    promptAssemblyService,
-    audioTaskService,
-    mediaTaskService,
-    resolvePrompt: (code: string) => promptStore.resolve(code),
-    resolveProcessPrompt: (processKey: string) => processPromptStore.getEffectiveValue(processKey),
-    listProcessPromptKeys: () =>
-      processPromptStore
-        .list()
-        .map((record) => ({ processKey: record.processKey, name: record.name })),
-    recoveryCodec: createSafeStorageCommanderRecoveryCodec(electron.safeStorage),
-  });
-  registerTaskListHandlers(ipcMain, taskExecutionEngine, {
-    requestCommanderContinuation: commanderContinuation.request,
-    mediaTaskService,
-    promptAssemblyService,
-  });
-  registerVisionHandlers(ipcMain, { visualAnalyzer });
-  registerStorageHandlers(ipcMain, { db, cas });
-  registerSnapshotHandlers(ipcMain, db);
-  registerFolderHandlers(ipcMain, db);
-  productionMediaService.recoverInterruptedAttempts();
-  void deliveryPackageService.recoverInterruptedAttempts();
-  await reconcileStaleCommanderTaskLists(taskExecutionEngine, db.repos.commanderRuns);
-  commanderContinuation.recoverPending();
-  log.info('IPC handlers registered', {
-    category: 'ipc',
-    canvasStoreReady: true,
-  });
+}
+
+export function registerWireRouter<Event>(
+  ipcMain: IpcMainLike<Event>,
+  channel: string,
+  router: WireRouter<Event>,
+): () => void {
+  ipcMain.handle(channel, (event, input) => router.invoke(input, event));
+  return () => ipcMain.removeHandler(channel);
 }

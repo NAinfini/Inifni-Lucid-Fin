@@ -2,12 +2,12 @@
 
 ## Status
 
-Planning only. This contract defines behavior and information architecture; it does not authorize UI
-implementation.
+Implemented product contract. This document defines the canonical shell behavior and information
+architecture.
 
-This is the target-only shell for the ground-up Lucid Fin AI video production Harness. It replaces the
-current application shell; it is not five tabs and a Commander Dock mounted onto the legacy Canvas
-application. No target screen reads a Legacy Resource, legacy IPC, or old workspace store.
+This is the sole shell for the Lucid Fin AI video production Harness. Overview, Canvas, Media,
+Production, and Delivery share one Project model and one Commander surface through the typed desktop
+API; the renderer does not read databases, provider credentials, or host resources directly.
 
 This screen contract implements the product model in
 [`../plans/2026-08-15-project-first-lucid-fin.md`](../plans/2026-08-15-project-first-lucid-fin.md) and
@@ -247,16 +247,16 @@ preserving the Chat and transcript position.
 
 ## State contract
 
-| State | Primary presentation | Available user actions |
-| --- | --- | --- |
-| Idle | Normal transcript and Composer | Send, attach, select context, switch Chat |
-| Running | Inline TaskList in current response | Message, queue follow-up, inspect, stop |
-| Background | Activity indicator on owning Chat and Project | Open, inspect, stop |
-| Waiting for user | Inline question, permission, or result decision | Answer, select, refine, decline |
-| Completed | Final summary and direct workspace links | Review, continue, start another Chat |
-| Failed | Typed failure, completed work retained, clear recovery | Retry when reconstructible, revise request |
-| Blocked | Exact permission, budget, provider, or data blocker | Resolve blocker or cancel |
-| Recovering | Rehydrating recorded public state; no duplicate execution | Wait, inspect recovered facts, cancel safely |
+| State            | Primary presentation                                      | Available user actions                       |
+| ---------------- | --------------------------------------------------------- | -------------------------------------------- |
+| Idle             | Normal transcript and Composer                            | Send, attach, select context, switch Chat    |
+| Running          | Inline TaskList in current response                       | Message, queue follow-up, inspect, stop      |
+| Background       | Activity indicator on owning Chat and Project             | Open, inspect, stop                          |
+| Waiting for user | Inline question, permission, or result decision           | Answer, select, refine, decline              |
+| Completed        | Final summary and direct workspace links                  | Review, continue, start another Chat         |
+| Failed           | Typed failure, completed work retained, clear recovery    | Retry when reconstructible, revise request   |
+| Blocked          | Exact permission, budget, provider, or data blocker       | Resolve blocker or cancel                    |
+| Recovering       | Rehydrating recorded public state; no duplicate execution | Wait, inspect recovered facts, cancel safely |
 
 A stale or terminal TaskList never presents as running and never prevents ordinary Chat deletion. Data
 with independent Project value remains governed by Project history and object ownership, not by Chat

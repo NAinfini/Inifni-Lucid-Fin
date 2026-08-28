@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   ci:
-    name: Build, Type Check, Test, Lint
+    name: Build, Closure, Type Check, Test, Lint
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -27,20 +27,19 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: 1/4 Build (ordered workspace deps)
+      - name: 1/5 Build (ordered workspace deps)
         run: pnpm run build
 
-      - name: 2/4 Type Check
-        run: |
-          pnpm exec tsc --noEmit -p packages/contracts/tsconfig.json
-          pnpm exec tsc --noEmit -p packages/application/tsconfig.json
-          pnpm exec tsc --noEmit -p packages/adapters-ai/tsconfig.json
-          pnpm run test:types
+      - name: 2/5 Production closure
+        run: pnpm run check:production-closure
 
-      - name: 3/4 Test
+      - name: 3/5 Type Check
+        run: pnpm run test:types
+
+      - name: 4/5 Test
         run: pnpm test -- --reporter=verbose
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
 
-      - name: 4/4 Lint
-        run: pnpm exec eslint . --max-warnings=0
+      - name: 5/5 Lint
+        run: pnpm run lint

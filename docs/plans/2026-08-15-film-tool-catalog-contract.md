@@ -12,7 +12,7 @@ disposition only; it never authorizes wrapping, aliasing, importing, or calling 
 This catalog implements the Agent Loop and Dispatcher in
 [`2026-08-15-commander-runtime-tool-surface.md`](./2026-08-15-commander-runtime-tool-surface.md), operates
 on the authorities in
-[`2026-08-15-project-data-history-memory-cutover.md`](./2026-08-15-project-data-history-memory-cutover.md),
+[`the archived data/history cutover`](../archive/target-transition/2026-08-15-project-data-history-memory-cutover.md),
 and produces the public states defined by
 [`../design/project-shell-screen-contract.md`](../design/project-shell-screen-contract.md).
 Its implementation order is defined by

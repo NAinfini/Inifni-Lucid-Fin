@@ -336,18 +336,12 @@ function getWorkspaceAllDeps(workspaceName: string, workspacePath: string): Map<
 // ---------------------------------------------------------------------------
 
 const INTERNAL_PACKAGES = new Set([
-  '@lucid-fin/adapters-ai',
-  '@lucid-fin/agent',
-  '@lucid-fin/application',
   '@lucid-fin/contracts',
-  '@lucid-fin/contracts-parse',
   '@lucid-fin/desktop-main',
   '@lucid-fin/desktop-renderer',
-  '@lucid-fin/domain',
   '@lucid-fin/media-engine',
-  '@lucid-fin/shared-utils',
+  '@lucid-fin/runtime',
   '@lucid-fin/storage',
-  '@lucid-fin/task-execution',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -391,6 +385,8 @@ async function main(): Promise<void> {
 
   // Merge all deps
   const allDeps = new Map<string, string>();
+  for (const [name, ver] of mainProdDeps) allDeps.set(name, ver);
+  for (const [name, ver] of rendererProdDeps) allDeps.set(name, ver);
   for (const [name, ver] of mainAllDeps) allDeps.set(name, ver);
   for (const [name, ver] of rendererAllDeps) allDeps.set(name, ver);
   // Also include root devDeps that won't show in workspace ls

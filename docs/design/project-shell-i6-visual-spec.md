@@ -2,10 +2,10 @@
 
 ## Status and authority
 
-This is an implementation-facing visual specification for the target-only I6 renderer. It does not
-authorize source changes, migration, release, or a change to the frozen information architecture.
+This is the implementation-facing visual specification for the canonical Project shell renderer. It
+does not authorize a change to the frozen information architecture.
 `project-shell-screen-contract.md` and `project-workspaces-contract.md` win where this document is
-silent or conflicts with legacy terminology in `PRODUCT.md`.
+silent or conflicts with older terminology in `PRODUCT.md`.
 
 Reference: [`../../.impeccable/mocks/i6/project-shell-workspace-reference.png`](../../.impeccable/mocks/i6/project-shell-workspace-reference.png).
 The reference illustrates the wide working state; it is not a source of new product behavior.
@@ -139,8 +139,8 @@ all tabs, chat controls, disclosures, candidate actions, attachments, and Focus 
 ## Implementation guardrails
 
 - Preserve separate scrolling and route/selection restoration across shell transitions.
-- Back every visible action with target IPC/domain authority, or render it disabled with a typed reason.
-- Do not expose legacy resource UI, prompt/style/preset/template/tool-injection managers, raw tool
-  names, or private reasoning in the target shell.
+- Back every visible action with canonical IPC/domain authority, or render it disabled with a typed reason.
+- Do not expose internal resource UI, prompt/style/preset/template/tool-injection managers, raw tool
+  names, or private reasoning in the Project shell.
 - Treat empty, loading, recovering, failed, blocked, and partial-result states as first-class compact
   workspace states; completed work and valid results remain visible.

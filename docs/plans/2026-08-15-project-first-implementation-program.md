@@ -11,7 +11,7 @@ The target is defined by:
 - [`2026-08-15-project-first-lucid-fin.md`](./2026-08-15-project-first-lucid-fin.md)
 - [`../design/project-shell-screen-contract.md`](../design/project-shell-screen-contract.md)
 - [`../design/project-workspaces-contract.md`](../design/project-workspaces-contract.md)
-- [`2026-08-15-project-data-history-memory-cutover.md`](./2026-08-15-project-data-history-memory-cutover.md)
+- [`Archived data/history cutover`](../archive/target-transition/2026-08-15-project-data-history-memory-cutover.md)
 - [`2026-08-15-commander-runtime-tool-surface.md`](./2026-08-15-commander-runtime-tool-surface.md)
 - [`2026-08-15-film-tool-catalog-contract.md`](./2026-08-15-film-tool-catalog-contract.md)
 

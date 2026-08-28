@@ -88,14 +88,20 @@ jobs:
         run: bash scripts/build-ffmpeg-macos-lgpl.sh --output resources/bin/${{ matrix.platform_key }}
 
       - name: Rebuild native modules
-        run: pnpm exec electron-rebuild -f -w better-sqlite3 -v 43.2.0
+        run: pnpm exec electron-rebuild -f -w keytar -v 43.2.0
 
       - name: Build all packages (ordered)
         run: pnpm run build
 
+      - name: Verify production source and built closure
+        run: pnpm run check:production-closure
+
       - name: Package installer (local only, no publish)
         run: pnpm exec electron-builder --config electron-builder.json --${{ matrix.platform }} --${{ matrix.arch }} --publish=never
         working-directory: apps/desktop-main
+
+      - name: Verify packaged production closure
+        run: pnpm run check:production-closure -- --require-package
 
       - name: List built artifacts
         run: ls -R apps/desktop-main/release/ || echo "No release files"
