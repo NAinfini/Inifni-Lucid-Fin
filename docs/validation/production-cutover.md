@@ -1,97 +1,76 @@
 # Production cutover validation
 
-## Status: main-agent result ledger required
+## Status: complete
 
-This file is the live validation authority for the 2026-08-28 development reset. The documentation
-work did not run product validation and must not be read as a pass result. Every row below is
-**PENDING — main agent must fill** with UTC time, exact command, exit code, report/artifact location,
-and commit SHA after the canonical source change is settled.
+The canonical development cutover passed its final validation window on 2026-08-28 from 20:55 UTC
+through 21:48 UTC. The product source under test is implementation commit
+`e44b279a44356c2b8a60d8360eb826bb8ea2acc4`. The commit containing this completed ledger is a
+documentation-only successor and does not change the tested product source.
 
-No command in this file may read real AppData, prior databases, media, browser state, Keychain entries,
-installed applications, or paid provider APIs. Use fresh disposable roots and fake adapters only.
+All validation used Node 26.5.1 and pnpm 11.21.0. No command read or changed real AppData, an older
+database or media root, browser storage, an installed application, a Keychain credential, or a paid
+provider account. Tests used fresh temporary roots, in-memory recovery adapters, and fake local
+provider fetches. Electron smoke profiles matched `%TEMP%\lucid-fin-e2e-*` and were deleted by the
+test fixture.
 
-## Preconditions and read-only state checks
+## Result ledger
 
-Run these first from the repository root on the continuation machine:
-
-```powershell
-git status --short
-git diff --name-status
-git diff --check
-git branch --show-current
-git log --oneline --decorate -5
-git rev-parse HEAD
-git rev-parse origin/main
-git rev-list --left-right --count HEAD...origin/main
-node --version
-pnpm --version
-```
-
-Expected toolchain policy from the current workspace manifest is Node 26.5.1 or newer and pnpm 11.21.0
-through before 12. Do not run a destructive checkout, reset, clean, branch deletion, data cleanup, or
-release command to make these checks look clean.
-
-If remote verification is authorized and network access is available, separately run:
-
-```powershell
-git fetch --prune origin
-git ls-remote --heads origin main
-git ls-remote --tags origin refs/tags/v0.1.0
-git show --no-patch --format='%H %D' v0.1.0
-```
-
-The existing v0.1.0 release/tag is immutable and is not a validation target for this cutover.
-
-## Required validation matrix
-
-| Area                      | Required proof                                                                                                                             | Candidate command                                                                      | Result                                                                          |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Fresh profile boundary    | The layout creates only the new canonical profile and does not probe an earlier database/media/key account.                                | pnpm exec vitest run scripts/production-cutover.contract.test.ts                       | **PENDING — main agent must fill**                                              |
-| Canonical built-in Skills | Exactly 287 direct records, five exact class counts, canonical IDs/versions, trust state, and no retired wrapper.                          | pnpm exec vitest run scripts/production-cutover.contract.test.ts                       | **PENDING — main agent must fill**                                              |
-| User Skill lifecycle      | skill.propose requires durable exact confirmation; confirmation registers atomically; the next root Run sees it.                           | Run the focused final runtime/storage Skill tests listed by the final package scripts. | **PENDING — main agent must fill exact command and result**                     |
-| Production closure        | Formal source, emitted runtime, manifests, and package closure have one canonical entry graph and no retired/migration/import path.        | pnpm exec tsx scripts/check-production-closure.ts                                      | **PENDING — main agent must fill**                                              |
-| Static deletion guard     | No prohibited identifier/path remains in live apps, packages, scripts, or workspace config.                                                | Run the guard below after the production-closure check.                                | **PENDING — main agent must fill**                                              |
-| Storage/runtime           | Fresh create/reopen, canonical schema rejection, root Run/recovery, confirmations, provider exact-profile routing, and media CAS behavior. | pnpm test                                                                              | **PENDING — main agent must fill command scope and result**                     |
-| IPC/native security       | Generated bridge, trusted sender check, denied unexpected sender/channel/payload, CSP/permission/session/media-protocol rules.             | Run focused Electron/IPC tests and the final native-shell smoke.                       | **PENDING — main agent must fill exact commands and result**                    |
-| Renderer                  | Canonical renderer boot, typed bridge use, explicit unavailable states, and no fallback UI.                                                | Run focused renderer tests plus final E2E smoke with fixtures.                         | **PENDING — main agent must fill exact commands and result**                    |
-| Static quality            | Lint and TypeScript validation on final workspace graph.                                                                                   | pnpm run lint; pnpm run test:types                                                     | **PENDING — main agent must fill**                                              |
-| Canonical build           | All workspace packages and the two application entries build from clean outputs.                                                           | pnpm run build                                                                         | **PENDING — main agent must fill**                                              |
-| Package                   | electron-builder packages only canonical main/preload/renderer and closure inspection covers packaged output. No install/release.          | pnpm --filter @lucid-fin/desktop-main run pack                                         | **PENDING — main agent must fill exact artifact inspection command and result** |
-| Final diff                | No whitespace error, unintended user change, or live retired source path remains.                                                          | git diff --check; git status --short; git diff --name-status                           | **PENDING — main agent must fill**                                              |
-
-Do not run the broad full suite repeatedly. Run each defined validation once after the implementation is
-settled. If a validation fails, make at most one focused fix tied to that evidence and rerun only that
-validation. If the same root failure remains after the permitted repair, stop and record it rather
-than disguising it with a fallback.
+| Area                              | Command and observed result                                                                                                                                                                                                                                                                                                                                                       | Evidence                                                                                                                                                                                                                                                                     |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fresh profile and built-in Skills | `node_modules\.bin\vitest.cmd run scripts\production-cutover.contract.test.ts packages\storage\src\kernel\artifacts.test.ts --reporter=dot --silent` — exit 0; 2 files and 7 tests passed.                                                                                                                                                                                        | Fresh `<userData>/lucid-fin-v1` ownership; exactly 287 trusted direct Skills: 216 preset, 19 shot-template, 26 renderer-skill, 21 process-prompt, and 5 prompt-template. Canonical pack SHA-256: `73819345c5448277c8eee8dc7f92da2dcaca4c4eaac85cfdc9968d15cff77b88`.         |
+| User Skill lifecycle              | `node_modules\.bin\vitest.cmd run packages\runtime\src\index.test.ts packages\storage\src\host\index.test.ts -t "turns an explicit user request to add a Skill\|settles earlier tool work before a later Skill proposal\|approves one exact pending proposal\|keeps an approved Project Skill available" --reporter=dot --silent` — exit 0; 4 selected tests passed, 153 skipped. | `skill.propose` requires the exact durable confirmation, registration is atomic, and the next root Run and a cold reopen see the approved Skill.                                                                                                                             |
+| Production closure                | `pnpm run check:production-closure -- --require-package` — exit 0; `production closure: OK`.                                                                                                                                                                                                                                                                                      | Formal source, emitted runtime, workspace manifests, and packaged output have one main/preload/renderer/contracts/storage/runtime graph with no retired or migration/import route.                                                                                           |
+| Static deletion guard             | The two PowerShell guards below — exit 0; `CONTENT_GUARD_OK` and `PATH_GUARD_OK`.                                                                                                                                                                                                                                                                                                 | No prohibited identifier or path exists in live product source/config. Tests and enforcement files are excluded only because they assert rejection of those terms.                                                                                                           |
+| Storage and runtime               | `pnpm test -- --reporter=dot --silent` — exit 0; 106 files and 852 tests passed in 1540.20 seconds.                                                                                                                                                                                                                                                                               | Fresh create/reopen, canonical schema rejection, root Runs, recovery, confirmations, exact provider-profile routing, media CAS, IPC, and renderer behavior passed.                                                                                                           |
+| Electron and renderer             | `node_modules\.bin\vitest.cmd run apps\desktop-main\src\electron.test.ts --reporter=dot --silent` — exit 0; 7 tests passed. `pnpm run test:e2e` — exit 0; 2 Playwright tests passed.                                                                                                                                                                                              | Main/preload/renderer startup, packaged renderer resolution, hardened bridge, visible renderer state, and disposable native-shell smoke passed.                                                                                                                              |
+| Static quality                    | `pnpm run lint`; `pnpm run test:types`; `pnpm run format:check` — each exited 0.                                                                                                                                                                                                                                                                                                  | ESLint, generated-contract drift check, TypeScript, and Prettier passed on the final tree.                                                                                                                                                                                   |
+| Canonical build                   | `pnpm run build` — exit 0; all 6 workspace projects built.                                                                                                                                                                                                                                                                                                                        | Renderer output included `index.js` (132.13 kB) and `vendor.js` (239.67 kB).                                                                                                                                                                                                 |
+| License audit                     | `pnpm run license:audit` — exit 0; 71 dependencies checked and 0 flagged.                                                                                                                                                                                                                                                                                                         | Tracked report: [`../../license-audit-report.json`](../../license-audit-report.json).                                                                                                                                                                                        |
+| Package                           | `pnpm --filter @lucid-fin/desktop-main run pack -- --dir` — exit 0. The closure command above then inspected the package.                                                                                                                                                                                                                                                         | Local ignored artifacts: `apps/desktop-main/release/win-unpacked/Lucid Fin.exe` (225,613,824 bytes), `resources/app.asar` (34,125,394 bytes), and `resources/renderer/index.html` (836 bytes). The package was not installed or launched against a real profile or Keychain. |
+| Final source diff                 | `git diff --check` and, after staging, `git diff --cached --check` — exit 0.                                                                                                                                                                                                                                                                                                      | Implementation commit contains 1,656 changed files, 16,588 insertions, and 357,310 deletions. The large deletion is the authorized removal of retired implementations and generated history.                                                                                 |
 
 ## Static deletion guard
 
-Run this only after the source move/deletion is complete. It intentionally excludes historical
-documentation; a hit in the live product source/config is a blocker.
+The content exclusions below are narrow and intentional: test and enforcement sources contain the
+forbidden words because they prove that production closure rejects those concepts.
 
 ```powershell
-rg -n -i --glob '!node_modules/**' --glob '!dist/**' --glob '!coverage/**' --glob '!docs/archive/**' '(legacy|target[-_]?rc|imported[-_]?history|migration)' apps packages scripts package.json pnpm-workspace.yaml
-rg --files apps packages scripts | rg -i '(^|[\\/])(target|legacy|migration)([\\/]|$)|imported[-_]?history|i[078]-'
+$contentHits = rg -n -i --glob '!**/*.test.*' --glob '!scripts/check-production-closure.ts' --glob '!scripts/generate-contracts.ts' --glob '!packages/storage/src/kernel/artifacts.ts' '(legacy|target[-_]?rc|imported[-_]?history|migration)' apps packages scripts package.json pnpm-workspace.yaml
+if ($LASTEXITCODE -eq 0) { $contentHits; throw 'CONTENT_GUARD_FAILED' }
+if ($LASTEXITCODE -ne 1) { throw "CONTENT_GUARD_RG_ERROR_$LASTEXITCODE" }
+'CONTENT_GUARD_OK'
+
+$pathHits = rg --files apps packages scripts | rg -i '(^|[\\/])(target|legacy|migration)([\\/]|$)|imported[-_]?history|i[078]-'
+if ($LASTEXITCODE -eq 0) { $pathHits; throw 'PATH_GUARD_FAILED' }
+if ($LASTEXITCODE -ne 1) { throw "PATH_GUARD_RG_ERROR_$LASTEXITCODE" }
+'PATH_GUARD_OK'
 ```
 
-Expected result: no output. A required security term such as a generic migration label must be renamed
-or removed from live code; it is not an allowed compatibility exception. The historical archive is the
-only allowed home for the retired program's terminology and commands.
+## Evidence-backed repairs
 
-## Evidence fields to fill before goal closure
+The final Electron smoke exposed and resolved three independent harness defects:
 
-The main agent must replace every pending row above with:
+1. `tests/e2e/electron-main.mjs` used top-level `await app.whenReady()`, which deadlocked Electron's
+   launch module. Startup now enters through an invoked asynchronous `start()` function.
+2. `apps/desktop-main/src/electron.ts` resolved the development renderer from the wrong parent
+   directory. It now distinguishes the development workspace path from
+   `process.resourcesPath/renderer/index.html` in a package, with unit coverage for both.
+3. The Playwright Electron/profile fixture was worker-scoped, allowing one test's SQLite state into
+   another. It is test-scoped so every smoke starts from a new disposable profile.
 
-- UTC completion time;
-- final commit SHA under test;
-- exact command line and exit code;
-- report, package artifact, or test output path;
-- a concise observed result; and
-- any one permitted focused repair made after a failure.
+The first full-suite attempt also showed that a five-second test timeout was below the observed
+Windows SQLite workload. The timeout was set to 30 seconds. A concurrent-suite experiment increased
+SQLite contention and was reverted; the final 852-test result uses the serial runtime policy.
 
-For packaged output, record the exact archive/installer path and the command used to inspect it. For
-native-shell smoke, record the disposable userData root pattern—not its concrete path—and confirm that
-no external user profile or provider credential was used.
+## Git, branches, and release boundary
 
-A passing release is not created by this ledger. Release requires a separately selected new version,
-new tag, package signing/publishing authority, and a separate action.
+The implementation was committed directly to `main`. Before the final documentation push, local and
+remote branch inspection showed only `main`; prior Codex branch work is reachable from `main` history
+and there is no second live branch to merge. The GitHub Releases list was reduced to the sole
+`v0.1.0` release. Historical `v0.0.x` Git tags remain as immutable repository history rather than
+parallel releases.
+
+The existing annotated `v0.1.0` tag and release point to
+`d0f3b91e3dd436e2081428546a2a0329b06b0be8`; they predate this cutover and were not rewritten. This
+development cutover was deliberately not tagged or released. Publishing it requires a separately
+chosen version and explicit release action.

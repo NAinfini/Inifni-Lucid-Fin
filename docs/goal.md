@@ -1,112 +1,78 @@
 # Goal and cross-PC handoff
 
-## Active goal
+## Status: complete
 
-Complete the 2026-08-28 development canonical cutover for Lucid Fin, then leave a single
-source-of-truth repository that another PC's AI can continue without accessing personal application
-data.
+The 2026-08-28 Lucid Fin development cutover is complete. Tested product implementation commit:
+`e44b279a44356c2b8a60d8360eb826bb8ea2acc4`. The documentation-only successor containing this record
+does not change the tested product source.
 
-The delivered product must have one canonical Electron main/preload/renderer/runtime/storage/IPC/Skills/
-build/package path. It starts from a fresh canonical development profile. It has no migration, no
-retired runtime, no compatibility branch, no fallback, no dual write, no imported history, and no
-runtime switch between applications.
+No continuation task remains for this goal. A different PC should clone or update `main`, confirm it
+matches `origin/main`, and treat this repository and the documents below as the only source of truth.
+A future feature or release starts a new goal.
 
-## Current handoff status
+## Delivered state
 
-Implementation and final verification are owned by the main agent. This documentation pass has:
+- One Electron main, preload, renderer, runtime, storage, IPC, build, and package graph.
+- One fresh profile at `<Electron userData>/lucid-fin-v1`, with `project.sqlite` and `media/`.
+- No migration, retention/import route, compatibility reader, fallback, dual write, imported history,
+  runtime application switch, or forwarding package.
+- Exactly 287 trusted built-in Skills, materialized directly from every former preset/template class.
+- User requests can create additional Project Skills through `skill.propose`, exact durable
+  confirmation, atomic registration, and availability on the next root Run and cold reopen.
+- Only the canonical workspace packages remain: contracts, storage, runtime, and media-engine.
+- Superseded I0/I7/I8/migration/cross-PC documents are non-executable history under
+  [`docs/archive/target-transition`](archive/target-transition/README.md).
 
-- created the live ownership, adapter, Skill, plan, validation, and goal documents;
-- moved the superseded I0/I7/I8/migration/cross-PC documents to
-  [docs/archive/target-transition](archive/target-transition/README.md); and
-- marked every historical document as non-executable after the development reset.
-
-It has **not** established final source closure, tests, packaging, native-shell smoke, a commit, a
-push, a new tag, or a release. Read the PENDING result ledger in
-[docs/validation/production-cutover.md](validation/production-cutover.md) before making any completion
-claim.
+Full commands, results, repairs, artifact sizes, and the safety record are in
+[`docs/validation/production-cutover.md`](validation/production-cutover.md).
 
 ## Read in this order
 
-1. [docs/plans/2026-08-28-development-cutover.md](plans/2026-08-28-development-cutover.md)
-2. [docs/architecture/application-ownership.md](architecture/application-ownership.md)
-3. [docs/architecture/production-adapters.md](architecture/production-adapters.md)
-4. [docs/architecture/skills.md](architecture/skills.md)
-5. [docs/validation/production-cutover.md](validation/production-cutover.md)
+1. [`docs/goal.md`](goal.md)
+2. [`docs/plans/2026-08-28-development-cutover.md`](plans/2026-08-28-development-cutover.md)
+3. [`docs/architecture/application-ownership.md`](architecture/application-ownership.md)
+4. [`docs/architecture/production-adapters.md`](architecture/production-adapters.md)
+5. [`docs/architecture/skills.md`](architecture/skills.md)
+6. [`docs/validation/production-cutover.md`](validation/production-cutover.md)
 
-Do not use a document in docs/archive/target-transition as an execution guide.
+Do not use anything in `docs/archive/target-transition` as an execution guide.
 
-## Non-negotiable safety boundary
+## Safety boundary preserved
 
-The continuation may not inspect, migrate, copy, hash, move, delete, or otherwise touch real prior
-application data. This includes AppData, old SQLite databases/WAL/SHM/journals/backups, media roots,
-browser profiles/localStorage, offline exports, existing Keychain entries, installed applications, and
-paid provider APIs. Tests use new disposable paths and fake adapters only.
+Implementation and validation did not inspect, migrate, copy, hash, move, delete, or launch real
+prior application data. This includes AppData, old SQLite databases and sidecars, media roots,
+browser profiles/localStorage, offline exports, existing Keychain entries, installed applications,
+and paid provider APIs. Tests used only fresh temporary paths and fake or in-memory adapters.
 
-If a task appears to require such an input, it is outside this goal. Stop and report the conflict; do
-not create a compatibility or data-migration branch.
+That remains the product contract. Work that would require older data is a new, explicitly authorized
+goal—not an implicit compatibility addition.
 
-## Exact continuation checks
+## Cross-PC verification
 
-From the repository root, first gather only local state:
+From a clean checkout on the other PC:
 
 ```powershell
-git status --short
-git diff --name-status
-git diff --check
-git branch --show-current
-git log --oneline --decorate -5
+git fetch --prune origin
+git switch main
+git status --short --branch
 git rev-parse HEAD
 git rev-parse origin/main
 git rev-list --left-right --count HEAD...origin/main
-git tag --points-at HEAD
 node --version
 pnpm --version
 ```
 
-When remote access is authorized, refresh and verify remote state separately:
+Expected source-control result is a clean `main` with `HEAD == origin/main` and ahead/behind `0 0`.
+The supported toolchain is Node 26.5.1 or newer and pnpm 11.21.x. Install dependencies with the frozen
+lockfile before new work; do not copy an old profile to the new machine.
 
-```powershell
-git fetch --prune origin
-git ls-remote --heads origin main
-git ls-remote --tags origin refs/tags/v0.1.0
-git show --no-patch --format='%H %D' v0.1.0
-```
+## Branch and release record
 
-Interpretation:
+At closure, local and remote branch inspection showed only `main`. All prior Codex work that survives
+the cutover is in `main`; there is no other branch to merge. GitHub has one Release, `v0.1.0`.
+Historical `v0.0.x` tags remain only as repository history.
 
-- A non-empty status/diff may be the active cutover work. Preserve it; do not reset, clean, checkout
-  over it, or delete a branch to make the tree appear tidy.
-- HEAD must eventually be committed on main and equal origin/main after the explicitly authorized
-  push. Until then, record the exact ahead/behind count.
-- The prior immutable release is v0.1.0 at
-  d0f3b91e3dd436e2081428546a2a0329b06b0be8. Do not amend, delete, retag, or re-release it.
-- A new release requires a new selected version and separate publication authority. No version is
-  selected in this handoff.
-
-## Continue from the first unchecked gate
-
-1. Inspect final ownership paths and the deletion surface; do not preserve a stage directory or
-   forwarding package.
-2. Run the first PENDING validation in
-   [docs/validation/production-cutover.md](validation/production-cutover.md).
-3. On evidence-backed failure, make at most one focused repair and rerun only that validation. Record
-   both the failure and repair outcome.
-4. After all validations pass, inspect the final diff for scope and run git diff --check.
-5. Commit and push only under the already granted source-control authority, then re-run the read-only
-   Git status checks and fill their results in the validation ledger.
-6. Do not tag or release until a new version is explicitly chosen and release authority is confirmed.
-
-## Goal closure criteria
-
-Mark this goal complete only after:
-
-- every requirement in the active cutover plan is implemented;
-- every row in the validation ledger contains passing evidence at the final commit;
-- the repository's canonical state is committed and pushed to main under authorization;
-- the historical documents remain archived and clearly non-executable;
-- no real user data, Keychain credential, installed application, or paid provider was touched; and
-- any follow-up release decision is either completed as a separate authorized action or explicitly
-  left pending with the new version choice identified as the remaining decision.
-
-If these conditions are not all met, leave the goal active and state the first remaining blocker
-precisely.
+The existing `v0.1.0` release/tag points to
+`d0f3b91e3dd436e2081428546a2a0329b06b0be8` and predates this cutover. It was not moved or reissued.
+The completed cutover has no release tag; publishing it requires a new version and a separate release
+decision.

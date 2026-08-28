@@ -1,12 +1,11 @@
 # 2026-08-28 development canonical cutover
 
-## Current status
+## Current status: complete
 
-This is the active engineering plan for the development reset authorized on 2026-08-28. Source
-implementation is in progress; this documentation task does not claim that the final source closure,
-test suite, package, or native-shell smoke has passed. The main agent must fill the result ledger in
-[../validation/production-cutover.md](../validation/production-cutover.md) before marking the goal
-complete.
+This engineering plan was completed on 2026-08-28. Tested product implementation commit:
+`e44b279a44356c2b8a60d8360eb826bb8ea2acc4`. The complete command, result, repair, artifact, safety,
+Git, and release evidence is recorded in
+[../validation/production-cutover.md](../validation/production-cutover.md).
 
 The old I0/I7/I8/migration/cross-PC documents are historical evidence only and have moved to
 [../archive/target-transition](../archive/target-transition/README.md). Their commands are retired.
@@ -52,7 +51,7 @@ Skills, build, and package. The detailed mapping is in
 ownership in [../architecture/production-adapters.md](../architecture/production-adapters.md), and Skill
 ownership in [../architecture/skills.md](../architecture/skills.md).
 
-## Required implementation sequence
+## Completed implementation sequence
 
 1. Establish contract tests for a fresh canonical profile, direct Skill documents, and a one-closure
    production build.
@@ -70,7 +69,7 @@ ownership in [../architecture/skills.md](../architecture/skills.md).
 7. Update live documentation, run the full validation matrix once, resolve a verified failure with at
    most one focused repair pass, and record all results.
 
-## Required deletion surface
+## Completed deletion surface
 
 The exact paths are rechecked immediately before deletion because the implementation may move files
 while preserving the same ownership contract. The following surfaces must be absent from the final
@@ -94,7 +93,7 @@ formal source, emitted output, manifests, and packaged contents.
 
 ## Completion criteria
 
-The work is complete only when all of the following are true:
+All completion criteria were satisfied:
 
 - formal main, preload, and renderer boot the canonical composition;
 - canonical packages are the only contracts/storage/runtime packages in workspace and package
@@ -106,8 +105,8 @@ The work is complete only when all of the following are true:
 - no retired or migration/import path remains in live source, test, build, config, generated output,
   package, or packaged archive;
 - the full validation matrix has recorded passing results; and
-- the final diff is reviewed, committed, and pushed only under the separately granted source-control
-  authority.
+- the final diff was reviewed and committed under the granted source-control authority; the
+  documentation-only successor records the push/remote handoff closure.
 
 ## Release boundary
 
@@ -119,7 +118,7 @@ not select that next version.
 
 ## Cross-PC takeover
 
-On another PC, read docs/goal.md first. Do not start a retired I0/I7/I8/migration command. Run the
-read-only status checks there, confirm the source branch and worktree state, then continue from the
-first unchecked validation result. The repository and the new docs are the handoff source of truth;
-no real local profile is an input to the task.
+On another PC, read docs/goal.md first. Do not start a retired I0/I7/I8/migration command. Confirm that
+the clean local `main` equals `origin/main`, then start only newly requested work as a new goal. The
+repository and these live documents are the handoff source of truth; no real local profile is an input
+to the task.
