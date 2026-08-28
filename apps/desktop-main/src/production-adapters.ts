@@ -57,7 +57,9 @@ export async function createCanonicalRecoveryCodec(
 }
 
 export async function systemRecoveryKeyStore(): Promise<RecoveryKeyStore> {
-  const keytar = (await import('keytar')) as unknown as RecoveryKeyStore;
+  const { default: keytar } = (await import('keytar')) as unknown as {
+    readonly default: RecoveryKeyStore;
+  };
   return Object.freeze({
     getPassword: (service: string, account: string) => keytar.getPassword(service, account),
     setPassword: (service: string, account: string, password: string) =>

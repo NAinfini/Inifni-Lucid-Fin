@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { CanonicalModelRequestV1, ProviderModel } from '@lucid-fin/contracts';
 import type { PrivateModelContext } from '@lucid-fin/storage';
 import {
@@ -8,8 +8,16 @@ import {
   ProviderNotConfiguredError,
   createOllamaModelAdapter,
   loadOrCreateRecoveryKey,
+  systemRecoveryKeyStore,
   type RecoveryKeyStore,
 } from './production-adapters.js';
+
+const keytar = vi.hoisted(() => ({
+  getPassword: vi.fn(),
+  setPassword: vi.fn(),
+}));
+
+vi.mock('keytar', () => ({ default: keytar }));
 
 const provider: ProviderModel = {
   providerId: LOCAL_OLLAMA_PROVIDER_ID,
@@ -41,6 +49,17 @@ class MemoryKeyStore implements RecoveryKeyStore {
 }
 
 describe('production adapters', () => {
+  it('uses the CommonJS keytar default export', async () => {
+    keytar.getPassword.mockResolvedValue('stored');
+    keytar.setPassword.mockResolvedValue(undefined);
+    const store = await systemRecoveryKeyStore();
+
+    await expect(store.getPassword('service', 'account')).resolves.toBe('stored');
+    await expect(store.setPassword('service', 'account', 'password')).resolves.toBeUndefined();
+    expect(keytar.getPassword).toHaveBeenCalledWith('service', 'account');
+    expect(keytar.setPassword).toHaveBeenCalledWith('service', 'account', 'password');
+  });
+
   it('owns only the canonical recovery-key service and account', async () => {
     const store = new MemoryKeyStore();
     const first = await loadOrCreateRecoveryKey(store);
