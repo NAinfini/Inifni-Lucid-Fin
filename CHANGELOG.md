@@ -4,44 +4,22 @@
 
 ---
 
-## 0.0.14 — 2026-08-27
+## 0.1.0 — 2026-08-28
+
+### Release consolidation
+
+- Consolidated the release-hardening work previously tagged `v0.0.10` through `v0.0.14` into one release sourced from the latest `main` commit.
+- Confirmed the Target Harness handoff commit and all later hardening commits form one linear `main` history, with no unmerged branch implementation.
+- Removed the unused root electron-builder configuration so `apps/desktop-main/electron-builder.json` is the sole packaging authority.
 
 ### Fixed
 
 - Allowed macOS VideoToolbox encoders to use their software implementation when a hardware compression session is unavailable, both in release verification and runtime transcoding.
-
----
-
-## 0.0.13 — 2026-08-27
-
-### Fixed
-
 - Resolved packaged resources through electron-builder's platform-aware directory so macOS release verification checks inside the application bundle.
-
----
-
-## 0.0.12 — 2026-08-27
-
-### Fixed
-
 - Routed the pinned FreeType source archive through Savannah's official mirror after the primary endpoint returned persistent HTTP 502 responses during macOS release builds.
 - Declared Codex platform binaries as direct optional dependencies so pnpm production packaging includes the native executable for each target architecture.
-
----
-
-## 0.0.11 — 2026-08-27
-
-### Fixed
-
 - Set explicit Linux executable and package names so AppImage and Debian packaging do not inherit the scoped npm package name.
 - Canonicalized the macOS FFmpeg build root before dependency relocation so runner `TMPDIR` formatting cannot leave verified dylibs unbundled.
-
----
-
-## 0.0.10 — 2026-08-27
-
-### Fixed
-
 - Configured the verified bundled Linux FFmpeg library directory for both release smoke checks and packaged runtime child processes.
 - Added bounded retries and connection/transfer limits for transient failures while downloading checksum-pinned macOS FFmpeg build inputs.
 - Isolated the Legacy Electron and Target browser Playwright suites so each runs with its required harness configuration.
