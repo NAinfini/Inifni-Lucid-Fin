@@ -10,8 +10,9 @@ documentation-only successor and does not change the tested product source.
 All validation used Node 26.5.1 and pnpm 11.21.0. No command read or changed real AppData, an older
 database or media root, browser storage, an installed application, a Keychain credential, or a paid
 provider account. Tests used fresh temporary roots, in-memory recovery adapters, and fake local
-provider fetches. Electron smoke profiles matched `%TEMP%\lucid-fin-e2e-*` and were deleted by the
-test fixture.
+provider fetches. Electron smoke profiles matched `%TEMP%\lucid-fin-e2e-*`. Passing fixtures removed
+their own profiles; four failed-run profiles from this validation window were individually verified
+and removed during final cleanup. Pre-existing profiles dated 2026-08-14 were left untouched.
 
 ## Result ledger
 
