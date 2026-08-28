@@ -2,8 +2,10 @@
 
 ## Status: complete
 
-The 2026-08-28 Lucid Fin development cutover is complete. Tested product implementation commit:
-`e44b279a44356c2b8a60d8360eb826bb8ea2acc4`. The documentation-only successor containing this record
+The 2026-08-28 Lucid Fin development cutover is complete. Current tested product implementation
+commit: `0f92e267fd376aba674a351f52a78f5d168569f6`. It contains the canonical cutover from
+`e44b279a44356c2b8a60d8360eb826bb8ea2acc4` plus the narrow Electron CommonJS `keytar` import
+repair recorded in the validation ledger. The documentation-only successor containing this record
 does not change the tested product source.
 
 No continuation task remains for this goal. A different PC should clone or update `main`, confirm it

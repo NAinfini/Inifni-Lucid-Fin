@@ -2,10 +2,11 @@
 
 ## Status: complete
 
-The canonical development cutover passed its final validation window on 2026-08-28 from 20:55 UTC
-through 21:48 UTC. The product source under test is implementation commit
-`e44b279a44356c2b8a60d8360eb826bb8ea2acc4`. The commit containing this completed ledger is a
-documentation-only successor and does not change the tested product source.
+The canonical development cutover passed its broad validation window on 2026-08-28 from 20:55 UTC
+through 21:48 UTC at implementation commit `e44b279a44356c2b8a60d8360eb826bb8ea2acc4`. A focused
+Electron startup repair then passed at current tested product commit
+`0f92e267fd376aba674a351f52a78f5d168569f6` at 23:06 UTC. The commit containing this completed
+ledger is a documentation-only successor and does not change the tested product source.
 
 All validation used Node 26.5.1 and pnpm 11.21.0. No command read or changed real AppData, an older
 database or media root, browser storage, an installed application, a Keychain credential, or a paid
@@ -62,6 +63,30 @@ The final Electron smoke exposed and resolved three independent harness defects:
 The first full-suite attempt also showed that a five-second test timeout was below the observed
 Windows SQLite workload. The timeout was set to 30 seconds. A concurrent-suite experiment increased
 SQLite contention and was reverted; the final 852-test result uses the serial runtime policy.
+
+## Post-closure Electron startup repair
+
+The real development launch built successfully and then exited with
+`[desktop] keytar.setPassword is not a function`. `keytar@7.9.0` is CommonJS, so Node's dynamic ESM
+import exposes its API under the module namespace's `default` export. The recovery store had cast the
+namespace itself to `RecoveryKeyStore`; it now destructures that default export once at the shared
+system-store boundary. No fallback or second Keychain implementation was added.
+
+The Windows Chromium `WSALookupServiceBegin failed with: 10108` line preceded the exception, but the
+process and pnpm failure followed the uncaught `keytar.setPassword` TypeError. No network workaround
+was added.
+
+Validation at `0f92e267fd376aba674a351f52a78f5d168569f6`:
+
+- The new CommonJS-shape regression test first failed against the old implementation with
+  `No "getPassword" export is defined on the "keytar" mock`.
+- `node_modules\.bin\vitest.cmd run apps\desktop-main\src\production-adapters.test.ts --reporter=dot --silent`
+  then exited 0 with 4/4 tests passing.
+- `pnpm --filter @lucid-fin/desktop-main run build`, `pnpm run lint`, and
+  `pnpm run format:check` each exited 0.
+- `pnpm run test:e2e` exited 0 with 2/2 Electron tests passing and no new relevant child process.
+  It used the disposable profile and fake recovery-key store, so no real Keychain entry was read or
+  created.
 
 ## Git, branches, and release boundary
 

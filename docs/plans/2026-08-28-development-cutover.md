@@ -2,10 +2,11 @@
 
 ## Current status: complete
 
-This engineering plan was completed on 2026-08-28. Tested product implementation commit:
-`e44b279a44356c2b8a60d8360eb826bb8ea2acc4`. The complete command, result, repair, artifact, safety,
-Git, and release evidence is recorded in
-[../validation/production-cutover.md](../validation/production-cutover.md).
+This engineering plan was completed on 2026-08-28. The canonical cutover landed in
+`e44b279a44356c2b8a60d8360eb826bb8ea2acc4`; the current tested product source is
+`0f92e267fd376aba674a351f52a78f5d168569f6` after a narrow Electron CommonJS `keytar` import
+repair. The complete command, result, repair, artifact, safety, Git, and release evidence is recorded
+in [../validation/production-cutover.md](../validation/production-cutover.md).
 
 The old I0/I7/I8/migration/cross-PC documents are historical evidence only and have moved to
 [../archive/target-transition](../archive/target-transition/README.md). Their commands are retired.
