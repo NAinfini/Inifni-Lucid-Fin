@@ -51,7 +51,6 @@ interface RelationRow {
   relation: ProductionRelation['relation'];
   target_object_id: string;
   target_type: ProductionObject['type'];
-  ordinal: number | null;
 }
 
 function compareText(left: string, right: string): number {
@@ -64,13 +63,6 @@ export function canonicalizeProductionRelations(
   return [...relations].sort(
     (left, right) =>
       compareText(left.relation, right.relation) ||
-      (left.ordinal === null
-        ? right.ordinal === null
-          ? 0
-          : 1
-        : right.ordinal === null
-          ? -1
-          : left.ordinal - right.ordinal) ||
       compareText(left.targetType, right.targetType) ||
       compareText(left.targetId, right.targetId),
   );
@@ -79,8 +71,7 @@ export function canonicalizeProductionRelations(
 function relationsFor(database: DatabaseSync, productionObjectId: string): ProductionRelation[] {
   const rows = database
     .prepare(
-      `SELECT relation.relation, relation.target_object_id, target.object_type AS target_type,
-              relation.ordinal
+      `SELECT relation.relation, relation.target_object_id, target.object_type AS target_type
        FROM production_relations AS relation
        JOIN production_objects AS target ON target.id = relation.target_object_id
        WHERE relation.source_object_id = ?`,
@@ -91,7 +82,6 @@ function relationsFor(database: DatabaseSync, productionObjectId: string): Produ
       relation: row.relation,
       targetType: row.target_type,
       targetId: row.target_object_id,
-      ordinal: row.ordinal,
     })),
   );
 }

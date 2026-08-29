@@ -10,7 +10,10 @@ import {
 } from 'electron';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import type { WireRequestV1 } from '@lucid-fin/contracts';
+import {
+  LUCID_FIN_WINDOW_CONTROL_CHANNEL_V1,
+  type WireRequestV1,
+} from '@lucid-fin/contracts';
 import {
   startElectronHost,
   type ElectronHost,
@@ -56,6 +59,36 @@ interface TrustedWindowLike {
 interface IpcInvocationLike {
   readonly sender: WebContentsSecurityLike;
   readonly senderFrame: FrameLike | null;
+}
+
+export type WindowControlAction = 'minimize' | 'toggleMaximize' | 'close';
+
+interface WindowControlTarget extends TrustedWindowLike {
+  minimize(): void;
+  maximize(): void;
+  unmaximize(): void;
+  isMaximized(): boolean;
+  close(): void;
+}
+
+export function applyWindowControl(
+  window: WindowControlTarget,
+  action: WindowControlAction,
+): void {
+  if (action === 'minimize') {
+    window.minimize();
+    return;
+  }
+  if (action === 'toggleMaximize') {
+    if (window.isMaximized()) window.unmaximize();
+    else window.maximize();
+    return;
+  }
+  window.close();
+}
+
+function isWindowControlAction(value: unknown): value is WindowControlAction {
+  return value === 'minimize' || value === 'toggleMaximize' || value === 'close';
 }
 
 export interface ProductionBootstrap<Event, Window extends RendererWindowLike> {
@@ -235,12 +268,7 @@ export function windowOptions(preload: string): BrowserWindowConstructorOptions 
     minHeight: 720,
     show: false,
     backgroundColor: '#0d0f14',
-    titleBarStyle: 'hidden',
-    titleBarOverlay: {
-      color: '#11141a',
-      symbolColor: '#aeb8c6',
-      height: 40,
-    },
+    frame: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -287,8 +315,20 @@ export function isTrustedRendererInvocation(
 
 function createElectronPlatform(): ElectronPlatform<IpcMainInvokeEvent, DesktopBrowserWindow> {
   let sessionConfigured = false;
+  let activeWindow: DesktopBrowserWindow | null = null;
   const desktopSession = () => session.fromPartition(LUCID_FIN_SESSION_PARTITION);
   const expectedRendererUrl = rendererDocumentUrl();
+  ipcMain.on(LUCID_FIN_WINDOW_CONTROL_CHANNEL_V1, (event, action: unknown) => {
+    const window = activeWindow;
+    if (
+      window === null ||
+      !isWindowControlAction(action) ||
+      !isTrustedRendererInvocation(event, window, expectedRendererUrl)
+    ) {
+      return;
+    }
+    applyWindowControl(window, action);
+  });
   return Object.freeze({
     whenReady: async () => {
       await app.whenReady();
@@ -312,6 +352,10 @@ function createElectronPlatform(): ElectronPlatform<IpcMainInvokeEvent, DesktopB
       isTrustedRendererInvocation(invocation, window, expectedRendererUrl),
     createWindow: (preloadPath: string): DesktopBrowserWindow => {
       const window = new BrowserWindow(windowOptions(preloadPath)) as DesktopBrowserWindow;
+      activeWindow = window;
+      window.once('closed', () => {
+        if (activeWindow === window) activeWindow = null;
+      });
       secureRendererWindow(window, expectedRendererUrl);
       return window;
     },

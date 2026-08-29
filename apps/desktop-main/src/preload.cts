@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 
 const INVOKE_CHANNEL = 'lucid-fin:wire:v1';
 const PUSH_CHANNEL = 'lucid-fin:push:v1';
+const WINDOW_CONTROL_CHANNEL = 'lucid-fin:window-control:v1';
 
 interface DesktopCall {
   readonly requestId: string;
@@ -25,10 +26,19 @@ function onRunEventsAppended(callback: (push: unknown) => void): () => void {
   return () => ipcRenderer.removeListener(PUSH_CHANNEL, listener);
 }
 
+type WindowControlAction = 'minimize' | 'toggleMaximize' | 'close';
+
+function windowControl(action: WindowControlAction): void {
+  ipcRenderer.send(WINDOW_CONTROL_CHANNEL, action);
+}
+
 contextBridge.exposeInMainWorld('lucidFin', {
   canvas: {
     apply: (request: DesktopCall) => invoke('canvas.apply', request),
+    create: (request: DesktopCall) => invoke('canvas.create', request),
     get: (request: DesktopCall) => invoke('canvas.get', request),
+    list: (request: DesktopCall) => invoke('canvas.list', request),
+    update: (request: DesktopCall) => invoke('canvas.update', request),
   },
   chat: {
     archive: (request: DesktopCall) => invoke('chat.archive', request),
@@ -36,6 +46,7 @@ contextBridge.exposeInMainWorld('lucidFin', {
     delete: (request: DesktopCall) => invoke('chat.delete', request),
     list: (request: DesktopCall) => invoke('chat.list', request),
     rename: (request: DesktopCall) => invoke('chat.rename', request),
+    restore: (request: DesktopCall) => invoke('chat.restore', request),
   },
   confirmation: {
     respond: (request: DesktopCall) => invoke('confirmation.respond', request),
@@ -105,5 +116,16 @@ contextBridge.exposeInMainWorld('lucidFin', {
     get: (request: DesktopCall) => invoke('run.get', request),
     sendFollowup: (request: DesktopCall) => invoke('run.sendFollowup', request),
     onEventsAppended: onRunEventsAppended,
+  },
+  sequence: {
+    apply: (request: DesktopCall) => invoke('sequence.apply', request),
+    create: (request: DesktopCall) => invoke('sequence.create', request),
+    get: (request: DesktopCall) => invoke('sequence.get', request),
+    list: (request: DesktopCall) => invoke('sequence.list', request),
+  },
+  windowControls: {
+    minimize: () => windowControl('minimize'),
+    toggleMaximize: () => windowControl('toggleMaximize'),
+    close: () => windowControl('close'),
   },
 });

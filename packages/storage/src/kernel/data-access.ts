@@ -42,6 +42,7 @@ import {
   type UserChoicesAuthority,
 } from '../authorities/user-choices.js';
 import { createCanvasAuthority, type CanvasAuthority } from '../authorities/canvas.js';
+import { createSequenceAuthority, type SequenceAuthority } from '../authorities/sequence.js';
 import { createRunsAuthority, type RunsAuthority } from '../authorities/runs.js';
 import {
   createHarnessPersistenceAuthority,
@@ -116,6 +117,7 @@ export interface DataAccess {
   readonly production: ProductionAuthority;
   readonly userChoices: UserChoicesAuthority;
   readonly canvas: CanvasAuthority;
+  readonly sequences: SequenceAuthority;
   readonly runs: RunsAuthority;
   readonly harness: HarnessPersistenceAuthority;
   readonly taskLists: TaskListsAuthority;
@@ -178,6 +180,7 @@ export function createDataAccess(store: Store, options: DataAccessOptions): Data
     production: createProductionAuthority(store, environment),
     userChoices: createUserChoicesAuthority(store, environment),
     canvas: createCanvasAuthority(store, environment),
+    sequences: createSequenceAuthority(store, environment),
     runs,
     harness: createHarnessPersistenceAuthority(
       store,

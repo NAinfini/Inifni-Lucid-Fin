@@ -32,7 +32,7 @@ export const TextMessageBlockSchema = strictObject({
 });
 export const ProjectObjectMessageBlockSchema = strictObject({
   type: z.literal('project_object'),
-  authority: z.enum(['project', 'production', 'canvas', 'delivery']),
+  authority: z.enum(['project', 'production', 'sequence', 'canvas', 'delivery']),
   objectId: EntityIdSchema,
   revision: z.number().int().nonnegative().finite(),
   contentHash: Sha256Schema,

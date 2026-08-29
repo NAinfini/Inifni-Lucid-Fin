@@ -134,6 +134,7 @@ export type {
   CanvasToolQueryInput,
   CanvasToolQuerySuccess,
 } from '../authorities/canvas.js';
+export type { SequenceAuthority } from '../authorities/sequence.js';
 export type {
   ActivationEndInput,
   ActivationStartInput,

@@ -7,6 +7,7 @@ import {
   RECOVERY_KEY_SERVICE,
   ProviderNotConfiguredError,
   createOllamaModelAdapter,
+  createOpenAIResponsesModelAdapter,
   loadOrCreateRecoveryKey,
   systemRecoveryKeyStore,
   type RecoveryKeyStore,
@@ -32,6 +33,39 @@ const privateContext = {
   parentDirections: [],
   spawnObjectives: [],
 } as PrivateModelContext;
+
+const openAIProvider: ProviderModel = {
+  providerId: 'provider.openai.commander',
+  model: 'gpt-5.4',
+  reasoningStrength: 'medium',
+};
+
+const openAIRequest = {
+  provider: openAIProvider,
+  limits: { maxInputTokens: 8_000, maxOutputTokens: 1_000 },
+  locale: 'en-US',
+  timeZone: 'America/New_York',
+  reasoningStrength: 'medium',
+  compactionView: null,
+  skillIndex: [],
+  materializedTools: [
+    {
+      id: 'project.get',
+      description: 'Read one project.',
+      inputSchema: {
+        canonicalJson:
+          '{"additionalProperties":false,"properties":{"projectId":{"type":"string"}},"required":["projectId"],"type":"object"}',
+      },
+    },
+  ],
+  facts: [
+    {
+      type: 'message',
+      role: 'user',
+      blocks: [{ type: 'text', text: 'Build the first scene.' }],
+    },
+  ],
+} as CanonicalModelRequestV1;
 
 class MemoryKeyStore implements RecoveryKeyStore {
   readonly values = new Map<string, string>();
@@ -123,5 +157,124 @@ describe('production adapters', () => {
     expect(() =>
       createOllamaModelAdapter({ provider, endpoint: 'https://example.com', fetch }),
     ).toThrow(/loopback/u);
+  });
+
+  it('maps OpenAI Responses tool calls into canonical Harness events', async () => {
+    const calls: Array<readonly [string, RequestInit | undefined]> = [];
+    const adapter = createOpenAIResponsesModelAdapter({
+      provider: openAIProvider,
+      apiKey: 'sk-private',
+      endpoint: 'https://api.openai.test/v1/responses',
+      fetch: async (url, init) => {
+        calls.push([String(url), init]);
+        return new Response(
+          JSON.stringify({
+            output: [
+              {
+                type: 'message',
+                content: [{ type: 'output_text', text: 'I will inspect the project.' }],
+              },
+              {
+                type: 'function_call',
+                call_id: 'call_project_1',
+                name: 'lucid_project_get',
+                arguments: '{"projectId":"project.1"}',
+              },
+            ],
+            usage: { input_tokens: 84, output_tokens: 17 },
+            status: 'completed',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      },
+    });
+
+    await expect(adapter.quote(openAIRequest, privateContext)).resolves.toMatchObject({
+      inputTokens: { state: 'estimated' },
+      outputTokens: { state: 'estimated', value: 1_000 },
+      cost: { state: 'unknown', currency: 'USD' },
+    });
+    await expect(Array.fromAsync(adapter.stream(openAIRequest, privateContext))).resolves.toEqual([
+      { type: 'assistant_delta', publicText: 'I will inspect the project.' },
+      {
+        type: 'tool_call',
+        providerCallId: 'call_project_1',
+        toolId: 'project.get',
+        canonicalArguments: { projectId: 'project.1' },
+      },
+      {
+        type: 'usage',
+        usage: {
+          inputTokens: { state: 'known', value: 84 },
+          outputTokens: { state: 'known', value: 17 },
+          cost: { state: 'unknown', currency: 'USD' },
+        },
+      },
+      { type: 'model_completed', finishReason: 'tool_calls' },
+    ]);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.[0]).toBe('https://api.openai.test/v1/responses');
+    expect(calls[0]?.[1]?.headers).toEqual({
+      Authorization: 'Bearer sk-private',
+      'Content-Type': 'application/json',
+    });
+    const body = JSON.parse(String(calls[0]?.[1]?.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      model: 'gpt-5.4',
+      max_output_tokens: 1_000,
+      parallel_tool_calls: true,
+      reasoning: { effort: 'medium' },
+      input: [{ role: 'user', content: 'Build the first scene.' }],
+      tools: [
+        {
+          type: 'function',
+          name: 'lucid_project_get',
+          description: 'Read one project.',
+        },
+      ],
+    });
+  });
+
+  it('fails closed for unsafe endpoints, profile mismatches, and rejected requests', async () => {
+    expect(() =>
+      createOpenAIResponsesModelAdapter({
+        provider: openAIProvider,
+        apiKey: 'sk-private',
+        endpoint: 'http://api.openai.test/v1',
+      }),
+    ).toThrow(/HTTPS/u);
+    expect(() =>
+      createOpenAIResponsesModelAdapter({ provider: openAIProvider, apiKey: ' ' }),
+    ).toThrow(ProviderNotConfiguredError);
+
+    const adapter = createOpenAIResponsesModelAdapter({
+      provider: openAIProvider,
+      apiKey: 'sk-private',
+      fetch: async () => new Response('unauthorized', { status: 401 }),
+    });
+    const foreign = {
+      ...openAIRequest,
+      provider: { ...openAIProvider, providerId: 'provider.other' },
+    } as CanonicalModelRequestV1;
+    await expect(adapter.quote(foreign, privateContext)).rejects.toBeInstanceOf(
+      ProviderNotConfiguredError,
+    );
+    await expect(Array.fromAsync(adapter.stream(openAIRequest, privateContext))).resolves.toEqual([
+      {
+        type: 'usage',
+        usage: {
+          inputTokens: { state: 'unknown' },
+          outputTokens: { state: 'unknown' },
+          cost: { state: 'unknown', currency: 'USD' },
+        },
+      },
+      {
+        type: 'model_failed',
+        typedCode: 'provider_rejected',
+        retrySafety: 'safe',
+        providerState: 'terminal',
+      },
+    ]);
   });
 });

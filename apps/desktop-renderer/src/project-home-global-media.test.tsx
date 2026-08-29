@@ -9,6 +9,22 @@ import { createDesktopApiFixture, globalMediaFixture, projectFixture } from './t
 afterEach(cleanup);
 
 describe('Project Home and Global Media', () => {
+  it('uses the custom desktop window controls', () => {
+    const fixture = createDesktopApiFixture();
+    render(
+      <MemoryRouter initialEntries={['/projects']}>
+        <App api={fixture.api} createRequestId={() => 'request.ui.window-controls'} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Minimize window' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Maximize or restore window' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close window' }));
+    expect(fixture.calls.windowMinimize).toHaveBeenCalledOnce();
+    expect(fixture.calls.windowToggleMaximize).toHaveBeenCalledOnce();
+    expect(fixture.calls.windowClose).toHaveBeenCalledOnce();
+  });
+
   it('offers Global Media as an available app-level destination', async () => {
     const fixture = createDesktopApiFixture();
     render(

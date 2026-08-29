@@ -2,6 +2,8 @@ import { z, type ZodType } from 'zod';
 import { strictObject, parseCanonical } from './canonical.js';
 import {
   CanvasDocumentSchema,
+  CanvasLifecycleSchema,
+  CanvasRefSchema,
   CanvasGeometrySchema,
   CanvasPointSchema,
   CanvasSizeSchema,
@@ -99,10 +101,17 @@ import {
   SelectedContextRefSchema,
   TaskListSchema,
 } from './run.js';
+import {
+  SequenceDocumentSchema,
+  SequenceLifecycleSchema,
+  SequenceMutationCommandSchema,
+  SequenceRefSchema,
+} from './sequence.js';
 
 export const WIRE_VERSION = 1 as const;
 export const LUCID_FIN_WIRE_INVOKE_CHANNEL_V1 = 'lucid-fin:wire:v1' as const;
 export const LUCID_FIN_WIRE_PUSH_CHANNEL_V1 = 'lucid-fin:push:v1' as const;
+export const LUCID_FIN_WINDOW_CONTROL_CHANNEL_V1 = 'lucid-fin:window-control:v1' as const;
 export const LUCID_FIN_DESKTOP_API_GLOBAL_V1 = 'lucidFin' as const;
 
 export const WireCursorV1Schema = z
@@ -382,9 +391,46 @@ const CanvasCommandV1Schema = z.union([
   CanvasRestoreViewCommandV1Schema,
 ]);
 const CanvasApplyInputV1Schema = strictObject({
-  projectId: EntityIdSchema,
-  expectedCanvasRevision: RevisionSchema,
+  canvas: CanvasRefSchema,
   command: CanvasCommandV1Schema,
+});
+const CanvasCreateInputV1Schema = strictObject({
+  projectId: EntityIdSchema,
+  name: z.string().trim().min(1).max(240),
+  primarySequenceRef: SequenceRefSchema.nullable(),
+});
+const CanvasListInputV1Schema = strictObject({
+  projectId: EntityIdSchema,
+  lifecycle: z.array(CanvasLifecycleSchema).max(2),
+  page: PageInputV1Schema,
+});
+const CanvasUpdateInputV1Schema = z.union([
+  strictObject({
+    action: z.literal('rename'),
+    canvas: CanvasRefSchema,
+    name: z.string().trim().min(1).max(240),
+  }),
+  strictObject({ action: z.literal('archive'), canvas: CanvasRefSchema }),
+  strictObject({ action: z.literal('restore'), canvas: CanvasRefSchema }),
+  strictObject({
+    action: z.literal('set_primary_sequence'),
+    canvas: CanvasRefSchema,
+    primarySequenceRef: SequenceRefSchema.nullable(),
+  }),
+]);
+
+const SequenceCreateInputV1Schema = strictObject({
+  projectId: EntityIdSchema,
+  name: z.string().trim().min(1).max(240),
+});
+const SequenceListInputV1Schema = strictObject({
+  projectId: EntityIdSchema,
+  lifecycle: z.array(SequenceLifecycleSchema).max(2),
+  page: PageInputV1Schema,
+});
+const SequenceApplyInputV1Schema = strictObject({
+  sequence: SequenceRefSchema,
+  command: SequenceMutationCommandSchema,
 });
 
 const ProjectMediaListInputV1Schema = strictObject({
@@ -677,12 +723,16 @@ function wireMethod<Input extends ZodType, Output extends ZodType>(
 
 export const PUBLIC_WIRE_METHODS_V1 = Object.freeze({
   'canvas.apply': wireMethod(CanvasApplyInputV1Schema, CanvasDocumentSchema),
-  'canvas.get': wireMethod(strictObject({ projectId: EntityIdSchema }), CanvasDocumentSchema),
+  'canvas.create': wireMethod(CanvasCreateInputV1Schema, CanvasDocumentSchema),
+  'canvas.get': wireMethod(strictObject({ canvasId: EntityIdSchema }), CanvasDocumentSchema),
+  'canvas.list': wireMethod(CanvasListInputV1Schema, pageOf(CanvasDocumentSchema)),
+  'canvas.update': wireMethod(CanvasUpdateInputV1Schema, CanvasDocumentSchema),
   'chat.archive': wireMethod(ChatLifecycleInputV1Schema, ChatSchema),
   'chat.create': wireMethod(ChatCreateInputV1Schema, ChatSchema),
   'chat.delete': wireMethod(ChatLifecycleInputV1Schema, ChatSchema),
   'chat.list': wireMethod(ChatListInputV1Schema, pageOf(ChatSchema)),
   'chat.rename': wireMethod(ChatRenameInputV1Schema, ChatSchema),
+  'chat.restore': wireMethod(ChatLifecycleInputV1Schema, ChatSchema),
   'confirmation.respond': wireMethod(
     ConfirmationRespondInputV1Schema,
     ConfirmationRespondOutputV1Schema,
@@ -748,6 +798,10 @@ export const PUBLIC_WIRE_METHODS_V1 = Object.freeze({
   'run.events.list': wireMethod(RunEventsListInputV1Schema, pageOf(PublicRunEventSchema)),
   'run.get': wireMethod(strictObject({ runId: EntityIdSchema }), RunSchema),
   'run.sendFollowup': wireMethod(RunSendFollowupInputV1Schema, RunInboxMessageSchema),
+  'sequence.apply': wireMethod(SequenceApplyInputV1Schema, SequenceDocumentSchema),
+  'sequence.create': wireMethod(SequenceCreateInputV1Schema, SequenceDocumentSchema),
+  'sequence.get': wireMethod(strictObject({ sequenceId: EntityIdSchema }), SequenceDocumentSchema),
+  'sequence.list': wireMethod(SequenceListInputV1Schema, pageOf(SequenceDocumentSchema)),
 } as const);
 
 export type PublicWireMethodV1 = keyof typeof PUBLIC_WIRE_METHODS_V1;

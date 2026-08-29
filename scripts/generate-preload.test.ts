@@ -4,6 +4,7 @@ import {
   LUCID_FIN_DESKTOP_API_GLOBAL_V1,
   LUCID_FIN_WIRE_INVOKE_CHANNEL_V1,
   LUCID_FIN_WIRE_PUSH_CHANNEL_V1,
+  LUCID_FIN_WINDOW_CONTROL_CHANNEL_V1,
 } from '../packages/contracts/src/wire.js';
 import { buildPreloadArtifacts, generatePreload } from './generate-preload.js';
 
@@ -12,6 +13,7 @@ const source = {
   LUCID_FIN_DESKTOP_API_GLOBAL_V1,
   LUCID_FIN_WIRE_INVOKE_CHANNEL_V1,
   LUCID_FIN_WIRE_PUSH_CHANNEL_V1,
+  LUCID_FIN_WINDOW_CONTROL_CHANNEL_V1,
 };
 
 describe('preload generation', () => {
@@ -22,6 +24,10 @@ describe('preload generation', () => {
       expect(artifacts.rendererTypes).toContain(`DesktopCallV1<'${method}'>`);
     }
     expect(artifacts.preload.match(/ipcRenderer\.invoke\(/g)).toHaveLength(1);
+    expect(artifacts.preload).toContain(
+      `const WINDOW_CONTROL_CHANNEL = '${LUCID_FIN_WINDOW_CONTROL_CHANNEL_V1}'`,
+    );
+    expect(artifacts.rendererTypes).toContain('DesktopWindowControlsApiV1');
     expect(artifacts.preload).not.toMatch(/preset|template|processPrompt|workflow/i);
   });
 

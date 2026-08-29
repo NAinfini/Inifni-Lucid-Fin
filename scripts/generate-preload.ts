@@ -9,6 +9,7 @@ export interface DesktopWireSource {
   readonly LUCID_FIN_DESKTOP_API_GLOBAL_V1: string;
   readonly LUCID_FIN_WIRE_INVOKE_CHANNEL_V1: string;
   readonly LUCID_FIN_WIRE_PUSH_CHANNEL_V1: string;
+  readonly LUCID_FIN_WINDOW_CONTROL_CHANNEL_V1: string;
 }
 
 export interface PreloadArtifacts {
@@ -115,6 +116,7 @@ async function renderPreload(
     '',
     `const INVOKE_CHANNEL = ${JSON.stringify(source.LUCID_FIN_WIRE_INVOKE_CHANNEL_V1)};`,
     `const PUSH_CHANNEL = ${JSON.stringify(source.LUCID_FIN_WIRE_PUSH_CHANNEL_V1)};`,
+    `const WINDOW_CONTROL_CHANNEL = ${JSON.stringify(source.LUCID_FIN_WINDOW_CONTROL_CHANNEL_V1)};`,
     '',
     'interface DesktopCall {',
     '  readonly requestId: string;',
@@ -137,6 +139,12 @@ async function renderPreload(
     '  return () => ipcRenderer.removeListener(PUSH_CHANNEL, listener);',
     '}',
     '',
+    "type WindowControlAction = 'minimize' | 'toggleMaximize' | 'close';",
+    '',
+    'function windowControl(action: WindowControlAction): void {',
+    '  ipcRenderer.send(WINDOW_CONTROL_CHANNEL, action);',
+    '}',
+    '',
     `contextBridge.exposeInMainWorld(${JSON.stringify(source.LUCID_FIN_DESKTOP_API_GLOBAL_V1)}, {`,
   ];
 
@@ -149,6 +157,11 @@ async function renderPreload(
     if (namespace === 'run') lines.push('    onEventsAppended: onRunEventsAppended,');
     lines.push('  },');
   }
+  lines.push('  windowControls: {');
+  lines.push("    minimize: () => windowControl('minimize'),");
+  lines.push("    toggleMaximize: () => windowControl('toggleMaximize'),");
+  lines.push("    close: () => windowControl('close'),");
+  lines.push('  },');
   lines.push('});', '');
   return format(lines.join('\n'), prettierOptions);
 }
@@ -189,10 +202,17 @@ async function renderRendererTypes(methods: readonly PreparedMethod[]): Promise<
     lines.push('}', '');
   }
 
+  lines.push('export interface DesktopWindowControlsApiV1 {');
+  lines.push('  minimize(): void;');
+  lines.push('  toggleMaximize(): void;');
+  lines.push('  close(): void;');
+  lines.push('}', '');
+
   lines.push('export interface DesktopApiV1 {');
   for (const namespace of groupMethods(methods).keys()) {
     lines.push(`  readonly ${namespace}: ${interfaceName(namespace)};`);
   }
+  lines.push('  readonly windowControls: DesktopWindowControlsApiV1;');
   lines.push('}', '');
   return format(lines.join('\n'), prettierOptions);
 }

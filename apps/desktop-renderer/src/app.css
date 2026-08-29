@@ -7,15 +7,41 @@
 
 .lucid-app,
 .lucid-app * {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
 }
 
 .lucid-app::-webkit-scrollbar,
 .lucid-app *::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+
+.lucid-app::-webkit-scrollbar-thumb,
+.lucid-app *::-webkit-scrollbar-thumb {
+  min-height: 32px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  background-clip: content-box;
+}
+
+.lucid-app:hover,
+.lucid-app *:where(:hover, :focus-within) {
+  scrollbar-color: hsl(215 14% 48% / 0.56) transparent;
+}
+
+.lucid-app:hover::-webkit-scrollbar-thumb,
+.lucid-app *:where(:hover, :focus-within)::-webkit-scrollbar-thumb {
+  background: hsl(215 14% 48% / 0.56);
+  background-clip: content-box;
+}
+
+.lucid-app::-webkit-scrollbar-thumb:hover,
+.lucid-app *::-webkit-scrollbar-thumb:hover {
+  background: hsl(211 30% 66% / 0.72);
+  background-clip: content-box;
 }
 
 html,
@@ -177,17 +203,34 @@ body {
   height: 40px;
   display: flex;
   align-items: center;
-  gap: 9px;
   border-bottom: 1px solid hsl(var(--border));
-  background: #11141a;
-  padding: 0 138px 0 13px;
-  -webkit-app-region: drag;
+  background: hsl(220 18% 7%);
+  padding: 0;
   user-select: none;
 }
 
 .lucid-titlebar strong {
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.005em;
+}
+
+.lucid-titlebar-drag {
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  -webkit-app-region: drag;
+}
+
+.lucid-titlebar-logo {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 .lucid-titlebar-mode {
@@ -196,12 +239,38 @@ body {
   margin-left: 6px;
 }
 
-.lucid-mark {
-  width: 24px;
-  height: 24px;
+.lucid-window-controls {
+  height: 100%;
+  display: flex;
+  -webkit-app-region: no-drag;
+}
+
+.lucid-window-controls button {
+  width: 46px;
+  height: 100%;
   display: grid;
   place-items: center;
-  color: hsl(var(--primary));
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
+.lucid-window-controls button:hover:not(:disabled) {
+  border-color: transparent;
+  background: hsl(var(--secondary));
+  color: hsl(var(--foreground));
+}
+
+.lucid-window-controls .lucid-window-close:hover:not(:disabled) {
+  background: hsl(var(--destructive));
+  color: white;
+}
+
+.lucid-window-controls button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline-offset: -3px;
 }
 
 .lucid-main {

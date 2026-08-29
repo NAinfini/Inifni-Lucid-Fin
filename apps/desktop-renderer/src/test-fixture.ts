@@ -418,6 +418,9 @@ export function createDesktopApiFixture(options: DesktopApiFixtureOptions = {}) 
   const shotRevision = () => 3 + decisionRevision + protectionRevision;
   const shotContentHash = () => (shotRevision() === 3 ? HASH_B : HASH_C);
   const calls = {
+    windowMinimize: vi.fn(),
+    windowToggleMaximize: vi.fn(),
+    windowClose: vi.fn(),
     projectList: vi.fn(async (request: ApiInputs['project.list']) =>
       ok('project.list', request, {
         items: [
@@ -1119,6 +1122,11 @@ export function createDesktopApiFixture(options: DesktopApiFixtureOptions = {}) 
     decision: { record: calls.decisionRecord, protect: calls.decisionProtect },
     operation: { get: calls.operationGet, cancel: calls.operationCancel },
     os: { mediaPick: calls.mediaPick, exportPick: calls.exportPick },
+    windowControls: {
+      minimize: calls.windowMinimize,
+      toggleMaximize: calls.windowToggleMaximize,
+      close: calls.windowClose,
+    },
   } as unknown as DesktopApiV1;
 
   return {

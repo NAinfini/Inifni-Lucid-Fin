@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   CanvasGeometrySchema,
   CanvasPointSchema,
+  CanvasRefSchema,
   CanvasSizeSchema,
   CanvasTargetBindingSchema,
   CanvasTargetSchema,
@@ -242,10 +243,7 @@ const ProductionCreateSchema = strictObject({
   action: z.literal('create'),
   expectedProjectRevision: RevisionSchema,
   parentRef: ProductionRefSchema.nullable(),
-  order: CountSchema.nullable(),
   value: ProductionTypedContentSchema,
-}).refine((mutation) => (mutation.parentRef === null) === (mutation.order === null), {
-  message: 'Production create parentRef and order must both be null or both be present',
 });
 
 function expectedProductionRefMatches({
@@ -280,19 +278,8 @@ const ProductionRelateSchema = strictObject({
   action: z.literal('relate'),
   mode: z.enum(['link', 'unlink']),
   relation: ProductionRelationKindSchema,
-  ordinal: CountSchema.nullable(),
   source: ExpectedProductionRefSchema,
   target: ExpectedProductionRefSchema,
-}).refine(
-  (mutation) =>
-    mutation.mode === 'unlink' ||
-    (mutation.relation === 'contains') === (mutation.ordinal !== null),
-  { message: 'Only linked containment relations have an ordinal' },
-);
-const ProductionReorderSchema = strictObject({
-  action: z.literal('reorder'),
-  parent: ExpectedProductionRefSchema,
-  orderedChildIds: uniqueArray(EntityIdSchema, 1, MAX_MUTATION_BATCH, 'ordered child IDs'),
 });
 const ProductionLifecycleMutationSchema = strictObject({
   action: z.enum(['archive', 'restore']),
@@ -317,7 +304,6 @@ export const ProductionMutationInputSchema = z.union([
   ProductionCreateSchema,
   ProductionUpdateSchema,
   ProductionRelateSchema,
-  ProductionReorderSchema,
   ProductionLifecycleMutationSchema,
   ProductionCiteSchema,
 ]);
@@ -325,7 +311,6 @@ export const ProductionMutationActionSchema = z.enum([
   'create',
   'update',
   'relate',
-  'reorder',
   'archive',
   'restore',
   'cite',
@@ -337,7 +322,7 @@ export const ProductionMutateDefinition = defineTool({
   id: 'production.mutate',
   version: '2.0.0',
   description:
-    'Create or revise typed Production facts, parent-to-child containment relations, ordering, lifecycle, and citations.',
+    'Create or revise typed Production facts, parent-to-child containment relations, lifecycle, and citations.',
   metadata: {
     ...domainWritePolicy(
       'production',
@@ -507,6 +492,7 @@ export const CanvasQueryDefinition = defineTool({
   description: 'Inspect bounded Canvas placements, groups, edges, annotations, and saved views.',
   metadata: domainReadPolicy('canvas', 'none'),
   inputSchema: strictObject({
+    canvas: CanvasRefSchema,
     bounds: CanvasGeometrySchema.nullable(),
     targetRefs: uniqueArray(CanvasTargetRefSchema, 0, MAX_REFERENCE_COUNT, 'Canvas target refs'),
     groupIds: uniqueArray(EntityIdSchema, 0, MAX_REFERENCE_COUNT, 'group IDs'),
@@ -521,6 +507,7 @@ export const CanvasQueryDefinition = defineTool({
   }),
   examples: {
     input: {
+      canvas: { authority: 'canvas', id: 'canvas.1', revision: 2, contentHash: HASH_A },
       bounds: null,
       targetRefs: [],
       groupIds: [],
@@ -561,12 +548,14 @@ const ExpectedPlacementListSchema = uniqueArray(
 );
 const CanvasMutationInputSchema = z.union([
   strictObject({
+    canvas: CanvasRefSchema,
     action: z.literal('place'),
     target: CanvasTargetSchema,
     geometry: GeometrySchema,
     expectedCanvasRevision: RevisionSchema,
   }),
   strictObject({
+    canvas: CanvasRefSchema,
     action: z.enum(['move', 'resize']),
     placementId: EntityIdSchema,
     geometry: GeometrySchema,
@@ -574,18 +563,21 @@ const CanvasMutationInputSchema = z.union([
     expectedPlacementRevision: RevisionSchema,
   }),
   strictObject({
+    canvas: CanvasRefSchema,
     action: z.literal('group'),
     placements: ExpectedPlacementListSchema,
     title: z.string().trim().min(1).max(240),
     expectedCanvasRevision: RevisionSchema,
   }),
   strictObject({
+    canvas: CanvasRefSchema,
     action: z.literal('ungroup'),
     groupId: EntityIdSchema,
     expectedCanvasRevision: RevisionSchema,
     expectedGroupRevision: RevisionSchema,
   }),
   strictObject({
+    canvas: CanvasRefSchema,
     action: z.literal('connect'),
     sourcePlacementId: EntityIdSchema,
     targetPlacementId: EntityIdSchema,
@@ -595,12 +587,14 @@ const CanvasMutationInputSchema = z.union([
     message: 'Canvas edge endpoints must differ',
   }),
   strictObject({
+    canvas: CanvasRefSchema,
     action: z.literal('disconnect'),
     edgeId: EntityIdSchema,
     expectedCanvasRevision: RevisionSchema,
     expectedEdgeRevision: RevisionSchema,
   }),
   strictObject({
+    canvas: CanvasRefSchema,
     action: z.literal('annotate'),
     placementId: EntityIdSchema.nullable(),
     text: z.string().trim().min(1).max(20_000),
@@ -608,6 +602,7 @@ const CanvasMutationInputSchema = z.union([
     expectedCanvasRevision: RevisionSchema,
   }),
   strictObject({
+    canvas: CanvasRefSchema,
     action: z.literal('arrange'),
     placements: ExpectedPlacementListSchema,
     layout: z.enum(['row', 'column', 'grid', 'timeline']),
@@ -615,11 +610,13 @@ const CanvasMutationInputSchema = z.union([
     expectedCanvasRevision: RevisionSchema,
   }),
   strictObject({
+    canvas: CanvasRefSchema,
     action: z.literal('remove'),
     placements: ExpectedPlacementListSchema,
     expectedCanvasRevision: RevisionSchema,
   }),
   strictObject({
+    canvas: CanvasRefSchema,
     action: z.literal('save_view'),
     viewId: EntityIdSchema.nullable(),
     name: z.string().trim().min(1).max(120),
@@ -627,6 +624,7 @@ const CanvasMutationInputSchema = z.union([
     expectedCanvasRevision: RevisionSchema,
   }),
   strictObject({
+    canvas: CanvasRefSchema,
     action: z.literal('restore_view'),
     viewId: EntityIdSchema,
     expectedCanvasRevision: RevisionSchema,
@@ -685,6 +683,7 @@ export const CanvasMutateDefinition = defineTool({
   }),
   examples: {
     input: {
+      canvas: { authority: 'canvas', id: 'canvas.1', revision: 2, contentHash: HASH_A },
       action: 'place',
       target: { targetType: 'production', targetId: 'shot.1' },
       geometry: { position: { x: 100, y: 80 }, size: { width: 320, height: 180 } },

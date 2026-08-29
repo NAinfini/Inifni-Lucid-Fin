@@ -8,6 +8,15 @@ import {
   RevisionSchema,
   Sha256Schema,
 } from './primitives.js';
+import { SequenceRefSchema } from './sequence.js';
+
+export const CanvasLifecycleSchema = z.enum(['active', 'archived']);
+export const CanvasRefSchema = strictObject({
+  authority: z.literal('canvas'),
+  id: EntityIdSchema,
+  revision: RevisionSchema,
+  contentHash: Sha256Schema,
+});
 
 export const CanvasTargetSchema = z.union([
   strictObject({ targetType: z.literal('production'), targetId: EntityIdSchema }),
@@ -107,6 +116,9 @@ export const CanvasDocumentSchema = strictObject({
   projectId: EntityIdSchema,
   revision: RevisionSchema,
   contentHash: Sha256Schema,
+  name: z.string().trim().min(1).max(240),
+  lifecycle: CanvasLifecycleSchema,
+  primarySequenceRef: SequenceRefSchema.nullable(),
   placements: z.array(CanvasPlacementSchema).max(20_000),
   groups: z.array(CanvasGroupSchema).max(10_000),
   edges: z.array(CanvasEdgeSchema).max(50_000),
@@ -116,7 +128,15 @@ export const CanvasDocumentSchema = strictObject({
   nextZIndex: CountSchema,
   createdAt: IsoTimestampSchema,
   updatedAt: IsoTimestampSchema,
+  archivedAt: IsoTimestampSchema.nullable(),
 }).superRefine((document, context) => {
+  if ((document.lifecycle === 'archived') !== (document.archivedAt !== null)) {
+    context.addIssue({
+      code: 'custom',
+      path: ['archivedAt'],
+      message: 'Archived Canvases require archivedAt and active Canvases forbid it',
+    });
+  }
   const placements = new Map(document.placements.map((placement) => [placement.id, placement]));
   const groups = new Map(document.groups.map((group) => [group.id, group]));
   const membership = new Map<string, string>();
@@ -183,6 +203,8 @@ export const CanvasDocumentSchema = strictObject({
 export const CanvasSchema = CanvasDocumentSchema;
 
 export type CanvasTarget = z.infer<typeof CanvasTargetSchema>;
+export type CanvasRef = z.infer<typeof CanvasRefSchema>;
+export type CanvasLifecycle = z.infer<typeof CanvasLifecycleSchema>;
 export type CanvasTargetBinding = z.infer<typeof CanvasTargetBindingSchema>;
 export type CanvasPlacement = z.infer<typeof CanvasPlacementSchema>;
 export type CanvasGroup = z.infer<typeof CanvasGroupSchema>;

@@ -29,10 +29,11 @@ import type { StorageEnvironment } from '../internal/environment.js';
 import { hashCanonical, hashContentObject } from '../internal/hashes.js';
 import { appendProjectEvent } from '../internal/project-events.js';
 import { createEmptyCanvas, insertCanvas } from '../internal/canvas-records.js';
+import { createEmptySequence, insertSequence, sequenceRef } from '../internal/sequence-records.js';
 
 const ZERO_HASH = '0'.repeat(64);
 
-function projectCreateEventIdempotencyKey(requestId: string, ordinal: 0 | 1 | 2): string {
+function projectCreateEventIdempotencyKey(requestId: string, ordinal: 0 | 1 | 2 | 3): string {
   return `project.create.${ordinal}.${hashCanonical(requestId)}`;
 }
 
@@ -500,7 +501,19 @@ export function createProjectsAuthority(
           enabledSkills: [],
           updatedAt: now,
         });
-        const canvas = createEmptyCanvas(projectId, environment.createId('canvas'), now);
+        const sequence = createEmptySequence(
+          projectId,
+          environment.createId('sequence'),
+          'Main sequence',
+          now,
+        );
+        const canvas = createEmptyCanvas(
+          projectId,
+          environment.createId('canvas'),
+          'Production canvas',
+          sequenceRef(sequence),
+          now,
+        );
         const [createdByKind, createdById] = causationColumns(project.createdBy);
         database()
           .prepare(
@@ -540,6 +553,7 @@ export function createProjectsAuthority(
             encodeResourceBudget(settings.budget),
             settings.updatedAt,
           );
+        insertSequence(database(), sequence);
         insertCanvas(database(), canvas);
         appendProjectEvent(database(), {
           eventId: environment.createId('project_event'),
@@ -576,10 +590,25 @@ export function createProjectsAuthority(
           projectId,
           occurredAt: now,
           actor: context.actor,
-          subject: { authority: 'canvas', id: canvas.id },
+          subject: { authority: 'sequence', id: sequence.id },
           causation: context.causation,
           correlationId: context.correlationId,
           idempotencyKey: projectCreateEventIdempotencyKey(request.requestId, 2),
+          payload: {
+            type: 'object_created',
+            revision: 0,
+            contentHash: sequence.contentHash,
+          },
+        });
+        appendProjectEvent(database(), {
+          eventId: environment.createId('project_event'),
+          projectId,
+          occurredAt: now,
+          actor: context.actor,
+          subject: { authority: 'canvas', id: canvas.id },
+          causation: context.causation,
+          correlationId: context.correlationId,
+          idempotencyKey: projectCreateEventIdempotencyKey(request.requestId, 3),
           payload: {
             type: 'object_created',
             revision: 0,

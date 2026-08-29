@@ -19,7 +19,10 @@ export type DesktopResponseV1<Method extends PublicWireMethodV1> =
 
 export interface DesktopCanvasApiV1 {
   apply(request: DesktopCallV1<'canvas.apply'>): Promise<DesktopResponseV1<'canvas.apply'>>;
+  create(request: DesktopCallV1<'canvas.create'>): Promise<DesktopResponseV1<'canvas.create'>>;
   get(request: DesktopCallV1<'canvas.get'>): Promise<DesktopResponseV1<'canvas.get'>>;
+  list(request: DesktopCallV1<'canvas.list'>): Promise<DesktopResponseV1<'canvas.list'>>;
+  update(request: DesktopCallV1<'canvas.update'>): Promise<DesktopResponseV1<'canvas.update'>>;
 }
 
 export interface DesktopChatApiV1 {
@@ -28,6 +31,7 @@ export interface DesktopChatApiV1 {
   delete(request: DesktopCallV1<'chat.delete'>): Promise<DesktopResponseV1<'chat.delete'>>;
   list(request: DesktopCallV1<'chat.list'>): Promise<DesktopResponseV1<'chat.list'>>;
   rename(request: DesktopCallV1<'chat.rename'>): Promise<DesktopResponseV1<'chat.rename'>>;
+  restore(request: DesktopCallV1<'chat.restore'>): Promise<DesktopResponseV1<'chat.restore'>>;
 }
 
 export interface DesktopConfirmationApiV1 {
@@ -150,6 +154,19 @@ export interface DesktopRunApiV1 {
   onEventsAppended(callback: (push: WirePushV1) => void): () => void;
 }
 
+export interface DesktopSequenceApiV1 {
+  apply(request: DesktopCallV1<'sequence.apply'>): Promise<DesktopResponseV1<'sequence.apply'>>;
+  create(request: DesktopCallV1<'sequence.create'>): Promise<DesktopResponseV1<'sequence.create'>>;
+  get(request: DesktopCallV1<'sequence.get'>): Promise<DesktopResponseV1<'sequence.get'>>;
+  list(request: DesktopCallV1<'sequence.list'>): Promise<DesktopResponseV1<'sequence.list'>>;
+}
+
+export interface DesktopWindowControlsApiV1 {
+  minimize(): void;
+  toggleMaximize(): void;
+  close(): void;
+}
+
 export interface DesktopApiV1 {
   readonly canvas: DesktopCanvasApiV1;
   readonly chat: DesktopChatApiV1;
@@ -168,4 +185,6 @@ export interface DesktopApiV1 {
   readonly project: DesktopProjectApiV1;
   readonly result: DesktopResultApiV1;
   readonly run: DesktopRunApiV1;
+  readonly sequence: DesktopSequenceApiV1;
+  readonly windowControls: DesktopWindowControlsApiV1;
 }

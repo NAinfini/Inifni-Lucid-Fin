@@ -4,6 +4,7 @@ export * from './protection.js';
 export * from './project.js';
 export * from './media.js';
 export * from './production.js';
+export * from './sequence.js';
 export * from './canvas.js';
 export * from './conversation.js';
 export * from './operation.js';

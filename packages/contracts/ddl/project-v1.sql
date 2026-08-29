@@ -282,11 +282,8 @@ CREATE TABLE production_relations (
   source_object_id TEXT NOT NULL REFERENCES production_objects(id) ON DELETE RESTRICT,
   target_object_id TEXT NOT NULL REFERENCES production_objects(id) ON DELETE RESTRICT,
   relation TEXT NOT NULL CHECK (relation IN ('contains', 'appears_in', 'uses', 'located_at', 'continues_from', 'references')),
-  ordinal INTEGER CHECK (ordinal IS NULL OR ordinal >= 0),
   created_at TEXT NOT NULL,
   UNIQUE (source_object_id, target_object_id, relation),
-  UNIQUE (source_object_id, relation, ordinal),
-  CHECK ((relation = 'contains') = (ordinal IS NOT NULL)),
   CHECK (source_object_id <> target_object_id)
 ) STRICT;
 
@@ -303,15 +300,81 @@ CREATE TABLE production_fact_sources (
   UNIQUE (production_object_id, field_ref, source_authority, source_id, source_revision)
 ) STRICT;
 
-CREATE TABLE canvas_documents (
+CREATE TABLE sequence_documents (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE RESTRICT,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
   revision INTEGER NOT NULL CHECK (revision >= 0),
   content_hash TEXT NOT NULL CHECK (length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*'),
+  name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 240),
+  lifecycle TEXT NOT NULL CHECK (lifecycle IN ('active', 'archived')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  archived_at TEXT,
+  UNIQUE (project_id, id),
+  UNIQUE (id, revision, content_hash),
+  CHECK ((lifecycle = 'archived') = (archived_at IS NOT NULL))
+) STRICT;
+
+CREATE TABLE sequence_items (
+  id TEXT PRIMARY KEY,
+  sequence_id TEXT NOT NULL REFERENCES sequence_documents(id) ON DELETE RESTRICT,
+  kind TEXT NOT NULL CHECK (kind IN ('scene', 'shot', 'clip')),
+  parent_item_id TEXT,
+  ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+  revision INTEGER NOT NULL CHECK (revision >= 0),
+  content_hash TEXT NOT NULL CHECK (length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*'),
+  target_authority TEXT NOT NULL CHECK (target_authority IN ('production', 'generated_result')),
+  target_id TEXT NOT NULL,
+  target_revision INTEGER NOT NULL CHECK (target_revision >= 0),
+  target_content_hash TEXT NOT NULL CHECK (length(target_content_hash) = 64 AND target_content_hash NOT GLOB '*[^0-9a-f]*'),
+  trim_start_ms INTEGER,
+  trim_end_ms INTEGER,
+  audio_policy TEXT,
+  transition_kind TEXT,
+  transition_duration_ms INTEGER,
+  review_state TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (sequence_id, id),
+  UNIQUE (sequence_id, parent_item_id, ordinal),
+  CHECK (
+    (kind = 'scene' AND parent_item_id IS NULL AND target_authority = 'production'
+      AND trim_start_ms IS NULL AND trim_end_ms IS NULL AND audio_policy IS NULL
+      AND transition_kind IS NULL AND transition_duration_ms IS NULL AND review_state IS NULL)
+    OR
+    (kind = 'shot' AND parent_item_id IS NOT NULL AND target_authority = 'production'
+      AND trim_start_ms IS NULL AND trim_end_ms IS NULL AND audio_policy IS NULL
+      AND transition_kind IS NULL AND transition_duration_ms IS NULL AND review_state IS NULL)
+    OR
+    (kind = 'clip' AND parent_item_id IS NOT NULL AND target_authority = 'generated_result'
+      AND trim_start_ms IS NOT NULL AND trim_start_ms >= 0
+      AND trim_end_ms IS NOT NULL AND trim_end_ms > trim_start_ms
+      AND audio_policy IN ('use', 'mute', 'replace')
+      AND transition_kind IN ('cut', 'crossfade', 'dip_to_black')
+      AND transition_duration_ms IS NOT NULL AND transition_duration_ms >= 0
+      AND review_state IN ('unreviewed', 'approved', 'changes_requested'))
+  )
+) STRICT;
+
+CREATE TABLE canvas_documents (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  revision INTEGER NOT NULL CHECK (revision >= 0),
+  content_hash TEXT NOT NULL CHECK (length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*'),
+  name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 240),
+  lifecycle TEXT NOT NULL CHECK (lifecycle IN ('active', 'archived')),
+  primary_sequence_id TEXT REFERENCES sequence_documents(id) ON DELETE RESTRICT,
+  primary_sequence_revision INTEGER CHECK (primary_sequence_revision IS NULL OR primary_sequence_revision >= 0),
+  primary_sequence_content_hash TEXT CHECK (primary_sequence_content_hash IS NULL OR (length(primary_sequence_content_hash) = 64 AND primary_sequence_content_hash NOT GLOB '*[^0-9a-f]*')),
   viewport_v1_json TEXT NOT NULL CHECK (json_valid(viewport_v1_json) AND json_type(viewport_v1_json) = 'object'),
   next_z_index INTEGER NOT NULL CHECK (next_z_index >= 0),
   created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  archived_at TEXT,
+  UNIQUE (project_id, id),
+  CHECK ((lifecycle = 'archived') = (archived_at IS NOT NULL)),
+  CHECK ((primary_sequence_id IS NULL) = (primary_sequence_revision IS NULL)),
+  CHECK ((primary_sequence_id IS NULL) = (primary_sequence_content_hash IS NULL))
 ) STRICT;
 
 CREATE TABLE canvas_groups (
@@ -1193,7 +1256,7 @@ CREATE TABLE project_events (
   actor TEXT NOT NULL CHECK (actor IN ('user', 'commander', 'system', 'import')),
   subject_authority TEXT NOT NULL CHECK (subject_authority IN (
     'project', 'project_settings', 'media_blob', 'global_media_asset', 'project_media_ref',
-    'media_derivation', 'media_derivation_attempt', 'production', 'canvas', 'chat', 'message',
+    'media_derivation', 'media_derivation_attempt', 'production', 'sequence', 'canvas', 'chat', 'message',
     'run', 'context_manifest', 'task_list', 'generation_attempt', 'generated_result',
     'result_assessment_attempt', 'user_choice', 'delivery', 'delivery_manifest', 'review_cut_attempt', 'delivery_export',
     'project_event', 'project_memory', 'skill'
@@ -1306,6 +1369,9 @@ CREATE UNIQUE INDEX uniq_media_derivation_attempts_provider_operation ON media_d
 CREATE INDEX idx_production_objects_project_type ON production_objects(project_id, object_type, lifecycle);
 CREATE INDEX idx_production_relations_target ON production_relations(target_object_id, relation);
 CREATE UNIQUE INDEX uniq_production_contains_child ON production_relations(target_object_id) WHERE relation = 'contains';
+CREATE INDEX idx_sequence_documents_project_updated ON sequence_documents(project_id, updated_at);
+CREATE UNIQUE INDEX uniq_sequence_root_ordinal ON sequence_items(sequence_id, ordinal) WHERE parent_item_id IS NULL;
+CREATE UNIQUE INDEX uniq_sequence_child_ordinal ON sequence_items(sequence_id, parent_item_id, ordinal) WHERE parent_item_id IS NOT NULL;
 CREATE INDEX idx_production_fact_sources_object ON production_fact_sources(production_object_id, field_ref);
 CREATE INDEX idx_production_protections_object ON production_protections(production_object_id, field_ref);
 CREATE UNIQUE INDEX uniq_shot_selected_result ON production_result_decisions(shot_id) WHERE state = 'selected';

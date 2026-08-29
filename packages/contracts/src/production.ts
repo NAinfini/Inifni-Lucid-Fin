@@ -60,9 +60,6 @@ export const ProductionRelationSchema = strictObject({
   ]),
   targetType: ProductionObjectTypeSchema,
   targetId: EntityIdSchema,
-  ordinal: CountSchema.nullable(),
-}).refine((relation) => (relation.relation === 'contains') === (relation.ordinal !== null), {
-  message: 'Only containment relations have an ordinal',
 });
 
 export const FactProtectionSchema = ActiveProtectionSchema;

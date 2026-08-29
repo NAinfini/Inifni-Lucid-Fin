@@ -268,14 +268,12 @@ interface ProductionRelationRecord {
   readonly relation: ProductionRelation['relation'];
   readonly targetId: string;
   readonly targetType: ProductionObjectType;
-  readonly ordinal: number | null;
   readonly createdAt: string;
 }
 
 interface ProductionRelationWrites {
   readonly insert: readonly ProductionRelationRecord[];
   readonly remove: readonly string[];
-  readonly ordinal: readonly { readonly id: string; readonly ordinal: number }[];
 }
 
 interface PlannedProductionObjectChange {
@@ -328,7 +326,6 @@ const PRODUCTION_MUTATION_ID_SCHEMA = 'lucid-fin.production-mutation-planned-ids
 const EMPTY_RELATION_WRITES: ProductionRelationWrites = Object.freeze({
   insert: Object.freeze([]),
   remove: Object.freeze([]),
-  ordinal: Object.freeze([]),
 });
 
 function invalidProductionMutation(message: string): StorageError {
@@ -353,7 +350,6 @@ function typedValue(object: ProductionObject): ProductionTypedValue {
     action: 'create',
     expectedProjectRevision: 0,
     parentRef: null,
-    order: null,
     value: { objectType: object.type, content: object.content },
   });
   if (parsed.action !== 'create') throw corruptProductionMutation('Production typed value changed');
@@ -377,10 +373,6 @@ function productionMutationVariant(
       if (mode === 'link') return 'production_relate_link';
       if (mode === 'unlink') return 'production_relate_unlink';
       throw invalidProductionMutation('Production relation mutation requires a mode');
-    case 'reorder':
-      if (mode !== undefined)
-        throw invalidProductionMutation('Production reorder does not have a mode');
-      return 'production_reorder';
     case 'archive':
       if (mode !== undefined)
         throw invalidProductionMutation('Production archive does not have a mode');
@@ -452,13 +444,7 @@ export function productionMutationIdsForVariant(
                 variant,
                 sourceEventId: next('project_event', 'source_event'),
               }
-            : variant === 'production_reorder'
-              ? {
-                  tool: ProductionMutateDefinition.id,
-                  variant,
-                  parentEventId: next('project_event', 'parent_event'),
-                }
-              : {
+            : {
                   tool: ProductionMutateDefinition.id,
                   variant,
                   factSourceId: next('production_fact_source', 'fact_source'),
@@ -542,8 +528,7 @@ function relationRecordsFor(database: DatabaseSync, sourceId: string): Productio
   const rows = database
     .prepare(
       `SELECT relation.id, relation.project_id, relation.source_object_id, relation.relation,
-              relation.target_object_id, target.object_type AS target_type, relation.ordinal,
-              relation.created_at
+              relation.target_object_id, target.object_type AS target_type, relation.created_at
        FROM production_relations AS relation
        JOIN production_objects AS target ON target.id = relation.target_object_id
        WHERE relation.source_object_id = ?`,
@@ -555,7 +540,6 @@ function relationRecordsFor(database: DatabaseSync, sourceId: string): Productio
     relation: ProductionRelation['relation'];
     target_object_id: string;
     target_type: ProductionObjectType;
-    ordinal: number | null;
     created_at: string;
   }>;
   return rows.map((row) => ({
@@ -565,7 +549,6 @@ function relationRecordsFor(database: DatabaseSync, sourceId: string): Productio
     relation: row.relation,
     targetId: row.target_object_id,
     targetType: row.target_type,
-    ordinal: row.ordinal,
     createdAt: row.created_at,
   }));
 }
@@ -575,7 +558,6 @@ function relationValue(record: ProductionRelationRecord): ProductionRelation {
     relation: record.relation,
     targetType: record.targetType,
     targetId: record.targetId,
-    ordinal: record.ordinal,
   };
 }
 
@@ -587,15 +569,6 @@ function relationIdentity(
   relation: Pick<ProductionRelationRecord, 'relation' | 'targetId'>,
 ): string {
   return `${relation.relation}\u0000${relation.targetId}`;
-}
-
-function assertDenseContainment(records: readonly ProductionRelationRecord[]): void {
-  const children = records
-    .filter(({ relation }) => relation === 'contains')
-    .sort((left, right) => left.ordinal! - right.ordinal! || left.id.localeCompare(right.id));
-  if (children.some(({ ordinal }, index) => ordinal !== index)) {
-    throw corruptProductionMutation('Production containment ordinals are not dense');
-  }
 }
 
 function assertChildHasNoParent(database: DatabaseSync, projectId: string, childId: string): void {
@@ -640,26 +613,9 @@ function withContainmentInserted(
   records: readonly ProductionRelationRecord[],
   relation: ProductionRelationRecord,
 ): { readonly records: ProductionRelationRecord[]; readonly writes: ProductionRelationWrites } {
-  assertDenseContainment(records);
-  const children = records.filter(({ relation: kind }) => kind === 'contains');
-  if (relation.ordinal === null || relation.ordinal > children.length) {
-    throw invalidProductionMutation('Production containment ordinal is out of range');
-  }
-  const ordinal = relation.ordinal;
-  const shifted = records.map((record) =>
-    record.relation === 'contains' && record.ordinal! >= ordinal
-      ? { ...record, ordinal: record.ordinal! + 1 }
-      : record,
-  );
   return {
-    records: [...shifted, relation],
-    writes: {
-      insert: [relation],
-      remove: [],
-      ordinal: shifted
-        .filter((record, index) => record.ordinal !== records[index]!.ordinal)
-        .map(({ id, ordinal: nextOrdinal }) => ({ id, ordinal: nextOrdinal! })),
-    },
+    records: [...records, relation],
+    writes: { insert: [relation], remove: [] },
   };
 }
 
@@ -667,26 +623,9 @@ function withRelationRemoved(
   records: readonly ProductionRelationRecord[],
   removed: ProductionRelationRecord,
 ): { readonly records: ProductionRelationRecord[]; readonly writes: ProductionRelationWrites } {
-  assertDenseContainment(records);
-  const remaining = records
-    .filter(({ id }) => id !== removed.id)
-    .map((record) =>
-      removed.relation === 'contains' &&
-      record.relation === 'contains' &&
-      record.ordinal! > removed.ordinal!
-        ? { ...record, ordinal: record.ordinal! - 1 }
-        : record,
-    );
-  const original = new Map(records.map((record) => [record.id, record]));
   return {
-    records: remaining,
-    writes: {
-      insert: [],
-      remove: [removed.id],
-      ordinal: remaining
-        .filter((record) => record.ordinal !== original.get(record.id)!.ordinal)
-        .map(({ id, ordinal }) => ({ id, ordinal: ordinal! })),
-    },
+    records: records.filter(({ id }) => id !== removed.id),
+    writes: { insert: [], remove: [removed.id] },
   };
 }
 
@@ -696,7 +635,6 @@ function mergeRelationWrites(
   return {
     insert: writes.flatMap(({ insert }) => insert),
     remove: writes.flatMap(({ remove }) => remove),
-    ordinal: writes.flatMap(({ ordinal }) => ordinal),
   };
 }
 
@@ -707,20 +645,10 @@ function writeRelationChanges(database: DatabaseSync, writes: ProductionRelation
       throw new StorageError('REVISION_CONFLICT', `Production relation ${id} changed`);
     }
   }
-  const elevate = database.prepare(
-    'UPDATE production_relations SET ordinal = ordinal + 1000000 WHERE id = ?',
-  );
-  for (const { id } of writes.ordinal) {
-    if (Number(elevate.run(id).changes) !== 1) {
-      throw new StorageError('REVISION_CONFLICT', `Production relation ${id} changed`);
-    }
-  }
-  const setOrdinal = database.prepare('UPDATE production_relations SET ordinal = ? WHERE id = ?');
-  for (const { id, ordinal } of writes.ordinal) setOrdinal.run(ordinal, id);
   const insert = database.prepare(
     `INSERT INTO production_relations (
-       id, project_id, source_object_id, target_object_id, relation, ordinal, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       id, project_id, source_object_id, target_object_id, relation, created_at
+     ) VALUES (?, ?, ?, ?, ?, ?)`,
   );
   for (const relation of writes.insert) {
     insert.run(
@@ -729,7 +657,6 @@ function writeRelationChanges(database: DatabaseSync, writes: ProductionRelation
       relation.sourceId,
       relation.targetId,
       relation.relation,
-      relation.ordinal,
       relation.createdAt,
     );
   }
@@ -745,7 +672,7 @@ function validateNonContainmentRelations(
   const identities = new Set<string>();
   for (const relation of canonical) {
     if (relation.relation === 'contains') {
-      throw invalidProductionMutation('Production relation replacement cannot reparent or reorder');
+      throw invalidProductionMutation('Production relation replacement cannot change containment');
     }
     if (relation.targetId === sourceId) {
       throw invalidProductionMutation('Production objects cannot relate to themselves');
@@ -791,13 +718,12 @@ function nonContainmentReplacementWrites(
       relation: relation.relation,
       targetId: relation.targetId,
       targetType: relation.targetType,
-      ordinal: null,
       createdAt: occurredAt,
     }));
   const unchanged = records.filter(
     (record) => record.relation === 'contains' || desiredByIdentity.has(relationIdentity(record)),
   );
-  return { records: [...unchanged, ...insert], writes: { insert, remove, ordinal: [] } };
+  return { records: [...unchanged, ...insert], writes: { insert, remove } };
 }
 
 function productionFields(
@@ -838,8 +764,6 @@ function primaryPlanEventId(ids: ProductionMutationPlannedIds): string {
     case 'production_relate_link':
     case 'production_relate_unlink':
       return ids.sourceEventId;
-    case 'production_reorder':
-      return ids.parentEventId;
   }
 }
 
@@ -960,7 +884,6 @@ function planCreateMutation(
   expectedProjectRevision: number,
   value: ProductionTypedValue,
   parent: ProductionObject | null,
-  order: number | null,
   nonContainmentRelations: readonly ProductionRelation[],
   occurredAt: string,
   ids: ProductionMutationPlannedIds,
@@ -984,7 +907,6 @@ function planCreateMutation(
     relation: relation.relation,
     targetId: relation.targetId,
     targetType: relation.targetType,
-    ordinal: null,
     createdAt: occurredAt,
   }));
   const childChange = createObjectChange(
@@ -997,10 +919,9 @@ function planCreateMutation(
   const childWrites: ProductionRelationWrites = {
     insert: childRecords,
     remove: [],
-    ordinal: [],
   };
   if (parent === null) {
-    if (order !== null || ids.containmentRelationId !== null || ids.parentEventId !== null) {
+    if (ids.containmentRelationId !== null || ids.parentEventId !== null) {
       throw invalidProductionMutation('Production root create cannot have containment IDs');
     }
     return plannedProductionMutation({
@@ -1020,7 +941,7 @@ function planCreateMutation(
       activeChoiceIds: [],
     });
   }
-  if (order === null || ids.containmentRelationId === null || ids.parentEventId === null) {
+  if (ids.containmentRelationId === null || ids.parentEventId === null) {
     throw invalidProductionMutation('Production child create requires containment IDs');
   }
   const parentRecords = relationRecordsFor(database, parent.id);
@@ -1031,7 +952,6 @@ function planCreateMutation(
     relation: 'contains',
     targetId: childId,
     targetType: value.objectType,
-    ordinal: order,
     createdAt: occurredAt,
   };
   const containment = withContainmentInserted(parentRecords, relationship);
@@ -1155,12 +1075,7 @@ function planRelateMutation(
     if (ids.variant !== 'production_relate_link') {
       throw invalidProductionMutation('Production relation link requires link planned IDs');
     }
-    if (existing !== undefined) {
-      if (existing.ordinal !== input.ordinal) {
-        throw invalidProductionMutation('Production relation already exists with another ordinal');
-      }
-      return empty();
-    }
+    if (existing !== undefined) return empty();
     let relationWrites: ProductionRelationWrites;
     let afterRecords: ProductionRelationRecord[];
     const relation: ProductionRelationRecord = {
@@ -1170,7 +1085,6 @@ function planRelateMutation(
       relation: input.relation,
       targetId: target.id,
       targetType: target.type,
-      ordinal: input.ordinal,
       createdAt: occurredAt,
     };
     if (input.relation === 'contains') {
@@ -1181,7 +1095,7 @@ function planRelateMutation(
       relationWrites = containment.writes;
     } else {
       afterRecords = [...records, relation];
-      relationWrites = { insert: [relation], remove: [], ordinal: [] };
+      relationWrites = { insert: [relation], remove: [] };
     }
     const change = reviseObjectChange(
       source,
@@ -1236,79 +1150,6 @@ function planRelateMutation(
     ownerBefore: productionRef(source),
     fields,
     activeChoiceIds: activeProductionChoiceIds(source, fields),
-  });
-}
-
-function planReorderMutation(
-  database: DatabaseSync,
-  projectId: string,
-  input: Extract<ProductionToolMutationInput, { action: 'reorder' }>,
-  occurredAt: string,
-  ids: ProductionMutationPlannedIds,
-): PlannedProductionMutation {
-  if (ids.variant !== 'production_reorder') {
-    throw invalidProductionMutation('Production reorder requires reorder planned IDs');
-  }
-  const parent = requireProductionRef(database, projectId, input.parent.ref);
-  const records = relationRecordsFor(database, parent.id);
-  assertDenseContainment(records);
-  const children = records
-    .filter(({ relation }) => relation === 'contains')
-    .sort((left, right) => left.ordinal! - right.ordinal!);
-  const currentIds = children.map(({ targetId }) => targetId);
-  if (
-    currentIds.length !== input.orderedChildIds.length ||
-    [...currentIds].sort().join('\u0000') !== [...input.orderedChildIds].sort().join('\u0000')
-  ) {
-    throw invalidProductionMutation('Production reorder must name exactly the current children');
-  }
-  const order = new Map(input.orderedChildIds.map((id, index) => [id, index]));
-  const afterRecords = records.map((record) =>
-    record.relation === 'contains' ? { ...record, ordinal: order.get(record.targetId)! } : record,
-  );
-  const ordinal = afterRecords
-    .filter((record, index) => record.ordinal !== records[index]!.ordinal)
-    .map(({ id, ordinal: nextOrdinal }) => ({ id, ordinal: nextOrdinal! }));
-  if (ordinal.length === 0) {
-    return plannedProductionMutation({
-      projectId,
-      command: input,
-      action: input.action,
-      occurredAt,
-      ids,
-      changes: [],
-      relationWrites: EMPTY_RELATION_WRITES,
-      factSource: null,
-      watchedProduction: [parent],
-      citedSource: null,
-      ownerBefore: productionRef(parent),
-      fields: [],
-      activeChoiceIds: [],
-    });
-  }
-  const change = reviseObjectChange(
-    parent,
-    typedValue(parent),
-    parent.lifecycle,
-    relationValues(afterRecords),
-    ids.parentEventId,
-    ['relations'],
-  );
-  const fields = productionFields(parent, change.changedPaths);
-  return plannedProductionMutation({
-    projectId,
-    command: input,
-    action: input.action,
-    occurredAt,
-    ids,
-    changes: [change],
-    relationWrites: { insert: [], remove: [], ordinal },
-    factSource: null,
-    watchedProduction: [parent],
-    citedSource: null,
-    ownerBefore: productionRef(parent),
-    fields,
-    activeChoiceIds: activeProductionChoiceIds(parent, fields),
   });
 }
 
@@ -1482,7 +1323,6 @@ export function planProductionMutationInTransaction(
         input.expectedProjectRevision,
         input.value,
         parent,
-        input.order,
         [],
         occurredAt,
         ids,
@@ -1493,8 +1333,6 @@ export function planProductionMutationInTransaction(
       return planUpdateMutation(database, projectId, input, occurredAt, ids);
     case 'relate':
       return planRelateMutation(database, projectId, input, occurredAt, ids);
-    case 'reorder':
-      return planReorderMutation(database, projectId, input, occurredAt, ids);
     case 'archive':
     case 'restore':
       return planLifecycleMutation(database, projectId, input, occurredAt, ids);
@@ -1748,7 +1586,6 @@ function planWireProductionMutationInTransaction(
       request.input.expectedProjectRevision,
       request.input.value,
       parent,
-      parentRelation?.ordinal ?? null,
       request.input.relations.filter(({ relation }) => relation !== 'contains'),
       occurredAt,
       wireProductionMutationIds(environment, 'production_create', parent !== null),

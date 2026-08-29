@@ -77,7 +77,7 @@ import {
 } from '../internal/compaction-records.js';
 import { CommandContextSchema, type CommandContext } from '../internal/command.js';
 import { appendMessageInTransaction, loadMessage } from '../internal/conversation-write.js';
-import { loadCanvasByProject } from '../internal/canvas-records.js';
+import { loadCanvasDocument } from '../internal/canvas-records.js';
 import { getStoreDatabase } from '../internal/database-access.js';
 import type { StorageEnvironment } from '../internal/environment.js';
 import {
@@ -7629,7 +7629,7 @@ function replayCanvasMutateBoundary(
         readonly idempotency_key: string;
       }
     | undefined;
-  const canvas = loadCanvasByProject(database, dispatch.key.projectId);
+  const canvas = loadCanvasDocument(database, canvasCall.canvasInput.canvas.id);
   if (
     event === undefined ||
     event.project_id !== dispatch.key.projectId ||
@@ -11285,8 +11285,6 @@ function productionMutationReceiptEventIds(
     case 'production_relate_link':
     case 'production_relate_unlink':
       return [plannedIds.sourceEventId];
-    case 'production_reorder':
-      return [plannedIds.parentEventId];
   }
 }
 

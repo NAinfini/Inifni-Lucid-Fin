@@ -14,8 +14,11 @@ import {
   strictObject,
   z,
   type CanvasDocument,
+  type CanvasLifecycle,
+  type CanvasRef,
   type CanvasTarget,
   type CanvasTargetBinding,
+  type SequenceRef,
   type WireRequestV1,
   type WireSuccessV1,
 } from '@lucid-fin/contracts';
@@ -23,7 +26,13 @@ import type { DatabaseSync } from 'node:sqlite';
 import { StorageError } from '../kernel/errors.js';
 import type { Store } from '../kernel/store.js';
 import { withImmediateTransaction } from '../kernel/transaction.js';
-import { finalizeCanvas, loadCanvasByProject, replaceCanvas } from '../internal/canvas-records.js';
+import {
+  createEmptyCanvas,
+  finalizeCanvas,
+  insertCanvas,
+  loadCanvasDocument,
+  replaceCanvas,
+} from '../internal/canvas-records.js';
 import {
   executeWireMutation,
   CommandContextSchema,
@@ -35,6 +44,7 @@ import { resolveCurrentDomainObject } from '../internal/domain-object-resolver.j
 import type { StorageEnvironment } from '../internal/environment.js';
 import { hashCanonical } from '../internal/hashes.js';
 import { appendProjectEvent } from '../internal/project-events.js';
+import { loadSequenceDocument } from '../internal/sequence-records.js';
 
 type RequestMap = {
   [Method in WireRequestV1['method']]: Extract<WireRequestV1, { method: Method }>;
@@ -55,6 +65,7 @@ type CanvasToolMutationReceipt = CanvasToolMutationSuccess['receipts'][number];
 
 const CanvasToolCursorSchema = strictObject({
   projectId: EntityIdSchema,
+  canvasId: EntityIdSchema,
   filterHash: Sha256Schema,
   canvasRevision: RevisionSchema,
   canvasContentHash: Sha256Schema,
@@ -91,6 +102,49 @@ function success<Method extends WireSuccessV1['method']>(
     method: request.method,
     result,
   }) as Success<Method>;
+}
+
+function requireProject(database: DatabaseSync, projectId: string): void {
+  const project = database.prepare('SELECT lifecycle FROM projects WHERE id = ?').get(projectId) as
+    | { lifecycle: string }
+    | undefined;
+  if (project === undefined) throw new StorageError('NOT_FOUND', `Project ${projectId} was not found`);
+  if (project.lifecycle !== 'active') {
+    throw new StorageError('INVALID_REQUEST', `Project ${projectId} is not active`);
+  }
+}
+
+function requireExactCanvas(database: DatabaseSync, ref: CanvasRef): CanvasDocument {
+  const canvas = loadCanvasDocument(database, ref.id);
+  if (canvas.revision !== ref.revision || canvas.contentHash !== ref.contentHash) {
+    throw new StorageError('REVISION_CONFLICT', `Canvas ${canvas.id} changed`);
+  }
+  return canvas;
+}
+
+function requireCurrentCanvas(database: DatabaseSync, ref: CanvasRef): CanvasDocument {
+  const canvas = requireExactCanvas(database, ref);
+  requireProject(database, canvas.projectId);
+  if (canvas.lifecycle !== 'active') {
+    throw new StorageError('INVALID_REQUEST', `Canvas ${canvas.id} is archived`);
+  }
+  return canvas;
+}
+
+function requireExactPrimarySequence(
+  database: DatabaseSync,
+  projectId: string,
+  ref: SequenceRef | null,
+): SequenceRef | null {
+  if (ref === null) return null;
+  const sequence = loadSequenceDocument(database, ref.id);
+  if (sequence.projectId !== projectId) {
+    throw new StorageError('INVALID_REQUEST', `Sequence ${sequence.id} belongs to another Project`);
+  }
+  if (sequence.revision !== ref.revision || sequence.contentHash !== ref.contentHash) {
+    throw new StorageError('REVISION_CONFLICT', `Sequence ${sequence.id} changed`);
+  }
+  return ref;
 }
 
 function targetAuthority(target: CanvasTarget): CanvasTargetBinding['targetType'] {
@@ -893,7 +947,12 @@ function assertCanvasToolInputCurrent(
   canvas: CanvasDocument,
   input: CanvasToolMutationInput,
 ): void {
-  if (canvas.revision !== input.expectedCanvasRevision) {
+  if (
+    canvas.id !== input.canvas.id ||
+    canvas.revision !== input.canvas.revision ||
+    canvas.contentHash !== input.canvas.contentHash ||
+    canvas.revision !== input.expectedCanvasRevision
+  ) {
     throw new StorageError('REVISION_CONFLICT', `Canvas ${canvas.id} revision changed`);
   }
   switch (input.action) {
@@ -1204,7 +1263,10 @@ export function planCanvasMutationInTransaction(
   const input = CanvasMutateDefinition.parseInput(inputValue);
   const occurredAt = parseCanonical(IsoTimestampSchema, occurredAtInput);
   const ids = exactCanvasMutationIds(plannedIdsInput, input);
-  const before = loadCanvasByProject(database, projectId);
+  const before = requireCurrentCanvas(database, input.canvas);
+  if (before.projectId !== projectId) {
+    throw invalidCanvasMutation(`Canvas ${before.id} belongs to another Project`);
+  }
   assertCanvasToolInputCurrent(before, input);
   const changed = mutateCanvasCore(database, before, coreCommandFromTool(input, ids), occurredAt);
   if (changed === null) throw invalidCanvasMutation('Canvas mutation has no semantic changes');
@@ -1263,7 +1325,7 @@ export function commitPlannedCanvasMutationInTransaction(
   const context = parseCanonical(CommandContextSchema, contextInput);
   assertCanvasMutationPlanCurrent(database, environment, planned);
   replaceCanvas(database, planned.before, planned.after);
-  const canvas = loadCanvasByProject(database, planned.projectId);
+  const canvas = loadCanvasDocument(database, planned.before.id);
   if (canonicalJson(canvas) !== canonicalJson(planned.after)) {
     throw corruptCanvasMutation(`Canvas ${planned.after.id} persisted outside its mutation plan`);
   }
@@ -1415,7 +1477,10 @@ function queryCanvasTool(
 ): CanvasToolQuerySuccess {
   const projectId = parseCanonical(EntityIdSchema, projectIdValue);
   const input = CanvasQueryDefinition.parseInput(inputValue);
-  const canvas = loadCanvasByProject(database, projectId);
+  const canvas = requireCurrentCanvas(database, input.canvas);
+  if (canvas.projectId !== projectId) {
+    throw new StorageError('INVALID_REQUEST', `Canvas ${canvas.id} belongs to another Project`);
+  }
   const targetRefs = [...input.targetRefs].sort((left, right) => {
     const leftValue = canonicalJson(left);
     const rightValue = canonicalJson(right);
@@ -1433,6 +1498,7 @@ function queryCanvasTool(
   if (
     cursor !== null &&
     (cursor.projectId !== projectId ||
+      cursor.canvasId !== canvas.id ||
       cursor.filterHash !== filterHash ||
       cursor.canvasRevision !== canvas.revision ||
       cursor.canvasContentHash !== canvas.contentHash)
@@ -1534,6 +1600,7 @@ function queryCanvasTool(
         afterCursor.length > pageItems.length && last !== undefined
           ? encodeCanvasToolCursor({
               projectId,
+              canvasId: canvas.id,
               filterHash,
               canvasRevision: canvas.revision,
               canvasContentHash: canvas.contentHash,
@@ -1553,10 +1620,7 @@ function applyCanvas(
 ): Success<'canvas.apply'> {
   const now = environment.now();
   return executeWireMutation(database, request, context, now, () => {
-    const before = loadCanvasByProject(database, request.input.projectId);
-    if (before.revision !== request.input.expectedCanvasRevision) {
-      throw new StorageError('REVISION_CONFLICT', `Canvas ${before.id} revision changed`);
-    }
+    const before = requireCurrentCanvas(database, request.input.canvas);
     const changed = mutateCanvasCore(
       database,
       before,
@@ -1594,6 +1658,177 @@ function applyCanvas(
   });
 }
 
+const CanvasListCursorSchema = strictObject({
+  filterHash: Sha256Schema,
+  updatedAt: IsoTimestampSchema,
+  id: EntityIdSchema,
+});
+
+function createCanvas(
+  database: DatabaseSync,
+  environment: StorageEnvironment,
+  request: Request<'canvas.create'>,
+  context: CommandContext,
+): Success<'canvas.create'> {
+  const now = environment.now();
+  return executeWireMutation(database, request, context, now, () => {
+    requireProject(database, request.input.projectId);
+    const primarySequenceRef = requireExactPrimarySequence(
+      database,
+      request.input.projectId,
+      request.input.primarySequenceRef,
+    );
+    const canvas = createEmptyCanvas(
+      request.input.projectId,
+      environment.createId('canvas'),
+      request.input.name,
+      primarySequenceRef,
+      now,
+    );
+    insertCanvas(database, canvas);
+    appendProjectEvent(database, {
+      eventId: environment.createId('project_event'),
+      projectId: canvas.projectId,
+      occurredAt: now,
+      actor: context.actor,
+      subject: { authority: 'canvas', id: canvas.id },
+      causation: context.causation,
+      correlationId: context.correlationId,
+      idempotencyKey: request.requestId,
+      payload: { type: 'object_created', revision: canvas.revision, contentHash: canvas.contentHash },
+    });
+    return { projectId: canvas.projectId, response: success(request, canvas) };
+  });
+}
+
+function updateCanvas(
+  database: DatabaseSync,
+  environment: StorageEnvironment,
+  request: Request<'canvas.update'>,
+  context: CommandContext,
+): Success<'canvas.update'> {
+  const now = environment.now();
+  return executeWireMutation(database, request, context, now, () => {
+    const before = requireExactCanvas(database, request.input.canvas);
+    requireProject(database, before.projectId);
+    let after: CanvasDocument;
+    switch (request.input.action) {
+      case 'rename':
+        if (before.name === request.input.name) {
+          return { projectId: before.projectId, response: success(request, before) };
+        }
+        after = finalizeCanvas({
+          ...before,
+          revision: before.revision + 1,
+          name: request.input.name,
+          updatedAt: now,
+        });
+        break;
+      case 'archive':
+      case 'restore': {
+        const lifecycle: CanvasLifecycle = request.input.action === 'archive' ? 'archived' : 'active';
+        if (before.lifecycle === lifecycle) {
+          return { projectId: before.projectId, response: success(request, before) };
+        }
+        after = finalizeCanvas({
+          ...before,
+          revision: before.revision + 1,
+          lifecycle,
+          updatedAt: now,
+          archivedAt: lifecycle === 'archived' ? now : null,
+        });
+        break;
+      }
+      case 'set_primary_sequence': {
+        const primarySequenceRef = requireExactPrimarySequence(
+          database,
+          before.projectId,
+          request.input.primarySequenceRef,
+        );
+        if (canonicalJson(before.primarySequenceRef) === canonicalJson(primarySequenceRef)) {
+          return { projectId: before.projectId, response: success(request, before) };
+        }
+        after = finalizeCanvas({
+          ...before,
+          revision: before.revision + 1,
+          primarySequenceRef,
+          updatedAt: now,
+        });
+        break;
+      }
+    }
+    replaceCanvas(database, before, after);
+    appendProjectEvent(database, {
+      eventId: environment.createId('project_event'),
+      projectId: after.projectId,
+      occurredAt: now,
+      actor: context.actor,
+      subject: { authority: 'canvas', id: after.id },
+      causation: context.causation,
+      correlationId: context.correlationId,
+      idempotencyKey: request.requestId,
+      payload: {
+        type: 'object_revision_changed',
+        beforeRevision: before.revision,
+        afterRevision: after.revision,
+        beforeHash: before.contentHash,
+        afterHash: after.contentHash,
+      },
+    });
+    return { projectId: after.projectId, response: success(request, after) };
+  });
+}
+
+function listCanvases(
+  database: DatabaseSync,
+  request: Request<'canvas.list'>,
+): Success<'canvas.list'> {
+  requireProject(database, request.input.projectId);
+  const filterHash = hashCanonical({
+    projectId: request.input.projectId,
+    lifecycle: [...request.input.lifecycle].sort(),
+  });
+  const cursor =
+    request.input.page.cursor === null
+      ? null
+      : (() => {
+          const value = decodeCursor(request.input.page.cursor, 'canvas.list');
+          if (value === null) throw invalidCanvasMutation('Canvas list cursor is invalid');
+          return parseCanonical(CanvasListCursorSchema, JSON.parse(value) as unknown);
+        })();
+  if (cursor !== null && cursor.filterHash !== filterHash) {
+    throw invalidCanvasMutation('Canvas list cursor belongs to another query');
+  }
+  const lifecycleClause =
+    request.input.lifecycle.length === 0
+      ? ''
+      : ` AND lifecycle IN (${request.input.lifecycle.map(() => '?').join(', ')})`;
+  const cursorClause =
+    cursor === null ? '' : ' AND (updated_at < ? OR (updated_at = ? AND id < ?))';
+  const params: Array<string | number> = [request.input.projectId, ...request.input.lifecycle];
+  if (cursor !== null) params.push(cursor.updatedAt, cursor.updatedAt, cursor.id);
+  params.push(request.input.page.limit + 1);
+  const rows = database
+    .prepare(
+      `SELECT id, updated_at FROM canvas_documents
+       WHERE project_id = ?${lifecycleClause}${cursorClause}
+       ORDER BY updated_at DESC, id DESC LIMIT ?`,
+    )
+    .all(...params) as unknown as Array<{ id: string; updated_at: string }>;
+  const pageRows = rows.slice(0, request.input.page.limit);
+  const last = pageRows.at(-1);
+  return success(request, {
+    items: pageRows.map((row) => loadCanvasDocument(database, row.id)),
+    nextCursor:
+      rows.length > pageRows.length && last !== undefined
+        ? encodeCursor(
+            'canvas.list',
+            canonicalJson({ filterHash, updatedAt: last.updated_at, id: last.id }),
+          )
+        : null,
+  });
+}
+
 function mutateCanvasTool(
   database: DatabaseSync,
   environment: StorageEnvironment,
@@ -1623,11 +1858,20 @@ function mutateCanvasTool(
 }
 
 export interface CanvasAuthority {
+  readonly create: (
+    request: Request<'canvas.create'>,
+    context: CommandContext,
+  ) => Success<'canvas.create'>;
   readonly apply: (
     request: Request<'canvas.apply'>,
     context: CommandContext,
   ) => Success<'canvas.apply'>;
   readonly get: (request: Request<'canvas.get'>) => Success<'canvas.get'>;
+  readonly list: (request: Request<'canvas.list'>) => Success<'canvas.list'>;
+  readonly update: (
+    request: Request<'canvas.update'>,
+    context: CommandContext,
+  ) => Success<'canvas.update'>;
   readonly queryTool: (projectId: string, input: CanvasToolQueryInput) => CanvasToolQuerySuccess;
   readonly mutateTool: (
     projectId: string,
@@ -1642,6 +1886,14 @@ export function createCanvasAuthority(
   environment: StorageEnvironment,
 ): CanvasAuthority {
   const authority: CanvasAuthority = {
+    create(request, context) {
+      return createCanvas(
+        getStoreDatabase(store),
+        environment,
+        exactRequest(request, 'canvas.create'),
+        context,
+      );
+    },
     apply(request, context) {
       return applyCanvas(
         getStoreDatabase(store),
@@ -1652,9 +1904,17 @@ export function createCanvasAuthority(
     },
     get(request) {
       const parsed = exactRequest(request, 'canvas.get');
-      return success<'canvas.get'>(
-        parsed,
-        loadCanvasByProject(getStoreDatabase(store), parsed.input.projectId),
+      return success<'canvas.get'>(parsed, loadCanvasDocument(getStoreDatabase(store), parsed.input.canvasId));
+    },
+    list(request) {
+      return listCanvases(getStoreDatabase(store), exactRequest(request, 'canvas.list'));
+    },
+    update(request, context) {
+      return updateCanvas(
+        getStoreDatabase(store),
+        environment,
+        exactRequest(request, 'canvas.update'),
+        context,
       );
     },
     queryTool(projectId, input) {

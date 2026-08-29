@@ -4,6 +4,7 @@ import {
   LUCID_FIN_DESKTOP_API_GLOBAL_V1,
   LUCID_FIN_WIRE_INVOKE_CHANNEL_V1,
   LUCID_FIN_WIRE_PUSH_CHANNEL_V1,
+  LUCID_FIN_WINDOW_CONTROL_CHANNEL_V1,
   type DesktopApiV1,
   type WirePushV1,
 } from '@lucid-fin/contracts';
@@ -12,10 +13,11 @@ const exposeInMainWorld = vi.hoisted(() => vi.fn());
 const invoke = vi.hoisted(() => vi.fn());
 const on = vi.hoisted(() => vi.fn());
 const removeListener = vi.hoisted(() => vi.fn());
+const send = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({
   contextBridge: { exposeInMainWorld },
-  ipcRenderer: { invoke, on, removeListener },
+  ipcRenderer: { invoke, on, removeListener, send },
 }));
 
 describe('desktop preload', () => {
@@ -25,17 +27,18 @@ describe('desktop preload', () => {
     invoke.mockResolvedValue({ kind: 'success' });
   });
 
-  it('exposes exactly the 45 canonical use cases through one invoke channel', async () => {
+  it('exposes every canonical use case through one invoke channel', async () => {
     await import('./preload.cjs');
     expect(exposeInMainWorld).toHaveBeenCalledOnce();
     expect(exposeInMainWorld.mock.calls[0]?.[0]).toBe(LUCID_FIN_DESKTOP_API_GLOBAL_V1);
     const api = exposeInMainWorld.mock.calls[0]?.[1] as DesktopApiV1;
-    const exposedUseCases = Object.entries(api).flatMap(([namespace, methods]) =>
+    const exposedUseCases = Object.entries(api)
+      .filter(([namespace]) => namespace !== 'windowControls')
+      .flatMap(([namespace, methods]) =>
       Object.keys(methods)
         .filter((method) => method !== 'onEventsAppended')
         .map((method) => `${namespace}.${method}`),
-    );
-    expect(exposedUseCases).toHaveLength(45);
+      );
     expect(exposedUseCases).toHaveLength(Object.keys(PUBLIC_WIRE_METHODS_V1).length);
 
     const request = {
@@ -53,6 +56,22 @@ describe('desktop preload', () => {
     expect(new Set(invoke.mock.calls.map((call) => call[0]))).toEqual(
       new Set([LUCID_FIN_WIRE_INVOKE_CHANNEL_V1]),
     );
+  });
+
+  it('exposes isolated one-way custom window controls', async () => {
+    await import('./preload.cjs');
+    const api = exposeInMainWorld.mock.calls[0]?.[1] as DesktopApiV1;
+
+    api.windowControls.minimize();
+    api.windowControls.toggleMaximize();
+    api.windowControls.close();
+
+    expect(send.mock.calls).toEqual([
+      [LUCID_FIN_WINDOW_CONTROL_CHANNEL_V1, 'minimize'],
+      [LUCID_FIN_WINDOW_CONTROL_CHANNEL_V1, 'toggleMaximize'],
+      [LUCID_FIN_WINDOW_CONTROL_CHANNEL_V1, 'close'],
+    ]);
+    expect(invoke).not.toHaveBeenCalled();
   });
 
   it('exposes one typed Run push subscription with exact listener cleanup', async () => {

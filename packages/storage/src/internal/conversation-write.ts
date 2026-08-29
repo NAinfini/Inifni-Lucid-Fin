@@ -272,6 +272,8 @@ function validateProjectObjectBlock(
       ? 'projects'
       : block.authority === 'production'
         ? 'production_objects'
+        : block.authority === 'sequence'
+          ? 'sequence_documents'
         : block.authority === 'canvas'
           ? 'canvas_documents'
           : 'delivery_plans';

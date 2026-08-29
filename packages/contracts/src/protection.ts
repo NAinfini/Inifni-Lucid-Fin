@@ -16,19 +16,9 @@ export const ProductionResultDecisionProtectedFieldRefSchema = strictObject({
 export const DeliveryPlanProtectedFieldRefSchema = strictObject({
   owner: z.literal('delivery'),
   deliveryId: EntityIdSchema,
-  itemId: z.null(),
-  field: z.enum(['name', 'lifecycle', 'formatIntent', 'order']),
+  field: z.enum(['name', 'lifecycle', 'sequence', 'formatIntent']),
 });
-export const DeliveryItemProtectedFieldRefSchema = strictObject({
-  owner: z.literal('delivery'),
-  deliveryId: EntityIdSchema,
-  itemId: EntityIdSchema,
-  field: z.enum(['clip', 'trim', 'transition', 'audioPolicy', 'reviewState', 'itemLifecycle']),
-});
-export const DeliveryProtectedFieldRefSchema = z.union([
-  DeliveryPlanProtectedFieldRefSchema,
-  DeliveryItemProtectedFieldRefSchema,
-]);
+export const DeliveryProtectedFieldRefSchema = DeliveryPlanProtectedFieldRefSchema;
 export const ProtectedFieldRefSchema = z.union([
   ProductionProtectedFieldRefSchema,
   ProductionResultDecisionProtectedFieldRefSchema,

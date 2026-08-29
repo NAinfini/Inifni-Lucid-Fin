@@ -27,6 +27,8 @@ function queryFor(authority: DomainObjectAuthority): string {
               WHERE attempt.id = ?`;
     case 'production':
       return 'SELECT project_id, revision, content_hash FROM production_objects WHERE id = ?';
+    case 'sequence':
+      return 'SELECT project_id, revision, content_hash FROM sequence_documents WHERE id = ?';
     case 'canvas':
       return 'SELECT project_id, revision, content_hash FROM canvas_documents WHERE id = ?';
     case 'generation_attempt':

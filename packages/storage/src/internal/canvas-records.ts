@@ -1,4 +1,9 @@
-import { CanvasDocumentSchema, parseCanonical, type CanvasDocument } from '@lucid-fin/contracts';
+import {
+  CanvasDocumentSchema,
+  parseCanonical,
+  type CanvasDocument,
+  type SequenceRef,
+} from '@lucid-fin/contracts';
 import type { DatabaseSync } from 'node:sqlite';
 import { StorageError } from '../kernel/errors.js';
 import {
@@ -16,10 +21,16 @@ interface CanvasRow {
   project_id: string;
   revision: number;
   content_hash: string;
+  name: string;
+  lifecycle: 'active' | 'archived';
+  primary_sequence_id: string | null;
+  primary_sequence_revision: number | null;
+  primary_sequence_content_hash: string | null;
   viewport_v1_json: string;
   next_z_index: number;
   created_at: string;
   updated_at: string;
+  archived_at: string | null;
 }
 
 function compareText(left: string, right: string): number {
@@ -54,6 +65,8 @@ export function finalizeCanvas(value: Omit<CanvasDocument, 'contentHash'>): Canv
 export function createEmptyCanvas(
   projectId: string,
   canvasId: string,
+  name: string,
+  primarySequenceRef: SequenceRef | null,
   createdAt: string,
 ): CanvasDocument {
   return finalizeCanvas({
@@ -61,6 +74,9 @@ export function createEmptyCanvas(
     id: canvasId,
     projectId,
     revision: 0,
+    name,
+    lifecycle: 'active',
+    primarySequenceRef,
     placements: [],
     groups: [],
     edges: [],
@@ -70,6 +86,7 @@ export function createEmptyCanvas(
     nextZIndex: 0,
     createdAt,
     updatedAt: createdAt,
+    archivedAt: null,
   });
 }
 
@@ -77,19 +94,26 @@ export function insertCanvas(database: DatabaseSync, canvas: CanvasDocument): vo
   database
     .prepare(
       `INSERT INTO canvas_documents (
-         id, project_id, revision, content_hash, viewport_v1_json, next_z_index,
-         created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         id, project_id, revision, content_hash, name, lifecycle,
+         primary_sequence_id, primary_sequence_revision, primary_sequence_content_hash,
+         viewport_v1_json, next_z_index, created_at, updated_at, archived_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       canvas.id,
       canvas.projectId,
       canvas.revision,
       canvas.contentHash,
+      canvas.name,
+      canvas.lifecycle,
+      canvas.primarySequenceRef?.id ?? null,
+      canvas.primarySequenceRef?.revision ?? null,
+      canvas.primarySequenceRef?.contentHash ?? null,
       encodeCanvasViewport(canvas.viewport),
       canvas.nextZIndex,
       canvas.createdAt,
       canvas.updatedAt,
+      canvas.archivedAt,
     );
   insertCanvasChildren(database, canvas);
 }
@@ -203,15 +227,23 @@ export function replaceCanvas(
   const updated = database
     .prepare(
       `UPDATE canvas_documents
-       SET revision = ?, content_hash = ?, viewport_v1_json = ?, next_z_index = ?, updated_at = ?
+       SET revision = ?, content_hash = ?, name = ?, lifecycle = ?,
+           primary_sequence_id = ?, primary_sequence_revision = ?, primary_sequence_content_hash = ?,
+           viewport_v1_json = ?, next_z_index = ?, updated_at = ?, archived_at = ?
        WHERE id = ? AND revision = ? AND content_hash = ?`,
     )
     .run(
       after.revision,
       after.contentHash,
+      after.name,
+      after.lifecycle,
+      after.primarySequenceRef?.id ?? null,
+      after.primarySequenceRef?.revision ?? null,
+      after.primarySequenceRef?.contentHash ?? null,
       encodeCanvasViewport(after.viewport),
       after.nextZIndex,
       after.updatedAt,
+      after.archivedAt,
       before.id,
       before.revision,
       before.contentHash,
@@ -242,12 +274,12 @@ export function replaceCanvas(
   insertCanvasChildren(database, after);
 }
 
-export function loadCanvasByProject(database: DatabaseSync, projectId: string): CanvasDocument {
+export function loadCanvasDocument(database: DatabaseSync, canvasId: string): CanvasDocument {
   const row = database
-    .prepare('SELECT * FROM canvas_documents WHERE project_id = ?')
-    .get(projectId) as unknown as CanvasRow | undefined;
+    .prepare('SELECT * FROM canvas_documents WHERE id = ?')
+    .get(canvasId) as unknown as CanvasRow | undefined;
   if (row === undefined) {
-    throw new StorageError('NOT_FOUND', `Canvas for Project ${projectId} was not found`);
+    throw new StorageError('NOT_FOUND', `Canvas ${canvasId} was not found`);
   }
   return loadCanvasFromRow(database, row);
 }
@@ -340,6 +372,17 @@ function loadCanvasFromRow(database: DatabaseSync, row: CanvasRow): CanvasDocume
         projectId: row.project_id,
         revision: row.revision,
         contentHash: row.content_hash,
+        name: row.name,
+        lifecycle: row.lifecycle,
+        primarySequenceRef:
+          row.primary_sequence_id === null
+            ? null
+            : {
+                authority: 'sequence',
+                id: row.primary_sequence_id,
+                revision: row.primary_sequence_revision,
+                contentHash: row.primary_sequence_content_hash,
+              },
         placements,
         groups,
         edges,
@@ -349,6 +392,7 @@ function loadCanvasFromRow(database: DatabaseSync, row: CanvasRow): CanvasDocume
         nextZIndex: row.next_z_index,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
+        archivedAt: row.archived_at,
       }),
     );
   } catch (cause) {

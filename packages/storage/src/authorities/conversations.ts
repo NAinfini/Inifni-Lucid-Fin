@@ -276,7 +276,7 @@ function createChat(
   });
 }
 
-type ChatMutationMethod = 'chat.rename' | 'chat.archive' | 'chat.delete';
+type ChatMutationMethod = 'chat.rename' | 'chat.archive' | 'chat.restore' | 'chat.delete';
 type ChatMutationRequest = Request<ChatMutationMethod>;
 type ChatMutationSuccess = Success<ChatMutationMethod>;
 
@@ -305,6 +305,7 @@ function mutateChat(
     if (
       (request.method === 'chat.rename' && request.input.title === before.title) ||
       (request.method === 'chat.archive' && before.lifecycle === 'archived') ||
+      (request.method === 'chat.restore' && before.lifecycle === 'active') ||
       (request.method === 'chat.delete' && before.lifecycle === 'deleted')
     ) {
       return {
@@ -315,12 +316,14 @@ function mutateChat(
     if (before.lifecycle === 'deleted') {
       throw new StorageError(
         'INVALID_REQUEST',
-        `Deleted Chat ${before.id} cannot be renamed or archived`,
+        `Deleted Chat ${before.id} cannot be renamed, archived, or restored`,
       );
     }
     const lifecycle =
       request.method === 'chat.archive'
         ? 'archived'
+        : request.method === 'chat.restore'
+          ? 'active'
         : request.method === 'chat.delete'
           ? 'deleted'
           : before.lifecycle;
@@ -334,6 +337,8 @@ function mutateChat(
       archivedAt:
         request.method === 'chat.archive'
           ? committedAt
+          : request.method === 'chat.restore'
+            ? null
           : request.method === 'chat.delete'
             ? null
             : before.archivedAt,
@@ -366,6 +371,8 @@ function mutateChat(
     }
     if (request.method === 'chat.archive' || request.method === 'chat.delete') {
       updateChatMessageSearchState(database, after.projectId, after.id, 'historical', committedAt);
+    } else if (request.method === 'chat.restore') {
+      updateChatMessageSearchState(database, after.projectId, after.id, 'current', committedAt);
     }
     appendProjectEvent(database, {
       eventId: environment.createId('project_event'),
@@ -401,6 +408,10 @@ export interface ConversationAuthority {
     request: Request<'chat.archive'>,
     context: CommandContext,
   ) => Success<'chat.archive'>;
+  readonly restoreChat: (
+    request: Request<'chat.restore'>,
+    context: CommandContext,
+  ) => Success<'chat.restore'>;
   readonly deleteChat: (
     request: Request<'chat.delete'>,
     context: CommandContext,
@@ -447,6 +458,15 @@ export function createConversationsAuthority(
         parsed,
         context,
       ) as Success<'chat.archive'>;
+    },
+    restoreChat(request, context) {
+      const parsed = exactRequest(request, 'chat.restore');
+      return mutateChat(
+        getStoreDatabase(store),
+        environment,
+        parsed,
+        context,
+      ) as Success<'chat.restore'>;
     },
     deleteChat(request, context) {
       const parsed = exactRequest(request, 'chat.delete');

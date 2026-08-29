@@ -875,11 +875,6 @@ const ProductionMutationPlannedIdsSchema = z.union([
   }),
   strictObject({
     tool: z.literal('production.mutate'),
-    variant: z.literal('production_reorder'),
-    parentEventId: EntityIdSchema,
-  }),
-  strictObject({
-    tool: z.literal('production.mutate'),
     variant: z.literal('production_archive'),
     objectEventId: EntityIdSchema,
   }),

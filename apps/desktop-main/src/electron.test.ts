@@ -10,7 +10,7 @@ const electron = vi.hoisted(() => ({
   app: { exit: vi.fn(), getPath: vi.fn(), whenReady: vi.fn() },
   BrowserWindow: vi.fn(),
   dialog: { showOpenDialog: vi.fn(), showSaveDialog: vi.fn() },
-  ipcMain: { handle: vi.fn(), removeHandler: vi.fn() },
+  ipcMain: { handle: vi.fn(), removeHandler: vi.fn(), on: vi.fn() },
   protocol: { handle: vi.fn(), unhandle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
   session: { fromPartition: vi.fn() },
 }));
@@ -25,6 +25,7 @@ vi.mock('./production-composition.js', () => ({ createProductionCompositionOptio
 
 import {
   LUCID_FIN_SESSION_PARTITION,
+  applyWindowControl,
   createProductionBootstrap,
   isElectronMain,
   isTrustedRendererInvocation,
@@ -179,12 +180,7 @@ describe('Electron entry', () => {
   it('uses an isolated sandboxed session and blocks renderer escape routes', () => {
     expect(windowOptions('C:/preload.cjs')).toMatchObject({
       backgroundColor: '#0d0f14',
-      titleBarStyle: 'hidden',
-      titleBarOverlay: {
-        color: '#11141a',
-        symbolColor: '#aeb8c6',
-        height: 40,
-      },
+      frame: false,
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
@@ -193,6 +189,7 @@ describe('Electron entry', () => {
         partition: LUCID_FIN_SESSION_PARTITION,
       },
     });
+    expect(windowOptions('C:/preload.cjs')).not.toHaveProperty('titleBarOverlay');
 
     type PreventableEvent = { preventDefault(): void };
     type NavigationListener = (event: PreventableEvent, url: string) => void;
@@ -233,6 +230,34 @@ describe('Electron entry', () => {
     const webview = { preventDefault: vi.fn() };
     webviewListener?.(webview);
     expect(webview.preventDefault).toHaveBeenCalledOnce();
+  });
+
+  it('maps the custom titlebar actions to the active window', () => {
+    const window = {
+      webContents: {
+        mainFrame: { url: 'file:///renderer/index.html' },
+        isDestroyed: () => false,
+        on: vi.fn(),
+        setWindowOpenHandler: vi.fn(),
+      },
+      isDestroyed: () => false,
+      minimize: vi.fn(),
+      maximize: vi.fn(),
+      unmaximize: vi.fn(),
+      isMaximized: vi.fn(() => false),
+      close: vi.fn(),
+    };
+
+    applyWindowControl(window, 'minimize');
+    applyWindowControl(window, 'toggleMaximize');
+    applyWindowControl(window, 'close');
+    expect(window.minimize).toHaveBeenCalledOnce();
+    expect(window.maximize).toHaveBeenCalledOnce();
+    expect(window.close).toHaveBeenCalledOnce();
+
+    window.isMaximized.mockReturnValue(true);
+    applyWindowControl(window, 'toggleMaximize');
+    expect(window.unmaximize).toHaveBeenCalledOnce();
   });
 
   it('trusts only the exact window, main frame, and local renderer URL', () => {
