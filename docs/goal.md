@@ -3,10 +3,11 @@
 ## Status: complete
 
 The 2026-08-28 Lucid Fin development cutover is complete. Current tested product implementation
-commit: `447fed69c3433b3dfe3a41467438ec3978377ec9`. It contains the canonical cutover from
+commit: `f94ea0368b4e0a2813f438fe56834a4f6ff67b7e`. It contains the canonical cutover from
 `e44b279a44356c2b8a60d8360eb826bb8ea2acc4`, the Electron CommonJS `keytar` import repair, and the
-post-cutover desktop shell usability and control-hierarchy repairs recorded in the validation ledger.
-The documentation-only successor containing this record does not change the tested product source.
+post-cutover desktop shell, control-hierarchy, interaction, responsive-layout, and Project-creation
+repairs recorded in the validation ledger. The documentation-only successor containing this record
+does not change the tested product source.
 
 No continuation task remains for this goal. A different PC should clone or update `main`, confirm it
 matches `origin/main`, and treat this repository and the documents below as the only source of truth.
@@ -26,6 +27,9 @@ A future feature or release starts a new goal.
   workspace header. Archive Project lives inside that settings panel. Scrollable surfaces retain
   scrolling without exposing default browser scrollbars, and controls have safe inset spacing.
 - History rows never force Commander Focus or move the current Chat into the workspace.
+- New Project uses the exact trimmed description as both Project and first-Chat name; there is no
+  optional name field or heuristic title. Visible controls have real actions, shared hover/pressed
+  feedback, keyboard-dismissable menus, and a reachable Commander toggle at the minimum window size.
 - Only the canonical workspace packages remain: contracts, storage, runtime, and media-engine.
 - Superseded I0/I7/I8/migration/cross-PC documents are non-executable history under
   [`docs/archive/target-transition`](archive/target-transition/README.md).
@@ -41,6 +45,7 @@ Full commands, results, repairs, artifact sizes, and the safety record are in
 4. [`docs/architecture/production-adapters.md`](architecture/production-adapters.md)
 5. [`docs/architecture/skills.md`](architecture/skills.md)
 6. [`docs/validation/production-cutover.md`](validation/production-cutover.md)
+7. [`docs/validation/frontend-quality-audit.md`](validation/frontend-quality-audit.md)
 
 Do not use anything in `docs/archive/target-transition` as an execution guide.
 

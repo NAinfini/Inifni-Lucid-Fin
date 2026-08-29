@@ -42,8 +42,8 @@ candidate comparison, and delivery decisions are the dominant visual material.
 Global rail | Project navigation | Current workspace | Commander Dock
 ```
 
-- Global rail owns Projects and Global Media. Its unavailable global Settings control may appear
-  outside a Project, but the Project shell omits it; it never aliases Project settings.
+- Global rail owns Projects and Global Media. It does not expose an unavailable global Settings
+  control or alias Project settings.
 - Project navigation owns Overview, Canvas, Media, Production, and Delivery.
 - Current workspace owns the user's direct production task.
 - Commander Dock owns Project Chats, conversation, active work, results, and the Composer.
@@ -84,8 +84,8 @@ Projects use a compact, sortable list rather than a dashboard of equal cards. Ea
 - Delivery readiness when applicable.
 
 Opening a row returns to the last Project workspace and Chat. A separate disclosure contains rename,
-archive, export metadata, and permanent-delete entry points; destructive actions never occupy the
-primary row.
+archive or restore, and permanent-delete entry points; unavailable actions are not rendered, and
+destructive actions never occupy the primary row.
 
 ### New Project
 
@@ -93,10 +93,11 @@ The primary action opens a brief Composer, not a configuration wizard. The user 
 
 - Describe the intended film.
 - Attach images, video, audio, or documents.
-- Optionally name the Project.
 
-Submission creates the Project and its first Chat, opens Overview, and starts the first Commander Run.
-Provider, budget, and permission defaults are inherited from Settings and remain visible before send.
+The exact trimmed description is the single Project and first-Chat name; the Composer does not expose
+a second name field or title heuristic. Submission creates the Project and its first Chat, opens
+Overview, and starts the first Commander Run. Provider, budget, and permission defaults are inherited
+from Settings and remain visible before send.
 
 ### Empty state
 

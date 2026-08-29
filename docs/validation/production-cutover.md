@@ -8,8 +8,10 @@ Electron startup repair then passed at current tested product commit
 `0f92e267fd376aba674a351f52a78f5d168569f6` at 23:06 UTC. A desktop shell usability repair then
 passed at current tested product commit `c4ca10a274e2d7cb330976e44064e18bd99ebf4c` on 2026-08-29 at
 00:03 UTC. The Project-control and spacing follow-up passed at current tested product commit
-`447fed69c3433b3dfe3a41467438ec3978377ec9` at 00:19 UTC. The commit containing this completed ledger
-is a documentation-only successor and does not change the tested product source.
+`447fed69c3433b3dfe3a41467438ec3978377ec9` at 00:19 UTC. The complete desktop frontend-quality
+follow-up passed at current tested product commit `f94ea0368b4e0a2813f438fe56834a4f6ff67b7e`.
+The commit containing this completed ledger is a documentation-only successor and does not change the
+tested product source.
 
 All validation used Node 26.5.1 and pnpm 11.21.0. No command read or changed real AppData, an older
 database or media root, browser storage, an installed application, a Keychain credential, or a paid
@@ -188,6 +190,30 @@ Validation for this repair:
 
 No data migration, compatibility path, provider call, release, or additional settings authority was
 introduced. There is no follow-up plan for this repair.
+
+## Post-closure desktop frontend quality audit
+
+The final product-wide desktop audit consolidated interaction feedback, responsive behavior, menu
+dismissal, accessible naming, and New Project identity. It removed visible unavailable Global
+Settings and metadata-export controls, made the exact trimmed description the single Project and
+first-Chat name, kept the medium Commander toggle reachable below the workspace header, and repaired
+the observed clipping and recoverability boundaries without introducing a second authority.
+
+Validation at `f94ea0368b4e0a2813f438fe56834a4f6ff67b7e`:
+
+- The complete renderer boundary exited 0 with 8 files and 74 tests passed.
+- `pnpm run test:e2e` exited 0 with 3/3 Electron tests passed, including a new minimum-window and
+  complete-navigation journey.
+- `pnpm run build`, `pnpm run test:types`, `pnpm run lint`, `pnpm run format:check`, and
+  `pnpm run check:production-closure` each exited 0.
+- One before and one after Electron capture set were inspected; temporary images and capture code were
+  removed. The Impeccable one-time final detector returned an empty list.
+- A final process/profile comparison found no task-owned process or disposable profile remaining;
+  pre-existing Electron, Codex MCP, and 2026-08-14 test-profile state was preserved.
+
+The full findings, acceptance boundary, command evidence, one interrupted broad-test attempt, and
+cross-PC verification commands are recorded in
+[`frontend-quality-audit.md`](./frontend-quality-audit.md). No follow-up plan remains for this audit.
 
 ## Git, branches, and release boundary
 
