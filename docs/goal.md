@@ -1,90 +1,90 @@
-# Goal and cross-PC handoff
+# Current goal and cross-PC handoff
 
-## Status: complete
+## Status: active — product planning only
 
-The 2026-08-28 Lucid Fin development cutover is complete. Current tested product implementation
-commit: `f94ea0368b4e0a2813f438fe56834a4f6ff67b7e`. It contains the canonical cutover from
-`e44b279a44356c2b8a60d8360eb826bb8ea2acc4`, the Electron CommonJS `keytar` import repair, and the
-post-cutover desktop shell, control-hierarchy, interaction, responsive-layout, and Project-creation
-repairs recorded in the validation ledger. The documentation-only successor containing this record
-does not change the tested product source.
+The current goal is to define the complete Lucid Fin redesign before implementation. The product is
+being reframed as a project/chat desktop AI film-production workspace with semantic Canvases,
+versioned cross-Project Assets, one Sequence authority, real provider roles, and controlled autonomous
+production from intent to review cut.
 
-No continuation task remains for this goal. A different PC should clone or update `main`, confirm it
-matches `origin/main`, and treat this repository and the documents below as the only source of truth.
-A future feature or release starts a new goal.
+The user has not yet authorized implementation of this new plan. A documentation-only handoff commit
+and push is authorized; do not continue or commit source implementation, release, call paid
+providers, or access prior application data until the relevant gate is explicitly approved.
 
-## Delivered state
+## Current repository state
 
-- One Electron main, preload, renderer, runtime, storage, IPC, build, and package graph.
-- One fresh profile at `<Electron userData>/lucid-fin-v1`, with `project.sqlite` and `media/`.
-- No migration, retention/import route, compatibility reader, fallback, dual write, imported history,
-  runtime application switch, or forwarding package.
-- Exactly 287 trusted built-in Skills, materialized directly from every former preset/template class.
-- User requests can create additional Project Skills through `skill.propose`, exact durable
-  confirmation, atomic registration, and availability on the next root Run and cold reopen.
-- The desktop uses one Lucid title bar and app border with native window controls, readable typed
-  history labels, closable inline change details, and exactly one Project settings entry in the
-  workspace header. Archive Project lives inside that settings panel. Scrollable surfaces retain
-  scrolling without exposing default browser scrollbars, and controls have safe inset spacing.
-- History rows never force Commander Focus or move the current Chat into the workspace.
-- New Project uses the exact trimmed description as both Project and first-Chat name; there is no
-  optional name field or heuristic title. Visible controls have real actions, shared hover/pressed
-  feedback, keyboard-dismissable menus, and a reachable Commander toggle at the minimum window size.
-- Only the canonical workspace packages remain: contracts, storage, runtime, and media-engine.
-- Superseded I0/I7/I8/migration/cross-PC documents are non-executable history under
-  [`docs/archive/target-transition`](archive/target-transition/README.md).
+- Branch at planning start: `main`.
+- Clean committed baseline: `a901255` (`origin/main` at the planning inspection).
+- The originating PC contains uncommitted exploratory source changes created before the user
+  clarified that planning must continue. They are intentionally excluded from the documentation-only
+  handoff commit and therefore do not transfer through the remote repository.
+- Those source changes are not an approved implementation. Before Gate 1 on the originating PC,
+  compare them against the final plan and explicitly decide whether each change is retained,
+  rewritten, or discarded. A fresh clone should start from the committed source baseline instead.
 
-Full commands, results, repairs, artifact sizes, and the safety record are in
-[`docs/validation/production-cutover.md`](validation/production-cutover.md).
+## Objective
+
+Complete an evidence-backed plan that answers:
+
+1. What the pre-redesign application supported, what the current application truly supports, and
+   which behavior is retained, selectively ported, redesigned, or deleted.
+2. The final user journey from a natural-language intent to a review cut and export.
+3. The information architecture for Projects, Chats, Canvases, Sequence, Global Assets, and Settings.
+4. The single authority for every mutable product fact.
+5. Provider, credential, model-role, budget, and three-mode automation behavior.
+6. The reclassification of historical Skills, presets, templates, and prompt resources.
+7. The implementation gates, acceptance criteria, validation, and cross-PC takeover procedure.
+
+## Decisions already fixed
+
+- Project is a user-defined workspace; there is no mandatory Series/Service hierarchy.
+- A Project contains multiple Chats and multiple Canvases.
+- Chat/Run owns conversation and execution, never film facts.
+- Canvas nodes are semantic Story/Scene/Shot/Character/Location intentions, not provider operations or
+  individual candidate files.
+- A semantic node contains many candidates derived from generated results, assessments, and durable
+  decisions.
+- Sequence is the only editable Scene/Shot/Clip order authority; Canvas geometry never determines
+  playback or export order.
+- Global Assets owns reusable versioned media, Characters, Locations, Worlds, Styles, Props, and
+  Wardrobe across Projects; Project bindings pin exact revisions.
+- Settings is the single global provider/credential/policy/Skills/Catalog control surface.
+- Skills are procedures. Presets, camera vocabulary, styles, and shot templates become typed
+  Creative Catalog or Shot Recipe data.
+- Automation has Review every spend, Approve for me, and Full auto presets, all bounded by hard
+  budget, credentials, destructive-action, overwrite, upload, sharing, and export-destination gates.
+- The desktop interaction model is Codex-like, with the real logo, a custom frameless shell, visible
+  hover/focus states, no raw event JSON, no dead-end details, and accessible custom scrolling.
 
 ## Read in this order
 
 1. [`docs/goal.md`](goal.md)
-2. [`docs/plans/2026-08-28-development-cutover.md`](plans/2026-08-28-development-cutover.md)
-3. [`docs/architecture/application-ownership.md`](architecture/application-ownership.md)
-4. [`docs/architecture/production-adapters.md`](architecture/production-adapters.md)
-5. [`docs/architecture/skills.md`](architecture/skills.md)
-6. [`docs/validation/production-cutover.md`](validation/production-cutover.md)
-7. [`docs/validation/frontend-quality-audit.md`](validation/frontend-quality-audit.md)
+2. [`docs/plans/2026-08-29-lucid-fin-product-redesign-master-plan.md`](plans/2026-08-29-lucid-fin-product-redesign-master-plan.md)
+3. [`docs/plans/2026-08-29-current-vs-historical-capability-matrix.md`](plans/2026-08-29-current-vs-historical-capability-matrix.md)
+4. [`docs/architecture/target-authorities.md`](architecture/target-authorities.md)
+5. [`docs/design/2026-08-28-canvas-first-desktop-redesign.md`](design/2026-08-28-canvas-first-desktop-redesign.md)
+6. [`docs/validation/2026-08-29-planning-worktree-ledger.md`](validation/2026-08-29-planning-worktree-ledger.md)
 
-Do not use anything in `docs/archive/target-transition` as an execution guide.
+The design specification links its three retained reference images. These six Markdown files and
+three images are the complete live documentation set; do not search removed historical documents for
+current instructions.
 
-## Safety boundary preserved
+The removed 2026-08-28 documents describe the previous goal and remain recoverable through Git
+history only. They are not instructions for the new redesign.
 
-Implementation and validation did not inspect, migrate, copy, hash, move, delete, or launch real
-prior application data. This includes AppData, old SQLite databases and sidecars, media roots,
-browser profiles/localStorage, offline exports, existing Keychain entries, installed applications,
-and paid provider APIs. Tests used only fresh temporary paths and fake or in-memory adapters.
+## Planning completion
 
-That remains the product contract. Work that would require older data is a new, explicitly authorized
-goal—not an implicit compatibility addition.
+- The historical/current capability disposition matrix is complete.
+- The master plan is cross-checked against the matrix and records the retained, selectively ported,
+  redesigned, and deleted behavior.
+- The information architecture, authority model, Provider/Skill policy, execution modes,
+  implementation gates, validation, and UI specification are complete.
+- The next action requires explicit user approval to enter Gate 1 implementation.
 
-## Cross-PC verification
+## Cross-PC instruction
 
-From a clean checkout on the other PC:
-
-```powershell
-git fetch --prune origin
-git switch main
-git status --short --branch
-git rev-parse HEAD
-git rev-parse origin/main
-git rev-list --left-right --count HEAD...origin/main
-node --version
-pnpm --version
-```
-
-Expected source-control result is a clean `main` with `HEAD == origin/main` and ahead/behind `0 0`.
-The supported toolchain is Node 26.5.1 or newer and pnpm 11.21.x. Install dependencies with the frozen
-lockfile before new work; do not copy an old profile to the new machine.
-
-## Branch and release record
-
-At closure, local and remote branch inspection showed only `main`. All prior Codex work that survives
-the cutover is in `main`; there is no other branch to merge. GitHub has one Release, `v0.1.0`.
-Historical `v0.0.x` tags remain only as repository history.
-
-The existing `v0.1.0` release/tag points to
-`d0f3b91e3dd436e2081428546a2a0329b06b0be8` and predates this cutover. It was not moved or reissued.
-The completed cutover has no release tag; publishing it requires a new version and a separate release
-decision.
+A second AI must treat this file and the master plan as the current goal. After cloning or updating
+`main`, it must inspect `git status --short`, read the six retained documents in order, and wait for
+explicit Gate 1 approval before source implementation. A remote clone will not contain the
+originating PC's uncommitted exploratory source, and it must not reconstruct or resume the removed
+older cutover plans.

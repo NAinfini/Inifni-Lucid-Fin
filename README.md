@@ -82,11 +82,13 @@ pnpm run check:production-closure -- --require-package
 
 ## Further reading
 
-- [Technology stack](docs/TECH_STACK.md)
 - [Contributing guide](CONTRIBUTING.md)
-- [Application ownership](docs/architecture/application-ownership.md)
-- [Production adapter boundary](docs/architecture/production-adapters.md)
-- [Canonical Skills](docs/architecture/skills.md)
+- [Current goal and cross-PC handoff](docs/goal.md)
+- [Product redesign master plan](docs/plans/2026-08-29-lucid-fin-product-redesign-master-plan.md)
+- [Current versus historical capability matrix](docs/plans/2026-08-29-current-vs-historical-capability-matrix.md)
+- [Target authority map](docs/architecture/target-authorities.md)
+- [Desktop design specification](docs/design/2026-08-28-canvas-first-desktop-redesign.md)
+- [Planning worktree ledger](docs/validation/2026-08-29-planning-worktree-ledger.md)
 
 ## License
 
