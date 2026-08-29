@@ -3,10 +3,10 @@
 ## Status: complete
 
 The 2026-08-28 Lucid Fin development cutover is complete. Current tested product implementation
-commit: `c4ca10a274e2d7cb330976e44064e18bd99ebf4c`. It contains the canonical cutover from
+commit: `447fed69c3433b3dfe3a41467438ec3978377ec9`. It contains the canonical cutover from
 `e44b279a44356c2b8a60d8360eb826bb8ea2acc4`, the Electron CommonJS `keytar` import repair, and the
-post-cutover desktop shell usability repair recorded in the validation ledger. The documentation-only
-successor containing this record does not change the tested product source.
+post-cutover desktop shell usability and control-hierarchy repairs recorded in the validation ledger.
+The documentation-only successor containing this record does not change the tested product source.
 
 No continuation task remains for this goal. A different PC should clone or update `main`, confirm it
 matches `origin/main`, and treat this repository and the documents below as the only source of truth.
@@ -22,8 +22,10 @@ A future feature or release starts a new goal.
 - User requests can create additional Project Skills through `skill.propose`, exact durable
   confirmation, atomic registration, and availability on the next root Run and cold reopen.
 - The desktop uses one Lucid title bar and app border with native window controls, readable typed
-  history labels, closable inline change details, and a working Project settings entry in the global
-  rail. History rows never force Commander Focus or move the current Chat into the workspace.
+  history labels, closable inline change details, and exactly one Project settings entry in the
+  workspace header. Archive Project lives inside that settings panel. Scrollable surfaces retain
+  scrolling without exposing default browser scrollbars, and controls have safe inset spacing.
+- History rows never force Commander Focus or move the current Chat into the workspace.
 - Only the canonical workspace packages remain: contracts, storage, runtime, and media-engine.
 - Superseded I0/I7/I8/migration/cross-PC documents are non-executable history under
   [`docs/archive/target-transition`](archive/target-transition/README.md).

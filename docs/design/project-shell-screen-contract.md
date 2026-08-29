@@ -42,9 +42,8 @@ candidate comparison, and delivery decisions are the dominant visual material.
 Global rail | Project navigation | Current workspace | Commander Dock
 ```
 
-- Global rail owns Projects, Global Media, and Settings. In an open Project, Settings opens the one
-  Project settings panel; outside a Project it remains disabled until a global settings authority
-  exists.
+- Global rail owns Projects and Global Media. Its unavailable global Settings control may appear
+  outside a Project, but the Project shell omits it; it never aliases Project settings.
 - Project navigation owns Overview, Canvas, Media, Production, and Delivery.
 - Current workspace owns the user's direct production task.
 - Commander Dock owns Project Chats, conversation, active work, results, and the Composer.
@@ -115,8 +114,10 @@ area and never places clickable app actions beneath it.
 
 ### Project identity
 
-The shell persistently shows Project identity and the active workspace. Project rename, archive, and
-settings live in one Project menu. Project-wide activity never becomes a second Chat or TaskList UI.
+The shell persistently shows Project identity and the active workspace. The workspace-header gear is
+the only Project settings entry. Rename and Archive Project live inside that panel; Archive is never a
+persistent navigation-footer action. Commander and Project navigation do not duplicate the settings
+entry. Project-wide activity never becomes a second Chat or TaskList UI.
 
 ### Project navigation
 
@@ -283,6 +284,9 @@ lifecycle.
   Focus occupies the content area rather than opening a floating window.
 - The Composer, waiting decision, stop action, and current work remain reachable without horizontal
   scrolling.
+- Scrollable surfaces preserve wheel, touchpad, keyboard, and programmatic scrolling without showing
+  default browser scrollbars. Controls and bordered content retain an interior inset at every width;
+  long English and Chinese content shrinks or wraps instead of clipping.
 
 ## Keyboard and accessibility
 

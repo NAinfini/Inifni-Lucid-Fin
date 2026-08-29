@@ -7,8 +7,9 @@ through 21:48 UTC at implementation commit `e44b279a44356c2b8a60d8360eb826bb8ea2
 Electron startup repair then passed at current tested product commit
 `0f92e267fd376aba674a351f52a78f5d168569f6` at 23:06 UTC. A desktop shell usability repair then
 passed at current tested product commit `c4ca10a274e2d7cb330976e44064e18bd99ebf4c` on 2026-08-29 at
-00:03 UTC. The commit containing this completed ledger is a documentation-only successor and does
-not change the tested product source.
+00:03 UTC. The Project-control and spacing follow-up passed at current tested product commit
+`447fed69c3433b3dfe3a41467438ec3978377ec9` at 00:19 UTC. The commit containing this completed ledger
+is a documentation-only successor and does not change the tested product source.
 
 All validation used Node 26.5.1 and pnpm 11.21.0. No command read or changed real AppData, an older
 database or media root, browser storage, an installed application, a Keychain credential, or a paid
@@ -136,6 +137,57 @@ Validation for this repair:
 
 No migration, compatibility behavior, new data path, provider call, release, or follow-up plan was
 introduced by this repair.
+
+## Post-closure Project-control and spacing repair
+
+The first shell repair made the existing global-rail Settings button functional in a Project, but a
+complete rendered audit showed that the same Project settings panel was reachable from the global
+rail, Project identity ellipsis, Project-navigation footer, workspace header, and Commander header.
+Archive Project was also permanently exposed below a footer labelled Project menu rather than being
+inside a disclosure surface. Form controls lacked a shared inset, scrollable surfaces retained default
+browser scrollbars, and unconstrained settings columns could clip long content. The first wide render
+also exposed an unstyled white browser-default close button.
+
+The final implementation at `447fed69c3433b3dfe3a41467438ec3978377ec9` removes the duplicate paths
+instead of adding another menu:
+
+- The workspace-header gear is the sole Project settings entry. The Project shell omits global
+  Settings, Project-navigation settings/menu/footer controls, and the Commander settings shortcut.
+- Archive Project is available only inside the Project settings panel. Its pending state and failure
+  remain visible in that panel, while success returns to Projects through the existing lifecycle
+  update.
+- Every Lucid scroll surface keeps wheel, touchpad, keyboard, and programmatic scrolling while hiding
+  default `scrollbar-width` and WebKit scrollbars.
+- Native controls use the dark color scheme and primary accent. Text inputs, textareas, and selects
+  have shared safe insets; settings children use `min-width: 0`, full-width controls, and bounded grid
+  columns so long content shrinks or wraps rather than clipping against a border.
+- The settings body uses a larger interior gutter, its close button has explicit Lucid states, and the
+  Archive section has its own separation, copy, and action spacing.
+
+Validation for this repair:
+
+- Three focused tests first failed against the prior UI because Archive was visible outside settings
+  and two visible buttons shared the exact `Project settings` accessible name. They passed after the
+  repair.
+- The affected renderer suite exited 0 with 5 files and 65 tests passed.
+- `pnpm run test:e2e` exited 0 with 2/2 Electron tests passed. The Project journey asserts exactly one
+  `Project settings` button, no Project-level global `Settings` button, no Archive button before the
+  dialog opens, Archive inside the dialog, and computed `scrollbar-width: none`.
+- `pnpm run build`, `pnpm run test:types`, `pnpm run lint`, `pnpm run format:check`, and
+  `pnpm run check:production-closure` each exited 0. One initial type-check attempt ran concurrently
+  with the build deleting and rebuilding contracts output and failed to resolve that temporary output;
+  the sequential post-build rerun exited 0 without a source change.
+- One batched Electron inspection covered the wide settings panel and a 1100 by 760 medium Overview.
+  Its single repair removed the white default close button and applied the dark native-control theme;
+  the final confirmation showed the inset Archive section, hidden scrollbars, stable medium layout,
+  and no clipped or border-touching text. All temporary screenshots and capture statements were
+  removed.
+- The Impeccable mechanical detector returned an empty finding list. The final process comparison
+  found zero new relevant Electron, Playwright, Vitest, Git, or repository Node processes, and no
+  task-created `%TEMP%\lucid-fin-e2e-*` profile remained.
+
+No data migration, compatibility path, provider call, release, or additional settings authority was
+introduced. There is no follow-up plan for this repair.
 
 ## Git, branches, and release boundary
 
