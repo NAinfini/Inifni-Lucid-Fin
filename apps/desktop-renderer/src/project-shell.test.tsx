@@ -216,17 +216,17 @@ describe('Project shell', () => {
 
   it('manages ready Providers and eligible Skills through the Project settings authority', async () => {
     const fixture = createDesktopApiFixture();
-    const { container } = render(
+    render(
       <MemoryRouter initialEntries={['/projects/project.blue-hour/overview']}>
         <App api={fixture.api} createRequestId={() => 'request.ui.settings'} locale="en-US" />
       </MemoryRouter>,
     );
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Blue Hour' })).toBeTruthy();
-    const settingsTrigger = container.querySelector<HTMLButtonElement>('.lucid-settings-toggle');
-    expect(settingsTrigger).not.toBeNull();
-    settingsTrigger!.focus();
-    fireEvent.click(settingsTrigger!);
+    const settingsTrigger = screen.getByRole('button', { name: 'Settings', exact: true });
+    expect((settingsTrigger as HTMLButtonElement).disabled).toBe(false);
+    settingsTrigger.focus();
+    fireEvent.click(settingsTrigger);
 
     const dialog = await screen.findByRole('dialog', { name: 'Project settings' });
     const closeSettings = within(dialog).getByRole('button', { name: 'Close Project settings' });

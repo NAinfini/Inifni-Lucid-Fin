@@ -6,15 +6,21 @@ import { useDesktopEnvironment } from './environment.js';
 
 export type GlobalRailDestination = 'projects' | 'media';
 
+interface GlobalRailProps {
+  readonly active: GlobalRailDestination;
+  readonly onOpenSettings?: () => void;
+}
+
 function gateBReason(locale: ReturnType<typeof useDesktopEnvironment>['locale']): string {
   return locale === 'zh-CN'
     ? '应用捕获的提供商、设置、语言和主题偏好属于 Gate B 工作。'
     : 'Applying captured provider/settings/locale/theme preferences is Gate B work.';
 }
 
-export function GlobalRail({ active }: { readonly active: GlobalRailDestination }) {
+export function GlobalRail({ active, onOpenSettings }: GlobalRailProps) {
   const { locale } = useDesktopEnvironment();
   const settingsReason = gateBReason(locale);
+  const settingsAvailable = onOpenSettings !== undefined;
 
   return (
     <nav
@@ -44,15 +50,18 @@ export function GlobalRail({ active }: { readonly active: GlobalRailDestination 
         className="lucid-rail-button"
         type="button"
         aria-label={appCopy(locale, 'settings')}
-        aria-describedby="lucid-global-settings-gate-b"
-        disabled
-        title={settingsReason}
+        aria-describedby={settingsAvailable ? undefined : 'lucid-global-settings-gate-b'}
+        disabled={!settingsAvailable}
+        title={settingsAvailable ? appCopy(locale, 'settings') : settingsReason}
+        onClick={onOpenSettings}
       >
         <Settings size={19} />
       </button>
-      <span id="lucid-global-settings-gate-b" className="lucid-visually-hidden">
-        {settingsReason}
-      </span>
+      {!settingsAvailable && (
+        <span id="lucid-global-settings-gate-b" className="lucid-visually-hidden">
+          {settingsReason}
+        </span>
+      )}
     </nav>
   );
 }

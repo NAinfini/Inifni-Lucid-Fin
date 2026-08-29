@@ -20,14 +20,14 @@ body {
 
 .lucid-app {
   --background: 220 16% 6%;
-  --foreground: 220 10% 88%;
+  --foreground: 220 12% 93%;
   --card: 220 14% 9%;
   --surface: 220 14% 12%;
   --primary: 213 94% 56%;
   --primary-foreground: 0 0% 100%;
   --secondary: 220 14% 14%;
-  --muted-foreground: 220 10% 50%;
-  --border: 220 14% 15%;
+  --muted-foreground: 220 10% 66%;
+  --border: 220 13% 21%;
   --popover: 220 14% 10%;
   --destructive: 0 72% 51%;
   --warning: 38 92% 50%;
@@ -39,6 +39,7 @@ body {
   overflow: hidden;
   background: hsl(var(--background));
   color: hsl(var(--foreground));
+  box-shadow: inset 0 0 0 1px hsl(215 24% 30% / 0.72);
   font-family:
     Inter,
     -apple-system,
@@ -118,12 +119,14 @@ body {
 }
 
 .lucid-titlebar {
+  position: relative;
+  z-index: 200;
   height: 40px;
   display: flex;
   align-items: center;
   gap: 9px;
   border-bottom: 1px solid hsl(var(--border));
-  background: hsl(220 15% 8%);
+  background: #11141a;
   padding: 0 138px 0 13px;
   -webkit-app-region: drag;
   user-select: none;
@@ -1447,16 +1450,12 @@ body {
   font-size: 11px;
 }
 
-.lucid-active-row,
-.lucid-change-row {
+.lucid-active-row {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid hsl(var(--border));
-}
-
-.lucid-active-row {
   min-height: 64px;
   gap: 11px;
+  border-bottom: 1px solid hsl(var(--border));
 }
 
 .lucid-active-icon {
@@ -1490,15 +1489,21 @@ body {
 }
 
 .lucid-change-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 20px;
   width: 100%;
-  min-height: 38px;
-  justify-content: space-between;
+  min-height: 44px;
   border: 0;
-  border-bottom: 1px solid hsl(var(--border));
   background: transparent;
-  color: hsl(var(--foreground) / 0.82);
-  padding: 0;
+  color: hsl(var(--foreground) / 0.92);
+  padding: 0 4px;
   text-align: left;
+}
+
+.lucid-change-entry {
+  border-bottom: 1px solid hsl(var(--border));
 }
 
 .lucid-change-row:hover,
@@ -1506,14 +1511,56 @@ body {
   background: hsl(var(--secondary) / 0.55);
 }
 
-.lucid-change-row span {
+.lucid-change-copy,
+.lucid-change-meta {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
+.lucid-change-copy {
+  min-width: 0;
+}
+
+.lucid-change-summary {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 520;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lucid-change-meta {
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.lucid-change-meta svg {
+  transition: transform 150ms ease-out;
+}
+
+.lucid-change-row[aria-expanded='true'] .lucid-change-meta svg {
+  transform: rotate(180deg);
+}
+
 .lucid-change-row small {
   color: hsl(var(--muted-foreground));
+  font-size: 10px;
+}
+
+.lucid-change-details {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px 18px;
+  padding: 0 26px 12px;
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+}
+
+.lucid-change-details span:first-child {
+  color: hsl(var(--foreground));
+  font-weight: 600;
 }
 
 .lucid-inline-empty {

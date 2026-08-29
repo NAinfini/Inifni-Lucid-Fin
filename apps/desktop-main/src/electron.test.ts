@@ -178,6 +178,13 @@ describe('Electron entry', () => {
 
   it('uses an isolated sandboxed session and blocks renderer escape routes', () => {
     expect(windowOptions('C:/preload.cjs')).toMatchObject({
+      backgroundColor: '#0d0f14',
+      titleBarStyle: 'hidden',
+      titleBarOverlay: {
+        color: '#11141a',
+        symbolColor: '#aeb8c6',
+        height: 40,
+      },
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,

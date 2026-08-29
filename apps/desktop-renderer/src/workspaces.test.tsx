@@ -246,6 +246,59 @@ function historyEntry(
 }
 
 describe('Project workspaces', () => {
+  it('turns machine history into readable inline details without opening Commander focus', async () => {
+    const fixture = createDesktopApiFixture();
+    const contentHash = historyFixture[0].contentHash;
+    const event = {
+      projectId: projectFixture.id,
+      occurredAt: historyFixture[0].occurredAt,
+      summary: `{"payload":{"contentHash":"${contentHash}","revision":0,"type":"object_created"},"state":"available"}`,
+      source: 'project_event',
+      eventId: 'event.object-created',
+      sequence: 1,
+      eventVersion: 1,
+      eventType: 'object_created',
+      actor: 'commander',
+      subject: { authority: 'production', id: 'shot.opening' },
+      causation: { kind: 'run', runId: runFixture.id },
+      correlationId: 'correlation.object-created',
+      payloadHash: contentHash,
+      payloadState: {
+        state: 'available',
+        payload: { type: 'object_created', revision: 0, contentHash },
+      },
+      previousEventHash: null,
+      eventHash: contentHash,
+    } satisfies WireResult<'history.query'>['items'][number];
+    fixture.calls.historyQuery.mockImplementation(async (request) => ({
+      wireVersion: 1,
+      kind: 'success',
+      requestId: request.requestId,
+      method: 'history.query',
+      result: { items: [event], nextCursor: null },
+    }));
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/projects/project.blue-hour/overview']}>
+        <App
+          api={fixture.api}
+          createRequestId={() => 'request.ui.readable-history'}
+          locale="en-US"
+        />
+      </MemoryRouter>,
+    );
+
+    const summary = await screen.findByText('Production object created');
+    const change = summary.closest('button');
+    expect(change).not.toBeNull();
+    expect(screen.queryByText(event.summary)).toBeNull();
+    fireEvent.click(change!);
+    expect(screen.getByRole('region', { name: 'Change details' })).toBeTruthy();
+    expect(container.querySelector('.lucid-focus-shell')).toBeNull();
+    fireEvent.click(change!);
+    expect(screen.queryByRole('region', { name: 'Change details' })).toBeNull();
+  });
+
   it('queries each authoritative projection and shares one selected object with Commander', async () => {
     const fixture = createDesktopApiFixture();
     render(

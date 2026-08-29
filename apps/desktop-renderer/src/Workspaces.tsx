@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Box,
   CheckCircle2,
+  ChevronDown,
   Clapperboard,
   CircleStop,
   Clock3,
@@ -17,7 +18,7 @@ import {
 } from 'lucide-react';
 import type { DeliveryRef, DomainObjectRef } from '@lucid-fin/contracts';
 import type { WireResult } from './api.js';
-import { appCopy } from './copy.js';
+import { appCopy, type Locale } from './copy.js';
 import { useDesktopEnvironment } from './environment.js';
 import {
   MediaPreview,
@@ -54,7 +55,6 @@ interface ProjectWorkspaceProps {
   readonly onSelect: (ref: DomainObjectRef) => void;
   readonly onOpenWorkspace: (workspace: Workspace) => void;
   readonly onOpenCommander: () => void;
-  readonly onInspectHistory: (entry: WorkspaceData['history'][number]) => void;
   readonly canvasMutationPending: boolean;
   readonly mediaPagePending: boolean;
   readonly productionPagePending: boolean;
@@ -116,6 +116,83 @@ function historyKey(entry: WorkspaceData['history'][number]): string {
   return `user_choice:${entry.choiceId}`;
 }
 
+function historyAuthorityLabel(authority: string, locale: Locale): string {
+  const labels: Record<string, readonly [string, string]> = {
+    project: ['Project', '项目'],
+    project_settings: ['Project settings', '项目设置'],
+    canvas: ['Canvas', '画布'],
+    chat: ['Chat', '对话'],
+    message: ['Message', '消息'],
+    production: ['Production object', '制作对象'],
+    global_media: ['Global media', '全局媒体'],
+    project_media_ref: ['Project media', '项目媒体'],
+    generated_result: ['Generated result', '生成结果'],
+    delivery: ['Delivery', '交付'],
+    user_choice: ['Decision', '决定'],
+  };
+  const label = labels[authority] ?? ['Project item', '项目条目'];
+  return locale === 'zh-CN' ? label[1] : label[0];
+}
+
+function projectEventSummary(
+  entry: Extract<WorkspaceData['history'][number], { source: 'project_event' }>,
+  locale: Locale,
+): string {
+  const subject = historyAuthorityLabel(entry.subject.authority, locale);
+  const zh = locale === 'zh-CN';
+  switch (entry.eventType) {
+    case 'object_created':
+      return zh ? `已创建${subject}` : `${subject} created`;
+    case 'object_revision_changed':
+      return zh ? `已更新${subject}` : `${subject} updated`;
+    case 'message_appended':
+      return zh ? '已添加项目消息' : 'Project message added';
+    case 'choice_recorded':
+      return zh ? '已记录决定' : 'Decision recorded';
+    case 'media_attached':
+      return zh ? '已附加项目媒体' : 'Project media attached';
+    case 'media_detached':
+      return zh ? '已移除项目媒体' : 'Project media detached';
+    case 'generated_result_recorded':
+      return zh ? '已记录生成结果' : 'Generated result recorded';
+    case 'delivery_changed':
+      return zh ? '已更新交付计划' : 'Delivery plan updated';
+    case 'payload_redacted':
+      return zh ? '已隐藏历史详情' : 'History detail redacted';
+  }
+}
+
+function historyDisplaySummary(entry: WorkspaceData['history'][number], locale: Locale): string {
+  const summary = entry.summary.trim();
+  if (!summary.startsWith('{') && !summary.startsWith('[')) return summary;
+  if (entry.source === 'message') {
+    return entry.role === 'user'
+      ? locale === 'zh-CN'
+        ? '你发送了一条消息'
+        : 'You sent a message'
+      : locale === 'zh-CN'
+        ? 'Commander 回复了一条消息'
+        : 'Commander replied';
+  }
+  if (entry.source === 'project_event') return projectEventSummary(entry, locale);
+  if (entry.source === 'generated_result') {
+    return locale === 'zh-CN' ? '已记录生成结果' : 'Generated result recorded';
+  }
+  if (entry.source === 'user_choice') {
+    return locale === 'zh-CN' ? '已记录决定' : 'Decision recorded';
+  }
+  return locale === 'zh-CN' ? 'Commander 更新了当前 Run' : 'Commander updated this Run';
+}
+
+function historySourceLabel(entry: WorkspaceData['history'][number], locale: Locale): string {
+  const zh = locale === 'zh-CN';
+  if (entry.source === 'message') return zh ? '项目消息' : 'Project message';
+  if (entry.source === 'run_event') return zh ? 'Commander 活动' : 'Commander activity';
+  if (entry.source === 'project_event') return zh ? '项目变更' : 'Project change';
+  if (entry.source === 'generated_result') return zh ? '生成结果' : 'Generated result';
+  return zh ? '项目决定' : 'Project decision';
+}
+
 function recentOverviewResults(data: WorkspaceData): WorkspaceData['results'] {
   const resultsById = new Map(data.results.map((result) => [result.resultRef.id, result] as const));
   const seen = new Set<string>();
@@ -138,7 +215,6 @@ function OverviewWorkspace({
   onResultDecision,
   onOpenWorkspace,
   onOpenCommander,
-  onInspectHistory,
   historyPagePending,
   onLoadMoreHistory,
 }: Pick<
@@ -150,12 +226,12 @@ function OverviewWorkspace({
   | 'onResultDecision'
   | 'onOpenWorkspace'
   | 'onOpenCommander'
-  | 'onInspectHistory'
   | 'historyPagePending'
   | 'onLoadMoreHistory'
 >) {
   const { locale } = useDesktopEnvironment();
   const [showAllHistory, setShowAllHistory] = useState(false);
+  const [expandedHistory, setExpandedHistory] = useState<string | null>(null);
   const [historyPageError, setHistoryPageError] = useState<string | null>(null);
   const waiting = overview.activeRuns.filter((run) =>
     ['waiting_question', 'waiting_confirmation', 'blocked'].includes(run.status),
@@ -327,27 +403,62 @@ function OverviewWorkspace({
         {recent.length === 0 ? (
           <div className="lucid-inline-empty">{appCopy(locale, 'noWorkspaceData')}</div>
         ) : (
-          recent.map((item) => (
-            <button
-              type="button"
-              className="lucid-change-row"
-              key={historyKey(item)}
-              onClick={() => onInspectHistory(item)}
-            >
-              <span>
-                {item.source === 'generated_result' ? <Image size={14} /> : <Film size={14} />}
-                {item.summary}
-              </span>
-              <small>
-                {new Intl.DateTimeFormat(locale, {
-                  month: 'short',
-                  day: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                }).format(new Date(item.occurredAt))}
-              </small>
-            </button>
-          ))
+          recent.map((item) => {
+            const key = historyKey(item);
+            const expanded = expandedHistory === key;
+            const detailsId = `lucid-change-details-${key}`;
+            const actor = 'actor' in item ? item.actor : null;
+            return (
+              <div className="lucid-change-entry" key={key}>
+                <button
+                  type="button"
+                  className="lucid-change-row"
+                  aria-expanded={expanded}
+                  aria-controls={detailsId}
+                  onClick={() => setExpandedHistory(expanded ? null : key)}
+                >
+                  <span className="lucid-change-copy">
+                    {item.source === 'generated_result' ? <Image size={14} /> : <Film size={14} />}
+                    <span className="lucid-change-summary">
+                      {historyDisplaySummary(item, locale)}
+                    </span>
+                  </span>
+                  <span className="lucid-change-meta">
+                    <small>
+                      {new Intl.DateTimeFormat(locale, {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      }).format(new Date(item.occurredAt))}
+                    </small>
+                    <ChevronDown size={14} aria-hidden="true" />
+                  </span>
+                </button>
+                {expanded && (
+                  <div
+                    className="lucid-change-details"
+                    id={detailsId}
+                    role="region"
+                    aria-label={locale === 'zh-CN' ? '变更详情' : 'Change details'}
+                  >
+                    <span>{historySourceLabel(item, locale)}</span>
+                    {actor !== null && (
+                      <span>
+                        {locale === 'zh-CN' ? '执行者' : 'By'} · {actor}
+                      </span>
+                    )}
+                    <time dateTime={item.occurredAt}>
+                      {new Intl.DateTimeFormat(locale, {
+                        dateStyle: 'medium',
+                        timeStyle: 'short',
+                      }).format(new Date(item.occurredAt))}
+                    </time>
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
         {!showAllHistory && data.history.length > recent.length && (
           <button

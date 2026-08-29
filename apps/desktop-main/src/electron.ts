@@ -234,6 +234,13 @@ export function windowOptions(preload: string): BrowserWindowConstructorOptions 
     minWidth: 1024,
     minHeight: 720,
     show: false,
+    backgroundColor: '#0d0f14',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#11141a',
+      symbolColor: '#aeb8c6',
+      height: 40,
+    },
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

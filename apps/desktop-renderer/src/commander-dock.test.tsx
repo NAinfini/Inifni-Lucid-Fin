@@ -458,7 +458,7 @@ describe('Commander Dock', () => {
     );
   });
 
-  it('opens authoritative History evidence in the Focus Project-change inspector', async () => {
+  it('keeps authoritative History evidence inline in Overview and lets the user close it', async () => {
     const fixture = createDesktopApiFixture();
     render(
       <MemoryRouter initialEntries={['/projects/project.blue-hour/overview']}>
@@ -466,16 +466,16 @@ describe('Commander Dock', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(
-      await screen.findByRole('button', { name: /generated candidate recorded for shot 04/i }),
-    );
+    const historyEntry = await screen.findByRole('button', {
+      name: /generated candidate recorded for shot 04/i,
+    });
+    fireEvent.click(historyEntry);
 
-    const inspector = await screen.findByRole('complementary', { name: 'Result inspector' });
-    expect(
-      within(inspector).getByRole('heading', {
-        name: 'Generated candidate recorded for Shot 04.',
-      }),
-    ).toBeTruthy();
-    expect(within(inspector).getByText('Project change')).toBeTruthy();
+    const details = await screen.findByRole('region', { name: 'Change details' });
+    expect(within(details).getByText('Generated result')).toBeTruthy();
+    expect(screen.queryByRole('complementary', { name: 'Result inspector' })).toBeNull();
+
+    fireEvent.click(historyEntry);
+    expect(screen.queryByRole('region', { name: 'Change details' })).toBeNull();
   });
 });

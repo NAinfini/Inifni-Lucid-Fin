@@ -20,6 +20,24 @@ test.describe('canonical Project journey', () => {
       mainWindow.getByRole('heading', { level: 1, name: 'E2E Canonical Project' }),
     ).toBeVisible({ timeout: 30_000 });
     await expect(mainWindow.getByRole('button', { name: /^Overview\b/u })).toBeVisible();
+
+    const projectSettings = mainWindow.getByRole('button', { name: 'Settings', exact: true });
+    await expect(projectSettings).toBeEnabled();
+    await projectSettings.click();
+    const settingsDialog = mainWindow.getByRole('dialog', { name: 'Project settings' });
+    await expect(settingsDialog).toBeVisible();
+    await settingsDialog.getByRole('button', { name: 'Close Project settings' }).click();
+    await expect(settingsDialog).toHaveCount(0);
+
+    const firstChange = mainWindow.locator('.lucid-change-row').first();
+    await expect(firstChange).toBeVisible();
+    await firstChange.click();
+    const changeDetails = mainWindow.getByRole('region', { name: 'Change details' });
+    await expect(changeDetails).toBeVisible();
+    await expect(mainWindow.locator('.lucid-focus-shell')).toHaveCount(0);
+    await firstChange.click();
+    await expect(changeDetails).toHaveCount(0);
+
     await expect(mainWindow.getByText(/No handler registered/i)).toHaveCount(0);
   });
 });

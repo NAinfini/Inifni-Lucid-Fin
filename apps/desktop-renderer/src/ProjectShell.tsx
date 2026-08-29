@@ -236,7 +236,6 @@ interface FocusProtectionTarget {
 }
 
 function FocusInspector({
-  entry,
   selection,
   data,
   resultDecisionStateForId,
@@ -246,7 +245,6 @@ function FocusInspector({
   onRequestProtection,
   onRespondProtection,
 }: {
-  readonly entry: HistoryEntry | null;
   readonly selection: DomainObjectRef | null;
   readonly data: WorkspaceData;
   readonly resultDecisionStateForId: (resultId: string) => ResultDecisionState;
@@ -266,55 +264,6 @@ function FocusInspector({
   ) => Promise<void>;
 }) {
   const { locale } = useDesktopEnvironment();
-  if (entry !== null) {
-    const actor = 'actor' in entry ? entry.actor : null;
-    return (
-      <div className="lucid-focus-inspector-content">
-        <span className="lucid-inspector-kicker">
-          {entry.source === 'user_choice'
-            ? locale === 'zh-CN'
-              ? '用户决定'
-              : 'User decision'
-            : locale === 'zh-CN'
-              ? '项目变更'
-              : 'Project change'}
-        </span>
-        <h2>{entry.summary}</h2>
-        <dl>
-          <div>
-            <dt>{locale === 'zh-CN' ? '来源' : 'Source'}</dt>
-            <dd>{entry.source.replaceAll('_', ' ')}</dd>
-          </div>
-          {actor !== null && (
-            <div>
-              <dt>{locale === 'zh-CN' ? '执行者' : 'Actor'}</dt>
-              <dd>{actor}</dd>
-            </div>
-          )}
-          <div>
-            <dt>{locale === 'zh-CN' ? '时间' : 'Occurred'}</dt>
-            <dd>
-              {new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(
-                new Date(entry.occurredAt),
-              )}
-            </dd>
-          </div>
-        </dl>
-        <code>
-          {entry.source === 'project_event'
-            ? entry.eventId
-            : entry.source === 'user_choice'
-              ? entry.choiceId
-              : entry.source === 'generated_result'
-                ? entry.resultId
-                : entry.source === 'run_event'
-                  ? entry.eventId
-                  : entry.messageId}
-        </code>
-      </div>
-    );
-  }
-
   const result =
     selection?.authority === 'generated_result'
       ? data.results.find((candidate) => candidate.resultRef.id === selection.id)
@@ -516,7 +465,6 @@ export function ProjectShell({
   const [eventNextCursor, setEventNextCursor] = useState<string | null>(null);
   const [workspaceData, setWorkspaceData] = useState<WorkspaceData>(emptyWorkspaceData);
   const [selection, dispatchSelection] = useReducer(selectionReducer, EMPTY_SELECTION);
-  const [inspectedHistory, setInspectedHistory] = useState<HistoryEntry | null>(null);
   const [composerDraft, setComposerDraft] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState<readonly MessageAttachment[]>([]);
   const [projectSearchMessages, setProjectSearchMessages] = useState<readonly Message[]>([]);
@@ -1835,7 +1783,6 @@ export function ProjectShell({
         ? selectionToRunContext(selection)
         : [{ ref: context, role: 'selected' as const }];
     if (context !== null) {
-      setInspectedHistory(null);
       dispatchSelection({ type: 'select', ref: context });
     }
     await send(text, {
@@ -2173,7 +2120,6 @@ export function ProjectShell({
           (candidate) => candidate.resultRef.id === resultId,
         );
         if (result !== undefined) {
-          setInspectedHistory(null);
           dispatchSelection({ type: 'select', ref: result.resultRef });
         }
         setFocus(false);
@@ -2190,7 +2136,7 @@ export function ProjectShell({
   );
 
   if (focus) {
-    const hasInspector = inspectedHistory !== null || selection.primary !== null;
+    const hasInspector = selection.primary !== null;
     return (
       <div className={`lucid-focus-shell${hasInspector ? ' has-inspector' : ''}`}>
         {refreshNotice}
@@ -2226,7 +2172,6 @@ export function ProjectShell({
           aria-label={locale === 'zh-CN' ? '结果检查器' : 'Result inspector'}
         >
           <FocusInspector
-            entry={inspectedHistory}
             selection={selection.primary}
             data={workspaceData}
             resultDecisionStateForId={resultDecisionStateForId}
@@ -2255,7 +2200,7 @@ export function ProjectShell({
       className={`lucid-project-shell${dockCollapsed ? ' is-dock-collapsed' : ''}`}
       style={{ '--lucid-dock-width': `${dockWidth}px` } as React.CSSProperties}
     >
-      <GlobalRail active="projects" />
+      <GlobalRail active="projects" onOpenSettings={() => setSettingsOpen(true)} />
       <aside className="lucid-project-navigation">
         <header>
           <div>
@@ -2363,16 +2308,9 @@ export function ProjectShell({
             overview={overview}
             data={workspaceData}
             selection={selection}
-            onSelect={(ref) => {
-              setInspectedHistory(null);
-              dispatchSelection({ type: 'select', ref });
-            }}
+            onSelect={(ref) => dispatchSelection({ type: 'select', ref })}
             onOpenWorkspace={onWorkspaceChange}
             onOpenCommander={() => enterFocus('workspace')}
-            onInspectHistory={(entry) => {
-              setInspectedHistory(entry);
-              enterFocus('workspace');
-            }}
             canvasMutationPending={canvasMutationPending}
             onMoveCanvasPlacement={moveCanvasPlacement}
             mediaPagePending={workspacePagePending === 'media'}
