@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, Clock3, Film, MoreHorizontal, Paperclip, Plus, Sparkles } from 'lucide-react';
+import { Archive, Clock3, Film, MoreHorizontal, Paperclip, Plus, Sparkles, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { WireResult } from './api.js';
 import { DesktopApiError, wireResult } from './api.js';
@@ -18,15 +18,7 @@ const DEFAULT_BUDGET = Object.freeze({
   maxInputTokens: 200_000,
   maxOutputTokens: 40_000,
 });
-
-function projectNameFromBrief(brief: string): string {
-  const words = brief
-    .trim()
-    .replace(/[.!?。！？]+$/u, '')
-    .split(/\s+/u)
-    .filter(Boolean);
-  return words.slice(0, 4).join(' ') || 'Untitled Project';
-}
+const PROJECT_DESCRIPTION_MAX_LENGTH = 240;
 
 function errorSummary(cause: unknown): string {
   return cause instanceof Error ? cause.message : 'The Project request could not be completed.';
@@ -51,12 +43,6 @@ function viewLabel(
   return view === 'active' ? 'Active projects' : 'Archived projects';
 }
 
-function metadataExportReason(locale: ReturnType<typeof useDesktopEnvironment>['locale']): string {
-  return locale === 'zh-CN'
-    ? '元数据导出尚未连接到 canonical authority。'
-    : 'Metadata export is not connected to a canonical authority.';
-}
-
 export function ProjectHome() {
   const { api, createRequestId, locale } = useDesktopEnvironment();
   const navigate = useNavigate();
@@ -68,7 +54,6 @@ export function ProjectHome() {
   const [recoverableProject, setRecoverableProject] = useState<ProjectSummary | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [brief, setBrief] = useState('');
-  const [projectName, setProjectName] = useState('');
   const [grants, setGrants] = useState<readonly PendingGrant[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [view, setView] = useState<ProjectView>('active');
@@ -121,10 +106,7 @@ export function ProjectHome() {
   };
 
   const canSubmit = brief.trim().length > 0 || grants.length > 0;
-  const visibleName = useMemo(
-    () => projectName.trim() || projectNameFromBrief(brief),
-    [brief, projectName],
-  );
+  const projectName = brief.trim() || 'Untitled Project';
   const visibleProjects = useMemo(
     () => projects.filter((project) => project.lifecycle === view),
     [projects, view],
@@ -179,7 +161,7 @@ export function ProjectHome() {
         api.project.create({
           requestId: createRequestId(),
           input: {
-            name: visibleName,
+            name: projectName,
             permissionMode: 'reversible',
             budget: DEFAULT_BUDGET,
             formatPolicy: { aspectRatio: '16:9', customDimensions: null, frameRate: 24 },
@@ -193,7 +175,7 @@ export function ProjectHome() {
       const chat = await wireResult(
         api.chat.create({
           requestId: createRequestId(),
-          input: { projectId: created.project.id, title: visibleName },
+          input: { projectId: created.project.id, title: projectName },
         }),
       );
 
@@ -251,7 +233,7 @@ export function ProjectHome() {
             blocks: [
               {
                 type: 'text',
-                text: brief.trim() || `Use the attached references to begin ${visibleName}.`,
+                text: brief.trim() || `Use the attached references to begin ${projectName}.`,
               },
             ],
             attachments,
@@ -273,7 +255,6 @@ export function ProjectHome() {
         ]);
         setComposerOpen(false);
         setBrief('');
-        setProjectName('');
         setGrants([]);
         setRecoverableProject(recovered);
       }
@@ -331,8 +312,6 @@ export function ProjectHome() {
     void updateProject(project, { name, lifecycle: null });
   };
 
-  const exportReason = metadataExportReason(locale);
-
   return (
     <div className="lucid-home-shell">
       <GlobalRail active="projects" />
@@ -346,14 +325,16 @@ export function ProjectHome() {
                 : 'Continue a production or begin with one idea.'}
             </p>
           </div>
-          <button
-            className="lucid-primary-button"
-            type="button"
-            onClick={() => setComposerOpen(true)}
-          >
-            <Plus size={15} />
-            {appCopy(locale, 'newProject')}
-          </button>
+          {!composerOpen && (
+            <button
+              className="lucid-primary-button"
+              type="button"
+              onClick={() => setComposerOpen(true)}
+            >
+              <Plus size={15} />
+              {appCopy(locale, 'newProject')}
+            </button>
+          )}
         </header>
 
         {error !== null && (
@@ -392,41 +373,55 @@ export function ProjectHome() {
                 <h2>{appCopy(locale, 'newProject')}</h2>
                 <p>{appCopy(locale, 'noProjects')}</p>
               </div>
+              <button
+                className="lucid-new-project-close"
+                type="button"
+                onClick={() => setComposerOpen(false)}
+                aria-label={locale === 'zh-CN' ? '关闭新建项目' : 'Close new Project'}
+              >
+                <X size={15} />
+              </button>
             </div>
             <textarea
               value={brief}
               onChange={(event) => setBrief(event.currentTarget.value)}
               placeholder={appCopy(locale, 'describeFilm')}
+              aria-label={locale === 'zh-CN' ? '项目描述' : 'Project description'}
+              maxLength={PROJECT_DESCRIPTION_MAX_LENGTH}
               rows={4}
               autoFocus
             />
-            <div className="lucid-new-project-options">
-              <label>
-                <span>{locale === 'zh-CN' ? '项目名称（可选）' : 'Project name (optional)'}</span>
-                <input
-                  type="text"
-                  value={projectName}
-                  onChange={(event) => setProjectName(event.currentTarget.value)}
-                  placeholder={visibleName}
-                />
-              </label>
-              <div
-                className="lucid-defaults"
-                aria-label={locale === 'zh-CN' ? '发送前默认值' : 'Defaults before send'}
-              >
-                <span>16:9 · 24 fps</span>
-                <span>{locale === 'zh-CN' ? '可逆权限' : 'Reversible permission'}</span>
-                <span>
-                  {locale === 'zh-CN'
-                    ? `${DEFAULT_BUDGET.maxGenerationCount} 次生成 · ${DEFAULT_BUDGET.maxInputTokens / 1_000}k/${DEFAULT_BUDGET.maxOutputTokens / 1_000}k Token · 无美元上限`
-                    : `${DEFAULT_BUDGET.maxGenerationCount} generations · ${DEFAULT_BUDGET.maxInputTokens / 1_000}k/${DEFAULT_BUDGET.maxOutputTokens / 1_000}k tokens · no USD ceiling`}
-                </span>
-              </div>
+            <div
+              className="lucid-defaults lucid-new-project-defaults"
+              aria-label={locale === 'zh-CN' ? '发送前默认值' : 'Defaults before send'}
+            >
+              <span>16:9 · 24 fps</span>
+              <span>{locale === 'zh-CN' ? '可逆权限' : 'Reversible permission'}</span>
+              <span>
+                {locale === 'zh-CN'
+                  ? `${DEFAULT_BUDGET.maxGenerationCount} 次生成 · ${DEFAULT_BUDGET.maxInputTokens / 1_000}k/${DEFAULT_BUDGET.maxOutputTokens / 1_000}k Token · 无美元上限`
+                  : `${DEFAULT_BUDGET.maxGenerationCount} generations · ${DEFAULT_BUDGET.maxInputTokens / 1_000}k/${DEFAULT_BUDGET.maxOutputTokens / 1_000}k tokens · no USD ceiling`}
+              </span>
             </div>
             {grants.length > 0 && (
               <ul className="lucid-attachment-list" aria-label={appCopy(locale, 'attachReference')}>
                 {grants.map((grant) => (
-                  <li key={grant.capabilityToken}>{grant.displayLabel}</li>
+                  <li key={grant.capabilityToken}>
+                    <span>{grant.displayLabel}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setGrants((current) =>
+                          current.filter(
+                            (candidate) => candidate.capabilityToken !== grant.capabilityToken,
+                          ),
+                        )
+                      }
+                      aria-label={`${locale === 'zh-CN' ? '移除' : 'Remove'} ${grant.displayLabel}`}
+                    >
+                      <X size={12} />
+                    </button>
+                  </li>
                 ))}
               </ul>
             )}
@@ -524,7 +519,21 @@ export function ProjectHome() {
                     )}
                   </span>
                 </button>
-                <details className="lucid-row-menu">
+                <details
+                  className="lucid-row-menu"
+                  onBlur={(event) => {
+                    const next = event.relatedTarget;
+                    if (!(next instanceof Node) || !event.currentTarget.contains(next)) {
+                      event.currentTarget.open = false;
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Escape') return;
+                    event.preventDefault();
+                    event.currentTarget.open = false;
+                    event.currentTarget.querySelector('summary')?.focus();
+                  }}
+                >
                   <summary
                     aria-label={`${project.name} ${locale === 'zh-CN' ? '更多操作' : 'more actions'}`}
                   >
@@ -592,24 +601,13 @@ export function ProjectHome() {
                           className="lucid-row-menu-danger"
                           type="button"
                           disabled={mutatingProjectId !== null}
-                          onClick={() => setPendingDeleteId(project.id)}
+                          onClick={(event) => {
+                            event.currentTarget.closest('details')?.removeAttribute('open');
+                            setPendingDeleteId(project.id);
+                          }}
                         >
                           {locale === 'zh-CN' ? '删除项目' : 'Delete project'}
                         </button>
-                        <button
-                          type="button"
-                          disabled
-                          title={exportReason}
-                          aria-describedby={`lucid-metadata-export-${project.id}`}
-                        >
-                          {locale === 'zh-CN' ? '导出元数据' : 'Export metadata'}
-                        </button>
-                        <p
-                          id={`lucid-metadata-export-${project.id}`}
-                          className="lucid-row-menu-note"
-                        >
-                          {exportReason}
-                        </p>
                       </>
                     )}
                   </div>

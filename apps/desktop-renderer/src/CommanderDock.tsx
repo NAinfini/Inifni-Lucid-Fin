@@ -531,7 +531,22 @@ function ChatLifecycleMenu({
   };
 
   return (
-    <div className="lucid-chat-lifecycle">
+    <div
+      className="lucid-chat-lifecycle"
+      onBlur={(event) => {
+        const next = event.relatedTarget;
+        if (!(next instanceof Node) || !event.currentTarget.contains(next)) {
+          setOpen(false);
+          setConfirmingDelete(false);
+        }
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        setOpen(false);
+        setConfirmingDelete(false);
+      }}
+    >
       <button
         type="button"
         aria-label={locale === 'zh-CN' ? '对话操作' : 'Chat actions'}
@@ -790,6 +805,9 @@ export function CommanderDock(props: CommanderDockProps) {
             type="search"
             value={search}
             onChange={(event) => setSearch(event.currentTarget.value)}
+            aria-label={
+              locale === 'zh-CN' ? '搜索项目对话与消息' : 'Search Project Chats and messages'
+            }
             placeholder={
               locale === 'zh-CN'
                 ? '搜索当前项目的对话与消息'
@@ -838,9 +856,11 @@ export function CommanderDock(props: CommanderDockProps) {
         </div>
       )}
       <div className="lucid-commander-context-line">
-        <strong>{props.project.name}</strong>
+        <strong title={props.project.name}>{props.project.name}</strong>
         <span>/</span>
-        <span>{props.activeChat?.title ?? appCopy(locale, 'newChat')}</span>
+        <span title={props.activeChat?.title ?? appCopy(locale, 'newChat')}>
+          {props.activeChat?.title ?? appCopy(locale, 'newChat')}
+        </span>
       </div>
 
       <div
@@ -1013,6 +1033,7 @@ export function CommanderDock(props: CommanderDockProps) {
           value={props.composerDraft}
           onChange={(event) => props.onComposerDraftChange(event.currentTarget.value)}
           placeholder={locale === 'zh-CN' ? '描述下一项修改…' : 'Describe the next change…'}
+          aria-label={locale === 'zh-CN' ? 'Commander 消息' : 'Commander message'}
           rows={3}
         />
         {error !== null && (

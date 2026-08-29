@@ -4,21 +4,20 @@ test.describe('canonical Project journey', () => {
   test.skip(!isBuildAvailable(), 'Electron build not found; run pnpm run build first');
 
   test('creates a Project through the real generated IPC wire', async ({ mainWindow }) => {
+    const description = 'A moonlit harbor mystery told in one continuous night.';
     await expect(mainWindow.getByRole('form', { name: 'New Project' })).toBeVisible({
       timeout: 30_000,
     });
+    await expect(mainWindow.getByRole('textbox', { name: 'Project name (optional)' })).toHaveCount(
+      0,
+    );
 
-    await mainWindow
-      .getByPlaceholder('Describe the film you want to make…')
-      .fill('A moonlit harbor mystery told in one continuous night.');
-    await mainWindow
-      .getByRole('textbox', { name: 'Project name (optional)' })
-      .fill('E2E Canonical Project');
+    await mainWindow.getByPlaceholder('Describe the film you want to make…').fill(description);
     await mainWindow.getByRole('button', { name: 'Create project & start' }).click();
 
-    await expect(
-      mainWindow.getByRole('heading', { level: 1, name: 'E2E Canonical Project' }),
-    ).toBeVisible({ timeout: 30_000 });
+    await expect(mainWindow.getByRole('heading', { level: 1, name: description })).toBeVisible({
+      timeout: 30_000,
+    });
     await expect(mainWindow.getByRole('button', { name: /^Overview\b/u })).toBeVisible();
 
     const projectSettings = mainWindow.getByRole('button', {

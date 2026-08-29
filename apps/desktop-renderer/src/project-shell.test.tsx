@@ -197,6 +197,7 @@ describe('Project shell', () => {
 
   it('creates the Project, first Chat, and first Run from one brief', async () => {
     const fixture = createDesktopApiFixture();
+    const description = 'A patient harbor film at blue hour.';
     fixture.calls.projectList.mockImplementationOnce(async (request) => ({
       wireVersion: 1,
       kind: 'success',
@@ -211,12 +212,12 @@ describe('Project shell', () => {
     );
 
     fireEvent.change(await screen.findByPlaceholderText(/describe the film/i), {
-      target: { value: 'A patient harbor film at blue hour.' },
+      target: { value: description },
     });
     fireEvent.click(screen.getByRole('button', { name: /create project & start/i }));
 
     await waitFor(() => expect(fixture.calls.messageSend).toHaveBeenCalledTimes(1));
-    expect(fixture.calls.projectCreate.mock.calls[0]?.[0].input.name).toBe('A patient harbor film');
+    expect(fixture.calls.projectCreate.mock.calls[0]?.[0].input.name).toBe(description);
     expect(fixture.calls.projectCreate.mock.calls[0]?.[0].input.budget).toEqual({
       costUsd: { state: 'unknown', currency: 'USD' },
       maxGenerationCount: 40,
@@ -224,8 +225,9 @@ describe('Project shell', () => {
       maxOutputTokens: 40_000,
     });
     expect(fixture.calls.chatCreate.mock.calls[0]?.[0].input.projectId).toBe(projectFixture.id);
+    expect(fixture.calls.chatCreate.mock.calls[0]?.[0].input.title).toBe(description);
     expect(fixture.calls.messageSend.mock.calls[0]?.[0].input.blocks).toEqual([
-      { type: 'text', text: 'A patient harbor film at blue hour.' },
+      { type: 'text', text: description },
     ]);
     expect(await screen.findByRole('heading', { level: 1, name: 'Blue Hour' })).toBeTruthy();
   });

@@ -187,7 +187,7 @@ describe('Project Home and Global Media', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Blue Hour' })).toBeTruthy();
   });
 
-  it('keeps Global Settings and metadata export visibly unavailable at their real authority boundary', async () => {
+  it('does not expose unavailable Global Settings or metadata export controls', async () => {
     const fixture = createDesktopApiFixture();
     render(
       <MemoryRouter initialEntries={['/projects']}>
@@ -195,20 +195,34 @@ describe('Project Home and Global Media', () => {
       </MemoryRouter>,
     );
 
-    const settings = (await screen.findByRole('button', { name: 'Settings' })) as HTMLButtonElement;
-    expect(settings.disabled).toBe(true);
-    expect(settings.title).toBe(
-      'Applying captured provider/settings/locale/theme preferences is Gate B work.',
-    );
+    await screen.findByRole('button', { name: 'Open Blue Hour' });
+    expect(screen.queryByRole('button', { name: 'Settings' })).toBeNull();
 
     fireEvent.click(screen.getByLabelText('Blue Hour more actions'));
-    const metadataExport = screen.getByRole('button', {
-      name: 'Export metadata',
-    }) as HTMLButtonElement;
-    expect(metadataExport.disabled).toBe(true);
-    expect(
-      screen.getByText('Metadata export is not connected to a canonical authority.'),
-    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Export metadata' })).toBeNull();
+    expect(screen.queryByText(/canonical authority/i)).toBeNull();
+  });
+
+  it('uses the exact Project description as the Project and first Chat name', async () => {
+    const fixture = createDesktopApiFixture();
+    render(
+      <MemoryRouter initialEntries={['/projects']}>
+        <App api={fixture.api} createRequestId={() => 'request.ui.description-name'} />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'New Project' }));
+    expect(screen.queryByRole('textbox', { name: 'Project name (optional)' })).toBeNull();
+    const description = 'A moonlit harbor mystery told in one continuous night.';
+    fireEvent.change(screen.getByRole('textbox', { name: 'Project description' }), {
+      target: { value: description },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create project & start' }));
+
+    await waitFor(() => expect(fixture.calls.projectCreate).toHaveBeenCalledTimes(1));
+    expect(fixture.calls.projectCreate.mock.calls[0]?.[0].input.name).toBe(description);
+    await waitFor(() => expect(fixture.calls.chatCreate).toHaveBeenCalledTimes(1));
+    expect(fixture.calls.chatCreate.mock.calls[0]?.[0].input.title).toBe(description);
   });
 
   it('renames, archives, restores, and soft-deletes Projects only after a second confirmation', async () => {

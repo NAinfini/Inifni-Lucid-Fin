@@ -558,8 +558,8 @@ function CanvasPlacementNode({
     const active = drag.current;
     if (active === null || active.pointerId !== event.pointerId) return null;
     return {
-      x: Math.round(active.position.x + event.clientX - active.clientX),
-      y: Math.round(active.position.y + event.clientY - active.clientY),
+      x: Math.max(0, Math.round(active.position.x + event.clientX - active.clientX)),
+      y: Math.max(0, Math.round(active.position.y + event.clientY - active.clientY)),
     };
   };
 
@@ -620,7 +620,10 @@ function CanvasPlacementNode({
         const offset = offsets[event.key as keyof typeof offsets];
         if (offset === undefined || mutationPending) return;
         event.preventDefault();
-        void commit({ x: placement.position.x + offset.x, y: placement.position.y + offset.y });
+        void commit({
+          x: Math.max(0, placement.position.x + offset.x),
+          y: Math.max(0, placement.position.y + offset.y),
+        });
       }}
     >
       <span className="lucid-canvas-node-media">

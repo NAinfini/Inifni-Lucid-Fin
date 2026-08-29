@@ -214,7 +214,12 @@ export function ProjectSettingsPanel({
   };
 
   return (
-    <div className="lucid-settings-backdrop">
+    <div
+      className="lucid-settings-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <section
         ref={dialogRef}
         className="lucid-project-settings-panel"
@@ -251,7 +256,6 @@ export function ProjectSettingsPanel({
       >
         <header>
           <div>
-            <span>{locale === 'zh-CN' ? '受信任项目边界' : 'Trusted Project boundary'}</span>
             <h2 id="lucid-project-settings-title">
               {locale === 'zh-CN' ? '项目设置' : 'Project settings'}
             </h2>

@@ -2180,7 +2180,7 @@ export function ProjectShell({
       className={`lucid-project-shell${dockCollapsed ? ' is-dock-collapsed' : ''}`}
       style={{ '--lucid-dock-width': `${dockWidth}px` } as React.CSSProperties}
     >
-      <GlobalRail active="projects" showSettings={false} />
+      <GlobalRail active="projects" />
       <aside className="lucid-project-navigation">
         <header>
           <div>

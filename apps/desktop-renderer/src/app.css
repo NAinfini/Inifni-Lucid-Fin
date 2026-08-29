@@ -89,6 +89,22 @@ body {
 .lucid-app button:not(:disabled),
 .lucid-app summary {
   cursor: pointer;
+  transition:
+    background-color 120ms ease-out,
+    border-color 120ms ease-out,
+    color 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+
+.lucid-app :where(button:hover:not(:disabled), summary:hover) {
+  border-color: hsl(var(--border));
+  background-color: hsl(var(--secondary));
+  color: hsl(var(--foreground));
+}
+
+.lucid-app button:active:not(:disabled),
+.lucid-app summary:active {
+  box-shadow: inset 0 0 0 1px hsl(var(--foreground) / 0.14);
 }
 
 .lucid-app button:disabled {
@@ -125,6 +141,12 @@ body {
 .lucid-app input::placeholder,
 .lucid-app textarea::placeholder {
   color: hsl(var(--muted-foreground));
+}
+
+.lucid-app input:not(:disabled):hover,
+.lucid-app textarea:not(:disabled):hover,
+.lucid-app select:not(:disabled):hover {
+  border-color: hsl(var(--muted-foreground) / 0.58);
 }
 
 .lucid-app time,
@@ -198,10 +220,6 @@ body {
   border-right: 1px solid hsl(var(--border));
   background: hsl(220 15% 8%);
   padding: 10px 6px;
-}
-
-.lucid-rail-spacer {
-  flex: 1;
 }
 
 .lucid-rail-button {
@@ -399,6 +417,19 @@ body {
   margin-bottom: 14px;
 }
 
+.lucid-new-project-close {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  margin-left: auto;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
 .lucid-new-project-copy > svg {
   margin-top: 2px;
   color: hsl(var(--primary));
@@ -430,24 +461,11 @@ body {
   line-height: 1.55;
 }
 
-.lucid-new-project-options {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
-  gap: 12px;
-  align-items: end;
-}
-
-.lucid-new-project-options label,
 .lucid-project-settings-body label {
   display: grid;
   gap: 5px;
   color: hsl(var(--muted-foreground));
   font-size: 11px;
-}
-
-.lucid-new-project-options input {
-  min-height: 34px;
 }
 
 .lucid-defaults {
@@ -457,14 +475,33 @@ body {
   flex-wrap: wrap;
 }
 
+.lucid-new-project-defaults {
+  margin-top: 12px;
+}
+
 .lucid-defaults span,
 .lucid-attachment-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: 1px solid hsl(var(--border));
   border-radius: 5px;
   background: hsl(var(--background));
   color: hsl(var(--muted-foreground));
   padding: 5px 7px;
   font-size: 10px;
+}
+
+.lucid-attachment-list button {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  padding: 0;
 }
 
 .lucid-attachment-list {
@@ -478,6 +515,7 @@ body {
 .lucid-new-project-actions {
   margin-top: 14px;
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 10px;
 }
@@ -648,6 +686,16 @@ body {
   text-align: left;
 }
 
+.lucid-row-menu > div button:hover:not(:disabled) {
+  background: hsl(var(--secondary));
+  color: hsl(var(--foreground));
+}
+
+.lucid-row-menu > div .lucid-row-menu-danger:hover:not(:disabled) {
+  background: hsl(var(--destructive) / 0.1);
+  color: hsl(var(--destructive));
+}
+
 .lucid-row-menu > div button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
@@ -655,13 +703,6 @@ body {
 
 .lucid-row-menu-danger {
   color: hsl(var(--destructive)) !important;
-}
-
-.lucid-row-menu-note {
-  margin: 5px 8px 4px;
-  color: hsl(var(--muted-foreground));
-  font-size: 10px;
-  line-height: 1.4;
 }
 
 .lucid-project-rename {
@@ -735,6 +776,10 @@ body {
 .lucid-danger-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
+}
+
+.lucid-danger-button:hover:not(:disabled) {
+  background: hsl(var(--destructive) / 0.86);
 }
 
 .lucid-global-media-list {
@@ -960,16 +1005,8 @@ body {
   min-width: 0;
 }
 
-.lucid-project-settings-panel > header span {
-  color: hsl(var(--primary));
-  font-size: 9px;
-  font-weight: 650;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .lucid-project-settings-panel > header h2 {
-  margin: 3px 0 0;
+  margin: 0;
   font-size: 17px;
 }
 
@@ -1092,6 +1129,10 @@ body {
 
 .lucid-settings-skill-list > label:last-child {
   border-bottom: 0;
+}
+
+.lucid-settings-skill-list > label:hover {
+  background: hsl(var(--secondary) / 0.72);
 }
 
 .lucid-settings-skill-list input {
@@ -1646,7 +1687,7 @@ body {
 .lucid-canvas-field {
   position: relative;
   min-height: 520px;
-  overflow: hidden;
+  overflow: auto;
   border: 1px solid hsl(var(--border));
   border-radius: 6px;
   background: hsl(220 16% 5%);
@@ -2299,6 +2340,8 @@ body {
   grid-template-columns: 28px 24px minmax(0, 1fr) auto;
   align-items: center;
   border-bottom: 1px solid hsl(var(--border));
+  gap: 8px;
+  padding: 0 10px;
 }
 
 .lucid-delivery-sequence > div > span,
@@ -2658,8 +2701,21 @@ body {
   font-size: 10px;
 }
 
+.lucid-commander-context-line strong,
+.lucid-commander-context-line > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .lucid-commander-context-line strong {
+  max-width: 45%;
   color: hsl(var(--foreground));
+}
+
+.lucid-commander-context-line > span:last-child {
+  flex: 1 1 auto;
 }
 
 .lucid-conversation {
@@ -3122,6 +3178,7 @@ body {
 .lucid-composer-actions {
   min-height: 38px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 7px;
   padding-top: 7px;
@@ -3302,6 +3359,7 @@ body {
 }
 
 .lucid-focus-inspector-content h2 {
+  overflow-wrap: anywhere;
   color: hsl(var(--foreground));
   font-size: 16px;
   line-height: 1.35;
@@ -3474,7 +3532,7 @@ body {
   .lucid-commander-column {
     position: absolute;
     z-index: 60;
-    top: 0;
+    top: 58px;
     right: 0;
     bottom: 0;
     width: min(var(--lucid-dock-width), calc(100vw - 150px));
@@ -3555,10 +3613,6 @@ body {
 
   .lucid-new-project {
     padding: 14px;
-  }
-
-  .lucid-new-project-options {
-    grid-template-columns: 1fr;
   }
 
   .lucid-project-open {
@@ -3704,6 +3758,14 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .lucid-app button,
+  .lucid-app summary,
+  .lucid-app input,
+  .lucid-app textarea,
+  .lucid-app select {
+    transition: none;
+  }
+
   .lucid-spinner,
   .lucid-preview-status > svg:first-child,
   .lucid-progress-line svg,
