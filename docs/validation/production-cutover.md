@@ -5,8 +5,10 @@
 The canonical development cutover passed its broad validation window on 2026-08-28 from 20:55 UTC
 through 21:48 UTC at implementation commit `e44b279a44356c2b8a60d8360eb826bb8ea2acc4`. A focused
 Electron startup repair then passed at current tested product commit
-`0f92e267fd376aba674a351f52a78f5d168569f6` at 23:06 UTC. The commit containing this completed
-ledger is a documentation-only successor and does not change the tested product source.
+`0f92e267fd376aba674a351f52a78f5d168569f6` at 23:06 UTC. A desktop shell usability repair then
+passed at current tested product commit `c4ca10a274e2d7cb330976e44064e18bd99ebf4c` on 2026-08-29 at
+00:03 UTC. The commit containing this completed ledger is a documentation-only successor and does
+not change the tested product source.
 
 All validation used Node 26.5.1 and pnpm 11.21.0. No command read or changed real AppData, an older
 database or media root, browser storage, an installed application, a Keychain credential, or a paid
@@ -87,6 +89,53 @@ Validation at `0f92e267fd376aba674a351f52a78f5d168569f6`:
 - `pnpm run test:e2e` exited 0 with 2/2 Electron tests passing and no new relevant child process.
   It used the disposable profile and fake recovery-key store, so no real Keychain entry was read or
   created.
+
+## Post-closure desktop shell usability repair
+
+The first real desktop screenshot after cutover exposed four related presentation and navigation
+defects. The renderer printed canonical JSON-backed history summaries directly, the History click
+handler set an inspected entry and entered Commander Focus, the Project-level global-rail Settings
+button was hard-disabled, and the BrowserWindow still used its default title bar in addition to the
+Lucid title bar. The shared Active Work and History row CSS also made a three-item flex row vulnerable
+to the History grid change; the first rendered review caught and corrected that coupling.
+
+The final implementation at `c4ca10a274e2d7cb330976e44064e18bd99ebf4c` has one path for each
+behavior:
+
+- History display text is derived from typed history authority and event fields. Machine JSON remains
+  storage evidence and is never used as UI copy.
+- A History row toggles one inline, labelled details region in Overview. Clicking it again closes the
+  region; it never enters Focus, changes workspace selection, or relocates Current Chat.
+- Global-rail Settings opens the existing Project settings authority while a Project is open. The
+  genuinely unavailable global setting boundary remains disabled outside a Project.
+- Electron uses `titleBarStyle: 'hidden'` with the Windows controls overlay. The renderer supplies the
+  Lucid drag region, surface, contrast, and inner border while Electron retains native minimize,
+  maximize, close, resize, and accessibility behavior; no second window-control IPC was introduced.
+- Active Work remains a single flex row; History owns its separate two-column grid, non-wrapping time,
+  ellipsis, and 44-pixel interaction target.
+
+Validation for this repair:
+
+- The three focused regression tests first failed against the previous product for missing window
+  options, disabled Project Settings, and raw machine history; all passed after the repair.
+- `pnpm exec vitest run apps/desktop-renderer/src/commander-dock.test.tsx apps/desktop-renderer/src/workspaces.test.tsx apps/desktop-renderer/src/project-shell.test.tsx --reporter=dot --silent`
+  exited 0 with 3 files and 56 tests passed.
+- `pnpm test` exited 0 with 106 files and 856 tests passed in 1470.70 seconds.
+- `pnpm run test:types`, `pnpm run lint`, `pnpm run format:check`,
+  `pnpm run check:production-closure`, and `pnpm run build` each exited 0. The final renderer emitted
+  `index.css` at 58.43 kB, `index.js` at 133.99 kB, and `vendor.js` at 239.67 kB.
+- `pnpm run test:e2e` exited 0 with 2/2 Electron tests passed. The Project journey explicitly opened
+  and closed global-rail Settings, expanded and closed Change details, and asserted that no Focus shell
+  appeared.
+- Two real Electron renderer captures were inspected. The first identified the shared row-layout
+  defect; the single repair restored Active Work to one line, and the final capture confirmed readable
+  history, stable Current Chat placement, inline details, and the Lucid shell. Both temporary captures
+  and their temporary screenshot statements were removed.
+- The final before/after process comparison found zero new relevant Electron, Playwright, Vitest, or
+  repository Node processes. No task-created `%TEMP%\lucid-fin-e2e-*` profile remained.
+
+No migration, compatibility behavior, new data path, provider call, release, or follow-up plan was
+introduced by this repair.
 
 ## Git, branches, and release boundary
 

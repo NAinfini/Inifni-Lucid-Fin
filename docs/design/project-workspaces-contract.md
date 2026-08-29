@@ -73,7 +73,8 @@ supporting references. Each workspace contributes selections in its own visual l
 - Media selects assets or generated candidates.
 - Production selects creative objects such as a Character, Scene, or Shot.
 - Delivery selects a sequence item and its chosen result.
-- Overview selects the object behind a decision, result, change, or blocker.
+- Overview selects the owning object behind a decision, result, or blocker. A recent History change
+  expands its typed provenance inline and does not become shared selection or enter Commander Focus.
 
 The Commander Composer mirrors this selection as removable context chips. Sending creates an immutable
 Run snapshot containing the exact selected object IDs, revisions, references, attachments, Project,
@@ -107,6 +108,11 @@ Overview may expose fast decision actions such as Select, Reject, Refine, Answer
 does not become a general object editor. Editing the content of a Character, Shot, sequence, or media
 relationship opens the owning workspace or sends a natural-language correction to Commander with the
 object attached.
+
+Recent History uses a human label derived from its typed source and event metadata. Selecting a row
+toggles one closable inline details region containing source, actor when present, and full occurrence
+time. Canonical JSON payloads and identifiers are evidence, not display copy; History rows never replace
+the workspace with Focus or move Current Chat into the center surface.
 
 ### States
 

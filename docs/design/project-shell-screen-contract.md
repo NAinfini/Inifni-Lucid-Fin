@@ -42,7 +42,9 @@ candidate comparison, and delivery decisions are the dominant visual material.
 Global rail | Project navigation | Current workspace | Commander Dock
 ```
 
-- Global rail owns Projects, Global Media, and Settings.
+- Global rail owns Projects, Global Media, and Settings. In an open Project, Settings opens the one
+  Project settings panel; outside a Project it remains disabled until a global settings authority
+  exists.
 - Project navigation owns Overview, Canvas, Media, Production, and Delivery.
 - Current workspace owns the user's direct production task.
 - Commander Dock owns Project Chats, conversation, active work, results, and the Composer.
@@ -53,11 +55,12 @@ reflow Canvas objects, discard workspace selection, or reset workspace scroll.
 ### Focus mode
 
 ```text
-Project Chats | Commander conversation | Result / Project change inspector
+Project Chats | Commander conversation | Result / selected object inspector
 ```
 
-Focus mode replaces the central workspace composition; it is not layered over it. The result inspector
-is present when a result, user decision, or Project change is selected and otherwise remains collapsed.
+Focus mode replaces the central workspace composition; it is not layered over it. The inspector is
+present for a supported selected result or workspace object and otherwise remains collapsed. Recent
+History changes expand only inside Overview and never trigger Focus.
 
 Leaving Focus restores:
 
@@ -103,6 +106,13 @@ to configure style, prompts, presets, templates, entities, workflow, or tools be
 
 ## Project Shell
 
+### Desktop window chrome
+
+Electron hides the default operating-system title bar. The renderer owns the sole Lucid title-bar
+surface, drag region, and inner window border, while the native Windows controls overlay retains
+minimize, maximize, close, resize, and accessibility behavior. Content reserves the overlay control
+area and never places clickable app actions beneath it.
+
 ### Project identity
 
 The shell persistently shows Project identity and the active workspace. Project rename, archive, and
@@ -132,7 +142,9 @@ Overview is the default Project route and shows, in priority order:
 5. Production completeness and Delivery readiness.
 
 Overview uses a prioritized feed with direct actions. It is not a KPI dashboard or a grid of generic
-cards.
+cards. Recent change labels are human-readable projections of typed history metadata. Each row toggles
+one inline details region and can be closed from the same row; it never opens Focus or relocates the
+Commander Dock.
 
 ## Commander Dock
 
