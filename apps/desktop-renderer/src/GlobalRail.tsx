@@ -8,7 +8,7 @@ export type GlobalRailDestination = 'projects' | 'media';
 
 interface GlobalRailProps {
   readonly active: GlobalRailDestination;
-  readonly onOpenSettings?: () => void;
+  readonly showSettings?: boolean;
 }
 
 function gateBReason(locale: ReturnType<typeof useDesktopEnvironment>['locale']): string {
@@ -17,10 +17,9 @@ function gateBReason(locale: ReturnType<typeof useDesktopEnvironment>['locale'])
     : 'Applying captured provider/settings/locale/theme preferences is Gate B work.';
 }
 
-export function GlobalRail({ active, onOpenSettings }: GlobalRailProps) {
+export function GlobalRail({ active, showSettings = true }: GlobalRailProps) {
   const { locale } = useDesktopEnvironment();
   const settingsReason = gateBReason(locale);
-  const settingsAvailable = onOpenSettings !== undefined;
 
   return (
     <nav
@@ -46,21 +45,22 @@ export function GlobalRail({ active, onOpenSettings }: GlobalRailProps) {
         <Film size={19} />
       </NavLink>
       <span className="lucid-rail-spacer" />
-      <button
-        className="lucid-rail-button"
-        type="button"
-        aria-label={appCopy(locale, 'settings')}
-        aria-describedby={settingsAvailable ? undefined : 'lucid-global-settings-gate-b'}
-        disabled={!settingsAvailable}
-        title={settingsAvailable ? appCopy(locale, 'settings') : settingsReason}
-        onClick={onOpenSettings}
-      >
-        <Settings size={19} />
-      </button>
-      {!settingsAvailable && (
-        <span id="lucid-global-settings-gate-b" className="lucid-visually-hidden">
-          {settingsReason}
-        </span>
+      {showSettings && (
+        <>
+          <button
+            className="lucid-rail-button"
+            type="button"
+            aria-label={appCopy(locale, 'settings')}
+            aria-describedby="lucid-global-settings-gate-b"
+            disabled
+            title={settingsReason}
+          >
+            <Settings size={19} />
+          </button>
+          <span id="lucid-global-settings-gate-b" className="lucid-visually-hidden">
+            {settingsReason}
+          </span>
+        </>
       )}
     </nav>
   );

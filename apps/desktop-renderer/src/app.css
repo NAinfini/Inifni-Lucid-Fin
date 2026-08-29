@@ -5,6 +5,19 @@
   box-sizing: border-box;
 }
 
+.lucid-app,
+.lucid-app * {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.lucid-app::-webkit-scrollbar,
+.lucid-app *::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 html,
 body,
 #root {
@@ -39,6 +52,7 @@ body {
   overflow: hidden;
   background: hsl(var(--background));
   color: hsl(var(--foreground));
+  color-scheme: dark;
   box-shadow: inset 0 0 0 1px hsl(215 24% 30% / 0.72);
   font-family:
     Inter,
@@ -82,6 +96,11 @@ body {
   opacity: 0.48;
 }
 
+.lucid-app input[type='checkbox'],
+.lucid-app input[type='radio'] {
+  accent-color: hsl(var(--primary));
+}
+
 .lucid-app input:not([type='checkbox']):not([type='radio']),
 .lucid-app textarea,
 .lucid-app select {
@@ -89,6 +108,18 @@ body {
   border-radius: 5px;
   background: hsl(var(--surface));
   color: hsl(var(--foreground));
+}
+
+.lucid-app input:not([type='checkbox']):not([type='radio']) {
+  padding: 0 10px;
+}
+
+.lucid-app textarea {
+  padding: 9px 10px;
+}
+
+.lucid-app select {
+  padding: 0 28px 0 10px;
 }
 
 .lucid-app input::placeholder,
@@ -896,33 +927,6 @@ body {
   text-align: center;
 }
 
-.lucid-project-navigation-footer {
-  margin-top: auto;
-  border-top: 1px solid hsl(var(--border));
-  padding: 8px;
-}
-
-.lucid-project-settings-trigger,
-.lucid-archive-button {
-  width: 100%;
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: hsl(var(--muted-foreground));
-  padding: 0 8px;
-  font-size: 11px;
-  text-align: left;
-}
-
-.lucid-project-settings-trigger:hover {
-  background: hsl(var(--secondary));
-  color: hsl(var(--foreground));
-}
-
 .lucid-settings-backdrop {
   position: fixed;
   z-index: 120;
@@ -975,7 +979,15 @@ body {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
+  border: 0;
   border-radius: 5px;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+}
+
+.lucid-project-settings-panel > header button:hover {
+  background: hsl(var(--secondary));
+  color: hsl(var(--foreground));
 }
 
 .lucid-project-settings-body {
@@ -984,7 +996,19 @@ body {
   align-content: start;
   gap: 16px;
   overflow: auto;
-  padding: 18px;
+  padding: 20px 22px 28px;
+}
+
+.lucid-project-settings-body > *,
+.lucid-project-settings-body label,
+.lucid-settings-section,
+.lucid-settings-section > * {
+  min-width: 0;
+}
+
+.lucid-project-settings-body input:not([type='checkbox']),
+.lucid-project-settings-body select {
+  width: 100%;
 }
 
 .lucid-project-settings-body input,
@@ -994,7 +1018,7 @@ body {
 
 .lucid-settings-basics {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -1192,11 +1216,34 @@ body {
   font-size: 10px;
 }
 
-.lucid-archive-button {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  text-align: left;
+.lucid-settings-danger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-top: 1px solid hsl(var(--border));
+  padding-top: 16px;
+}
+
+.lucid-settings-danger > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.lucid-settings-danger strong {
+  font-size: 12px;
+}
+
+.lucid-settings-danger span {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.lucid-archive-project {
+  flex: 0 0 auto;
+  color: hsl(var(--destructive));
 }
 
 .lucid-workspace-column {
@@ -3441,10 +3488,8 @@ body {
   }
 
   .lucid-project-navigation > header div,
-  .lucid-project-navigation > header button,
   .lucid-project-navigation > nav button span,
-  .lucid-project-navigation > nav button small,
-  .lucid-project-navigation-footer {
+  .lucid-project-navigation > nav button small {
     display: none;
   }
 
@@ -3642,6 +3687,19 @@ body {
   .lucid-settings-basics,
   .lucid-settings-budget-grid {
     grid-template-columns: 1fr;
+  }
+
+  .lucid-project-settings-body {
+    padding: 16px 14px 24px;
+  }
+
+  .lucid-settings-danger {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lucid-archive-project {
+    align-self: start;
   }
 }
 

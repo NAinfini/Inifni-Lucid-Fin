@@ -21,11 +21,22 @@ test.describe('canonical Project journey', () => {
     ).toBeVisible({ timeout: 30_000 });
     await expect(mainWindow.getByRole('button', { name: /^Overview\b/u })).toBeVisible();
 
-    const projectSettings = mainWindow.getByRole('button', { name: 'Settings', exact: true });
+    const projectSettings = mainWindow.getByRole('button', {
+      name: 'Project settings',
+      exact: true,
+    });
+    await expect(projectSettings).toHaveCount(1);
+    await expect(mainWindow.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(0);
+    await expect(mainWindow.getByRole('button', { name: 'Archive Project' })).toHaveCount(0);
     await expect(projectSettings).toBeEnabled();
     await projectSettings.click();
     const settingsDialog = mainWindow.getByRole('dialog', { name: 'Project settings' });
     await expect(settingsDialog).toBeVisible();
+    await expect(settingsDialog.getByRole('button', { name: 'Archive Project' })).toBeVisible();
+    const settingsBody = mainWindow.locator('.lucid-project-settings-body');
+    expect(await settingsBody.evaluate((element) => getComputedStyle(element).scrollbarWidth)).toBe(
+      'none',
+    );
     await settingsDialog.getByRole('button', { name: 'Close Project settings' }).click();
     await expect(settingsDialog).toHaveCount(0);
 

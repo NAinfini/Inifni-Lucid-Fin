@@ -147,7 +147,15 @@ describe('Project shell', () => {
     );
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Blue Hour' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Archive Project' }));
+    expect(screen.queryByRole('button', { name: 'Archive Project' })).toBeNull();
+    const settingsTrigger = screen.getAllByRole('button', {
+      name: 'Project settings',
+      exact: true,
+    });
+    expect(settingsTrigger).toHaveLength(1);
+    fireEvent.click(settingsTrigger[0]!);
+    const dialog = await screen.findByRole('dialog', { name: 'Project settings' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Archive Project' }));
 
     await waitFor(() => expect(fixture.calls.projectUpdate).toHaveBeenCalledTimes(1));
     expect(fixture.calls.projectUpdate.mock.calls[0]?.[0].input).toMatchObject({
@@ -171,7 +179,15 @@ describe('Project shell', () => {
     );
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Blue Hour' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Archive Project' }));
+    expect(screen.queryByRole('button', { name: 'Archive Project' })).toBeNull();
+    const settingsTrigger = screen.getAllByRole('button', {
+      name: 'Project settings',
+      exact: true,
+    });
+    expect(settingsTrigger).toHaveLength(1);
+    fireEvent.click(settingsTrigger[0]!);
+    const dialog = await screen.findByRole('dialog', { name: 'Project settings' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Archive Project' }));
 
     expect((await screen.findByRole('alert')).textContent).toContain(
       'The Project changed on another screen.',
@@ -223,7 +239,13 @@ describe('Project shell', () => {
     );
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Blue Hour' })).toBeTruthy();
-    const settingsTrigger = screen.getByRole('button', { name: 'Settings', exact: true });
+    const settingsTriggers = screen.getAllByRole('button', {
+      name: 'Project settings',
+      exact: true,
+    });
+    expect(settingsTriggers).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Settings', exact: true })).toBeNull();
+    const settingsTrigger = settingsTriggers[0]!;
     expect((settingsTrigger as HTMLButtonElement).disabled).toBe(false);
     settingsTrigger.focus();
     fireEvent.click(settingsTrigger);

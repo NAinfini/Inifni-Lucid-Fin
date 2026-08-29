@@ -1,8 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
-  Archive,
   ChevronLeft,
-  CircleEllipsis,
   Clapperboard,
   Film,
   Images,
@@ -404,17 +402,6 @@ interface ProjectShellProps {
   readonly workspace: Workspace;
   readonly onWorkspaceChange: (workspace: Workspace) => void;
   readonly onBack: () => void;
-}
-
-function ProjectSettingsTrigger({ onOpen }: { readonly onOpen: () => void }) {
-  const { locale } = useDesktopEnvironment();
-
-  return (
-    <button className="lucid-project-settings-trigger" type="button" onClick={onOpen}>
-      <CircleEllipsis size={15} />
-      {appCopy(locale, 'projectMenu')}
-    </button>
-  );
 }
 
 export function ProjectShell({
@@ -1918,14 +1905,6 @@ export function ProjectShell({
         }),
       );
       onBack();
-    } catch (cause) {
-      setRefreshWarning(
-        cause instanceof Error && cause.message.trim().length > 0
-          ? cause.message
-          : locale === 'zh-CN'
-            ? '无法归档项目。'
-            : 'The Project could not be archived.',
-      );
     } finally {
       setProjectLifecyclePending(false);
     }
@@ -2056,12 +2035,14 @@ export function ProjectShell({
       pluginPackages={pluginPackages}
       pluginPackagesError={pluginPackagesError}
       pluginPending={pluginPending}
+      archivePending={projectLifecyclePending}
       onClose={() => setSettingsOpen(false)}
       onRetryCapabilities={loadCapabilities}
       onRetryPluginPackages={loadPluginPackages}
       onPluginApply={applyPlugin}
       onRename={rename}
       onSettingsChange={updateSettings}
+      onArchiveProject={archiveProject}
     />
   );
   const refreshNotice =
@@ -2097,7 +2078,6 @@ export function ProjectShell({
       focus={focus}
       onFocus={() => enterFocus('commander')}
       onExitFocus={exitFocus}
-      onOpenProjectSettings={() => setSettingsOpen(true)}
       onSwitchChat={switchChat}
       onCreateChat={createChat}
       onLoadMoreChats={loadMoreChats}
@@ -2200,20 +2180,13 @@ export function ProjectShell({
       className={`lucid-project-shell${dockCollapsed ? ' is-dock-collapsed' : ''}`}
       style={{ '--lucid-dock-width': `${dockWidth}px` } as React.CSSProperties}
     >
-      <GlobalRail active="projects" onOpenSettings={() => setSettingsOpen(true)} />
+      <GlobalRail active="projects" showSettings={false} />
       <aside className="lucid-project-navigation">
         <header>
           <div>
             <span>{locale === 'zh-CN' ? '项目' : 'Project'}</span>
             <strong>{project.name}</strong>
           </div>
-          <button
-            type="button"
-            aria-label={appCopy(locale, 'projectMenu')}
-            onClick={() => setSettingsOpen(true)}
-          >
-            <CircleEllipsis size={16} />
-          </button>
         </header>
         <nav aria-label={locale === 'zh-CN' ? '项目工作区' : 'Project workspace'}>
           {WORKSPACES.map((item) => {
@@ -2234,24 +2207,6 @@ export function ProjectShell({
             );
           })}
         </nav>
-        <div className="lucid-project-navigation-footer">
-          <ProjectSettingsTrigger onOpen={() => setSettingsOpen(true)} />
-          <button
-            className="lucid-archive-button"
-            type="button"
-            disabled={projectLifecyclePending}
-            onClick={() => void archiveProject()}
-          >
-            <Archive size={14} />
-            {projectLifecyclePending
-              ? locale === 'zh-CN'
-                ? '正在归档…'
-                : 'Archiving…'
-              : locale === 'zh-CN'
-                ? '归档项目'
-                : 'Archive Project'}
-          </button>
-        </div>
       </aside>
       <section className="lucid-workspace-column">
         <header className="lucid-workspace-header">

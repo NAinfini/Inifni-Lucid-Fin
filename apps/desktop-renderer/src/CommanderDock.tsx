@@ -18,7 +18,6 @@ import {
   Play,
   Search,
   Send,
-  Settings,
   Sparkles,
   Trash2,
   User,
@@ -66,7 +65,6 @@ interface CommanderDockProps {
   readonly focusButtonRef: React.RefObject<HTMLButtonElement | null>;
   readonly onFocus: () => void;
   readonly onExitFocus: () => void;
-  readonly onOpenProjectSettings: () => void;
   readonly onSwitchChat: (chatId: string) => Promise<void>;
   readonly onCreateChat: () => Promise<void>;
   readonly onLoadMoreChats: () => Promise<void>;
@@ -774,15 +772,6 @@ export function CommanderDock(props: CommanderDockProps) {
         >
           <Search size={15} />
           <span>{appCopy(locale, 'search')}</span>
-        </button>
-        <button
-          type="button"
-          onClick={props.onOpenProjectSettings}
-          aria-label={locale === 'zh-CN' ? '项目设置' : 'Project settings'}
-          title={locale === 'zh-CN' ? '项目设置' : 'Project settings'}
-        >
-          <Settings size={15} />
-          <span>{locale === 'zh-CN' ? '设置' : 'Settings'}</span>
         </button>
         <button
           ref={props.focusButtonRef}

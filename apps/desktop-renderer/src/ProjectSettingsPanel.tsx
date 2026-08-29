@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { Archive, X } from 'lucide-react';
 import type { Project, ProjectSettings, DesktopCallV1 } from '@lucid-fin/contracts';
 import type { WireResult } from './api.js';
 import { appCopy } from './copy.js';
@@ -29,12 +29,14 @@ interface ProjectSettingsPanelProps {
   readonly pluginPackages: WireResult<'plugin.query'> | null;
   readonly pluginPackagesError: string | null;
   readonly pluginPending: string | null;
+  readonly archivePending: boolean;
   readonly onClose: () => void;
   readonly onRetryCapabilities: () => Promise<void>;
   readonly onRetryPluginPackages: () => Promise<void>;
   readonly onPluginApply: (input: DesktopCallV1<'plugin.apply'>['input']) => Promise<void>;
   readonly onRename: (name: string) => Promise<void>;
   readonly onSettingsChange: (settings: ProjectSettings) => Promise<void>;
+  readonly onArchiveProject: () => Promise<void>;
 }
 
 export function ProjectSettingsPanel({
@@ -46,12 +48,14 @@ export function ProjectSettingsPanel({
   pluginPackages,
   pluginPackagesError,
   pluginPending,
+  archivePending,
   onClose,
   onRetryCapabilities,
   onRetryPluginPackages,
   onPluginApply,
   onRename,
   onSettingsChange,
+  onArchiveProject,
 }: ProjectSettingsPanelProps) {
   const { locale } = useDesktopEnvironment();
   const dialogRef = useRef<HTMLElement>(null);
@@ -197,6 +201,15 @@ export function ProjectSettingsPanel({
       setError(errorSummary(cause));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const archive = async () => {
+    setError(null);
+    try {
+      await onArchiveProject();
+    } catch (cause) {
+      setError(errorSummary(cause));
     }
   };
 
@@ -561,6 +574,33 @@ export function ProjectSettingsPanel({
                 ? '保存项目设置'
                 : 'Save Project settings'}
           </button>
+          <section className="lucid-settings-danger" aria-labelledby="lucid-archive-project-title">
+            <div>
+              <strong id="lucid-archive-project-title">
+                {locale === 'zh-CN' ? '归档项目' : 'Archive Project'}
+              </strong>
+              <span>
+                {locale === 'zh-CN'
+                  ? '将此项目从活跃项目列表中移除。'
+                  : 'Remove this Project from the active Projects list.'}
+              </span>
+            </div>
+            <button
+              className="lucid-secondary-button lucid-archive-project"
+              type="button"
+              disabled={archivePending || saving}
+              onClick={() => void archive()}
+            >
+              <Archive size={14} />
+              {archivePending
+                ? locale === 'zh-CN'
+                  ? '正在归档…'
+                  : 'Archiving…'
+                : locale === 'zh-CN'
+                  ? '归档项目'
+                  : 'Archive Project'}
+            </button>
+          </section>
         </div>
       </section>
     </div>
